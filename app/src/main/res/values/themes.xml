@@ -36,7 +36,8 @@
         <item name="colorOutline">@color/md_theme_outline</item>
         
         <!-- Status bar styling -->
-        <item name="android:statusBarColor">?attr/colorPrimary</item>
+        <item name="android:statusBarColor">?attr/colorSurfaceContainer</item>
+        <item name="android:windowLightStatusBar">true</item>
         <item name="android:navigationBarColor">?attr/colorSurface</item>
         <!-- Use a Toolbar (TopAppBar) instead of the framework ActionBar -->
         <item name="windowActionBar">false</item>

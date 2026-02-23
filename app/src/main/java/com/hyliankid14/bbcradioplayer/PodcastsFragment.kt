@@ -630,8 +630,11 @@ class PodcastsFragment : Fragment() {
             }
         })
 
-        // FAB scrolls to top quickly (instant scroll)
-        fab?.setOnClickListener { scrollView.scrollTo(0, 0) }
+        // FAB scrolls to top quickly and stops any momentum scrolling
+        fab?.setOnClickListener { 
+            // smoothScrollTo automatically cancels any ongoing fling animation
+            scrollView.smoothScrollTo(0, 0)
+        }
 
         // Fast restore: if we already have cached data in the ViewModel, reuse it to avoid UI flicker
         if (viewModel.cachedPodcasts.isNotEmpty()) {

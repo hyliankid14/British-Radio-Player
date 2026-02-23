@@ -9,11 +9,11 @@
         android:id="@+id/podcasts_title_bar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="?attr/colorSurface"
+        android:background="?attr/colorSurfaceContainer"
         android:fitsSystemWindows="true"
         app:title="Podcasts"
         app:titleTextColor="?attr/colorOnSurface"
-        android:elevation="2dp" />
+        android:elevation="4dp" />
 
     <!-- Scrollable content containing search, filters, and list -->
     <androidx.core.widget.NestedScrollView
@@ -44,18 +44,12 @@
                 <!-- Use a custom end-icon so visibility can be controlled independently of focus/IME -->
                 <com.google.android.material.textfield.TextInputLayout
                     android:id="@+id/search_podcast_text_input"
-                    style="@style/Widget.Material3.TextInputLayout.FilledBox"
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginHorizontal="12dp"
+                    app:boxStrokeColor="?attr/colorOutline"
                     app:boxBackgroundColor="?attr/colorSurface"
-                    app:boxBackgroundMode="filled"
-                    app:boxStrokeWidth="0dp"
-                    app:boxStrokeWidthFocused="2dp"
-                    app:boxCornerRadiusTopStart="16dp"
-                    app:boxCornerRadiusTopEnd="16dp"
-                    app:boxCornerRadiusBottomStart="16dp"
-                    app:boxCornerRadiusBottomEnd="16dp"
                     app:hintEnabled="false"
                     app:startIconDrawable="@drawable/ic_search"
                     app:endIconMode="custom"

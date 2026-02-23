@@ -70,9 +70,18 @@ class SettingsDetailActivity : AppCompatActivity() {
             android.util.Log.w("SettingsDetailActivity", "Could not set support action bar: ${e.message}")
         }
         
-        // Configure action bar with "Settings" title and back button
+        // Configure action bar with section title and back button
+        val sectionTitle = when (section) {
+            SECTION_THEME -> "Theme"
+            SECTION_ANDROID_AUTO -> "Android Auto"
+            SECTION_PLAYBACK -> "Playback"
+            SECTION_SUBSCRIPTIONS -> "Subscriptions"
+            SECTION_INDEXING -> "Indexing"
+            SECTION_BACKUP -> "Backup"
+            else -> "Settings"
+        }
         supportActionBar?.apply {
-            title = "Settings"
+            title = sectionTitle
             setDisplayHomeAsUpEnabled(true)
             setDisplayShowHomeEnabled(false)
         }

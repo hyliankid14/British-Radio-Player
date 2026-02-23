@@ -10,9 +10,10 @@
         android:id="@+id/toolbar"
         android:layout_width="match_parent"
         android:layout_height="?attr/actionBarSize"
-        android:background="?attr/colorSurface"
+        android:background="?attr/colorSurfaceContainer"
         app:titleTextColor="?attr/colorOnSurface"
-        app:navigationIconTint="?attr/colorOnSurface" />
+        app:navigationIconTint="?attr/colorOnSurface"
+        android:elevation="4dp" />
 
 <ScrollView
     android:layout_width="match_parent"
@@ -25,14 +26,6 @@
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:padding="16dp">
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Podcast Indexing"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:layout_marginBottom="8dp" />
 
         <LinearLayout
             android:layout_width="match_parent"

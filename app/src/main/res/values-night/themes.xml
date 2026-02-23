@@ -36,7 +36,8 @@
         <item name="colorOutline">@color/md_theme_outline</item>
         
         <!-- Status bar styling -->
-        <item name="android:statusBarColor">#6200EE</item>
+        <item name="android:statusBarColor">?attr/colorSurfaceContainer</item>
+        <item name="android:windowLightStatusBar">false</item>
         <item name="android:navigationBarColor">?attr/colorSurface</item>
         <!-- Use a Toolbar (TopAppBar) instead of the framework ActionBar -->
         <item name="windowActionBar">false</item>
@@ -50,8 +51,8 @@
         <item name="colorPrimaryDark">#6200EE</item>
         <item name="android:windowActionBarOverlay">false</item>
         
-        <!-- Bottom Navigation View - purple selection color for dark mode -->
-        <item name="colorSecondaryContainer">#E8DEF8</item>
+        <!-- Bottom Navigation View - use primary container for dark purple indicator in dark mode -->
+        <item name="colorSecondaryContainer">@color/md_theme_primaryContainer</item>
     </style>
 
     <style name="CustomActionBar" parent="Widget.AppCompat.ActionBar.Solid">
@@ -60,8 +61,8 @@
         <item name="titleTextStyle">@style/CustomTitleTextStyle</item>
         <item name="android:textColorPrimary">@android:color/white</item>
         <item name="android:textColorSecondary">@android:color/white</item>
-        <item name="background">@color/md_theme_surface</item>
-        <item name="android:background">@color/md_theme_surface</item>
+        <item name="background">@color/md_theme_surfaceContainer</item>
+        <item name="android:background">@color/md_theme_surfaceContainer</item>
     </style>
 
     <style name="CustomTitleTextStyle" parent="TextAppearance.AppCompat.Widget.ActionBar.Title">

@@ -11,7 +11,7 @@
     android:paddingTop="8dp"
     android:paddingBottom="8dp"
     android:visibility="gone"
-    android:elevation="2dp">
+    android:elevation="4dp">
 
     <!-- Station Artwork -->
     <ImageView
@@ -25,7 +25,7 @@
     <!-- Station Info and Controls -->
     <LinearLayout
         android:layout_width="0dp"
-        android:layout_height="match_parent"
+        android:layout_height="wrap_content"
         android:layout_weight="1"
         android:orientation="vertical"
         android:gravity="center_vertical">
@@ -62,8 +62,8 @@
                 android:id="@+id/mini_player_progress"
                 style="?android:attr/progressBarStyleHorizontal"
                 android:layout_width="match_parent"
-                android:layout_height="4dp"
-                android:layout_marginTop="8dp"
+                android:layout_height="3dp"
+                android:layout_marginTop="4dp"
                 android:visibility="gone"
                 android:max="100"
                 android:progress="0"
@@ -77,15 +77,17 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:gravity="space_evenly"
+            android:gravity="center_horizontal"
+            android:weightSum="5"
             style="@style/MiniPlayerControlsLayout"
-            android:layout_marginTop="6dp">
+            android:layout_marginTop="4dp">
 
             <!-- Stop Button -->
             <ImageButton
                 android:id="@+id/mini_player_stop"
-                android:layout_width="@dimen/mini_player_button_size"
+                android:layout_width="0dp"
                 android:layout_height="@dimen/mini_player_button_size"
+                android:layout_weight="1"
                 android:src="@drawable/ic_stop"
                 android:scaleType="centerInside"
                 android:padding="@dimen/mini_player_button_padding"
@@ -96,8 +98,9 @@
             <!-- Previous Button -->
             <ImageButton
                 android:id="@+id/mini_player_previous"
-                android:layout_width="@dimen/mini_player_button_size"
+                android:layout_width="0dp"
                 android:layout_height="@dimen/mini_player_button_size"
+                android:layout_weight="1"
                 android:src="@drawable/ic_skip_previous"
                 android:scaleType="centerInside"
                 android:padding="@dimen/mini_player_button_padding"
@@ -108,8 +111,9 @@
             <!-- Play/Pause Button -->
             <ImageButton
                 android:id="@+id/mini_player_play_pause"
-                android:layout_width="@dimen/mini_player_button_size"
+                android:layout_width="0dp"
                 android:layout_height="@dimen/mini_player_button_size"
+                android:layout_weight="1"
                 android:src="@drawable/ic_play_arrow"
                 android:scaleType="centerInside"
                 android:padding="@dimen/mini_player_button_padding"
@@ -120,8 +124,9 @@
             <!-- Next Button -->
             <ImageButton
                 android:id="@+id/mini_player_next"
-                android:layout_width="@dimen/mini_player_button_size"
+                android:layout_width="0dp"
                 android:layout_height="@dimen/mini_player_button_size"
+                android:layout_weight="1"
                 android:src="@drawable/ic_skip_next"
                 android:scaleType="centerInside"
                 android:padding="@dimen/mini_player_button_padding"
@@ -132,8 +137,9 @@
             <!-- Favorites Button -->
             <ImageButton
                 android:id="@+id/mini_player_favorite"
-                android:layout_width="@dimen/mini_player_button_size"
+                android:layout_width="0dp"
                 android:layout_height="@dimen/mini_player_button_size"
+                android:layout_weight="1"
                 android:src="@drawable/ic_star_outline"
                 android:scaleType="centerInside"
                 android:padding="@dimen/mini_player_button_padding"

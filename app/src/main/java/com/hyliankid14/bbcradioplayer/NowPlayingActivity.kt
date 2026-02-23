@@ -11,6 +11,7 @@ import android.widget.TextView
 import android.text.method.ScrollingMovementMethod
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.palette.graphics.Palette
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.DataSource
 import com.bumptech.glide.load.engine.GlideException
@@ -28,6 +29,8 @@ import android.view.View
 
 class NowPlayingActivity : AppCompatActivity() {
     private lateinit var stationArtwork: ImageView
+    private lateinit var rootLayout: androidx.constraintlayout.widget.ConstraintLayout
+    private lateinit var toolbar: com.google.android.material.appbar.MaterialToolbar
     private lateinit var showName: TextView
     private lateinit var episodeTitle: TextView
     private lateinit var artistTrack: TextView
@@ -125,11 +128,12 @@ class NowPlayingActivity : AppCompatActivity() {
         setContentView(R.layout.activity_now_playing)
 
         // Setup action bar with back button using Material Top App Bar
-        val toolbar = findViewById<com.google.android.material.appbar.MaterialToolbar?>(R.id.top_app_bar)
-        toolbar?.let { setSupportActionBar(it) }
+        toolbar = findViewById(R.id.top_app_bar)
+        setSupportActionBar(toolbar)
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
 
         // Initialize views
+        rootLayout = findViewById(R.id.root)
         stationArtwork = findViewById(R.id.now_playing_artwork)
         showName = findViewById(R.id.now_playing_show_name)
         episodeTitle = findViewById(R.id.now_playing_episode_title)
@@ -256,7 +260,20 @@ class NowPlayingActivity : AppCompatActivity() {
         val initialImage: String? = intent.getStringExtra("initial_podcast_image")
         val initialTitle: String? = intent.getStringExtra("initial_podcast_title")
         if (!initialImage.isNullOrEmpty()) {
-            Glide.with(this).load(initialImage).into(stationArtwork)
+            Glide.with(this)
+                .load(initialImage)
+                .listener(object : RequestListener<Drawable> {
+                    override fun onLoadFailed(e: GlideException?, model: Any?, target: Target<Drawable>?, isFirstResource: Boolean): Boolean {
+                        return false
+                    }
+                    override fun onResourceReady(resource: Drawable?, model: Any?, target: Target<Drawable>?, dataSource: DataSource?, isFirstResource: Boolean): Boolean {
+                        if (resource is BitmapDrawable) {
+                            extractAndApplyDominantColor(resource.bitmap)
+                        }
+                        return false
+                    }
+                })
+                .into(stationArtwork)
             lastArtworkUrl = initialImage
         }
         if (!initialTitle.isNullOrEmpty()) {
@@ -295,6 +312,17 @@ class NowPlayingActivity : AppCompatActivity() {
                             runOnUiThread {
                                 Glide.with(this@NowPlayingActivity)
                                     .load(lastArtworkUrl)
+                                    .listener(object : RequestListener<Drawable> {
+                                        override fun onLoadFailed(e: GlideException?, model: Any?, target: Target<Drawable>?, isFirstResource: Boolean): Boolean {
+                                            return false
+                                        }
+                                        override fun onResourceReady(resource: Drawable?, model: Any?, target: Target<Drawable>?, dataSource: DataSource?, isFirstResource: Boolean): Boolean {
+                                            if (resource is BitmapDrawable) {
+                                                extractAndApplyDominantColor(resource.bitmap)
+                                            }
+                                            return false
+                                        }
+                                    })
                                     .into(stationArtwork)
                             }
                         }
@@ -546,6 +574,10 @@ class NowPlayingActivity : AppCompatActivity() {
                                 }
                                 return true
                             }
+                            // Extract dominant color and apply as background
+                            if (resource is BitmapDrawable) {
+                                extractAndApplyDominantColor(resource.bitmap)
+                            }
                             return false
                         }
                     })
@@ -633,7 +665,20 @@ class NowPlayingActivity : AppCompatActivity() {
         // Load artwork from episode or podcast image if provided
         val artworkUrl = episode.imageUrl.takeIf { it.isNotEmpty() } ?: podcastImage
         if (!artworkUrl.isNullOrEmpty()) {
-            Glide.with(this).load(artworkUrl).into(stationArtwork)
+            Glide.with(this)
+                .load(artworkUrl)
+                .listener(object : RequestListener<Drawable> {
+                    override fun onLoadFailed(e: GlideException?, model: Any?, target: Target<Drawable>?, isFirstResource: Boolean): Boolean {
+                        return false
+                    }
+                    override fun onResourceReady(resource: Drawable?, model: Any?, target: Target<Drawable>?, dataSource: DataSource?, isFirstResource: Boolean): Boolean {
+                        if (resource is BitmapDrawable) {
+                            extractAndApplyDominantColor(resource.bitmap)
+                        }
+                        return false
+                    }
+                })
+                .into(stationArtwork)
             lastArtworkUrl = artworkUrl
         }
 
@@ -929,6 +974,10 @@ class NowPlayingActivity : AppCompatActivity() {
                                     .into(stationArtwork)
                             }
                             return true
+                        }
+                        // Extract dominant color and apply as background
+                        if (resource is BitmapDrawable) {
+                            extractAndApplyDominantColor(resource.bitmap)
                         }
                         return false
                     }
@@ -1324,5 +1373,84 @@ class NowPlayingActivity : AppCompatActivity() {
         // The mark-as-played control is intentionally hidden from the app bar to avoid duplication with
         // the main star subscription action. Keep it GONE so it does not display in the app bar.
         markPlayedButton.visibility = android.view.View.GONE
+    }
+
+    private fun extractAndApplyDominantColor(bitmap: Bitmap) {
+        // Create palette from bitmap asynchronously
+        Palette.from(bitmap).generate { palette ->
+            if (palette != null && !isFinishing && !isDestroyed) {
+                // Check if we're in light or dark mode
+                val isDarkMode = (resources.configuration.uiMode and 
+                    android.content.res.Configuration.UI_MODE_NIGHT_MASK) == 
+                    android.content.res.Configuration.UI_MODE_NIGHT_YES
+                
+                val dominantColor = if (isDarkMode) {
+                    // Dark mode: use darker swatches for better text contrast
+                    palette.darkMutedSwatch?.rgb
+                        ?: palette.darkVibrantSwatch?.rgb
+                        ?: palette.mutedSwatch?.rgb
+                        ?: palette.dominantSwatch?.rgb
+                } else {
+                    // Light mode: use lighter swatches
+                    palette.lightMutedSwatch?.rgb
+                        ?: palette.lightVibrantSwatch?.rgb
+                        ?: palette.mutedSwatch?.rgb
+                        ?: palette.dominantSwatch?.rgb
+                }
+                
+                if (dominantColor != null) {
+                    val subtleColor = if (isDarkMode) {
+                        // Dark mode: darken moderately (40% brightness)
+                        val darkenFactor = 0.4f
+                        val red = ((dominantColor shr 16) and 0xFF) * darkenFactor
+                        val green = ((dominantColor shr 8) and 0xFF) * darkenFactor
+                        val blue = (dominantColor and 0xFF) * darkenFactor
+                        
+                        android.graphics.Color.rgb(
+                            red.toInt(),
+                            green.toInt(),
+                            blue.toInt()
+                        )
+                    } else {
+                        // Light mode: lighten moderately for better contrast (70% white, 30% color)
+                        val lightenFactor = 0.7f
+                        val red = 255 - ((255 - ((dominantColor shr 16) and 0xFF)) * (1 - lightenFactor)).toInt()
+                        val green = 255 - ((255 - ((dominantColor shr 8) and 0xFF)) * (1 - lightenFactor)).toInt()
+                        val blue = 255 - ((255 - (dominantColor and 0xFF)) * (1 - lightenFactor)).toInt()
+                        
+                        android.graphics.Color.rgb(red, green, blue)
+                    }
+                    
+                    // Apply the background color to root layout, toolbar, and status bar
+                    runOnUiThread {
+                        rootLayout.setBackgroundColor(subtleColor)
+                        toolbar.setBackgroundColor(subtleColor)
+                        window.statusBarColor = subtleColor
+                        
+                        // Set status bar icons to be dark in light mode, light in dark mode
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                            // Modern API (Android 11+)
+                            window.insetsController?.setSystemBarsAppearance(
+                                if (isDarkMode) 0 else android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS,
+                                android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                            )
+                        } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                            // Legacy API (Android 6-10)
+                            @Suppress("DEPRECATION")
+                            val decorView = window.decorView
+                            if (isDarkMode) {
+                                // Dark mode: use light icons
+                                decorView.systemUiVisibility = decorView.systemUiVisibility and 
+                                    android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
+                            } else {
+                                // Light mode: use dark icons
+                                decorView.systemUiVisibility = decorView.systemUiVisibility or 
+                                    android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }

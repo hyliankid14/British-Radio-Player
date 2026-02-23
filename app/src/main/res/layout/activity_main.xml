@@ -11,16 +11,17 @@
         android:id="@+id/top_app_bar"
         android:layout_width="match_parent"
         android:layout_height="?attr/actionBarSize"
-        android:background="?attr/colorSurface"
+        android:background="?attr/colorSurfaceContainer"
         app:titleTextColor="?attr/colorOnSurface"
         app:navigationIconTint="?attr/colorOnSurface"
-        app:menu="@menu/top_app_bar_menu" />
+        app:menu="@menu/top_app_bar_menu"
+        android:elevation="4dp" />
 
     <!-- Fill the small gap under the app bar with the same surface colour -->
     <View
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:background="?attr/colorSurface" />
+        android:background="?attr/colorSurfaceContainer" />
 
     <!-- Favorites toggle group shown under the app bar for quick access -->
     <LinearLayout

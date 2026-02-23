@@ -66,6 +66,7 @@ dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib:1.9.23"
     implementation 'com.github.bumptech.glide:glide:4.15.1'
     annotationProcessor 'com.github.bumptech.glide:compiler:4.15.1'
+    implementation 'androidx.palette:palette-ktx:1.0.0'
 
     // ML Kit Language ID (on-device language identification)
     // Use published version compatible with Google's Maven repo
