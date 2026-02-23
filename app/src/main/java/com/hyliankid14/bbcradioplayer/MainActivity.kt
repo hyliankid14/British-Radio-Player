@@ -369,6 +369,8 @@ class MainActivity : AppCompatActivity() {
     private fun handleOpenSavedSearchIntent(intent: Intent?) {
         val searchId = intent?.getStringExtra("open_saved_search_id") ?: return
         val search = SavedSearchesPreference.getSearchById(this, searchId) ?: return
+        // When a notification is clicked, it should always show the most recent results
+        // (the default behavior of openSavedSearch ensures this)
         openSavedSearch(search)
     }
 
@@ -380,6 +382,7 @@ class MainActivity : AppCompatActivity() {
         try { supportFragmentManager.executePendingTransactions() } catch (_: Exception) { }
         val existing = supportFragmentManager.findFragmentByTag("podcasts_fragment") as? PodcastsFragment
         if (existing != null) {
+            // Launch the search with "Most recent" sort (forceMostRecent defaults to true)
             existing.applySavedSearch(search)
             return
         }

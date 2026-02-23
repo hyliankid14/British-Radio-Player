@@ -35,6 +35,8 @@ object SavedSearchNotifier {
             "$newCount new episodes match this search"
         }
 
+        // When tapped, notification will open this saved search with "Most recent" sort order
+        // to show the newest episodes that match (same behavior as tapping the search in-app)
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra("open_saved_search_id", search.id)

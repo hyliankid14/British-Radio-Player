@@ -1370,6 +1370,9 @@ class PodcastsFragment : Fragment() {
             maxDuration = savedSearch.maxDuration,
             searchQuery = ""
         )
+        // When a saved search is opened from a notification, forceMostRecent defaults to true
+        // which ensures results are sorted by publication date (most recent episodes first).
+        // When opened in-app via SavedSearchAdapter, the same default applies for consistency.
         currentSort = if (forceMostRecent) {
             "Most recent"
         } else {
