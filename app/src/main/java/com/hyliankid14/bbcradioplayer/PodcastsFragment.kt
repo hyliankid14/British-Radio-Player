@@ -56,6 +56,8 @@ class PodcastsFragment : Fragment() {
     // When restoring a large cached adapter, append items in chunks
     private var restoreAppendJob: kotlinx.coroutines.Job? = null
     private var usingCachedItemAppend: Boolean = false
+    // Flag to scroll to top when next results are displayed
+    private var shouldScrollToTopOnNextResults: Boolean = false
     // Use viewLifecycleOwner.lifecycleScope for UI coroutines (auto-cancelled when the view is destroyed) 
 
     // Normalize queries for robust cache lookups (trim + locale-aware lowercase)
@@ -177,6 +179,16 @@ class PodcastsFragment : Fragment() {
         // Apply adapter and visibility in a single, atomic UI update to avoid flicker
         android.util.Log.d("PodcastsFragment", "showResultsSafely: updating UI - adapter=${adapter?.javaClass?.simpleName} hasContent=$hasContent")
         recyclerView.adapter = adapter
+        
+        // Scroll to top when displaying new search results if flag is set
+        // Use post() to defer scroll until after the adapter layout is complete
+        if (shouldScrollToTopOnNextResults) {
+            recyclerView.post {
+                recyclerView.scrollToPosition(0)
+            }
+            shouldScrollToTopOnNextResults = false
+        }
+        
         if (hasContent) {
             emptyState.visibility = View.GONE
             recyclerView.visibility = View.VISIBLE
@@ -1369,6 +1381,15 @@ class PodcastsFragment : Fragment() {
         }
 
         if (emptyState != null && recyclerView != null) {
+            // Immediately clear the old search results before starting a new search
+            // to prevent the previous search from briefly showing
+            searchAdapter = null
+            recyclerView.adapter = null
+            recyclerView.visibility = View.GONE
+            emptyState.visibility = View.GONE
+            
+            // Set flag to scroll to top when displaying the new search results
+            shouldScrollToTopOnNextResults = true
             applyFilters(emptyState, recyclerView)
         }
     }
@@ -1682,8 +1703,8 @@ class PodcastsFragment : Fragment() {
                     // results are wired into the scroll-pagination mechanism so the user gets
                     // them on demand. Enrichment (audio URLs, durations) also starts here.
                     val fullLoadGen = generation
-                    launch(Dispatchers.IO) {
-                        if (!isActive || fullLoadGen != searchGeneration) return@launch
+                    launch(Dispatchers.IO) fullLoad@{
+                        if (!isActive || fullLoadGen != searchGeneration) return@fullLoad
 
                         val eps = mutableListOf<Pair<Episode, Podcast>>()
 
@@ -1744,7 +1765,7 @@ class PodcastsFragment : Fragment() {
                             }
                         }
 
-                        if (!isActive || fullLoadGen != searchGeneration) return@launch
+                        if (!isActive || fullLoadGen != searchGeneration) return@fullLoad
 
                         // Filter (same criteria as the quick path).
                         val epsFiltered = eps.filter { (_, pod) ->
@@ -1815,7 +1836,7 @@ class PodcastsFragment : Fragment() {
                                 .distinctBy { it.id }
 
                             if (incompletePodcasts.isNotEmpty()) {
-                                launch {
+                                launch enrichment@ {
                                     val enrichGen = fullLoadGen
                                     val enrichmentMap = mutableMapOf<String, Episode>()
                                     try {
