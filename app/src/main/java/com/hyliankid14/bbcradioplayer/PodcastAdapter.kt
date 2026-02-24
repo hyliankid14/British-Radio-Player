@@ -350,6 +350,7 @@ class EpisodeAdapter(
         }
 
         private fun sanitizeDescription(raw: String): String {
+            if (!raw.contains("<") && !raw.contains("&")) return raw.trim()
             val spanned = HtmlCompat.fromHtml(raw, HtmlCompat.FROM_HTML_MODE_LEGACY)
             return spanned.toString().trim()
         }
@@ -357,11 +358,15 @@ class EpisodeAdapter(
         private fun formatEpisodeDate(raw: String): String {
             val epoch = EpisodeDateParser.parsePubDateToEpoch(raw)
             return if (epoch > 0L) {
-                SimpleDateFormat("EEE, dd MMM yyyy", Locale.US).format(Date(epoch))
+                OUTPUT_FORMAT.format(Date(epoch))
             } else {
                 if (raw.contains(":")) raw.substringBefore(":").substringBeforeLast(" ").trim() else raw.trim()
             }
         }
+    }
+
+    companion object {
+        private val OUTPUT_FORMAT = SimpleDateFormat("EEE, dd MMM yyyy", Locale.US)
     }
 }
 

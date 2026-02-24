@@ -32,29 +32,22 @@ class SavedEpisodesAdapter(
     }
 
     private fun sanitize(raw: String): String {
+        if (!raw.contains("<") && !raw.contains("&")) return raw.trim()
         return HtmlCompat.fromHtml(raw, HtmlCompat.FROM_HTML_MODE_LEGACY).toString().trim()
     }
 
     private fun formatDate(raw: String): String {
         if (raw.isBlank()) return ""
-        val patterns = listOf(
-            "EEE, dd MMM yyyy HH:mm:ss Z",
-            "dd MMM yyyy HH:mm:ss Z",
-            "EEE, dd MMM yyyy HH",
-            "EEE, dd MMM yyyy",
-            "dd MMM yyyy HH",
-            "dd MMM yyyy"
-        )
-        val parsed: java.util.Date? = patterns.firstNotNullOfOrNull { pattern ->
+        val parsed: java.util.Date? = DATE_FORMATS.firstNotNullOfOrNull { format ->
             try {
-                java.text.SimpleDateFormat(pattern, java.util.Locale.US).parse(raw)
+                format.parse(raw)
             } catch (e: java.text.ParseException) {
                 null
             }
         }
         val cleaned = raw.trim().replace(Regex("\\s+(GMT|UTC|UT)", RegexOption.IGNORE_CASE), "").replace(Regex(",\\s+"), ", ")
         val fallback = cleaned.replace(Regex("\\s+\\d{1,2}:\\d{2}(:\\d{2})?"), "").replace(Regex("\\s+\\d{1,2}$"), "").trim()
-        return parsed?.let { java.text.SimpleDateFormat("EEE, dd MMM yyyy", java.util.Locale.US).format(it) } ?: fallback
+        return parsed?.let { OUTPUT_FORMAT.format(it) } ?: fallback
     }
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
         val v = LayoutInflater.from(context).inflate(R.layout.item_episode, parent, false)
@@ -139,5 +132,18 @@ class SavedEpisodesAdapter(
     fun updateEntries(newEntries: List<SavedEpisodes.Entry>) {
         entries = newEntries
         notifyDataSetChanged()
+    }
+
+    companion object {
+        private val DATE_FORMATS = listOf(
+            "EEE, dd MMM yyyy HH:mm:ss Z",
+            "dd MMM yyyy HH:mm:ss Z",
+            "EEE, dd MMM yyyy HH",
+            "EEE, dd MMM yyyy",
+            "dd MMM yyyy HH",
+            "dd MMM yyyy"
+        ).map { java.text.SimpleDateFormat(it, java.util.Locale.US) }
+
+        private val OUTPUT_FORMAT = java.text.SimpleDateFormat("EEE, dd MMM yyyy", java.util.Locale.US)
     }
 }

@@ -90,10 +90,62 @@ class SearchResultsAdapter(
         items.addAll(more)
         notifyItemRangeInserted(start, more.size)
     }
+
+    fun appendEpisodeMatches(moreEpisodeMatches: List<Pair<Episode, Podcast>>) {
+        if (moreEpisodeMatches.isEmpty()) return
+
+        // Deduplicate against already-rendered episode items.
+        val seenIds = items.asSequence()
+            .mapNotNull { (it as? Item.EpisodeItem)?.episode?.id }
+            .toMutableSet()
+
+        val filtered = moreEpisodeMatches.filter { seenIds.add(it.first.id) }
+        if (filtered.isEmpty()) return
+
+        var sectionIndex = items.indexOfFirst { it is Item.Section && it.title == "Episode" }
+        if (sectionIndex == -1) {
+            sectionIndex = items.size
+            items.add(Item.Section("Episode"))
+            notifyItemInserted(sectionIndex)
+        }
+
+        val insertStart = items.size
+        filtered.forEach { (ep, p) -> items.add(Item.EpisodeItem(ep, p)) }
+        notifyItemRangeInserted(insertStart, filtered.size)
+    }
+
+    /**
+     * Patch individual episode items in-place with enriched data (audio URLs, pub dates, etc.).
+     * Uses fine-grained notifyItemChanged per updated item — no scroll-resetting full rebind.
+     */
+    fun patchEpisodes(updatedEpisodes: Map<String, Episode>) {
+        if (updatedEpisodes.isEmpty()) return
+        for (i in items.indices) {
+            val item = items[i]
+            if (item is Item.EpisodeItem) {
+                val updated = updatedEpisodes[item.episode.id] ?: continue
+                items[i] = Item.EpisodeItem(updated, item.podcast)
+                // Pass a payload to prevent DefaultItemAnimator from cross-fading (blinking) the item
+                notifyItemChanged(i, "enrichment")
+            }
+        }
+    }
+
     companion object {
         private const val TYPE_SECTION = 0
         private const val TYPE_PODCAST = 1
         private const val TYPE_EPISODE = 2
+
+        private val DATE_FORMATS = listOf(
+            "EEE, dd MMM yyyy HH:mm:ss Z",
+            "dd MMM yyyy HH:mm:ss Z",
+            "EEE, dd MMM yyyy HH",
+            "EEE, dd MMM yyyy",
+            "dd MMM yyyy HH",
+            "dd MMM yyyy"
+        ).map { java.text.SimpleDateFormat(it, Locale.US) }
+
+        private val OUTPUT_FORMAT = java.text.SimpleDateFormat("EEE, dd MMM yyyy", Locale.US)
     }
 
     override fun getItemViewType(position: Int): Int {
@@ -128,6 +180,15 @@ class SearchResultsAdapter(
             is Item.Section -> (holder as SectionViewHolder).bind(it.title)
             is Item.PodcastItem -> (holder as PodcastViewHolder).bind(it.podcast)
             is Item.EpisodeItem -> (holder as EpisodeViewHolder).bind(it.episode, it.podcast)
+        }
+    }
+
+    override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int, payloads: MutableList<Any>) {
+        if (payloads.isNotEmpty() && payloads[0] == "enrichment" && holder is EpisodeViewHolder) {
+            val item = items[position] as Item.EpisodeItem
+            holder.bindEnrichmentOnly(item.episode, item.podcast)
+        } else {
+            super.onBindViewHolder(holder, position, payloads)
         }
     }
 
@@ -166,6 +227,21 @@ class SearchResultsAdapter(
         private val playButton: View? = itemView.findViewById(R.id.episode_play_icon)
         private val durationView: TextView? = itemView.findViewById(R.id.episode_duration)
         private val downloadIcon: ImageView? = itemView.findViewById(R.id.episode_download_icon)
+
+        fun bindEnrichmentOnly(episode: Episode, podcast: Podcast) {
+            dateView.text = formatDate(episode.pubDate)
+            val durText = when {
+                episode.durationMins > 0 -> "${episode.durationMins} min"
+                podcast.typicalDurationMins > 0 -> "${podcast.typicalDurationMins} min"
+                else -> "…"
+            }
+            durationView?.text = durText
+
+            val canPlay = episode.audioUrl.isNotEmpty()
+            playButton?.isEnabled = canPlay
+            playButton?.alpha = if (canPlay) 1.0f else 0.45f
+            playButton?.setOnClickListener(if (canPlay) { View.OnClickListener { onPlayEpisode(episode) } } else null)
+        }
 
         fun bind(episode: Episode, podcast: Podcast) {
             titleView.text = episode.title
@@ -209,22 +285,15 @@ class SearchResultsAdapter(
         }
 
         private fun sanitize(raw: String): String {
+            if (!raw.contains("<") && !raw.contains("&")) return raw.trim()
             val sp = HtmlCompat.fromHtml(raw, HtmlCompat.FROM_HTML_MODE_LEGACY)
             return sp.toString().trim()
         }
 
         private fun formatDate(raw: String): String {
-            val patterns = listOf(
-                "EEE, dd MMM yyyy HH:mm:ss Z",
-                "dd MMM yyyy HH:mm:ss Z",
-                "EEE, dd MMM yyyy HH",
-                "EEE, dd MMM yyyy",
-                "dd MMM yyyy HH",
-                "dd MMM yyyy"
-            )
-            val parsed: java.util.Date? = patterns.firstNotNullOfOrNull { pattern ->
+            val parsed: java.util.Date? = DATE_FORMATS.firstNotNullOfOrNull { format ->
                 try {
-                    java.text.SimpleDateFormat(pattern, Locale.US).parse(raw)
+                    format.parse(raw)
                 } catch (e: java.text.ParseException) {
                     null
                 }
@@ -236,7 +305,7 @@ class SearchResultsAdapter(
             val fallback = cleaned.replace(Regex("\\s+\\d{1,2}$"), "").trim()
 
             return parsed?.let {
-                java.text.SimpleDateFormat("EEE, dd MMM yyyy", Locale.US).format(it)
+                OUTPUT_FORMAT.format(it)
             } ?: fallback
         }
     }

@@ -77,6 +77,37 @@ class PodcastRepository(private val context: Context) {
         return containsPhraseOrAllTokens(textLower, queryLower)
     }
 
+    /**
+     * Extract plain-text phrases from an advanced query for contains-checking.
+     * Splits on OR boundaries, strips quotes, operators and wildcards, normalizes whitespace.
+     * e.g. '"Donald Trump" OR "President Trump"' → ["donald trump", "president trump"]
+     */
+    private fun extractPlainTermsFromQuery(query: String): List<String> {
+        val normalize = { s: String ->
+            val noDiacritics = java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD)
+                .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
+            noDiacritics.replace(Regex("[^\\p{L}0-9\\s]"), " ").replace(Regex("\\s+"), " ").trim()
+                .lowercase(Locale.getDefault())
+        }
+        // Split on OR operator boundaries (space-delimited, case-insensitive)
+        val parts = query.split(Regex("(?i)(?<=\\s)OR(?=\\s)|^OR(?=\\s)|(?<=\\s)OR$"))
+            .flatMap { it.split(Regex("(?i)\\bOR\\b")) }
+        return parts.map { normalize(it) }.filter { it.isNotEmpty() }
+    }
+
+    /**
+     * For FTS podcast results, determine whether the match is in the title.
+     * For advanced/OR queries, checks if any plain term extracted from the query
+     * appears in the title — avoids the always-true shortcut of textMatchesNormalized.
+     */
+    private fun ftsMatchesTitle(fts: com.hyliankid14.bbcradioplayer.db.PodcastFts, query: String): Boolean {
+        if (!isAdvancedQuery(query)) return textMatchesNormalized(fts.title, query)
+        val titleLower = fts.title.lowercase(Locale.getDefault())
+        return extractPlainTermsFromQuery(query).any { term ->
+            term.isNotEmpty() && containsPhraseOrAllTokens(titleLower, term)
+        }
+    }
+
     private fun isAdvancedQuery(query: String): Boolean {
         val q = query.trim()
         if (q.isEmpty()) return false
@@ -88,22 +119,28 @@ class PodcastRepository(private val context: Context) {
         return q.contains('*') || q.contains(':')
     }
 
+    /**
+     * Check whether text matches any clause of a (possibly OR-compound) query.
+     * Splits on OR boundaries so that "donald trump" or "president trump" each
+     * get checked individually rather than as a single all-tokens expression.
+     */
+    private fun textMatchesAnyClauses(text: String, queryLower: String): Boolean {
+        val clauses = extractPlainTermsFromQuery(queryLower)
+        if (clauses.size > 1) return clauses.any { containsPhraseOrAllTokens(text, it) }
+        return containsPhraseOrAllTokens(text, queryLower)
+    }
+
     fun podcastMatches(podcast: Podcast, queryLower: String): Boolean {
         val pair = podcastSearchIndex[podcast.id]
         if (pair != null) {
             val (titleLower, descLower) = pair
-            if (containsPhraseOrAllTokens(titleLower, queryLower)) return true
-            if (containsPhraseOrAllTokens(descLower, queryLower)) return true
+            if (textMatchesAnyClauses(titleLower, queryLower)) return true
+            if (textMatchesAnyClauses(descLower, queryLower)) return true
             return false
         }
-        // Fallback
-        val qTokens = queryLower.split(Regex("\\s+")).filter { it.isNotEmpty() }
-        if (qTokens.size > 1) {
-            val tl = podcast.title.lowercase(Locale.getDefault())
-            val dl = podcast.description.lowercase(Locale.getDefault())
-            return containsPhraseOrAllTokens(tl, queryLower) || containsPhraseOrAllTokens(dl, queryLower)
-        }
-        return podcast.title.contains(queryLower, ignoreCase = true) || podcast.description.contains(queryLower, ignoreCase = true)
+        val tl = podcast.title.lowercase(Locale.getDefault())
+        val dl = podcast.description.lowercase(Locale.getDefault())
+        return textMatchesAnyClauses(tl, queryLower) || textMatchesAnyClauses(dl, queryLower)
     }
 
     /**
@@ -112,16 +149,10 @@ class PodcastRepository(private val context: Context) {
      */
     fun podcastMatchKind(podcast: Podcast, queryLower: String): String? {
         val pair = podcastSearchIndex[podcast.id]
-        if (pair != null) {
-            val (titleLower, descLower) = pair
-            if (containsPhraseOrAllTokens(titleLower, queryLower)) return "title"
-            if (containsPhraseOrAllTokens(descLower, queryLower)) return "description"
-            return null
-        }
-        val tl = podcast.title.lowercase(Locale.getDefault())
-        val dl = podcast.description.lowercase(Locale.getDefault())
-        if (containsPhraseOrAllTokens(tl, queryLower)) return "title"
-        if (containsPhraseOrAllTokens(dl, queryLower)) return "description"
+        val titleLower = pair?.first ?: podcast.title.lowercase(Locale.getDefault())
+        val descLower = pair?.second ?: podcast.description.lowercase(Locale.getDefault())
+        if (textMatchesAnyClauses(titleLower, queryLower)) return "title"
+        if (textMatchesAnyClauses(descLower, queryLower)) return "description"
         return null
     }
 
@@ -309,14 +340,14 @@ class PodcastRepository(private val context: Context) {
      * and otherwise fetches from network and caches the result. This is intended for use from a background
      * coroutine so it may perform network I/O.
      */
-    suspend fun fetchEpisodesIfNeeded(podcast: Podcast): List<Episode> = withContext(Dispatchers.IO) {
+    suspend fun fetchEpisodesIfNeeded(podcast: Podcast, forceRefresh: Boolean = false): List<Episode> = withContext(Dispatchers.IO) {
         val cached = episodesCache[podcast.id]
-        if (!cached.isNullOrEmpty()) {
+        if (!forceRefresh && !cached.isNullOrEmpty()) {
             Log.d("PodcastRepository", "Using cached episodes for ${podcast.title}: ${cached.size} items")
             return@withContext cached
         }
         try {
-            Log.d("PodcastRepository", "Fetching episodes for ${podcast.title}")
+            Log.d("PodcastRepository", "Fetching episodes for ${podcast.title} (forceRefresh=$forceRefresh)")
             val eps = RSSParser.fetchAndParseRSS(podcast.rssUrl, podcast.id)
             if (eps.isNotEmpty()) {
                 episodesCache[podcast.id] = eps
@@ -416,8 +447,16 @@ class PodcastRepository(private val context: Context) {
             val index = com.hyliankid14.bbcradioplayer.db.IndexStore.getInstance(context)
 
             val pMatches = index.searchPodcasts(q, 50)
-            val pTitleIds = pMatches.filter { textMatchesNormalized(it.title, q) }.map { it.podcastId }.toSet()
-            val pDescIds = pMatches.filter { !textMatchesNormalized(it.title, q) && textMatchesNormalized(it.description, q) }.map { it.podcastId }.toSet()
+            android.util.Log.d("PodcastRepository", "searchPodcasts q='$q' returned ${pMatches.size}: ${pMatches.map { it.podcastId + '/' + it.title }}")
+            val pTitleIds = pMatches.filter { ftsMatchesTitle(it, q) }.map { it.podcastId }.toSet()
+            // If FTS found it and it's not a title match, it's a description match
+            val pDescIds = pMatches.filter { !ftsMatchesTitle(it, q) }.map { it.podcastId }.toSet()
+            android.util.Log.d("PodcastRepository", "pTitleIds=$pTitleIds pDescIds=$pDescIds")
+            val extractedTerms = extractPlainTermsFromQuery(q)
+            android.util.Log.d("PodcastRepository", "extractedTerms=$extractedTerms")
+            pMatches.forEach { fts ->
+                android.util.Log.d("PodcastRepository", "  fts pid=${fts.podcastId} title='${fts.title}' ftsMatchesTitle=${ftsMatchesTitle(fts, q)} terms check: ${extractedTerms.map { term -> term to containsPhraseOrAllTokens(fts.title.lowercase(Locale.getDefault()), term) }}")
+            }
 
             val eMatches = index.searchEpisodes(q, 200)
             val eTitleIds = eMatches.filter { textMatchesNormalized(it.title, q) }.map { it.podcastId }.toSet()

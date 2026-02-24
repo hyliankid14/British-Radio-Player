@@ -206,13 +206,14 @@ class PodcastsFragment : Fragment() {
     // Episode-search pagination state (index-backed)
     private val INITIAL_EPISODE_DISPLAY_LIMIT = 150        // how many episodes to try to show immediately
     private val EPISODE_PAGE_SIZE = 25                    // page size when scrolling
-    private var pendingIndexEpisodeIds: MutableList<Pair<String, String>> = mutableListOf() // (episodeId, podcastId)
     private var resolvedEpisodeMatches: MutableList<Pair<Episode, Podcast>> = mutableListOf()
-    private val podcastsBeingFetched: MutableSet<String> = mutableSetOf() // avoid duplicate fetches per-podcast
     // How many episode items are currently displayed by the adapter (used for search pagination)
     private var displayedEpisodeCount: Int = 0
     // Cached full episode matches for fast restore pagination (to avoid UI hangs)
     private var cachedEpisodeMatchesFull: List<Pair<Episode, Podcast>> = emptyList()
+    private var isSearchPopulating: Boolean = false
+    private var searchGeneration: Long = 0L
+    private var episodePaginationJob: kotlinx.coroutines.Job? = null
     private var usingCachedEpisodePagination: Boolean = false
     private val RESTORE_ITEM_INITIAL = 100
     private val RESTORE_ITEM_CHUNK = 100
@@ -641,7 +642,12 @@ class PodcastsFragment : Fragment() {
             allPodcasts = viewModel.cachedPodcasts
             cachedUpdates = viewModel.cachedUpdates
             currentFilter = viewModel.cachedFilter
-            currentSort = viewModel.cachedSort
+            // Restore sort: use cached sort if available, otherwise use default
+            currentSort = if (viewModel.cachedSort.isNotEmpty()) {
+                viewModel.cachedSort
+            } else {
+                "Most popular"
+            }
 
             // Always rebuild genres from the cached podcasts so the spinner stays populated
             val genres = listOf("All Genres") + repository.getUniqueGenres(allPodcasts)
@@ -726,11 +732,16 @@ class PodcastsFragment : Fragment() {
                 bindGenreSpinner(genreSpinner, genres, emptyState, recyclerView)
                 bindSortSpinner(sortSpinner, emptyState, recyclerView)
 
-                // INSTANT DISPLAY: Sort by most popular and show immediately without waiting for updates
-                // Most popular sorting doesn't need updates, so we can display instantly
-                allPodcasts = allPodcasts.sortedWith(compareBy { getPopularRank(it) })
-                currentSort = "Most popular"
-                currentFilter = PodcastFilter(genres = emptySet(), minDuration = 0, maxDuration = Int.MAX_VALUE, searchQuery = "")
+                val hasActiveSearch = !viewModel.activeSearchQuery.value.isNullOrBlank() || searchQuery.isNotBlank()
+                if (!hasActiveSearch) {
+                    // INSTANT DISPLAY: Sort by most popular and show immediately without waiting for updates
+                    // Most popular sorting doesn't need updates, so we can display instantly
+                    allPodcasts = allPodcasts.sortedWith(compareBy { getPopularRank(it) })
+                    currentSort = "Most popular"
+                    currentFilter = PodcastFilter(genres = emptySet(), minDuration = 0, maxDuration = Int.MAX_VALUE, searchQuery = "")
+                    viewModel.cachedSort = currentSort
+                    viewModel.cachedFilter = currentFilter
+                }
                 
                 // Hide loading indicator and show list immediately
                 loadingIndicator.visibility = View.GONE
@@ -786,8 +797,14 @@ class PodcastsFragment : Fragment() {
         // (Legacy incremental/FTS implementation remains below but is intentionally bypassed
         //  for now to keep the behavior minimal and deterministic.)
         searchJob?.cancel()
+        episodePaginationJob?.cancel()
+        searchGeneration += 1L
         // Clear the display snapshot to ensure UI is updated
         lastDisplaySnapshot = null
+        // Discard the previous search adapter so simplifiedApplyFilters always builds
+        // a fresh one for the new query — prevents old results from persisting when
+        // switching between saved searches.
+        searchAdapter = null
         simplifiedApplyFilters(emptyState, recyclerView)
         return
     }
@@ -797,20 +814,24 @@ class PodcastsFragment : Fragment() {
         // If we're showing search results, paginate episodes from the pending index queue
         val rv = view?.findViewById<RecyclerView>(R.id.podcasts_recycler)
         if (rv?.adapter == searchAdapter) {
+            // While search results are still being built/enriched, avoid concurrent pagination work.
+            if (isSearchPopulating) return
             if (usingCachedItemAppend) return
             // If we restored from cache with a large episode list, paginate from the cached full list
             if (usingCachedEpisodePagination && cachedEpisodeMatchesFull.isNotEmpty()) {
                 if (displayedEpisodeCount >= cachedEpisodeMatchesFull.size) return
                 isLoadingPage = true
-                viewLifecycleOwner.lifecycleScope.launch {
+                val generation = searchGeneration
+                episodePaginationJob = viewLifecycleOwner.lifecycleScope.launch {
                     try {
+                        if (!isActive || generation != searchGeneration) return@launch
                         val next = cachedEpisodeMatchesFull
                             .subList(displayedEpisodeCount, cachedEpisodeMatchesFull.size)
                             .take(EPISODE_PAGE_SIZE)
                         if (next.isNotEmpty()) {
                             resolvedEpisodeMatches.addAll(next)
                             displayedEpisodeCount += next.size
-                            searchAdapter?.updateEpisodeMatches(resolvedEpisodeMatches)
+                            searchAdapter?.appendEpisodeMatches(next)
                             // Update in-memory cache only (avoid disk writes)
                             val cached = viewModel.getCachedSearch()
                             if (cached != null) {
@@ -833,89 +854,7 @@ class PodcastsFragment : Fragment() {
                 }
                 return
             }
-
-            if (displayedEpisodeCount >= resolvedEpisodeMatches.size && pendingIndexEpisodeIds.isEmpty()) return
-            isLoadingPage = true
-
-            viewLifecycleOwner.lifecycleScope.launch {
-                try {
-                    val toAdd = mutableListOf<Pair<Episode, Podcast>>()
-
-                    // First use any already-resolved episodes that aren't yet displayed
-                    if (resolvedEpisodeMatches.size > displayedEpisodeCount) {
-                        val take = resolvedEpisodeMatches.subList(displayedEpisodeCount, resolvedEpisodeMatches.size).take(EPISODE_PAGE_SIZE)
-                        toAdd.addAll(take)
-                        displayedEpisodeCount += take.size
-                    }
-
-                    // If we still need more, try to resolve ids from the pending index queue
-                    if (toAdd.size < EPISODE_PAGE_SIZE && pendingIndexEpisodeIds.isNotEmpty()) {
-                        val need = EPISODE_PAGE_SIZE - toAdd.size
-                        val slice = pendingIndexEpisodeIds.take(need).toList()
-
-                        // Group by podcast so we can fetch per-podcast only once if needed
-                        val byPod = slice.groupBy { it.second }
-                        val newlyResolved = mutableListOf<Pair<Episode, Podcast>>()
-
-                        for ((podId, ids) in byPod) {
-                            if (!kotlin.coroutines.coroutineContext.isActive) break
-                            // Try cache first
-                            val cached = repository.getEpisodesFromCache(podId) ?: emptyList()
-                            val found = ids.mapNotNull { (eid, _) -> cached.firstOrNull { it.id == eid } }
-                            val missing = ids.map { it.first }.filter { id -> found.none { it.id == id } }
-
-                            if (found.isNotEmpty()) {
-                                newlyResolved.addAll(found.map { it to (allPodcasts.firstOrNull { p -> p.id == podId } ?: Podcast(podId, "", "", "", "", "", emptyList(), 0)) })
-                            }
-
-                            if (missing.isNotEmpty()) {
-                                // Attempt a short fetch for this podcast (only if not already being fetched)
-                                if (!podcastsBeingFetched.contains(podId)) {
-                                    podcastsBeingFetched.add(podId)
-                                    val fetched = try { withTimeoutOrNull(1500L) { repository.fetchEpisodesIfNeeded(allPodcasts.first { it.id == podId }) } } catch (_: Exception) { null }
-                                    podcastsBeingFetched.remove(podId)
-                                    if (!fetched.isNullOrEmpty()) {
-                                        newlyResolved.addAll(fetched.filter { it.id in missing }.map { it to allPodcasts.first { p -> p.id == podId } })
-                                    }
-                                }
-                            }
-                        }
-
-                        // Append newly resolved matches in index order
-                        for ((eid, pid) in slice) {
-                            val match = newlyResolved.firstOrNull { it.first.id == eid && it.second.id == pid }
-                            if (match != null) {
-                                toAdd.add(match)
-                                pendingIndexEpisodeIds.remove(eid to pid)
-                                displayedEpisodeCount += 1
-                            } else {
-                                // keep in queue for background resolution
-                            }
-                            if (toAdd.size >= EPISODE_PAGE_SIZE) break
-                        }
-                    }
-
-                    if (toAdd.isNotEmpty()) {
-                        // Merge into resolved list and update adapter
-                        resolvedEpisodeMatches.addAll(toAdd)
-                        searchAdapter?.updateEpisodeMatches(resolvedEpisodeMatches)
-                        // Persist expanded cache
-                        val cached = viewModel.getCachedSearch()
-                        persistCachedSearch(PodcastsViewModel.SearchCache(
-                            cached?.query ?: searchQuery,
-                            cached?.titleMatches ?: emptyList(),
-                            cached?.descMatches ?: emptyList(),
-                            resolvedEpisodeMatches.toList(),
-                            isComplete = false
-                        ))
-                    }
-                } catch (e: Exception) {
-                    android.util.Log.e("PodcastsFragment", "Error loading next episode page", e)
-                } finally {
-                    isLoadingPage = false
-                }
-            }
-
+            // No pagination to do for non-cached episode mode.
             return
         }
 
@@ -942,6 +881,7 @@ class PodcastsFragment : Fragment() {
         super.onDestroyView()
         filterDebounceJob?.cancel()
         searchJob?.cancel()
+        episodePaginationJob?.cancel()
         restoreAppendJob?.cancel()
         // Cache search adapter if active to avoid expensive rebuild on back navigation
         val rv = view?.findViewById<RecyclerView>(R.id.podcasts_recycler)
@@ -981,6 +921,9 @@ class PodcastsFragment : Fragment() {
                     val genreSpinner = view?.findViewById<com.google.android.material.textfield.MaterialAutoCompleteTextView>(R.id.genre_filter_spinner)
                     val sortSpinner = view?.findViewById<com.google.android.material.textfield.MaterialAutoCompleteTextView>(R.id.sort_spinner)
                     if (genreSpinner != null && sortSpinner != null) {
+                        if (viewModel.cachedSort.isNotEmpty()) {
+                            currentSort = viewModel.cachedSort
+                        }
                         val genres = if (viewModel.cachedGenres.isNotEmpty()) {
                             viewModel.cachedGenres
                         } else {
@@ -1124,6 +1067,9 @@ class PodcastsFragment : Fragment() {
                     val emptyState = view?.findViewById<TextView>(R.id.empty_state_text)
                     val cachedPodcastsRecycler = view?.findViewById<RecyclerView>(R.id.podcasts_recycler)
                     if (genreSpinner != null && sortSpinner != null && emptyState != null && cachedPodcastsRecycler != null) {
+                        if (viewModel.cachedSort.isNotEmpty()) {
+                            currentSort = viewModel.cachedSort
+                        }
                         val pods = if (allPodcasts.isNotEmpty()) allPodcasts
                         else (cached.titleMatches + cached.descMatches + cached.episodeMatches.map { it.second }).distinct()
                         val genres = listOf("All Genres") + repository.getUniqueGenres(pods)
@@ -1284,14 +1230,8 @@ class PodcastsFragment : Fragment() {
         val indexingDisabled = IndexPreference.getIntervalDays(requireContext()) <= 0
         warningText.visibility = if (indexingDisabled) View.VISIBLE else View.GONE
 
-        val patterns = listOf("EEE, dd MMM yyyy HH:mm:ss Z", "dd MMM yyyy HH:mm:ss Z", "EEE, dd MMM yyyy", "dd MMM yyyy")
-        fun epochOf(ep: Episode): Long {
-            return patterns.firstNotNullOfOrNull { pattern ->
-                try { java.text.SimpleDateFormat(pattern, java.util.Locale.US).parse(ep.pubDate)?.time } catch (_: Exception) { null }
-            } ?: 0L
-        }
         val latestMatchEpoch = viewModel.getCachedSearch()?.episodeMatches
-            ?.map { epochOf(it.first) }
+            ?.map { com.hyliankid14.bbcradioplayer.db.IndexStore.parsePubEpoch(it.first.pubDate) }
             ?.maxOrNull()
             ?: 0L
 
@@ -1411,6 +1351,11 @@ class PodcastsFragment : Fragment() {
 
         updateSaveSearchButtonVisibility()
 
+        // Re-bind sort spinner to ensure it reflects the current sort and has proper listener
+        if (sortSpinner != null && emptyState != null && recyclerView != null) {
+            bindSortSpinner(sortSpinner, emptyState, recyclerView)
+        }
+
         if (emptyState != null && recyclerView != null) {
             applyFilters(emptyState, recyclerView)
         }
@@ -1431,12 +1376,14 @@ class PodcastsFragment : Fragment() {
         // Ensure only one search runs at a time
         searchJob?.cancel()
         android.util.Log.d("PodcastsFragment", "simplifiedApplyFilters: About to launch coroutine in viewLifecycleOwner.lifecycleScope")
+        val generation = searchGeneration
         searchJob = viewLifecycleOwner.lifecycleScope.launch {
             android.util.Log.d("PodcastsFragment", "simplifiedApplyFilters: INSIDE coroutine, isAdded=$isAdded")
             if (!isAdded) {
                 android.util.Log.d("PodcastsFragment", "simplifiedApplyFilters: Fragment not added, returning")
                 return@launch
             }
+            if (generation != searchGeneration) return@launch
 
             val loadingView = view?.findViewById<ProgressBar>(R.id.loading_progress)
             val searchStatusCard = view?.findViewById<View>(R.id.search_status_card)
@@ -1520,6 +1467,12 @@ class PodcastsFragment : Fragment() {
 
                 // Hide empty state while searching to avoid overlap with the status card
                 emptyState.visibility = View.GONE
+                isSearchPopulating = true
+                // Reset episode pagination state at the start of a fresh search to avoid stale data/races.
+                usingCachedEpisodePagination = false
+                cachedEpisodeMatchesFull = emptyList()
+                resolvedEpisodeMatches = mutableListOf()
+                displayedEpisodeCount = 0
 
                 // Show search status card with initial state - all spinners showing
                 searchStatusCard?.visibility = View.VISIBLE
@@ -1577,6 +1530,7 @@ class PodcastsFragment : Fragment() {
                 // Show podcast matches immediately (before episode indexing)
                 val podcastMatches = (titleMatches + descMatches).distinctBy { it.id }
                 if (podcastMatches.isNotEmpty() && isActive) {
+                    if (generation != searchGeneration) return@launch
                     // Initialize search adapter with podcast-only results
                     if (searchAdapter == null) {
                         searchAdapter = SearchResultsAdapter(
@@ -1633,7 +1587,9 @@ class PodcastsFragment : Fragment() {
                             // Add timeout to FTS query to prevent hanging
                             val ftsResults = withTimeoutOrNull(2000) {
                                 try {
-                                    index.searchEpisodes(q, 1000)
+                                    // Keep large-result searches responsive by capping initial FTS hits.
+                                    // Results are already sorted by recency in IndexStore.
+                                    index.searchEpisodes(q, 400)
                                 } catch (e: Exception) {
                                     android.util.Log.w("PodcastsFragment", "FTS episode search failed: ${e.message}")
                                     emptyList<com.hyliankid14.bbcradioplayer.db.EpisodeFts>()
@@ -1643,44 +1599,32 @@ class PodcastsFragment : Fragment() {
                             if (!kotlin.coroutines.coroutineContext.isActive) return@async emptyList<Pair<Episode, Podcast>>()
 
                             if (ftsResults.isNotEmpty()) {
-                                // Deduplicate FTS results by episode ID (proximity search may return duplicates)
+                                // Deduplicate FTS results by episode ID (proximity search may return duplicates).
+                                // FTS results are already ordered pubEpoch DESC from SQL — preserve that order.
                                 val uniqueResults = ftsResults.distinctBy { it.episodeId }
-                                val grouped = uniqueResults.groupBy { it.podcastId }
-                                var total = 0
-                                for ((podId, hits) in grouped) {
+
+                                // Pre-build O(1) lookup structures to avoid linear scans in the hot loop.
+                                val podcastById = allPodcasts.associateBy { it.id }
+                                val episodeCacheById: Map<String, List<Episode>?> =
+                                    uniqueResults.map { it.podcastId }.distinct()
+                                        .associateWith { pid -> repository.getEpisodesFromCache(pid) }
+
+                                for (ef in uniqueResults) {
                                     if (!coroutineContext.isActive) break
-                                    val p = allPodcasts.find { it.id == podId } ?: continue
-
-                                    val cached = repository.getEpisodesFromCache(podId)
-                                    val perPodcastAdded = mutableListOf<Pair<Episode, Podcast>>()
-
-                                    val titleHits = hits.filter { repository.textMatchesNormalized(it.title, q) }
-                                    val descHits = hits.filter { !repository.textMatchesNormalized(it.title, q) && repository.textMatchesNormalized(it.description, q) }
-
-                                    fun resolveHit(ef: com.hyliankid14.bbcradioplayer.db.EpisodeFts): Episode {
-                                        val found = cached?.find { it.id == ef.episodeId }
-                                        return found ?: Episode(
-                                            id = ef.episodeId,
-                                            title = ef.title,
-                                            description = ef.description,
-                                            audioUrl = "",
-                                            imageUrl = p.imageUrl,
-                                            pubDate = "",
-                                            durationMins = 0,
-                                            podcastId = p.id
-                                        )
-                                    }
-
-                                    for (ef in (titleHits + descHits)) {
-                                        if (perPodcastAdded.size >= 200) break
-                                        if (!coroutineContext.isActive) break
-                                        perPodcastAdded.add(resolveHit(ef) to p)
-                                        total += 1
-                                        if (total >= 1000) break
-                                    }
-
-                                    eps.addAll(perPodcastAdded)
-                                    if (total >= 1000) break
+                                    val p = podcastById[ef.podcastId] ?: continue
+                                    val found = episodeCacheById[ef.podcastId]?.find { it.id == ef.episodeId }
+                                    eps.add((found ?: Episode(
+                                        id = ef.episodeId,
+                                        title = ef.title,
+                                        description = ef.description,
+                                        audioUrl = "",
+                                        imageUrl = p.imageUrl,
+                                        // pubDate from FTS index keeps stubs sortable before enrichment.
+                                        pubDate = ef.pubDate,
+                                        durationMins = 0,
+                                        podcastId = p.id
+                                    )) to p)
+                                    if (eps.size >= 400) break
                                 }
                             }
                         } catch (e: Exception) {
@@ -1708,23 +1652,25 @@ class PodcastsFragment : Fragment() {
                     
                     if (!kotlin.coroutines.coroutineContext.isActive) return@async emptyList<Pair<Episode, Podcast>>()
 
-                    // Filter and sort episodes
+                    // Filter episodes
                     val epsFiltered = eps.filter { (_, pod) ->
                         repository.filterPodcasts(listOf(pod), currentFilter).isNotEmpty()
                     }.filter { (ep, _) ->
                         ep.durationMins in currentFilter.minDuration..currentFilter.maxDuration
                     }
 
-                    val patterns = listOf("EEE, dd MMM yyyy HH:mm:ss Z", "dd MMM yyyy HH:mm:ss Z", "EEE, dd MMM yyyy", "dd MMM yyyy")
-                    fun epochOf(ep: Episode): Long {
-                        return patterns.firstNotNullOfOrNull { pattern ->
-                            try { java.text.SimpleDateFormat(pattern, Locale.US).parse(ep.pubDate)?.time } catch (_: Exception) { null }
-                        } ?: 0L
+                    // "Most recent" is the common case: FTS already returns results in
+                    // pubEpoch DESC order, so skip the sort entirely.
+                    if (currentSort == "Most recent") return@async epsFiltered
+
+                    // For other sorts, pre-compute epochs once (O(n)) via IndexStore's
+                    // cached parser so the comparator never calls SimpleDateFormat per comparison.
+                    val epochMap: Map<String, Long> = epsFiltered.associate { (ep, _) ->
+                        ep.id to com.hyliankid14.bbcradioplayer.db.IndexStore.parsePubEpoch(ep.pubDate)
                     }
 
                     val cmp = Comparator<Pair<Episode, Podcast>> { a, b ->
                         when (currentSort) {
-                            "Most recent" -> epochOf(b.first).compareTo(epochOf(a.first))
                             "Alphabetical (A-Z)" -> {
                                 val c = a.first.title.compareTo(b.first.title, ignoreCase = true)
                                 if (c != 0) return@Comparator c
@@ -1733,7 +1679,7 @@ class PodcastsFragment : Fragment() {
                             else -> {
                                 val c = getPopularRank(a.second).compareTo(getPopularRank(b.second))
                                 if (c != 0) return@Comparator c
-                                return@Comparator epochOf(b.first).compareTo(epochOf(a.first))
+                                return@Comparator (epochMap[b.first.id] ?: 0L).compareTo(epochMap[a.first.id] ?: 0L)
                             }
                         }
                     }
@@ -1741,115 +1687,141 @@ class PodcastsFragment : Fragment() {
                     epsFiltered.sortedWith(cmp)
                 }
                 
-                // Wait for episode search to complete, then update UI
+                // Wait for FTS episode search to complete then display results immediately.
                 val episodes = episodeMatches.await()
-                
-                // Enrich ALL episodes to ensure they have playable audio URLs
-                val enrichedEpisodes = if (episodes.isNotEmpty() && isActive) {
-                    val incomplete = episodes.filter { (ep, _) -> 
-                        ep.audioUrl.isBlank() || ep.pubDate.isBlank() || ep.durationMins <= 0 
-                    }
-                    
-                    if (incomplete.isNotEmpty()) {
-                        android.util.Log.d("PodcastsFragment", "Enriching ${incomplete.size} incomplete episodes from ${incomplete.map { it.second }.distinctBy { it.id }.size} podcasts")
-                        
-                        // Group by podcast and fetch full episode details for ALL incomplete episodes
-                        val podcastsToEnrich = incomplete.map { it.second }.distinctBy { it.id }
-                        val enriched = episodes.toMutableList()
-                        var enrichedCount = 0
-                        
-                        try {
-                            // Process podcasts in parallel for faster enrichment
-                            val enrichmentJobs = podcastsToEnrich.map { pod ->
-                                async(Dispatchers.IO) {
-                                    if (!isActive) return@async null
-                                    
-                                    // Fetch episodes with longer timeout for reliability
-                                    val fullEpisodes = withTimeoutOrNull(5000L) {
-                                        try {
-                                            repository.fetchEpisodesIfNeeded(pod)
-                                        } catch (e: Exception) {
-                                            android.util.Log.w("PodcastsFragment", "Failed to fetch episodes for ${pod.title}: ${e.message}")
-                                            null
-                                        }
-                                    }
-                                    
-                                    if (fullEpisodes != null) pod.id to fullEpisodes else null
-                                }
-                            }
-                            
-                            // Wait for all enrichment jobs
-                            val enrichmentResults = enrichmentJobs.mapNotNull { it.await() }.toMap()
-                            
-                            // Replace incomplete episodes with full versions
-                            for (i in enriched.indices) {
-                                val (ep, p) = enriched[i]
-                                val fullEpisodes = enrichmentResults[p.id]
-                                if (fullEpisodes != null) {
-                                    val fullEp = fullEpisodes.find { it.id == ep.id }
-                                    if (fullEp != null && fullEp.audioUrl.isNotBlank()) {
-                                        enriched[i] = fullEp to p
-                                        enrichedCount++
-                                    }
-                                }
-                            }
-                            
-                            android.util.Log.d("PodcastsFragment", "Successfully enriched $enrichedCount episodes")
-                        } catch (e: Exception) {
-                            android.util.Log.w("PodcastsFragment", "Episode enrichment failed: ${e.message}")
-                        }
-                        
-                        // Filter out any episodes that still don't have audio URLs
-                        enriched.filter { (ep, _) -> ep.audioUrl.isNotBlank() }
-                    } else {
-                        episodes
-                    }
-                } else {
-                    episodes
-                }
-                
-                if (isActive) {
-                    // Update status: episodes complete
-                    episodesProgressBar?.visibility = View.GONE
-                    episodesCheckIcon?.visibility = View.VISIBLE
-                    
-                    // Create new adapter with full results including enriched episodes
+                if (!isActive || generation != searchGeneration) return@launch
+
+                // Update status: episodes done
+                episodesProgressBar?.visibility = View.GONE
+                episodesCheckIcon?.visibility = View.VISIBLE
+
+                // Show the initial batch right away — FTS results are already sorted by
+                // pubEpoch DESC so the most-recent episodes appear first, almost instantly.
+                // We do NOT block on enrichment here; missing audio URLs are patched below.
+                val initialBatch = episodes.take(INITIAL_EPISODE_DISPLAY_LIMIT)
+
+                if (searchAdapter == null) {
+                    // No podcast matches were shown yet — create the adapter now with episodes.
                     searchAdapter = SearchResultsAdapter(
                         context = requireContext(),
                         titleMatches = titleMatches,
                         descMatches = descMatches,
-                        episodeMatches = enrichedEpisodes,
+                        episodeMatches = initialBatch,
                         onPodcastClick = { podcast -> onPodcastClicked(podcast) },
                         onPlayEpisode = { ep -> playEpisode(ep) },
                         onOpenEpisode = { ep, pod -> openEpisodePreview(ep, pod) }
                     )
-                    viewModel.cachedSearchItems = searchAdapter?.snapshotItems()
-                    // Reset cached-restore pagination state for fresh searches
-                    usingCachedEpisodePagination = false
-                    cachedEpisodeMatchesFull = emptyList()
-                    resolvedEpisodeMatches = enrichedEpisodes.toMutableList()
-                    displayedEpisodeCount = resolvedEpisodeMatches.size
-                    
-                    val hasContent = podcastMatches.isNotEmpty() || enrichedEpisodes.isNotEmpty()
+                    val hasContent = episodes.isNotEmpty()
                     if (!hasContent && q.isNotEmpty()) {
-                        // Hide search status card before showing empty state to ensure card doesn't appear on top
                         searchStatusCard?.visibility = View.GONE
                         emptyState.text = getString(R.string.no_podcasts_found)
-                    } else if (hasContent) {
-                        // Also hide the card when we have content to show
+                    } else {
                         searchStatusCard?.visibility = View.GONE
                     }
-                    
                     showResultsSafely(recyclerView, searchAdapter, isSearchAdapter = true, hasContent = hasContent, emptyState)
                     rebuildFilterSpinners(emptyState, recyclerView)
+                } else {
+                    // Adapter is already attached (podcast-only view) — append episodes
+                    // WITHOUT replacing the adapter so scroll position and layout are preserved.
+                    searchAdapter?.appendEpisodeMatches(initialBatch)
+                    val hasContent = podcastMatches.isNotEmpty() || episodes.isNotEmpty()
+                    if (!hasContent && q.isNotEmpty()) {
+                        searchStatusCard?.visibility = View.GONE
+                        emptyState.text = getString(R.string.no_podcasts_found)
+                    } else {
+                        searchStatusCard?.visibility = View.GONE
+                    }
+                    rebuildFilterSpinners(emptyState, recyclerView)
+                }
 
-                    // Persist the completed results (including episodes) so returning from an episode view is instant.
+                // Set up scroll-triggered pagination for oversized result sets.
+                usingCachedEpisodePagination = episodes.size > INITIAL_EPISODE_DISPLAY_LIMIT
+                cachedEpisodeMatchesFull = if (usingCachedEpisodePagination) episodes else emptyList()
+                resolvedEpisodeMatches = initialBatch.toMutableList()
+                displayedEpisodeCount = resolvedEpisodeMatches.size
+                viewModel.cachedSearchItems = searchAdapter?.snapshotItems()
+
+                // Background enrichment: fetch missing audio URLs / dates for incomplete episodes
+                // and patch them into the already-displayed adapter items one podcast-batch at a time.
+                // This never replaces the adapter, so scrolling remains smooth throughout.
+                val incompletePodcasts = episodes
+                    .filter { (ep, _) -> ep.audioUrl.isBlank() || ep.pubDate.isBlank() || ep.durationMins <= 0 }
+                    .map { it.second }
+                    .distinctBy { it.id }
+
+                if (incompletePodcasts.isNotEmpty()) {
+                    launch {
+                        val enrichGen = generation
+                        val enrichmentMap = mutableMapOf<String, Episode>()
+                        try {
+                            incompletePodcasts.chunked(4).forEach { batch ->
+                                if (!isActive || enrichGen != searchGeneration) return@forEach
+                                val jobs = batch.map { pod ->
+                                    async(Dispatchers.IO) {
+                                        val fullEpisodes = withTimeoutOrNull(3000L) {
+                                            try { repository.fetchEpisodesIfNeeded(pod) }
+                                            catch (e: Exception) { null }
+                                        }
+                                        if (fullEpisodes != null) pod.id to fullEpisodes else null
+                                    }
+                                }
+                                val newPatches = mutableMapOf<String, Episode>()
+                                jobs.mapNotNull { it.await() }.forEach { (pid, list) ->
+                                    if (!isActive || enrichGen != searchGeneration) return@forEach
+                                    // Build a patch map for matching incomplete episodes from this podcast.
+                                    episodes
+                                        .filter { it.second.id == pid &&
+                                            (it.first.audioUrl.isBlank() || it.first.pubDate.isBlank() || it.first.durationMins <= 0) }
+                                        .forEach { (ep, _) ->
+                                            val full = list.find { it.id == ep.id }
+                                            if (full != null && full.audioUrl.isNotBlank()) {
+                                                newPatches[ep.id] = full
+                                                enrichmentMap[ep.id] = full
+                                            }
+                                        }
+                                }
+                                // Apply this batch's patches immediately — smooth per-item updates.
+                                if (isActive && enrichGen == searchGeneration && newPatches.isNotEmpty()) {
+                                    searchAdapter?.patchEpisodes(newPatches)
+                                    
+                                    // Update pagination state so future pages get enriched data
+                                    cachedEpisodeMatchesFull = cachedEpisodeMatchesFull.map { (ep, p) ->
+                                        (newPatches[ep.id] ?: ep) to p
+                                    }
+                                    resolvedEpisodeMatches = resolvedEpisodeMatches.map { (ep, p) ->
+                                        (newPatches[ep.id] ?: ep) to p
+                                    }.toMutableList()
+                                }
+                            }
+                        } catch (e: Exception) {
+                            android.util.Log.w("PodcastsFragment", "Background enrichment failed: ${e.message}")
+                        }
+
+                        // After all patches are applied, persist the fully-enriched cache.
+                        if (isActive && enrichGen == searchGeneration) {
+                            val enrichedEpisodes = episodes.map { (ep, p) ->
+                                (enrichmentMap[ep.id] ?: ep) to p
+                            }
+                            persistCachedSearch(
+                                PodcastsViewModel.SearchCache(
+                                    query = q,
+                                    titleMatches = titleMatches,
+                                    descMatches = descMatches,
+                                    episodeMatches = enrichedEpisodes.take(300),
+                                    isComplete = true
+                                )
+                            )
+                            viewModel.cachedSearchItems = searchAdapter?.snapshotItems()
+                        }
+                    }
+                } else {
+                    // All episodes are already fully resolved — persist immediately.
                     persistCachedSearch(
                         PodcastsViewModel.SearchCache(
                             query = q,
                             titleMatches = titleMatches,
                             descMatches = descMatches,
-                            episodeMatches = enrichedEpisodes,
+                            episodeMatches = episodes.take(300),
                             isComplete = true
                         )
                     )
@@ -1857,6 +1829,9 @@ class PodcastsFragment : Fragment() {
 
                 loadingView?.visibility = View.GONE
             } finally {
+                if (generation == searchGeneration) {
+                    isSearchPopulating = false
+                }
                 showSpinnerJob?.cancel()
                 loadingView?.visibility = View.GONE
             }

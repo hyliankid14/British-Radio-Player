@@ -7,14 +7,14 @@ import android.database.sqlite.SQLiteOpenHelper
 internal class IndexDatabaseHelper(context: Context) : SQLiteOpenHelper(context, DB_NAME, null, DB_VERSION) {
     companion object {
         private const val DB_NAME = "podcast_index.db"
-        private const val DB_VERSION = 2
+        private const val DB_VERSION = 3
     }
 
     override fun onCreate(db: SQLiteDatabase) {
         // FTS4 tables for podcasts and episodes
         db.execSQL("CREATE VIRTUAL TABLE IF NOT EXISTS podcast_fts USING fts4(podcastId TEXT, title TEXT, description TEXT);")
         db.execSQL("CREATE VIRTUAL TABLE IF NOT EXISTS episode_fts USING fts4(episodeId TEXT, podcastId TEXT, title TEXT, description TEXT);")
-        db.execSQL("CREATE TABLE IF NOT EXISTS episode_meta (episodeId TEXT PRIMARY KEY, pubDate TEXT);")
+        db.execSQL("CREATE TABLE IF NOT EXISTS episode_meta (episodeId TEXT PRIMARY KEY, pubDate TEXT, pubEpoch INTEGER DEFAULT 0);")
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {

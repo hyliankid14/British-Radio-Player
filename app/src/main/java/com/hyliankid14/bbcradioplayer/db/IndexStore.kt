@@ -26,6 +26,29 @@ class IndexStore private constructor(private val context: Context) {
             }
         }
 
+        private val PUB_DATE_FORMATS = object : ThreadLocal<List<SimpleDateFormat>>() {
+            override fun initialValue(): List<SimpleDateFormat> {
+                return listOf(
+                    "EEE, dd MMM yyyy HH:mm:ss Z",
+                    "dd MMM yyyy HH:mm:ss Z",
+                    "EEE, dd MMM yyyy",
+                    "dd MMM yyyy"
+                ).map { SimpleDateFormat(it, Locale.US) }
+            }
+        }
+
+        fun parsePubEpoch(raw: String?): Long {
+            if (raw.isNullOrBlank()) return 0L
+            val formats = PUB_DATE_FORMATS.get() ?: return 0L
+            for (format in formats) {
+                try {
+                    val t = format.parse(raw)?.time
+                    if (t != null) return t
+                } catch (_: Exception) { }
+            }
+            return 0L
+        }
+
         private fun isAdvancedFtsQuery(query: String): Boolean {
             val q = query.trim()
             if (q.isEmpty()) return false
@@ -58,6 +81,41 @@ class IndexStore private constructor(private val context: Context) {
             val tokenAnd = tokens.joinToString(" AND ") { "${it}*" }
             // Parenthesize each clause to ensure correct operator precedence in MATCH expressions
             return "($near) OR ($phrase) OR ($tokenAnd)"
+        }
+
+        private fun splitOrClauses(query: String): List<String> {
+            val q = query.trim()
+            if (q.isEmpty()) return emptyList()
+            if (q.contains('(') || q.contains(')')) return listOf(q)
+
+            val parts = mutableListOf<String>()
+            val sb = StringBuilder()
+            var inQuote = false
+            var i = 0
+            while (i < q.length) {
+                val ch = q[i]
+                if (ch == '"') {
+                    inQuote = !inQuote
+                    sb.append(ch)
+                    i += 1
+                    continue
+                }
+
+                if (!inQuote && i + 4 <= q.length && q.regionMatches(i, " OR ", 0, 4, true)) {
+                    val part = sb.toString().trim()
+                    if (part.isNotEmpty()) parts.add(part)
+                    sb.setLength(0)
+                    i += 4
+                    continue
+                }
+
+                sb.append(ch)
+                i += 1
+            }
+
+            val last = sb.toString().trim()
+            if (last.isNotEmpty()) parts.add(last)
+            return if (parts.size > 1) parts else listOf(q)
         }
     }
 
@@ -100,7 +158,7 @@ class IndexStore private constructor(private val context: Context) {
         db.beginTransaction()
         try {
             val stmt: SQLiteStatement = db.compileStatement("INSERT INTO episode_fts(episodeId, podcastId, title, description) VALUES (?, ?, ?, ?);")
-            val metaStmt: SQLiteStatement = db.compileStatement("INSERT OR REPLACE INTO episode_meta(episodeId, pubDate) VALUES (?, ?);")
+            val metaStmt: SQLiteStatement = db.compileStatement("INSERT OR REPLACE INTO episode_meta(episodeId, pubDate, pubEpoch) VALUES (?, ?, ?);")
             for (e in episodes) {
                 stmt.clearBindings()
                 stmt.bindString(1, e.id)
@@ -123,6 +181,7 @@ class IndexStore private constructor(private val context: Context) {
                 metaStmt.clearBindings()
                 metaStmt.bindString(1, e.id)
                 metaStmt.bindString(2, e.pubDate)
+                metaStmt.bindLong(3, parsePubEpoch(e.pubDate))
                 metaStmt.executeInsert()
                 inserted++
             }
@@ -178,23 +237,59 @@ class IndexStore private constructor(private val context: Context) {
 
     @Synchronized
     fun searchPodcasts(query: String, limit: Int = 50): List<PodcastFts> {
+        return searchPodcastsInternal(query, limit, true)
+    }
+
+    private fun searchPodcastsInternal(query: String, limit: Int, allowOrSplit: Boolean): List<PodcastFts> {
         if (query.isBlank()) return emptyList()
         val db = helper.readableDatabase
-        val match = normalizeQueryForFts(query)
-        if (match.isBlank()) return emptyList()
-        Log.d("IndexStore", "FTS podcast search: matchExpr='$match' originalQuery='$query' limit=$limit")
-        val cursor = db.rawQuery("SELECT podcastId, title, description FROM podcast_fts WHERE podcast_fts MATCH ? LIMIT ?", arrayOf(match, limit.toString()))
-        val results = mutableListOf<PodcastFts>()
-        cursor.use {
-            while (it.moveToNext()) {
-                val pid = it.getString(0)
-                val title = it.getString(1) ?: ""
-                val desc = it.getString(2) ?: ""
-                results.add(PodcastFts(pid, title, desc))
+
+        // If the query contains OR clauses, split and merge results just like episode search does.
+        if (allowOrSplit && isAdvancedFtsQuery(query)) {
+            val parts = splitOrClauses(query)
+            Log.d("IndexStore", "OR split: query='$query' parts=${parts.size}: ${parts.map { "'$it'" }}")
+            if (parts.size > 1) {
+                val merged = LinkedHashMap<String, PodcastFts>()
+                for (part in parts) {
+                    val results = searchPodcastsInternal(part, limit, false)
+                    Log.d("IndexStore", "OR split part='$part' returned ${results.size} podcast hits: ${results.map { it.podcastId }}")
+                    for (hit in results) {
+                        merged.putIfAbsent(hit.podcastId, hit)
+                    }
+                }
+                Log.d("IndexStore", "OR merged total=${merged.size} podcast ids: ${merged.keys}")
+                return merged.values.take(limit)
             }
         }
-        Log.d("IndexStore", "FTS podcast search returned ${results.size} hits for query='$query'")
-        return results
+
+        // Try prioritized MATCH variants and return first non-empty result set.
+        val variants = buildFtsVariants(query).take(3)
+        for (v in variants) {
+            try {
+                Log.d("IndexStore", "FTS podcast try: variant='$v' originalQuery='$query' limit=$limit")
+                val cursor = db.rawQuery(
+                    "SELECT podcastId, title, description FROM podcast_fts WHERE podcast_fts MATCH ? LIMIT ?",
+                    arrayOf(v, limit.toString())
+                )
+                val results = mutableListOf<PodcastFts>()
+                cursor.use {
+                    while (it.moveToNext()) {
+                        val pid = it.getString(0)
+                        val title = it.getString(1) ?: ""
+                        val desc = it.getString(2) ?: ""
+                        results.add(PodcastFts(pid, title, desc))
+                    }
+                }
+                if (results.isNotEmpty()) {
+                    Log.d("IndexStore", "FTS podcast search returned ${results.size} hits for query='$query' via variant='$v'")
+                    return results
+                }
+            } catch (e: Exception) {
+                Log.w("IndexStore", "FTS podcast variant failed: variant='$v' error=${e.message}")
+            }
+        }
+        Log.d("IndexStore", "FTS podcast search returned 0 hits for query='$query'")
+        return emptyList()
     }
 
     private fun buildFtsVariants(query: String): List<String> {
@@ -236,10 +331,52 @@ class IndexStore private constructor(private val context: Context) {
         return variants
     }
 
+    private fun batchGetPubEpochs(db: SQLiteDatabase, episodeIds: List<String>): Map<String, Long> {
+        if (episodeIds.isEmpty()) return emptyMap()
+        val result = mutableMapOf<String, Long>()
+        // Process in chunks to avoid exceeding SQLite's variable limit
+        episodeIds.chunked(500) { chunk ->
+            val placeholders = chunk.joinToString(",") { "?" }
+            val cursor = db.rawQuery(
+                "SELECT episodeId, pubEpoch FROM episode_meta WHERE episodeId IN ($placeholders)",
+                chunk.toTypedArray()
+            )
+            cursor.use {
+                while (it.moveToNext()) {
+                    result[it.getString(0)] = it.getLong(1)
+                }
+            }
+        }
+        return result
+    }
+
     @Synchronized
     fun searchEpisodes(query: String, limit: Int = 100): List<EpisodeFts> {
+        return searchEpisodesInternal(query, limit, true)
+    }
+
+    private fun searchEpisodesInternal(query: String, limit: Int, allowOrSplit: Boolean): List<EpisodeFts> {
         if (query.isBlank()) return emptyList()
         val db = helper.readableDatabase
+
+        if (allowOrSplit && isAdvancedFtsQuery(query)) {
+            val parts = splitOrClauses(query)
+            if (parts.size > 1) {
+                val merged = LinkedHashMap<String, EpisodeFts>()
+                for (part in parts) {
+                    val results = searchEpisodesInternal(part, limit, false)
+                    for (hit in results) {
+                        merged.putIfAbsent(hit.episodeId, hit)
+                    }
+                }
+                // Sort merged results by pubEpoch DESC using a single batch lookup
+                val ids = merged.keys.toList()
+                val pubEpochs = batchGetPubEpochs(db, ids)
+                return merged.values
+                    .sortedByDescending { pubEpochs[it.episodeId] ?: 0L }
+                    .take(limit)
+            }
+        }
 
         // Try prioritized MATCH variants and return first non-empty result set
         // Limit to first 3 variants to include proximity, exact phrase, and field-specific searches
@@ -247,7 +384,17 @@ class IndexStore private constructor(private val context: Context) {
         for (v in variants) {
             try {
                 Log.d("IndexStore", "FTS episode try: variant='$v' originalQuery='$query' limit=$limit")
-                val cursor = db.rawQuery("SELECT episodeId, podcastId, title, description FROM episode_fts WHERE episode_fts MATCH ? LIMIT ?", arrayOf(v, limit.toString()))
+                // JOIN with episode_meta and ORDER BY pubDate DESC so the most recent matching
+                // episodes are always returned first within the limit (fixes stale top-1000 issue)
+                val cursor = db.rawQuery(
+                    "SELECT f.episodeId, f.podcastId, f.title, f.description, m.pubDate " +
+                    "FROM episode_fts f " +
+                    "LEFT JOIN episode_meta m ON f.episodeId = m.episodeId " +
+                    "WHERE episode_fts MATCH ? " +
+                    "ORDER BY m.pubEpoch DESC " +
+                    "LIMIT ?",
+                    arrayOf(v, limit.toString())
+                )
                 val results = mutableListOf<EpisodeFts>()
                 cursor.use {
                     while (it.moveToNext()) {
@@ -255,11 +402,14 @@ class IndexStore private constructor(private val context: Context) {
                         val pid = it.getString(1)
                         val title = it.getString(2) ?: ""
                         val desc = it.getString(3) ?: ""
-                        results.add(EpisodeFts(eid, pid, title, desc))
+                        val pub = it.getString(4) ?: ""
+                        results.add(EpisodeFts(eid, pid, title, desc, pub))
                     }
                 }
                 Log.d("IndexStore", "FTS episode variant returned ${results.size} hits for variant='$v' query='$query'")
-                if (results.isNotEmpty()) return results
+                if (results.isNotEmpty()) {
+                    return results
+                }
             } catch (e: Exception) {
                 Log.w("IndexStore", "FTS episode variant failed '$v': ${e.message}")
             }
@@ -278,7 +428,7 @@ class IndexStore private constructor(private val context: Context) {
             // Only do LIKE fallback for single tokens to keep it fast
             if (tokens.size == 1) {
                 val t = "%${tokens[0]}%"
-                val sql = "SELECT episodeId, podcastId, title, description FROM episode_fts WHERE LOWER(title) LIKE ? LIMIT ?"
+                val sql = "SELECT f.episodeId, f.podcastId, f.title, f.description, m.pubDate FROM episode_fts f LEFT JOIN episode_meta m ON f.episodeId = m.episodeId WHERE LOWER(f.title) LIKE ? ORDER BY m.pubEpoch DESC LIMIT ?"
                 Log.d("IndexStore", "FTS single-token fallback SQL token='${tokens[0]}'")
                 val cursor = db.rawQuery(sql, arrayOf(t, limit.toString()))
                 val fbResults = mutableListOf<EpisodeFts>()
@@ -288,7 +438,8 @@ class IndexStore private constructor(private val context: Context) {
                         val pid = it.getString(1)
                         val title = it.getString(2) ?: ""
                         val desc = it.getString(3) ?: ""
-                        fbResults.add(EpisodeFts(eid, pid, title, desc))
+                        val pub = it.getString(4) ?: ""
+                        fbResults.add(EpisodeFts(eid, pid, title, desc, pub))
                     }
                 }
                 Log.d("IndexStore", "FTS single-token fallback returned ${fbResults.size} hits")
@@ -305,24 +456,6 @@ class IndexStore private constructor(private val context: Context) {
     fun getLatestEpisodePubDateEpoch(episodeIds: List<String>): Long {
         if (episodeIds.isEmpty()) return 0L
         val db = helper.readableDatabase
-        val patterns = listOf(
-            "EEE, dd MMM yyyy HH:mm:ss Z",
-            "dd MMM yyyy HH:mm:ss Z",
-            "EEE, dd MMM yyyy",
-            "dd MMM yyyy"
-        )
-        fun parseEpoch(raw: String?): Long {
-            if (raw.isNullOrBlank()) return 0L
-            for (pattern in patterns) {
-                try {
-                    val t = SimpleDateFormat(pattern, Locale.US).parse(raw)?.time
-                    if (t != null) return t
-                } catch (_: Exception) {
-                }
-            }
-            return 0L
-        }
-
         var maxEpoch = 0L
         val chunkSize = 900
         var index = 0
@@ -330,17 +463,18 @@ class IndexStore private constructor(private val context: Context) {
             val end = (index + chunkSize).coerceAtMost(episodeIds.size)
             val chunk = episodeIds.subList(index, end)
             val placeholders = chunk.joinToString(",") { "?" }
-            val sql = "SELECT pubDate FROM episode_meta WHERE episodeId IN ($placeholders)"
-            val cursor = db.rawQuery(sql, chunk.toTypedArray())
+            val cursor = db.rawQuery(
+                "SELECT MAX(pubEpoch) FROM episode_meta WHERE episodeId IN ($placeholders)",
+                chunk.toTypedArray()
+            )
             cursor.use {
-                while (it.moveToNext()) {
-                    val epoch = parseEpoch(it.getString(0))
+                if (it.moveToFirst()) {
+                    val epoch = it.getLong(0)
                     if (epoch > maxEpoch) maxEpoch = epoch
                 }
             }
             index = end
         }
-
         return maxEpoch
     }
 

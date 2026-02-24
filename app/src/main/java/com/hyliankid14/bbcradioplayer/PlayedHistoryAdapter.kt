@@ -31,6 +31,7 @@ class PlayedHistoryAdapter(
     }
 
     private fun sanitize(raw: String): String {
+        if (!raw.contains("<") && !raw.contains("&")) return raw.trim()
         return HtmlCompat.fromHtml(raw, HtmlCompat.FROM_HTML_MODE_LEGACY).toString().trim()
     }
 
@@ -40,7 +41,7 @@ class PlayedHistoryAdapter(
         val cleaned = raw.trim().replace(Regex("\\s+(GMT|UTC|UT)", RegexOption.IGNORE_CASE), "").replace(Regex(",\\s+"), ", ")
         val fallback = cleaned.replace(Regex("\\s+\\d{1,2}:\\d{2}(:\\d{2})?"), "").replace(Regex("\\s+\\d{1,2}$"), "").trim()
         return if (epoch > 0L) {
-            java.text.SimpleDateFormat("EEE, dd MMM yyyy", java.util.Locale.US).format(java.util.Date(epoch))
+            OUTPUT_FORMAT.format(java.util.Date(epoch))
         } else {
             fallback
         }
@@ -132,5 +133,9 @@ class PlayedHistoryAdapter(
     fun updateEntries(newEntries: List<PlayedHistoryPreference.Entry>) {
         entries = newEntries
         notifyDataSetChanged()
+    }
+
+    companion object {
+        private val OUTPUT_FORMAT = java.text.SimpleDateFormat("EEE, dd MMM yyyy", java.util.Locale.US)
     }
 }

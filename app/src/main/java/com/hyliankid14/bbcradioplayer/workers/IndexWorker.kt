@@ -90,13 +90,21 @@ object IndexWorker {
                 for ((i, p) in podcasts.withIndex()) {
                     if (!isActive) break
                     // Fetch episodes for this podcast and report monotonic overall-percent updates
-                    val eps = try { repo.fetchEpisodesIfNeeded(p) } catch (e: Exception) { emptyList() }
+                    val eps = try { repo.fetchEpisodesIfNeeded(p, forceRefresh = true) } catch (e: Exception) { emptyList() }
                     if (eps.isEmpty()) {
                         // No episodes discovered — treat this podcast as complete and emit the
                         // per-podcast completion percent (monotonic mapping).
                         val completedPct = computePodcastCompletePercent(i, podcasts.size)
                         onProgress("Indexed episodes for: ${p.title}", completedPct, true)
                         continue
+                    }
+
+                    Log.d(TAG, "Fetched ${eps.size} episodes for ${p.title} (ID: ${p.id})")
+                    if (eps.isNotEmpty()) {
+                        val first = eps.first()
+                        val last = eps.last()
+                        Log.d(TAG, "  First episode: '${first.title}' pubDate='${first.pubDate}'")
+                        Log.d(TAG, "  Last episode: '${last.title}' pubDate='${last.pubDate}'")
                     }
 
                     // Count discovered episodes for diagnostics only (do NOT use for UI percent)
@@ -135,6 +143,7 @@ object IndexWorker {
                         // bar reaches the per-podcast completion point.
                         val completedPct = computePodcastCompletePercent(i, podcasts.size)
                         onProgress("Indexed episodes for: ${p.title}", completedPct, true)
+                        Log.d(TAG, "Indexed $inserted episodes for ${p.title}")
                     } catch (e: Exception) {
                         Log.w(TAG, "Failed to append episodes for ${p.id}: ${e.message}")
                     }
@@ -193,7 +202,7 @@ object IndexWorker {
                     }
 
                     // Fetch episodes for this podcast and only append those not already indexed
-                    val eps = try { repo.fetchEpisodesIfNeeded(p) } catch (e: Exception) { emptyList() }
+                    val eps = try { repo.fetchEpisodesIfNeeded(p, forceRefresh = true) } catch (e: Exception) { emptyList() }
                     if (eps.isEmpty()) {
                         val completedPct = computePodcastCompletePercent(i, podcasts.size)
                         onProgress("Indexed episodes for: ${p.title}", completedPct, true)

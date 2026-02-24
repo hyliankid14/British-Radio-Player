@@ -2293,16 +2293,14 @@ class MainActivity : AppCompatActivity() {
         recycler.visibility = if (hasItems) View.VISIBLE else View.GONE
         empty.visibility = if (hasItems) View.GONE else View.VISIBLE
 
-        maybeRefreshSavedSearchDates(searches, recycler, empty)
+        maybeRefreshSavedSearchDates(recycler, empty)
     }
 
     private fun maybeRefreshSavedSearchDates(
-        searches: List<SavedSearchesPreference.SavedSearch>,
         recycler: RecyclerView,
         empty: TextView
     ) {
         if (savedSearchDateRefreshJob?.isActive == true) return
-        if (searches.none { it.lastMatchEpoch <= 0L }) return
 
         savedSearchDateRefreshJob = lifecycleScope.launch(Dispatchers.IO) {
             SavedSearchManager.refreshLatestMatchDates(this@MainActivity)

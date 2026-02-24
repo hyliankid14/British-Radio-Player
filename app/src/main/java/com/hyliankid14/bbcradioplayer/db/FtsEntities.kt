@@ -14,5 +14,6 @@ data class EpisodeFts(
     val episodeId: String,
     val podcastId: String,
     val title: String,
-    val description: String
+    val description: String,
+    val pubDate: String = ""
 )
