@@ -367,28 +367,40 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun handleOpenSavedSearchIntent(intent: Intent?) {
-        val searchId = intent?.getStringExtra("open_saved_search_id") ?: return
-        val search = SavedSearchesPreference.getSearchById(this, searchId) ?: return
-        // When a notification is clicked, it should always show the most recent results
-        // (the default behavior of openSavedSearch ensures this)
-        openSavedSearch(search)
+        try {
+            val searchId = intent?.getStringExtra("open_saved_search_id") ?: return
+            val search = SavedSearchesPreference.getSearchById(this, searchId) ?: return
+            // When a notification is clicked, it should always show the most recent results
+            // (the default behavior of openSavedSearch ensures this)
+            openSavedSearch(search)
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Error handling open saved search intent", e)
+        }
     }
 
     private fun openSavedSearch(search: SavedSearchesPreference.SavedSearch) {
-        showPodcasts()
-        suppressBottomNavSelection = true
-        try { bottomNavigation.selectedItemId = R.id.navigation_podcasts } catch (_: Exception) { }
-        suppressBottomNavSelection = false
-        try { supportFragmentManager.executePendingTransactions() } catch (_: Exception) { }
-        val existing = supportFragmentManager.findFragmentByTag("podcasts_fragment") as? PodcastsFragment
-        if (existing != null) {
-            // Launch the search with "Most recent" sort (forceMostRecent defaults to true)
-            existing.applySavedSearch(search)
-            return
-        }
-        fragmentContainer.post {
-            val fragment = supportFragmentManager.findFragmentByTag("podcasts_fragment") as? PodcastsFragment
-            fragment?.applySavedSearch(search)
+        try {
+            showPodcasts()
+            suppressBottomNavSelection = true
+            try { bottomNavigation.selectedItemId = R.id.navigation_podcasts } catch (_: Exception) { }
+            suppressBottomNavSelection = false
+            try { supportFragmentManager.executePendingTransactions() } catch (_: Exception) { }
+            val existing = supportFragmentManager.findFragmentByTag("podcasts_fragment") as? PodcastsFragment
+            if (existing != null) {
+                // Launch the search with "Most recent" sort (forceMostRecent defaults to true)
+                existing.applySavedSearch(search)
+                return
+            }
+            fragmentContainer.post {
+                try {
+                    val fragment = supportFragmentManager.findFragmentByTag("podcasts_fragment") as? PodcastsFragment
+                    fragment?.applySavedSearch(search)
+                } catch (e: Exception) {
+                    android.util.Log.e("MainActivity", "Error applying saved search from notification", e)
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Error opening saved search", e)
         }
     }
     

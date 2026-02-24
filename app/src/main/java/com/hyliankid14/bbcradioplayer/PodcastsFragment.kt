@@ -1295,6 +1295,18 @@ class PodcastsFragment : Fragment() {
 
     fun applySavedSearch(savedSearch: SavedSearchesPreference.SavedSearch, forceMostRecent: Boolean = true) {
         if (!isAdded) return
+        
+        // If the fragment's view hasn't been created yet, defer the operation 
+        if (view == null) {
+            android.util.Log.d("PodcastsFragment", "applySavedSearch: view is null, deferring with handler")
+            // Post to main handler with a delay to ensure view is created
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                if (isAdded && view != null) {
+                    applySavedSearch(savedSearch, forceMostRecent)
+                }
+            }, 100)  // Give view creation time
+            return
+        }
 
         searchJob?.cancel()
         filterDebounceJob?.cancel()
