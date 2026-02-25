@@ -1,7 +1,6 @@
 /**
  * Vercel Serverless Function: AI Text Summarization
- * Uses Together.ai API to summarize podcast descriptions
- * API key is kept server-side and never exposed to clients
+ * Uses Hugging Face Inference API (completely free, no API key required)
  */
 
 const cache = new Map();
@@ -40,8 +39,8 @@ export default async function handler(req, res) {
             return res.json({ summary: cached, cached: true });
         }
 
-        // Call Together.ai API
-        const summary = await summarizeWithTogetherAI(text);
+        // Call Hugging Face API
+        const summary = await summarizeWithHuggingFace(text);
         
         // Cache the result
         setCache(hash, summary);
@@ -54,62 +53,58 @@ export default async function handler(req, res) {
 }
 
 /**
- * Summarize text using Together.ai API
+ * Summarize text using Hugging Face Inference API (completely free)
  */
-async function summarizeWithTogetherAI(text) {
-    const apiKey = process.env.TOGETHER_API_KEY;
-    if (!apiKey) {
-        throw new Error('TOGETHER_API_KEY is not configured');
-    }
-
+async function summarizeWithHuggingFace(text) {
+    // Using public inference API - no API key required for rate-limited access
     const cleanText = text.substring(0, 2000).trim();
     const prompt = `Summarize in 30 words: ${cleanText}`;
 
     try {
-        const response = await fetch('https://api.together.xyz/v1/completions', {
+        const response = await fetch('https://api-inference.huggingface.co/models/facebook/bart-large-cnn', {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${apiKey}`,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                model: 'mistralai/Mixtral-8x7B-Instruct-v0.1',
-                prompt: prompt,
-                max_tokens: 100,
-                temperature: 0.7,
-                top_p: 0.9,
-                stop: ['\n\n']
+                inputs: cleanText,
+                parameters: {
+                    max_length: 100,
+                    min_length: 20,
+                    do_sample: false
+                }
             })
         });
 
         if (!response.ok) {
             const errorData = await response.text();
-            throw new Error(`Together.ai API error: ${response.status} - ${errorData}`);
+            throw new Error(`Hugging Face API error: ${response.status} - ${errorData}`);
         }
 
         const data = await response.json();
         
         // Extract text from response
         let summary = '';
-        if (data.choices && data.choices[0] && data.choices[0].text) {
-            summary = data.choices[0].text.trim();
+        if (Array.isArray(data) && data[0] && data[0].summary_text) {
+            summary = data[0].summary_text.trim();
+        } else if (data.summary_text) {
+            summary = data.summary_text.trim();
         } else {
-            throw new Error('Unexpected response format from Together.ai');
+            throw new Error('Unexpected response format from Hugging Face');
         }
 
         // Validate response
         if (!summary || summary.length < 3) {
-            throw new Error('Empty or invalid response from Together.ai');
+            throw new Error('Empty or invalid response from Hugging Face');
         }
 
         if (summary.length > 500) {
-            // Fallback to truncation if response is too long
             summary = limitToWords(summary, 30);
         }
 
         return summary;
     } catch (error) {
-        console.error('Together.ai API error:', error);
+        console.error('Hugging Face API error:', error);
         throw error;
     }
 }
