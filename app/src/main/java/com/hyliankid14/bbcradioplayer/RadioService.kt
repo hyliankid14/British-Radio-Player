@@ -1356,7 +1356,7 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
         }
 
         serviceScope.launch(Dispatchers.IO) {
-            PrivacyAnalytics(this@RadioService).trackStationPlay(station.id)
+            PrivacyAnalytics(this@RadioService).trackStationPlay(station.id, station.title)
         }
 
         PlaybackPreference.setLastStationId(this, station.id)
@@ -2000,11 +2000,6 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
         try {
             isStopped = false
 
-            serviceScope.launch(Dispatchers.IO) {
-                PrivacyAnalytics(this@RadioService).trackPodcastPlay(episode.podcastId)
-                PrivacyAnalytics(this@RadioService).trackEpisodePlay(episode.podcastId, episode.id)
-            }
-
             // Create a synthetic station to drive the existing mini/full player UI
             val podcastTitle = intent?.getStringExtra(EXTRA_PODCAST_TITLE) ?: "Podcast"
             val podcastImage = intent?.getStringExtra(EXTRA_PODCAST_IMAGE) ?: episode.imageUrl
@@ -2014,6 +2009,11 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                 serviceId = "podcast",
                 logoUrl = podcastImage
             )
+
+            serviceScope.launch(Dispatchers.IO) {
+                val analytics = PrivacyAnalytics(this@RadioService)
+                analytics.trackEpisodePlay(episode.podcastId, episode.id, episode.title, podcastTitle)
+            }
 
             // Update playback helper & state
             currentStationId = syntheticStation.id

@@ -8,6 +8,7 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import android.util.Log
+import java.util.TimeZone
 
 class PrivacyAnalytics(private val context: Context) {
     
@@ -44,7 +45,7 @@ class PrivacyAnalytics(private val context: Context) {
     }
     
     // Track station play (anonymous)
-    suspend fun trackStationPlay(stationId: String) {
+    suspend fun trackStationPlay(stationId: String, stationName: String? = null) {
         if (!isEnabled()) return
         
         withContext(Dispatchers.IO) {
@@ -52,6 +53,9 @@ class PrivacyAnalytics(private val context: Context) {
                 sendEvent(JSONObject().apply {
                     put("event", "station_play")
                     put("station_id", stationId)
+                    if (!stationName.isNullOrBlank()) {
+                        put("station_name", stationName)
+                    }
                     put("date", getCurrentDate())
                     put("app_version", getAppVersion())
                 })
@@ -62,27 +66,13 @@ class PrivacyAnalytics(private val context: Context) {
         }
     }
     
-    // Track podcast play (anonymous)
-    suspend fun trackPodcastPlay(podcastId: String) {
-        if (!isEnabled()) return
-        
-        withContext(Dispatchers.IO) {
-            try {
-                sendEvent(JSONObject().apply {
-                    put("event", "podcast_play")
-                    put("podcast_id", podcastId)
-                    put("date", getCurrentDate())
-                    put("app_version", getAppVersion())
-                })
-                Log.d(TAG, "Tracked podcast play: $podcastId")
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to send podcast_play event", e)
-            }
-        }
-    }
-    
     // Track episode play (anonymous)
-    suspend fun trackEpisodePlay(podcastId: String, episodeId: String) {
+    suspend fun trackEpisodePlay(
+        podcastId: String,
+        episodeId: String,
+        episodeTitle: String? = null,
+        podcastTitle: String? = null
+    ) {
         if (!isEnabled()) return
         
         withContext(Dispatchers.IO) {
@@ -91,6 +81,12 @@ class PrivacyAnalytics(private val context: Context) {
                     put("event", "episode_play")
                     put("podcast_id", podcastId)
                     put("episode_id", episodeId)
+                    if (!podcastTitle.isNullOrBlank()) {
+                        put("podcast_title", podcastTitle)
+                    }
+                    if (!episodeTitle.isNullOrBlank()) {
+                        put("episode_title", episodeTitle)
+                    }
                     put("date", getCurrentDate())
                     put("app_version", getAppVersion())
                 })
@@ -132,10 +128,11 @@ class PrivacyAnalytics(private val context: Context) {
     }
     
     private fun getCurrentDate(): String {
-        // Return only date, not time (better privacy)
+        // Return UTC date+time (ISO 8601) so server can use precise timestamps
         return try {
-            java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
-                .format(java.util.Date())
+            val fmt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US)
+            fmt.timeZone = TimeZone.getTimeZone("UTC")
+            fmt.format(java.util.Date())
         } catch (e: Exception) {
             "unknown"
         }

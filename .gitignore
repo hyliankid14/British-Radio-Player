@@ -32,3 +32,4 @@ ANALYTICS_SETUP_GUIDE.md
 # Python cache artifacts
 __pycache__/
 *.pyc
+api/analytics.db
