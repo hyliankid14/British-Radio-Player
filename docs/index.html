@@ -761,7 +761,7 @@
                     
                     if (summary && typeof summary === 'string' && summary.length < 500 && summary.length > 3) {
                         console.log('Using AI summary');
-                        return this.limitToWords(summary.trim(), 30);
+                        return this.limitToWords(summary.trim(), 50);
                     } else {
                         console.warn(`Response invalid or too long (${summary.length} chars), using fallback`);
                         return this.limitToWords(plainText, 30);

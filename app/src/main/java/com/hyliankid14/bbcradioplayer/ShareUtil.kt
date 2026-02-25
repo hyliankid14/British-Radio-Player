@@ -286,20 +286,20 @@ object ShareUtil {
 
             if (summary.isNotBlank() && summary.length < 500 && summary.length > 3) {
                 android.util.Log.d("ShareUtil", "Using AI summary")
-                limitToWords(summary, 30)
+                limitToWords(summary, 50)
             } else {
                 android.util.Log.w("ShareUtil", "Summary invalid or too long (${summary.length} chars), using fallback")
-                limitToWords(plain, 30)
+                limitToWords(plain, 50)
             }
         } catch (e: java.net.SocketTimeoutException) {
             android.util.Log.w("ShareUtil", "Vercel API timeout (${e.message}), using fallback")
-            limitToWords(plain, 30)
+            limitToWords(plain, 50)
         } catch (e: java.net.ConnectException) {
             android.util.Log.w("ShareUtil", "Vercel API connection failed (${e.message}), using fallback")
-            limitToWords(plain, 30)
+            limitToWords(plain, 50)
         } catch (e: Exception) {
             android.util.Log.w("ShareUtil", "AI summary unavailable (${e.javaClass.simpleName}: ${e.message}), using fallback")
-            limitToWords(plain, 30)
+            limitToWords(plain, 50)
         }
     }
 

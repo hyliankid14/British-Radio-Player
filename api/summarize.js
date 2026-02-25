@@ -64,11 +64,11 @@ function summarizeExtractively(text) {
     const sentences = cleanText.split(/[.!?]+/).filter(s => s.trim().length > 10);
     
     if (sentences.length === 0) {
-        return limitToWords(cleanText, 30);
+        return limitToWords(cleanText, 50);
     }
     
     if (sentences.length === 1) {
-        return limitToWords(sentences[0], 30);
+        return limitToWords(sentences[0], 50);
     }
     
     // Calculate word frequencies (excluding common words)
@@ -120,8 +120,8 @@ function summarizeExtractively(text) {
     // Sort by score (best first)
     scoredSentences.sort((a, b) => b.score - a.score);
     
-    // Build summary by selecting best sentences that fit in 30 words
-    const maxWords = 30;
+    // Build summary by selecting best sentences that fit in 50 words
+    const maxWords = 50;
     let selectedSentences = [];
     let totalWords = 0;
     
@@ -135,7 +135,7 @@ function summarizeExtractively(text) {
     
     // If we didn't select anything (all sentences too long), take the best one and truncate
     if (selectedSentences.length === 0) {
-        return limitToWords(scoredSentences[0].text, maxWords);
+        return limitToWords(scoredSentences[0].text, 50);
     }
     
     // Re-sort selected sentences by original position for coherent flow
