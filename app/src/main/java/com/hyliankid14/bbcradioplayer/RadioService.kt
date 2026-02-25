@@ -379,7 +379,7 @@ class RadioService : MediaBrowserServiceCompat() {
             isPodcast && !currentEpisode.isNullOrEmpty() && isFavorite -> R.drawable.ic_bookmark
             isPodcast && !currentEpisode.isNullOrEmpty() -> R.drawable.ic_bookmark_outline
             isFavorite -> R.drawable.ic_star_filled_yellow
-            else -> R.drawable.ic_star_outline
+            else -> R.drawable.ic_star_outline_stroked
         }
 
         // Determine allowed actions. For podcasts we avoid SKIP actions (replaced by seek custom actions)
