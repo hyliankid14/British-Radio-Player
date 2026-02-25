@@ -1,5 +1,6 @@
 package com.hyliankid14.bbcradioplayer
 
+import android.app.ProgressDialog
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -33,6 +34,14 @@ object ShareUtil {
         val handler = Handler(Looper.getMainLooper())
         val cleanDesc = stripHtmlTags(podcast.description)
         
+        // Show progress dialog
+        @Suppress("DEPRECATION")
+        val progressDialog = ProgressDialog(context).apply {
+            setMessage("Generating sharing link...")
+            setCancelable(false)
+            show()
+        }
+        
         // Shorten URL on background thread
         Thread {
             try {
@@ -57,6 +66,7 @@ object ShareUtil {
                 
                 // Post back to main thread to start activity
                 handler.post {
+                    progressDialog.dismiss()
                     val shareIntent = Intent().apply {
                         action = Intent.ACTION_SEND
                         putExtra(Intent.EXTRA_SUBJECT, shareTitle)
@@ -67,20 +77,29 @@ object ShareUtil {
                 }
             } catch (e: Exception) {
                 android.util.Log.w("ShareUtil", "Failed to share podcast: ${e.message}")
+                handler.post { progressDialog.dismiss() }
             }
         }.start()
     }
     
     /**
-     * Share a specific episode with others.
-     * Non-app users will be directed to the web player showing this episode.
+     * Share an episode with others.
+     * Non-app users will be directed to the web player.
      */
-    fun shareEpisode(context: Context, episode: Episode, podcastTitle: String) {
-        val shareTitle = episode.title
-        val handler = Handler(Looper.getMainLooper())
-        var cleanDesc = stripHtmlTags(episode.description)
+    fun shareEpisode(context: Context, episode: Episode, podcastTitle: String = "") {
         var shareEpisode = episode
         var sharePodcastTitle = podcastTitle
+        var cleanDesc = stripHtmlTags(episode.description)
+        val shareTitle = episode.title
+        val handler = Handler(Looper.getMainLooper())
+        
+        // Show progress dialog
+        @Suppress("DEPRECATION")
+        val progressDialog = ProgressDialog(context).apply {
+            setMessage("Generating sharing link...")
+            setCancelable(false)
+            show()
+        }
         
         // Shorten URL on background thread
         Thread {
@@ -135,6 +154,7 @@ object ShareUtil {
                 
                 // Post back to main thread to start activity
                 handler.post {
+                    progressDialog.dismiss()
                     val shareIntent = Intent().apply {
                         action = Intent.ACTION_SEND
                         putExtra(Intent.EXTRA_SUBJECT, shareTitle)
@@ -145,6 +165,7 @@ object ShareUtil {
                 }
             } catch (e: Exception) {
                 android.util.Log.w("ShareUtil", "Failed to share episode: ${e.message}")
+                handler.post { progressDialog.dismiss() }
             }
         }.start()
     }
@@ -210,28 +231,74 @@ object ShareUtil {
             .replace(Regex("&lt;"), "<")
             .replace(Regex("&gt;"), ">")
             .replace(Regex("&amp;"), "&")
-            .replace(Regex("&nbsp;"), " ")
-            .replace(Regex("\n+"), " ")
+            .replace(Regex("\\s+"), " ")
             .trim()
     }
 
+    /**
+     * Summarize text using Vercel serverless function with Together.ai
+     * API key is stored server-side and never exposed
+     */
     private fun summarizeTextWithAI(text: String): String {
         if (text.isBlank()) return ""
-        val plain = text.replace(Regex("\\s+"), " ").trim()
-
+        
+        val plain = stripHtmlTags(text)
+        if (plain.isBlank()) return ""
+        
         return try {
-            val prompt = buildString {
-                append("Summarize the following podcast description in about 30 words. ")
-                append("Keep key details and return plain text only.\\n\\n")
-                append(plain.take(3500))
+            // Build JSON payload safely using JSONObject
+            val payload = JSONObject().apply {
+                put("text", plain.take(2000))
+            }.toString()
+            val url = "https://bbc-radio-player.vercel.app/api/summarize"
+            
+            android.util.Log.d("ShareUtil", "Calling Vercel API for summary (length=${plain.length})")
+            
+            val connection = (URL(url).openConnection() as java.net.HttpURLConnection).apply {
+                connectTimeout = 8000
+                readTimeout = 8000
+                requestMethod = "POST"
+                setRequestProperty("Content-Type", "application/json")
+                setRequestProperty("User-Agent", "BBC-Radio-Player/1.0")
+                doOutput = true
             }
-            val encodedPrompt = URLEncoder.encode(prompt, "UTF-8")
-            val responseText = URL("https://text.pollinations.ai/$encodedPrompt").readText()
-            val summary = responseText.trim()
+            
+            connection.outputStream.write(payload.toByteArray(Charsets.UTF_8))
+            
+            val responseCode = connection.responseCode
+            android.util.Log.d("ShareUtil", "Vercel API returned code: $responseCode")
+            
+            if (responseCode != 200) {
+                android.util.Log.w("ShareUtil", "Vercel API returned $responseCode, using fallback")
+                connection.disconnect()
+                return limitToWords(plain, 30)
+            }
+            
+            val responseText = connection.inputStream.bufferedReader().use { it.readText() }.trim()
+            connection.disconnect()
+            
+            // Parse JSON response safely
+            val responseJson = JSONObject(responseText)
+            val summary = responseJson.optString("summary", "").trim()
+            val cached = responseJson.optBoolean("cached", false)
+            
+            android.util.Log.d("ShareUtil", "Vercel response received (${summary.length} chars, cached=$cached)")
 
-            if (summary.isNotBlank()) limitToWords(summary, 30) else limitToWords(plain, 30)
+            if (summary.isNotBlank() && summary.length < 500 && summary.length > 3) {
+                android.util.Log.d("ShareUtil", "Using AI summary")
+                limitToWords(summary, 30)
+            } else {
+                android.util.Log.w("ShareUtil", "Summary invalid or too long (${summary.length} chars), using fallback")
+                limitToWords(plain, 30)
+            }
+        } catch (e: java.net.SocketTimeoutException) {
+            android.util.Log.w("ShareUtil", "Vercel API timeout (${e.message}), using fallback")
+            limitToWords(plain, 30)
+        } catch (e: java.net.ConnectException) {
+            android.util.Log.w("ShareUtil", "Vercel API connection failed (${e.message}), using fallback")
+            limitToWords(plain, 30)
         } catch (e: Exception) {
-            android.util.Log.w("ShareUtil", "AI summary unavailable, using fallback: ${e.message}")
+            android.util.Log.w("ShareUtil", "AI summary unavailable (${e.javaClass.simpleName}: ${e.message}), using fallback")
             limitToWords(plain, 30)
         }
     }

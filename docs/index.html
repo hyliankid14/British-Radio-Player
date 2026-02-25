@@ -721,8 +721,8 @@
             }
 
             /**
-             * Shorten description text to ~30 words using a keyless AI endpoint.
-             * Falls back to local truncation if the public endpoint is unavailable.
+             * Shorten description text to ~30 words using Vercel serverless function.
+             * Together.ai API key is stored server-side and never exposed.
              */
             async shortenTextWithAI(text) {
                 if (!text) return '';
@@ -732,23 +732,43 @@
 
                 try {
                     const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 4000);
+                    const timeoutId = setTimeout(() => controller.abort(), 8000);
 
-                    // Optimized: shorter prompt and text for faster response
-                    const prompt = `Summarize in 30 words: ${plainText.substring(0, 2000)}`;
-                    const response = await fetch(`https://text.pollinations.ai/${encodeURIComponent(prompt)}`, {
-                        method: 'GET',
-                        signal: controller.signal
+                    console.log('Calling Vercel API for summary...');
+                    const response = await fetch('https://bbc-radio-player.vercel.app/api/summarize', {
+                        method: 'POST',
+                        signal: controller.signal,
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'User-Agent': 'BBC-Radio-Player/1.0'
+                        },
+                        body: JSON.stringify({
+                            text: plainText.substring(0, 2000)
+                        })
                     });
 
                     clearTimeout(timeoutId);
+                    console.log(`Vercel API returned ${response.status}`);
 
-                    const summary = await response.text();
-                    if (summary && typeof summary === 'string' && summary.length < 500) {
+                    if (!response.ok) {
+                        console.warn(`Vercel API returned ${response.status}, using local fallback`);
+                        return this.limitToWords(plainText, 30);
+                    }
+
+                    const data = await response.json();
+                    const summary = data.summary || '';
+                    console.log(`AI response received (${summary.length} chars, cached=${data.cached})`);
+                    
+                    if (summary && typeof summary === 'string' && summary.length < 500 && summary.length > 3) {
+                        console.log('Using AI summary');
                         return this.limitToWords(summary.trim(), 30);
+                    } else {
+                        console.warn(`Response invalid or too long (${summary.length} chars), using fallback`);
+                        return this.limitToWords(plainText, 30);
                     }
                 } catch (err) {
-                    console.warn('Keyless AI shortening unavailable, using local fallback:', err?.message || err);
+                    const errType = err?.name || err?.constructor?.name || 'Unknown';
+                    console.warn(`Vercel API unavailable (${errType}): ${err?.message || ''}, using local fallback`);
                 }
 
                 return this.limitToWords(plainText, 30);
