@@ -153,8 +153,9 @@ function summarizeExtractively(text) {
     // Re-sort selected sentences by original position for coherent flow
     selectedSentences.sort((a, b) => a.index - b.index);
     
-    // Combine sentences
-    return selectedSentences.map(s => s.text).join('. ') + '.';
+    // Combine sentences, removing trailing periods before joining
+    const sentenceTexts = selectedSentences.map(s => s.text.replace(/[.!?]+$/, ''));
+    return sentenceTexts.join('. ') + '.';
 }
 
 /**
