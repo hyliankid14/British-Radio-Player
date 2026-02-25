@@ -66,19 +66,19 @@ async function summarizeWithTogetherAI(text) {
     const prompt = `Summarize in 30 words: ${cleanText}`;
 
     try {
-        const response = await fetch('https://api.together.xyz/inference', {
+        const response = await fetch('https://api.together.xyz/v1/completions', {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${apiKey}`,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                model: 'meta-llama/Llama-2-7b-chat-hf',
+                model: 'meta-llama/Meta-Llama-3-8B-Instruct-Turbo',
                 prompt: prompt,
                 max_tokens: 100,
                 temperature: 0.7,
                 top_p: 0.9,
-                top_k: 50
+                stop: ['\n\n']
             })
         });
 
@@ -91,9 +91,7 @@ async function summarizeWithTogetherAI(text) {
         
         // Extract text from response
         let summary = '';
-        if (data.output && data.output.choices && data.output.choices[0]) {
-            summary = data.output.choices[0].text.trim();
-        } else if (data.choices && data.choices[0]) {
+        if (data.choices && data.choices[0] && data.choices[0].text) {
             summary = data.choices[0].text.trim();
         } else {
             throw new Error('Unexpected response format from Together.ai');
