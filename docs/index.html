@@ -734,26 +734,15 @@
                     const controller = new AbortController();
                     const timeoutId = setTimeout(() => controller.abort(), 6000);
 
-                    const response = await fetch('https://api-inference.huggingface.co/models/sshleifer/distilbart-cnn-12-6', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            inputs: plainText,
-                            parameters: {
-                                max_length: 60,
-                                min_length: 20,
-                                do_sample: false
-                            }
-                        }),
+                    const prompt = `Summarize the following podcast description in about 30 words. Keep key details and return plain text only.\n\n${plainText}`;
+                    const response = await fetch(`https://text.pollinations.ai/${encodeURIComponent(prompt)}`, {
+                        method: 'GET',
                         signal: controller.signal
                     });
 
                     clearTimeout(timeoutId);
 
-                    const data = await response.json();
-                    const summary = data?.[0]?.summary_text || data?.summary_text || '';
+                    const summary = await response.text();
                     if (summary && typeof summary === 'string') {
                         return this.limitToWords(summary, 30);
                     }

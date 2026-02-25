@@ -78,28 +78,52 @@ object ShareUtil {
     fun shareEpisode(context: Context, episode: Episode, podcastTitle: String) {
         val shareTitle = episode.title
         val handler = Handler(Looper.getMainLooper())
-        val cleanDesc = stripHtmlTags(episode.description)
+        var cleanDesc = stripHtmlTags(episode.description)
+        var shareEpisode = episode
+        var sharePodcastTitle = podcastTitle
         
         // Shorten URL on background thread
         Thread {
             try {
+                // Try to refresh episode metadata from repository so we don't summarize stale/truncated text
+                try {
+                    val repo = PodcastRepository(context)
+                    val podcasts = kotlinx.coroutines.runBlocking { repo.fetchPodcasts(false) }
+                    val matchedPodcast = podcasts.firstOrNull { it.id == episode.podcastId }
+                    if (matchedPodcast != null) {
+                        if (sharePodcastTitle.isBlank()) sharePodcastTitle = matchedPodcast.title
+                        val episodes = kotlinx.coroutines.runBlocking { repo.fetchEpisodesIfNeeded(matchedPodcast) }
+                        val matchedEpisode = episodes.firstOrNull { ep ->
+                            ep.id == episode.id ||
+                            (ep.audioUrl.isNotEmpty() && ep.audioUrl == episode.audioUrl) ||
+                            ep.title.equals(episode.title, ignoreCase = true)
+                        }
+                        if (matchedEpisode != null) {
+                            shareEpisode = matchedEpisode
+                            cleanDesc = stripHtmlTags(matchedEpisode.description)
+                        }
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.w("ShareUtil", "Could not refresh episode details before sharing: ${e.message}")
+                }
+
                 val summaryDesc = summarizeTextWithAI(cleanDesc)
 
-                val encodedTitle = Uri.encode(episode.title)
+                val encodedTitle = Uri.encode(shareEpisode.title)
                 val encodedDesc = Uri.encode(summaryDesc)
-                val encodedImage = Uri.encode(episode.imageUrl)
-                val encodedPodcast = Uri.encode(podcastTitle)
-                val encodedPodcastId = Uri.encode(episode.podcastId)
-                val encodedAudio = Uri.encode(episode.audioUrl)
-                val encodedDate = Uri.encode(episode.pubDate)
-                val encodedDuration = Uri.encode(episode.durationMins.toString())
-                val webUrl = "$WEB_BASE_URL/#/e/${episode.id}?title=$encodedTitle&desc=$encodedDesc&img=$encodedImage&podcast=$encodedPodcast&podcastId=$encodedPodcastId&audio=$encodedAudio&date=$encodedDate&duration=$encodedDuration"
+                val encodedImage = Uri.encode(shareEpisode.imageUrl)
+                val encodedPodcast = Uri.encode(sharePodcastTitle)
+                val encodedPodcastId = Uri.encode(shareEpisode.podcastId)
+                val encodedAudio = Uri.encode(shareEpisode.audioUrl)
+                val encodedDate = Uri.encode(shareEpisode.pubDate)
+                val encodedDuration = Uri.encode(shareEpisode.durationMins.toString())
+                val webUrl = "$WEB_BASE_URL/#/e/${shareEpisode.id}?title=$encodedTitle&desc=$encodedDesc&img=$encodedImage&podcast=$encodedPodcast&podcastId=$encodedPodcastId&audio=$encodedAudio&date=$encodedDate&duration=$encodedDuration"
 
                 val shortUrl = shortenUrl(webUrl)
                 val shareMessage = buildString {
-                    append("Listen to \"${episode.title}\"")
-                    if (podcastTitle.isNotEmpty()) {
-                        append(" from $podcastTitle")
+                    append("Listen to \"${shareEpisode.title}\"")
+                    if (sharePodcastTitle.isNotEmpty()) {
+                        append(" from $sharePodcastTitle")
                     }
                     if (summaryDesc.isNotEmpty()) {
                         append(" - $summaryDesc")
@@ -196,39 +220,14 @@ object ShareUtil {
         val plain = text.replace(Regex("\\s+"), " ").trim()
 
         return try {
-            val payload = JSONObject().apply {
-                put("inputs", plain.take(4000))
-                put("parameters", JSONObject().apply {
-                    put("max_length", 60)
-                    put("min_length", 20)
-                    put("do_sample", false)
-                })
+            val prompt = buildString {
+                append("Summarize the following podcast description in about 30 words. ")
+                append("Keep key details and return plain text only.\\n\\n")
+                append(plain.take(3500))
             }
-
-            val connection = (URL("https://api-inference.huggingface.co/models/sshleifer/distilbart-cnn-12-6").openConnection() as java.net.HttpURLConnection).apply {
-                requestMethod = "POST"
-                connectTimeout = 6000
-                readTimeout = 10000
-                doOutput = true
-                setRequestProperty("Content-Type", "application/json")
-                setRequestProperty("User-Agent", "BBC Radio Player/1.0")
-            }
-
-            connection.outputStream.use { out ->
-                out.write(payload.toString().toByteArray(Charsets.UTF_8))
-            }
-
-            val responseText = (if (connection.responseCode in 200..299) connection.inputStream else connection.errorStream)
-                ?.bufferedReader()
-                ?.use { it.readText() }
-                .orEmpty()
-
-            val summary = try {
-                val arr = org.json.JSONArray(responseText)
-                arr.optJSONObject(0)?.optString("summary_text", "").orEmpty()
-            } catch (_: Exception) {
-                JSONObject(responseText).optString("summary_text", "")
-            }
+            val encodedPrompt = URLEncoder.encode(prompt, "UTF-8")
+            val responseText = URL("https://text.pollinations.ai/$encodedPrompt").readText()
+            val summary = responseText.trim()
 
             if (summary.isNotBlank()) limitToWords(summary, 30) else limitToWords(plain, 30)
         } catch (e: Exception) {
