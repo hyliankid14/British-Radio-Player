@@ -1,7 +1,7 @@
 /**
- * Vercel Serverless Function: AI Text Summarization
- * Uses OpenRouter's free Gemma model with extractive fallback
- * No API key required for free tier
+ * Vercel Serverless Function: Smart Text Summarization
+ * Uses improved extractive summarization algorithm
+ * Fast, reliable, and completely free
  */
 
 const cache = new Map();
@@ -40,8 +40,8 @@ export default async function handler(req, res) {
             return res.json({ summary: cached, cached: true });
         }
 
-        // Use AI summarization with extractive fallback
-        const summary = await summarizeWithAI(text);
+        // Use smart extractive summarization
+        const summary = summarizeExtractively(text);
         
         // Cache the result
         setCache(hash, summary);
@@ -54,51 +54,8 @@ export default async function handler(req, res) {
 }
 
 /**
- * Summarize text using free AI models via OpenRouter
- * Uses completely free models - no API key required for basic tier
- */
-async function summarizeWithAI(text) {
-    const cleanText = text.substring(0, 2000).trim();
-    
-    try {
-        // Try OpenRouter's free models first
-        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'HTTP-Referer': 'https://bbc-radio-player.vercel.app',
-                'X-Title': 'BBC Radio Player'
-            },
-            body: JSON.stringify({
-                model: 'google/gemma-2-9b-it:free',
-                messages: [{
-                    role: 'user',
-                    content: `Summarize this in exactly 30 words or less:\n\n${cleanText}`
-                }],
-                max_tokens: 100,
-                temperature: 0.7
-            })
-        });
-
-        if (response.ok) {
-            const data = await response.json();
-            if (data.choices && data.choices[0] && data.choices[0].message) {
-                const summary = data.choices[0].message.content.trim();
-                if (summary.length > 3 && summary.length < 500) {
-                    return limitToWords(summary, 30);
-                }
-            }
-        }
-    } catch (err) {
-        console.warn('OpenRouter failed, trying fallback:', err.message);
-    }
-    
-    // Fallback to extractive if AI fails
-    return summarizeExtractively(text);
-}
-
-/**
- * Simple extractive summarization (fallback)
+ * Smart extractive summarization
+ * Creates concise summaries by selecting key information
  */
 function summarizeExtractively(text) {
     const cleanText = text.substring(0, 2000).trim();
@@ -106,12 +63,16 @@ function summarizeExtractively(text) {
     // Split into sentences
     const sentences = cleanText.split(/[.!?]+/).filter(s => s.trim().length > 10);
     
-    if (sentences.length <= 2) {
+    if (sentences.length === 0) {
         return limitToWords(cleanText, 30);
     }
     
+    if (sentences.length === 1) {
+        return limitToWords(sentences[0], 30);
+    }
+    
     // Calculate word frequencies (excluding common words)
-    const stopWords = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 'could', 'may', 'might', 'must', 'can', 'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'what', 'which', 'who', 'when', 'where', 'why', 'how']);
+    const stopWords = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 'could', 'may', 'might', 'must', 'can', 'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'what', 'which', 'who', 'when', 'where', 'why', 'how', 'about', 'into', 'through', 'during', 'before', 'after', 'above', 'below', 'between', 'under', 'again', 'further', 'then', 'once']);
     
     const wordFreq = {};
     const words = cleanText.toLowerCase().match(/\b\w+\b/g) || [];
@@ -122,32 +83,56 @@ function summarizeExtractively(text) {
         }
     });
     
-    // Score sentences based on word frequency
+    // Score sentences based on important content
     const scoredSentences = sentences.map((sentence, index) => {
         const sentenceWords = sentence.toLowerCase().match(/\b\w+\b/g) || [];
-        const score = sentenceWords.reduce((sum, word) => {
-            return sum + (wordFreq[word] || 0);
-        }, 0) / sentenceWords.length;
+        const importantWords = sentenceWords.filter(w => w.length > 3 && !stopWords.has(w));
         
-        // Prefer earlier sentences slightly
-        const positionBonus = (sentences.length - index) * 0.1;
+        // Score based on frequency of important words
+        const freqScore = importantWords.reduce((sum, word) => {
+            return sum + (wordFreq[word] || 0);
+        }, 0);
+        
+        // Normalize by sentence length to favor concise sentences
+        const lengthPenalty = sentenceWords.length > 15 ? 0.7 : 1.0;
+        
+        // Strong preference for first sentence (usually contains main topic)
+        const positionBonus = index === 0 ? 3.0 : (index === 1 ? 1.5 : 0.5);
+        
+        const score = (freqScore / Math.max(importantWords.length, 1)) * lengthPenalty + positionBonus;
         
         return {
             text: sentence.trim(),
-            score: score + positionBonus,
-            index
+            score: score,
+            index,
+            wordCount: sentenceWords.length
         };
     });
     
-    // Sort by score and take top sentences
+    // Sort by score
     scoredSentences.sort((a, b) => b.score - a.score);
     
-    // Take top 2 sentences, re-order by original position
-    const topSentences = scoredSentences.slice(0, 2).sort((a, b) => a.index - b.index);
-    const summary = topSentences.map(s => s.text).join('. ') + '.';
+    // Build summary from top sentences, respecting word limit
+    let summary = '';
+    let wordCount = 0;
+    const maxWords = 30;
     
-    // Ensure it's within 30 words
-    return limitToWords(summary, 30);
+    for (const sent of scoredSentences) {
+        if (wordCount + sent.wordCount <= maxWords) {
+            summary += (summary ? ' ' : '') + sent.text + '.';
+            wordCount += sent.wordCount;
+        } else if (wordCount < maxWords) {
+            // Add partial sentence if we have room
+            const remainingWords = maxWords - wordCount;
+            const words = sent.text.split(/\s+/);
+            summary += (summary ? ' ' : '') + words.slice(0, remainingWords).join(' ') + '...';
+            break;
+        } else {
+            break;
+        }
+    }
+    
+    return summary || limitToWords(sentences[0], 30);
 }
 
 /**
