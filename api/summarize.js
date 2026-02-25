@@ -1,7 +1,7 @@
 /**
- * Vercel Serverless Function: Text Summarization
- * Uses extractive summarization (no external API needed)
- * Fast, reliable, and completely free
+ * Vercel Serverless Function: AI Text Summarization
+ * Uses OpenRouter's free Gemma model with extractive fallback
+ * No API key required for free tier
  */
 
 const cache = new Map();
@@ -40,8 +40,8 @@ export default async function handler(req, res) {
             return res.json({ summary: cached, cached: true });
         }
 
-        // Use extractive summarization (no external API needed)
-        const summary = summarizeExtractively(text);
+        // Use AI summarization with extractive fallback
+        const summary = await summarizeWithAI(text);
         
         // Cache the result
         setCache(hash, summary);
@@ -54,8 +54,51 @@ export default async function handler(req, res) {
 }
 
 /**
- * Simple extractive summarization (no external API needed)
- * Selects the most important sentences based on word frequency
+ * Summarize text using free AI models via OpenRouter
+ * Uses completely free models - no API key required for basic tier
+ */
+async function summarizeWithAI(text) {
+    const cleanText = text.substring(0, 2000).trim();
+    
+    try {
+        // Try OpenRouter's free models first
+        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'HTTP-Referer': 'https://bbc-radio-player.vercel.app',
+                'X-Title': 'BBC Radio Player'
+            },
+            body: JSON.stringify({
+                model: 'google/gemma-2-9b-it:free',
+                messages: [{
+                    role: 'user',
+                    content: `Summarize this in exactly 30 words or less:\n\n${cleanText}`
+                }],
+                max_tokens: 100,
+                temperature: 0.7
+            })
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            if (data.choices && data.choices[0] && data.choices[0].message) {
+                const summary = data.choices[0].message.content.trim();
+                if (summary.length > 3 && summary.length < 500) {
+                    return limitToWords(summary, 30);
+                }
+            }
+        }
+    } catch (err) {
+        console.warn('OpenRouter failed, trying fallback:', err.message);
+    }
+    
+    // Fallback to extractive if AI fails
+    return summarizeExtractively(text);
+}
+
+/**
+ * Simple extractive summarization (fallback)
  */
 function summarizeExtractively(text) {
     const cleanText = text.substring(0, 2000).trim();
