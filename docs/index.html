@@ -597,13 +597,41 @@
                 }, 500);
             }
 
-            copyShareLink(type) {
+            async copyShareLink(type) {
                 const button = event?.target || document.querySelector('[onclick*="copyShareLink"]');
                 const originalText = button?.innerHTML || '🔗 Copy Link';
                 if (button) button.innerHTML = '🔗 Shortening...';
-                
-                const url = window.location.href;
-                this.shortenUrl(url).then(shortUrl => {
+
+                // Build a share URL manually so we can shorten any long description
+                let shareUrl = window.location.origin + window.location.pathname;
+                const hash = window.location.hash;
+                const [route] = hash.split('?'); // e.g. "#/p/id"
+                shareUrl += route;
+
+                const params = new URLSearchParams();
+                const content = this.currentContent || {};
+                if (content.title) params.set('title', content.title);
+                if (content.description) {
+                    try {
+                        const shortDesc = await this.shortenTextWithAI(content.description);
+                        params.set('desc', shortDesc);
+                    } catch (aiErr) {
+                        console.warn('AI shorten failed, using original description', aiErr);
+                        params.set('desc', content.description);
+                    }
+                }
+                if (content.imageUrl) params.set('img', content.imageUrl);
+                if (content.rssUrl) params.set('rss', content.rssUrl);
+                if (content.podcastTitle) params.set('podcast', content.podcastTitle);
+                if (content.audioUrl) params.set('audio', content.audioUrl);
+                if (content.pubDate) params.set('date', content.pubDate);
+                if (content.durationMins) params.set('duration', content.durationMins);
+
+                if ([...params].length > 0) {
+                    shareUrl += '?' + params.toString();
+                }
+
+                this.shortenUrl(shareUrl).then(shortUrl => {
                     navigator.clipboard.writeText(shortUrl).then(() => {
                         if (button) {
                             button.innerHTML = '✅ Copied!';
@@ -618,7 +646,7 @@
                 }).catch(error => {
                     console.error('Failed to shorten URL:', error);
                     // Fallback: copy full URL
-                    navigator.clipboard.writeText(url).then(() => {
+                    navigator.clipboard.writeText(shareUrl).then(() => {
                         if (button) {
                             button.innerHTML = '✅ Copied (full link)';
                             setTimeout(() => {
@@ -655,6 +683,56 @@
             searchPodcast(title) {
                 const query = encodeURIComponent(title);
                 window.open(`https://open.spotify.com/search/${query}`, '_blank');
+            }
+
+            /**
+             * Shorten description text to ~30 words using a keyless AI endpoint.
+             * Falls back to local truncation if the public endpoint is unavailable.
+             */
+            async shortenTextWithAI(text) {
+                if (!text) return '';
+
+                const plainText = this.stripHtml(text).replace(/\s+/g, ' ').trim();
+                if (!plainText) return '';
+
+                try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+                    const response = await fetch('https://api-inference.huggingface.co/models/sshleifer/distilbart-cnn-12-6', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            inputs: plainText,
+                            parameters: {
+                                max_length: 60,
+                                min_length: 20,
+                                do_sample: false
+                            }
+                        }),
+                        signal: controller.signal
+                    });
+
+                    clearTimeout(timeoutId);
+
+                    const data = await response.json();
+                    const summary = data?.[0]?.summary_text || data?.summary_text || '';
+                    if (summary && typeof summary === 'string') {
+                        return this.limitToWords(summary, 30);
+                    }
+                } catch (err) {
+                    console.warn('Keyless AI shortening unavailable, using local fallback:', err?.message || err);
+                }
+
+                return this.limitToWords(plainText, 30);
+            }
+
+            limitToWords(text, maxWords) {
+                const words = String(text || '').trim().split(/\s+/).filter(Boolean);
+                if (words.length <= maxWords) return words.join(' ');
+                return words.slice(0, maxWords).join(' ') + '...';
             }
 
             async loadPodcastFromRSS(rssUrl, id) {
