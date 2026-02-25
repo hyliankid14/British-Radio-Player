@@ -61,7 +61,7 @@ async function summarizeWithHuggingFace(text) {
     const prompt = `Summarize in 30 words: ${cleanText}`;
 
     try {
-        const response = await fetch('https://api-inference.huggingface.co/models/facebook/bart-large-cnn', {
+        const response = await fetch('https://router.huggingface.co/models/facebook/bart-large-cnn', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
