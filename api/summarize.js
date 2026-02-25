@@ -1,6 +1,7 @@
 /**
- * Vercel Serverless Function: AI Text Summarization
- * Uses Hugging Face Inference API (completely free, no API key required)
+ * Vercel Serverless Function: Text Summarization
+ * Uses extractive summarization (no external API needed)
+ * Fast, reliable, and completely free
  */
 
 const cache = new Map();
@@ -39,8 +40,8 @@ export default async function handler(req, res) {
             return res.json({ summary: cached, cached: true });
         }
 
-        // Call Hugging Face API
-        const summary = await summarizeWithHuggingFace(text);
+        // Use extractive summarization (no external API needed)
+        const summary = summarizeExtractively(text);
         
         // Cache the result
         setCache(hash, summary);
@@ -53,60 +54,57 @@ export default async function handler(req, res) {
 }
 
 /**
- * Summarize text using Hugging Face Inference API (completely free)
+ * Simple extractive summarization (no external API needed)
+ * Selects the most important sentences based on word frequency
  */
-async function summarizeWithHuggingFace(text) {
-    // Using public inference API - no API key required for rate-limited access
+function summarizeExtractively(text) {
     const cleanText = text.substring(0, 2000).trim();
-    const prompt = `Summarize in 30 words: ${cleanText}`;
-
-    try {
-        const response = await fetch('https://router.huggingface.co/models/facebook/bart-large-cnn', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                inputs: cleanText,
-                parameters: {
-                    max_length: 100,
-                    min_length: 20,
-                    do_sample: false
-                }
-            })
-        });
-
-        if (!response.ok) {
-            const errorData = await response.text();
-            throw new Error(`Hugging Face API error: ${response.status} - ${errorData}`);
-        }
-
-        const data = await response.json();
-        
-        // Extract text from response
-        let summary = '';
-        if (Array.isArray(data) && data[0] && data[0].summary_text) {
-            summary = data[0].summary_text.trim();
-        } else if (data.summary_text) {
-            summary = data.summary_text.trim();
-        } else {
-            throw new Error('Unexpected response format from Hugging Face');
-        }
-
-        // Validate response
-        if (!summary || summary.length < 3) {
-            throw new Error('Empty or invalid response from Hugging Face');
-        }
-
-        if (summary.length > 500) {
-            summary = limitToWords(summary, 30);
-        }
-
-        return summary;
-    } catch (error) {
-        console.error('Hugging Face API error:', error);
-        throw error;
+    
+    // Split into sentences
+    const sentences = cleanText.split(/[.!?]+/).filter(s => s.trim().length > 10);
+    
+    if (sentences.length <= 2) {
+        return limitToWords(cleanText, 30);
     }
+    
+    // Calculate word frequencies (excluding common words)
+    const stopWords = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 'could', 'may', 'might', 'must', 'can', 'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'what', 'which', 'who', 'when', 'where', 'why', 'how']);
+    
+    const wordFreq = {};
+    const words = cleanText.toLowerCase().match(/\b\w+\b/g) || [];
+    
+    words.forEach(word => {
+        if (word.length > 3 && !stopWords.has(word)) {
+            wordFreq[word] = (wordFreq[word] || 0) + 1;
+        }
+    });
+    
+    // Score sentences based on word frequency
+    const scoredSentences = sentences.map((sentence, index) => {
+        const sentenceWords = sentence.toLowerCase().match(/\b\w+\b/g) || [];
+        const score = sentenceWords.reduce((sum, word) => {
+            return sum + (wordFreq[word] || 0);
+        }, 0) / sentenceWords.length;
+        
+        // Prefer earlier sentences slightly
+        const positionBonus = (sentences.length - index) * 0.1;
+        
+        return {
+            text: sentence.trim(),
+            score: score + positionBonus,
+            index
+        };
+    });
+    
+    // Sort by score and take top sentences
+    scoredSentences.sort((a, b) => b.score - a.score);
+    
+    // Take top 2 sentences, re-order by original position
+    const topSentences = scoredSentences.slice(0, 2).sort((a, b) => a.index - b.index);
+    const summary = topSentences.map(s => s.text).join('. ') + '.';
+    
+    // Ensure it's within 30 words
+    return limitToWords(summary, 30);
 }
 
 /**
