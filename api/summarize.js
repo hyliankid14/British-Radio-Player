@@ -155,7 +155,13 @@ function summarizeExtractively(text) {
     
     // Combine sentences, removing trailing periods before joining
     const sentenceTexts = selectedSentences.map(s => s.text.replace(/[.!?]+$/, ''));
-    return sentenceTexts.join('. ') + '.';
+    const combined = sentenceTexts.join('. ');
+    
+    // Check if last word is an email or URL - if so, don't add final period
+    const lastWord = combined.split(/\s+/).pop() || '';
+    const hasEmailOrUrl = lastWord.includes('@') || lastWord.includes('://') || lastWord.includes('www.');
+    
+    return hasEmailOrUrl ? combined : combined + '.';
 }
 
 /**
