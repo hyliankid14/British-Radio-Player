@@ -683,7 +683,7 @@ When you disable analytics:
             
 We never sell or share your data with third parties.
             
-Source code: github.com/shaivure/Android-Auto-Radio-Player""".trimIndent()
+Source code: github.com/hyliankid14/BBC-Radio-Player""".trimIndent()
         
         androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle("Privacy Policy")
