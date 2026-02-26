@@ -13,11 +13,25 @@ object LanguageDetector {
     private val englishStopwords = setOf(
         "the", "and", "to", "of", "a", "in", "is", "for", "on", "with", "that", "this", "it", "as", "are", "was", "be", "by", "or"
     )
+    private val nonEnglishSignals = setOf(
+        "der", "die", "das", "und", "nicht", "ein", "eine", // de
+        "le", "la", "les", "des", "une", "est", "dans", "pas", // fr
+        "el", "los", "las", "una", "uno", "que", "con", "para", // es
+        "il", "gli", "che", "non", "per", "una", "della", // it
+        "het", "een", "van", "niet", // nl
+        "não", "uma", "com", "para", "dos", "das", // pt
+        "και", "του", "της", "στη", // el
+        "это", "как", "для", "что", "или", "это", // ru
+        "的", "了", "在", "是", "我", "你", // zh
+        "の", "に", "は", "を", "です", // ja
+        "이", "가", "은", "는", "을", "를" // ko
+    )
+    private val knownEnglishLanguageCodes = setOf("en", "en-gb", "en-us", "en-au", "en-ca", "eng")
 
     // In-memory cache for fast checks; persisted cache lives in SharedPreferences to survive restarts.
     private val memoryCache: MutableMap<String, Pair<Boolean, Long>> = mutableMapOf()
     private const val CACHE_TTL_MS = 24 * 60 * 60 * 1000L // 24 hours
-    private const val PREFS_NAME = "language_detector_cache_v2"
+    private const val PREFS_NAME = "language_detector_cache_v3"
 
     fun isLikelyEnglish(text: String?): Boolean {
         if (text.isNullOrBlank()) return false
@@ -34,7 +48,9 @@ object LanguageDetector {
             val letters = norm.replace(Regex("[^\\p{L}]+"), "")
             if (letters.isEmpty()) return false
             val latinCount = letters.count { it in 'a'..'z' || it in 'A'..'Z' }
-            return latinCount.toDouble() / letters.length.toDouble() >= 0.8
+            val latinRatio = latinCount.toDouble() / letters.length.toDouble()
+            val hasEnglishSignal = norm.split(' ').any { englishStopwords.contains(it) }
+            return latinRatio >= 0.9 && hasEnglishSignal
         }
 
         val tokens = norm.split(' ').filter { it.isNotBlank() }
@@ -43,6 +59,8 @@ object LanguageDetector {
 
         val stopwordMatches = tokens.count { englishStopwords.contains(it) }
         val stopwordRatio = stopwordMatches.toDouble() / tokenCount.toDouble()
+        val nonEnglishMatches = tokens.count { nonEnglishSignals.contains(it) }
+        val nonEnglishRatio = nonEnglishMatches.toDouble() / tokenCount.toDouble()
 
         // Latin script ratio (counts letters in Latin Unicode block)
         val lettersOnly = norm.replace(Regex("[^\\p{L}]+"), "")
@@ -50,7 +68,8 @@ object LanguageDetector {
         val latinRatio = if (lettersOnly.isEmpty()) 0.0 else latinLetters.toDouble() / lettersOnly.length.toDouble()
 
         // Heuristic: require a reasonable latin script presence and some English stopwords
-        return (latinRatio >= 0.7 && stopwordRatio >= 0.06) || latinRatio >= 0.9 || stopwordRatio >= 0.12
+        if (nonEnglishRatio >= 0.08 && stopwordRatio < 0.12) return false
+        return (latinRatio >= 0.75 && stopwordRatio >= 0.08) || (latinRatio >= 0.92 && stopwordRatio >= 0.05) || stopwordRatio >= 0.14
     }
 
     // Use ML Kit when available (on-device) for stronger detection. This is suspend and intended to be called
@@ -69,7 +88,7 @@ object LanguageDetector {
             val (rssLang, samples) = fetchRssLanguageAndSamples(podcast.rssUrl)
             if (rssLang != null) {
                 val lang = rssLang.trim().lowercase()
-                val result = lang.startsWith("en")
+                val result = knownEnglishLanguageCodes.contains(lang) || lang.startsWith("en-")
                 Log.d("LanguageDetector", "RSS <language>='$lang' for podcast key=$key -> english=$result")
                 putCachedResult(context, key, result)
                 return result
@@ -81,7 +100,7 @@ object LanguageDetector {
                 val votes = nonEmptySamples.map { isLikelyEnglish(it) }
                 val yes = votes.count { it }
                 val ratio = yes.toDouble() / votes.size.toDouble()
-                val result = ratio >= 0.5
+                val result = yes >= 2 && ratio >= 0.67
                 Log.d("LanguageDetector", "Heuristic sample vote for key=$key -> yes=$yes total=${votes.size} ratio=$ratio english=$result")
                 putCachedResult(context, key, result)
                 return result
@@ -91,7 +110,7 @@ object LanguageDetector {
         }
 
         // Final fallback to the original title+description heuristic
-        val final = if (heading.length < 20) true else isLikelyEnglish(heading)
+        val final = isLikelyEnglish(heading)
         putCachedResult(context, key, final)
         return final
     }
