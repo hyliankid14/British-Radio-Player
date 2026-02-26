@@ -85,7 +85,8 @@ class BackgroundIndexWorker(
                 .setConstraints(
                     Constraints.Builder()
                         .setRequiredNetworkType(NetworkType.CONNECTED)
-                        .setRequiresBatteryNotLow(true)
+                        // Removed setRequiresBatteryNotLow to ensure more reliable execution
+                        // Indexing is lightweight enough to run even on low battery
                         .build()
                 )
                 .addTag(WORK_NAME_SCHEDULED)
