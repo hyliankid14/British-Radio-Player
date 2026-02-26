@@ -15,20 +15,25 @@
         app:titleTextColor="?attr/colorOnSurface"
         android:elevation="4dp" />
 
-    <!-- Scrollable content containing search, filters, and list -->
-    <androidx.core.widget.NestedScrollView
-        android:id="@+id/podcasts_scroll_view"
+    <!-- Content area where the header can scroll away with the list -->
+    <androidx.coordinatorlayout.widget.CoordinatorLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:layout_marginTop="?attr/actionBarSize"
-        android:fillViewport="true">
+        android:background="?attr/colorSurfaceContainer">
 
-        <LinearLayout
-            android:id="@+id/podcasts_content"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:background="?attr/colorSurfaceContainer"
-            android:orientation="vertical">
+            <com.google.android.material.appbar.AppBarLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="?attr/colorSurfaceContainer"
+                app:elevation="0dp">
+
+                <LinearLayout
+                    android:id="@+id/podcasts_content"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    app:layout_scrollFlags="scroll|enterAlways">
 
             <!-- Search App Bar (Material 3 style) -->
             <com.google.android.material.appbar.MaterialToolbar
@@ -315,18 +320,21 @@
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
+                </LinearLayout>
+            </com.google.android.material.appbar.AppBarLayout>
+
             <!-- Podcasts RecyclerView (primary scroller) -->
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/podcasts_recycler"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:nestedScrollingEnabled="false"
+                android:layout_height="match_parent"
+                android:nestedScrollingEnabled="true"
                 android:scrollbars="vertical"
                 android:paddingBottom="96dp"
                 android:clipToPadding="false"
-                android:background="?attr/colorSurface" />
-        </LinearLayout>
-    </androidx.core.widget.NestedScrollView>
+                android:background="?attr/colorSurface"
+                app:layout_behavior="@string/appbar_scrolling_view_behavior" />
+    </androidx.coordinatorlayout.widget.CoordinatorLayout>
 
     <!-- Loading Indicator (overlays center) -->
     <ProgressBar

@@ -19,7 +19,7 @@ import androidx.core.content.ContextCompat
 
 class PodcastAdapter(
     private val context: Context,
-    private var podcasts: List<Podcast> = emptyList(),
+    private var podcasts: MutableList<Podcast> = mutableListOf(),
     private val onPodcastClick: (Podcast) -> Unit,
     private val onOpenPlayer: (() -> Unit)? = null,
     private val highlightSubscribed: Boolean = false,
@@ -43,14 +43,17 @@ class PodcastAdapter(
     }
 
     fun updatePodcasts(newPodcasts: List<Podcast>) {
-        podcasts = newPodcasts
+        podcasts.clear()
+        podcasts.addAll(newPodcasts)
         refreshSubscriptionCache()
         notifyDataSetChanged()
     }
 
     fun addPodcasts(newPodcasts: List<Podcast>) {
-        podcasts = podcasts + newPodcasts
-        notifyDataSetChanged()
+        if (newPodcasts.isEmpty()) return
+        val oldSize = podcasts.size
+        podcasts.addAll(newPodcasts)
+        notifyItemRangeInserted(oldSize, newPodcasts.size)
     }
 
     fun updateNewEpisodes(newSet: Set<String>) {
@@ -72,9 +75,7 @@ class PodcastAdapter(
     fun removePodcastAt(pos: Int): Podcast? {
         return if (pos in podcasts.indices) {
             val removed = podcasts[pos]
-            val mutable = podcasts.toMutableList()
-            mutable.removeAt(pos)
-            podcasts = mutable
+            podcasts.removeAt(pos)
             notifyItemRemoved(pos)
             removed
         } else null
@@ -84,10 +85,8 @@ class PodcastAdapter(
      * Insert a podcast at the specified adapter position (clamped) and notify.
      */
     fun insertPodcastAt(pos: Int, podcast: Podcast) {
-        val mutable = podcasts.toMutableList()
-        val insertPos = pos.coerceIn(0, mutable.size)
-        mutable.add(insertPos, podcast)
-        podcasts = mutable
+        val insertPos = pos.coerceIn(0, podcasts.size)
+        podcasts.add(insertPos, podcast)
         notifyItemInserted(insertPos)
     }
 
@@ -182,6 +181,7 @@ class PodcastAdapter(
             if (podcast.imageUrl.isNotEmpty()) {
                 Glide.with(itemView.context)
                     .load(podcast.imageUrl)
+                    .dontAnimate()
                     .into(imageView)
             }
             

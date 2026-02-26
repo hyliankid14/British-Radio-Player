@@ -210,7 +210,7 @@ class PodcastsFragment : Fragment() {
     }
 
     // Pagination / lazy-loading state
-    private val pageSize = 20
+    private val pageSize = 15
     private var currentPage = 0
     private var isLoadingPage = false
     private var filteredList: List<Podcast> = emptyList()
@@ -512,6 +512,7 @@ class PodcastsFragment : Fragment() {
 
         recyclerView.layoutManager = LinearLayoutManager(requireContext())
         podcastAdapter = PodcastAdapter(requireContext(), onPodcastClick = { podcast -> onPodcastClicked(podcast) }, showNotificationBell = false)
+        recyclerView.itemAnimator = null
 
         // Shuffle helper: open episodes page for a random podcast
         fun shuffleAndOpenRandomPodcastLocal() { shuffleAndOpenRandomPodcast() }
@@ -595,39 +596,34 @@ class PodcastsFragment : Fragment() {
             filtersContainer.visibility = if (filtersContainer.visibility == View.VISIBLE) View.GONE else View.VISIBLE
         }
 
-        // Show a FAB when the user scrolls and implement lazy loading when the user nears the end of the list.
+        // Show a FAB when the user scrolls and implement lazy loading near list end.
         val fab: com.google.android.material.floatingactionbutton.FloatingActionButton? = view.findViewById(R.id.scroll_to_top_fab)
-        val scrollView: androidx.core.widget.NestedScrollView = view.findViewById(R.id.podcasts_scroll_view)
         val recyclerViewForScroll: RecyclerView = view.findViewById(R.id.podcasts_recycler)
-
-        // Disable nested scrolling on RecyclerView so it works within NestedScrollView
-        recyclerViewForScroll.isNestedScrollingEnabled = false
 
         // Prevent navbar from resizing when keyboard opens while in this fragment
         val previousSoftInputMode = requireActivity().window.attributes.softInputMode
         requireActivity().window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
 
-        // Simple scroll listener for FAB visibility and pagination
-        scrollView.setOnScrollChangeListener { _, _, scrollY, _, _ ->
-            // Show/hide FAB based on scroll position
-            val dp200 = (200 * resources.displayMetrics.density).toInt()
-            if (scrollY > dp200) fab?.visibility = View.VISIBLE else fab?.visibility = View.GONE
+        // Recycler-native scroll listener for FAB visibility and pagination
+        recyclerViewForScroll.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+                super.onScrolled(recyclerView, dx, dy)
+                val layoutManager = recyclerView.layoutManager as? LinearLayoutManager ?: return
 
-            // Trigger loading of next page when near the bottom
-            val child = scrollView.getChildAt(0)
-            if (child != null) {
-                val diff = child.measuredHeight - (scrollView.height + scrollY)
-                // Load next page when within ~600px of bottom
-                if (diff <= 600 && !isLoadingPage) {
-                    val layoutManager = recyclerViewForScroll.layoutManager as? LinearLayoutManager ?: return@setOnScrollChangeListener
-                    val total = layoutManager.itemCount
-                    // Only load if we have items and haven't reached the end
-                    if (total > 0) {
-                        loadNextPage()
-                    }
+                // Show/hide FAB based on vertical offset in the RecyclerView
+                val verticalOffset = recyclerView.computeVerticalScrollOffset()
+                val dp200 = (200 * resources.displayMetrics.density).toInt()
+                if (verticalOffset > dp200) fab?.visibility = View.VISIBLE else fab?.visibility = View.GONE
+
+                if (isLoadingPage) return
+                val total = layoutManager.itemCount
+                if (total <= 0) return
+                val lastVisible = layoutManager.findLastVisibleItemPosition()
+                if (lastVisible >= total - 5) {
+                    loadNextPage()
                 }
             }
-        }
+        })
 
         // Restore previous mode when view is destroyed
         viewLifecycleOwner.lifecycle.addObserver(object : androidx.lifecycle.LifecycleEventObserver {
@@ -643,10 +639,10 @@ class PodcastsFragment : Fragment() {
             }
         })
 
-        // FAB scrolls to top quickly and stops any momentum scrolling
-        fab?.setOnClickListener { 
-            // smoothScrollTo automatically cancels any ongoing fling animation
-            scrollView.smoothScrollTo(0, 0)
+        // FAB jumps the list back to top immediately
+        fab?.setOnClickListener {
+            recyclerViewForScroll.stopScroll()
+            recyclerViewForScroll.scrollToPosition(0)
         }
 
         // Fast restore: if we already have cached data in the ViewModel, reuse it to avoid UI flicker
