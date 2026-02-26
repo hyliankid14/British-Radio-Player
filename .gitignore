@@ -32,5 +32,6 @@ ANALYTICS_SETUP_GUIDE.md
 # Python cache artifacts
 __pycache__/
 *.pyc
-/api/analytics.db
+
+# Local analytics database (should not be committed)
 api/analytics.db
