@@ -247,14 +247,14 @@ def get_stats():
         ''', params)
         popular_stations = [dict(row) for row in c.fetchall()]
 
-        # Most popular podcasts
+        # Most popular podcasts (app + web player)
         c.execute(f'''
             SELECT
                 podcast_id AS id,
                 COALESCE(NULLIF(MAX(podcast_title), ''), podcast_id) AS name,
                 COUNT(*) as plays
             FROM events
-            WHERE event_type = 'episode_play'
+            WHERE (event_type IN ('episode_play', 'web_player_podcast_view', 'web_player_episode_view', 'web_player_audio_play'))
             {date_filter}
             AND podcast_id IS NOT NULL
             GROUP BY podcast_id
@@ -263,7 +263,7 @@ def get_stats():
         ''', params)
         popular_podcasts = [dict(row) for row in c.fetchall()]
 
-        # Most popular episodes
+        # Most popular episodes (app + web player)
         c.execute(f'''
             SELECT
                 episode_id AS id,
@@ -272,7 +272,7 @@ def get_stats():
                 COALESCE(NULLIF(MAX(podcast_title), ''), podcast_id) AS podcast_name,
                 COUNT(*) as plays
             FROM events
-            WHERE event_type = 'episode_play'
+            WHERE (event_type IN ('episode_play', 'web_player_episode_view', 'web_player_audio_play'))
             {date_filter}
             AND episode_id IS NOT NULL
             GROUP BY episode_id, podcast_id
