@@ -86,6 +86,9 @@ class RadioService : MediaBrowserServiceCompat() {
     private var isSubtitleCycling: Boolean = false
     private val SUBTITLE_CYCLE_MS: Long = 6_000L // slow cycle (6s) — adjust if needed
 
+    // Delayed analytics tracking for stations (only count after 10s of playback)
+    private var stationAnalyticsRunnable: Runnable? = null
+
     private var notificationHadProgress: Boolean = false
     private var isStopped: Boolean = false
     // Track last-saved progress per episode to avoid excessive writes
@@ -1353,9 +1356,16 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
             return
         }
 
-        serviceScope.launch(Dispatchers.IO) {
-            PrivacyAnalytics(this@RadioService).trackStationPlay(station.id, station.title)
+        // Cancel any pending station analytics from previous playback
+        stationAnalyticsRunnable?.let { handler.removeCallbacks(it) }
+        
+        // Schedule station analytics to fire after 10 seconds of continuous playback
+        stationAnalyticsRunnable = Runnable {
+            serviceScope.launch(Dispatchers.IO) {
+                PrivacyAnalytics(this@RadioService).trackStationPlay(station.id, station.title)
+            }
         }
+        handler.postDelayed(stationAnalyticsRunnable!!, 10_000L)
 
         PlaybackPreference.setLastStationId(this, station.id)
         
@@ -1901,6 +1911,8 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
         // Cancel show refresh
         showInfoRefreshRunnable?.let { handler.removeCallbacks(it) }
         podcastProgressRunnable?.let { handler.removeCallbacks(it) }
+        // Cancel pending station analytics (user stopped before 10s threshold)
+        stationAnalyticsRunnable?.let { handler.removeCallbacks(it); stationAnalyticsRunnable = null }
         // Stop subtitle cycler
         subtitleCycleRunnable?.let { handler.removeCallbacks(it); subtitleCycleRunnable = null; isSubtitleCycling = false }
         // Cancel any pending delayed Now Playing update
@@ -2007,11 +2019,6 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                 serviceId = "podcast",
                 logoUrl = podcastImage
             )
-
-            serviceScope.launch(Dispatchers.IO) {
-                val analytics = PrivacyAnalytics(this@RadioService)
-                analytics.trackEpisodePlay(episode.podcastId, episode.id, episode.title, podcastTitle)
-            }
 
             // Update playback helper & state
             currentStationId = syntheticStation.id
@@ -2132,6 +2139,12 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                 } else {
                     // Ensure we seek to start explicitly when resumePos == 0 so playback origin is deterministic
                     seekTo(0L)
+                    
+                    // Track episode play analytics only when starting from beginning (first play or replay)
+                    serviceScope.launch(Dispatchers.IO) {
+                        val analytics = PrivacyAnalytics(this@RadioService)
+                        analytics.trackEpisodePlay(episode.podcastId, episode.id, episode.title, podcastTitle)
+                    }
                 }
             }
             // Ensure MediaSession metadata contains the podcast artwork URI immediately so UI/mini-player
@@ -2566,6 +2579,9 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
     }
 
     override fun onDestroy() {
+        // Cancel any pending station analytics
+        stationAnalyticsRunnable?.let { handler.removeCallbacks(it); stationAnalyticsRunnable = null }
+        
         player?.release()
         mediaSession.release()
         serviceScope.cancel()
