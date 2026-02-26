@@ -28,9 +28,23 @@ class PodcastAdapter(
 ) : RecyclerView.Adapter<PodcastAdapter.PodcastViewHolder>() {
 
     private var newEpisodeIds: Set<String> = emptySet()
+    
+    // Cache subscription and notification status to avoid repeated SharedPreferences reads
+    private var subscribedIds: Set<String> = emptySet()
+    private var notificationsEnabledIds: Set<String> = emptySet()
+    
+    init {
+        refreshSubscriptionCache()
+    }
+    
+    private fun refreshSubscriptionCache() {
+        subscribedIds = PodcastSubscriptions.getSubscribedIds(context)
+        notificationsEnabledIds = PodcastSubscriptions.getNotificationsEnabledIds(context)
+    }
 
     fun updatePodcasts(newPodcasts: List<Podcast>) {
         podcasts = newPodcasts
+        refreshSubscriptionCache()
         notifyDataSetChanged()
     }
 
@@ -41,6 +55,14 @@ class PodcastAdapter(
 
     fun updateNewEpisodes(newSet: Set<String>) {
         newEpisodeIds = newSet
+        notifyDataSetChanged()
+    }
+    
+    /**
+     * Refresh the cached subscription status. Call this when subscriptions or notifications change.
+     */
+    fun refreshCache() {
+        refreshSubscriptionCache()
         notifyDataSetChanged()
     }
 
@@ -132,19 +154,21 @@ class PodcastAdapter(
                 if (pos != RecyclerView.NO_POSITION && pos < this@PodcastAdapter.podcasts.size) {
                     val podcast = this@PodcastAdapter.podcasts[pos]
                     PodcastSubscriptions.toggleNotifications(itemView.context, podcast.id)
-                    updateBellIcon(podcast.id)
+                    refreshSubscriptionCache()
                     
                     // Show feedback
-                    val enabled = PodcastSubscriptions.isNotificationsEnabled(itemView.context, podcast.id)
+                    val enabled = notificationsEnabledIds.contains(podcast.id)
                     val msg = if (enabled) "Notifications enabled for ${podcast.title}" 
                              else "Notifications disabled for ${podcast.title}"
                     android.widget.Toast.makeText(itemView.context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                    
+                    updateBellIcon(podcast.id)
                 }
             }
         }
         
         private fun updateBellIcon(podcastId: String) {
-            val enabled = PodcastSubscriptions.isNotificationsEnabled(itemView.context, podcastId)
+            val enabled = notificationsEnabledIds.contains(podcastId)
             val iconRes = if (enabled) R.drawable.ic_notifications else R.drawable.ic_notifications_off
             notificationBell.setImageResource(iconRes)
         }
@@ -160,10 +184,13 @@ class PodcastAdapter(
                     .load(podcast.imageUrl)
                     .into(imageView)
             }
+            
+            // Use cached subscription status instead of SharedPreferences lookups
+            val isSubscribed = subscribedIds.contains(podcast.id)
 
             // Show a filled star for subscribed podcasts in the main list
             val subscribedIcon: ImageView? = itemView.findViewById(R.id.podcast_subscribed_icon)
-            if (showSubscribedIcon && PodcastSubscriptions.isSubscribed(itemView.context, podcast.id)) {
+            if (showSubscribedIcon && isSubscribed) {
                 subscribedIcon?.setImageResource(R.drawable.ic_star_filled)
                 subscribedIcon?.visibility = View.VISIBLE
             } else {
@@ -171,7 +198,7 @@ class PodcastAdapter(
             }
 
             // Show notification bell only for subscribed podcasts when enabled
-            if (showNotificationBell && PodcastSubscriptions.isSubscribed(itemView.context, podcast.id)) {
+            if (showNotificationBell && isSubscribed) {
                 notificationBell.visibility = View.VISIBLE
                 updateBellIcon(podcast.id)
             } else {
@@ -188,7 +215,7 @@ class PodcastAdapter(
 
             // Highlight subscribed podcasts when used in the Favorites list using fixed lavender color
             if ((itemView.context as? android.app.Activity) != null && (bindingAdapterPosition >= 0)) {
-                if (highlightSubscribed && PodcastSubscriptions.isSubscribed(itemView.context, podcast.id)) {
+                if (highlightSubscribed && isSubscribed) {
                     val bg = androidx.core.content.ContextCompat.getColor(itemView.context, R.color.subscribed_podcasts_bg)
                     val on = androidx.core.content.ContextCompat.getColor(itemView.context, R.color.subscribed_podcasts_text)
                     itemView.setBackgroundColor(bg)

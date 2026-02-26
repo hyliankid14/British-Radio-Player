@@ -15,6 +15,10 @@ object PodcastSubscriptions {
     fun getSubscribedIds(context: Context): Set<String> {
         return prefs(context).getStringSet(KEY_SUBSCRIBED_IDS, emptySet()) ?: emptySet()
     }
+    
+    fun getNotificationsEnabledIds(context: Context): Set<String> {
+        return prefs(context).getStringSet(KEY_NOTIFICATIONS_ENABLED, emptySet()) ?: emptySet()
+    }
 
     fun isSubscribed(context: Context, podcastId: String): Boolean {
         return getSubscribedIds(context).contains(podcastId)

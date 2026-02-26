@@ -911,6 +911,9 @@ class PodcastsFragment : Fragment() {
         super.onResume()
         android.util.Log.d("PodcastsFragment", "onResume: activeSearchQuery='${viewModel.activeSearchQuery.value}' searchQuery='${searchQuery}' allPodcasts.size=${allPodcasts.size}")
         
+        // Refresh the adapter's subscription cache to reflect any changes
+        podcastAdapter.refreshCache()
+        
         // Super fast-path: if we have a cached adapter from before view destruction, restore it immediately
         val rv = view?.findViewById<RecyclerView>(R.id.podcasts_recycler)
         if (cachedSearchAdapter != null && rv != null) {
