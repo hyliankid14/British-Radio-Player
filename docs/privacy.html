@@ -134,14 +134,14 @@
             <p>BBC Radio Player takes your privacy seriously. This policy explains what analytics data we collect, how we use it, and your rights.</p>
 
             <div class="highlight">
-                <strong>TL;DR:</strong> We collect zero personal data. No names, emails, or identifying information. We only track which content is popular to help us improve the app.
+                <strong>TL;DR:</strong> We collect zero personal data. No names, emails, device IDs, or IP addresses. We only track which content is played and when, to help us improve the app.
             </div>
 
             <h2>What We Collect</h2>
             <p>When you enable analytics, we collect the following anonymous data:</p>
             <ul>
                 <li><strong>Content viewed:</strong> Which stations, podcasts, or episodes you play</li>
-                <li><strong>Date (only):</strong> The day you listened, not the time</li>
+                <li><strong>Date and time:</strong> When you listened (UTC timestamp including time-of-day)</li>
                 <li><strong>App version:</strong> Which version of the app you're using</li>
                 <li><strong>Web player events:</strong> When you view or play content via a shared link</li>
             </ul>
@@ -149,9 +149,9 @@
             <h2>What We Do NOT Collect</h2>
             <ul>
                 <li>Your name or email address</li>
-                <li>Your IP address (discarded immediately)</li>
+                <li>Your IP address (not stored in database)</li>
                 <li>Device identifiers or serial numbers</li>
-                <li>Listening times or duration</li>
+                <li>How long you listened (session duration)</li>
                 <li>Search queries or preferences</li>
                 <li>Location data</li>
                 <li>Any form of personal information</li>
@@ -181,10 +181,10 @@
             <h2>Where Data Is Stored</h2>
             <p>Analytics data is stored on a private server (Raspberry Pi 4) hosted by the app developer. The server:</p>
             <ul>
-                <li>Is never connected to the internet unless accessed via Tailscale (personal VPN)</li>
-                <li>Uses HTTPS encryption for all connections</li>
-                <li>Does not log IP addresses</li>
-                <li>Contains no identifying information</li>
+                <li>Is accessed only via Tailscale (personal VPN) with HTTPS encryption</li>
+                <li>Does not store IP addresses in the analytics database</li>
+                <li>Stores timestamps showing when content was played</li>
+                <li>Contains no personally identifying information</li>
             </ul>
 
             <h2>Data Retention</h2>

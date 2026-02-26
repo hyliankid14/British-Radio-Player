@@ -671,15 +671,15 @@ class SettingsDetailActivity : AppCompatActivity() {
             
 When you enable analytics:
 • We collect station, podcast, and episode play events
-• We collect the date (not time) and app version
-• Data is sent over HTTPS to our server
-• Server immediately discards IP addresses
-• No user identifiers are collected or stored
+• We collect the date and time (UTC timestamp) and app version
+• Data is sent over HTTPS to our private server
+• IP addresses are not stored in the analytics database
+• No user identifiers, device IDs, or personal info collected
 • Data is anonymous and only used for popularity trends
             
 When you disable analytics:
 • No data is collected or sent
-• You can disable it anytime
+• You can disable it anytime in settings
             
 We never sell or share your data with third parties.
             

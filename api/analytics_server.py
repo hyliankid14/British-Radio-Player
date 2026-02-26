@@ -23,9 +23,14 @@ import sqlite3
 import sys
 import csv
 import io
+import logging
 from pathlib import Path
 
 app = Flask(__name__)
+
+# Suppress Flask access logging for privacy (don't log IP addresses)
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.ERROR)  # Only show errors, not access logs
 
 # Enable CORS for web player
 @app.after_request
