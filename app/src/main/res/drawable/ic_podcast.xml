@@ -6,13 +6,13 @@
     android:viewportHeight="24">
     <!-- Headband -->
     <path
-        android:fillColor="?attr/colorOnSurface"
+        android:fillColor="#FFFFFF"
         android:pathData="M12,3c-4.97,0 -9,4.03 -9,9v3h2v-3c0,-3.86 3.14,-7 7,-7s7,3.14 7,7v3h2v-3c0,-4.97 -4.03,-9 -9,-9z"/>
     <!-- Rounded ear cups -->
     <path
-        android:fillColor="?attr/colorOnSurface"
+        android:fillColor="#FFFFFF"
         android:pathData="M6,16a3,3 0,1 1,0 6a3,3 0,1 1,0 -6z"/>
     <path
-        android:fillColor="?attr/colorOnSurface"
+        android:fillColor="#FFFFFF"
         android:pathData="M18,16a3,3 0,1 1,0 6a3,3 0,1 1,0 -6z"/>
 </vector>
