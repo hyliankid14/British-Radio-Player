@@ -412,7 +412,7 @@
         <div class="cookie-content">
             <div class="cookie-text">
                 We use analytics to understand how the stream sharing feature is used. This helps us improve the BBC Radio Player. 
-                <a href="#" onclick="player.showPrivacyPolicy(event)">Learn more</a>
+                <a href="privacy.html" target="_blank">Learn more</a>
             </div>
             <div class="cookie-buttons">
                 <button class="cookie-button cookie-button-deny" onclick="player.rejectAnalytics()">Decline</button>
@@ -506,26 +506,8 @@
             }
 
             showPrivacyPolicy(event) {
-                event.preventDefault();
-                const policy = `BBC Radio Player - Web Sharing Analytics Privacy Policy
-
-When you accept analytics on the web player:
-• We track which episodes and podcasts are viewed via shared links
-• We collect the date and time you viewed the content
-• Data is sent over HTTPS to our analytics server
-• Your IP address is immediately discarded
-• No personal or identifiable information is collected
-• Data is anonymous and used only to understand feature popularity
-
-When you decline:
-• No analytics data is sent
-• You can change this decision anytime by clearing your browser cookies
-
-We never sell or share your data with third parties.
-
-To learn more or manage your privacy settings, visit the BBC Radio Player app privacy settings.`;
-                
-                alert(policy);
+                if (event) event.preventDefault();
+                window.open('privacy.html', '_blank');
             }
 
             async trackEvent(eventType, data = {}) {
@@ -545,8 +527,11 @@ To learn more or manage your privacy settings, visit the BBC Radio Player app pr
                     // Try multiple analytics endpoints for resilience
                     const endpoints = [
                         `${this.analyticsServer}/event`,
-                        // Fallback to alternative if configured
-                        '/api/analytics/event'
+                        // Fallback to localhost for testing
+                        'http://localhost:5000/event',
+                        'http://127.0.0.1:5000/event',
+                        // Relative path as last resort
+                        '/event'
                     ];
 
                     let lastError = null;

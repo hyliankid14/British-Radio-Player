@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy - BBC Radio Player</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 32px;
+            margin-bottom: 8px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 16px;
+        }
+
+        .content {
+            padding: 40px;
+            line-height: 1.8;
+            color: #333;
+        }
+
+        h2 {
+            color: #667eea;
+            margin: 30px 0 15px 0;
+            font-size: 22px;
+        }
+
+        h2:first-of-type {
+            margin-top: 0;
+        }
+
+        p {
+            margin-bottom: 15px;
+            color: #555;
+        }
+
+        ul, ol {
+            margin: 15px 0 15px 30px;
+            color: #555;
+        }
+
+        li {
+            margin-bottom: 10px;
+        }
+
+        .highlight {
+            background: #f0f0f0;
+            padding: 20px;
+            border-left: 4px solid #667eea;
+            border-radius: 4px;
+            margin: 20px 0;
+        }
+
+        .highlight strong {
+            color: #667eea;
+        }
+
+        .back-button {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 12px 24px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            text-decoration: none;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+
+        .back-button:hover {
+            background: #5568d3;
+        }
+
+        .footer {
+            border-top: 1px solid #e0e0e0;
+            margin-top: 40px;
+            padding-top: 20px;
+            color: #999;
+            font-size: 14px;
+        }
+
+        a {
+            color: #667eea;
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎙️ Privacy Policy</h1>
+            <p>BBC Radio Player Analytics</p>
+        </div>
+
+        <div class="content">
+            <h2>Our Privacy Commitment</h2>
+            <p>BBC Radio Player takes your privacy seriously. This policy explains what analytics data we collect, how we use it, and your rights.</p>
+
+            <div class="highlight">
+                <strong>TL;DR:</strong> We collect zero personal data. No names, emails, or identifying information. We only track which content is popular to help us improve the app.
+            </div>
+
+            <h2>What We Collect</h2>
+            <p>When you enable analytics, we collect the following anonymous data:</p>
+            <ul>
+                <li><strong>Content viewed:</strong> Which stations, podcasts, or episodes you play</li>
+                <li><strong>Date (only):</strong> The day you listened, not the time</li>
+                <li><strong>App version:</strong> Which version of the app you're using</li>
+                <li><strong>Web player events:</strong> When you view or play content via a shared link</li>
+            </ul>
+
+            <h2>What We Do NOT Collect</h2>
+            <ul>
+                <li>Your name or email address</li>
+                <li>Your IP address (discarded immediately)</li>
+                <li>Device identifiers or serial numbers</li>
+                <li>Listening times or duration</li>
+                <li>Search queries or preferences</li>
+                <li>Location data</li>
+                <li>Any form of personal information</li>
+            </ul>
+
+            <h2>How We Use Your Data</h2>
+            <p>Analytics data is used exclusively to:</p>
+            <ul>
+                <li>Understand which stations and podcasts are most popular</li>
+                <li>Improve the app experience</li>
+                <li>Fix bugs and performance issues</li>
+                <li>Make informed decisions about feature development</li>
+            </ul>
+
+            <div class="highlight">
+                <strong>We never:</strong> Sell your data, share it with third parties, use it for advertising, or combine it with personal information.
+            </div>
+
+            <h2>Your Control</h2>
+            <p>You have complete control over analytics:</p>
+            <ul>
+                <li><strong>Opt-in:</strong> Analytics is disabled by default. You must explicitly enable it.</li>
+                <li><strong>Opt-out:</strong> You can disable analytics anytime in the app settings.</li>
+                <li><strong>Clear data:</strong> Clear your browser cookies to reset consent on the web player.</li>
+            </ul>
+
+            <h2>Where Data Is Stored</h2>
+            <p>Analytics data is stored on a private server (Raspberry Pi 4) hosted by the app developer. The server:</p>
+            <ul>
+                <li>Is never connected to the internet unless accessed via Tailscale (personal VPN)</li>
+                <li>Uses HTTPS encryption for all connections</li>
+                <li>Does not log IP addresses</li>
+                <li>Contains no identifying information</li>
+            </ul>
+
+            <h2>Data Retention</h2>
+            <p>Analytics events are stored indefinitely as they contain no personal information. You can request data deletion by contacting the developer.</p>
+
+            <h2>F-Droid Compliance</h2>
+            <p>BBC Radio Player is compliant with F-Droid's privacy and security requirements:</p>
+            <ul>
+                <li>No non-Free dependencies</li>
+                <li>No advertising networks</li>
+                <li>No tracking frameworks (Firebase, Google Analytics, etc.)</li>
+                <li>No proprietary analytics</li>
+                <li>Open source: <a href="https://github.com/hyliankid14/BBC-Radio-Player" target="_blank">github.com/hyliankid14/BBC-Radio-Player</a></li>
+            </ul>
+
+            <h2>Third-Party Services</h2>
+            <p>BBC Radio Player does not use any third-party analytics services. All data collection is self-hosted and owned by the developer.</p>
+
+            <h2>Changes to This Policy</h2>
+            <p>This privacy policy may be updated occasionally. Significant changes will be announced in app release notes. Your continued use of the app after changes constitutes your acceptance of the updated policy.</p>
+
+            <h2>Contact</h2>
+            <p>If you have questions about this privacy policy or our analytics practices, please open an issue on GitHub:</p>
+            <p><a href="https://github.com/hyliankid14/BBC-Radio-Player/issues" target="_blank">github.com/hyliankid14/BBC-Radio-Player/issues</a></p>
+
+            <p style="margin-top: 30px; font-size: 14px; color: #999;">Last updated: February 26, 2026</p>
+
+            <div class="footer">
+                <button class="back-button" onclick="window.history.back()">← Back</button>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

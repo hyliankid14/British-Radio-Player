@@ -1,3 +1,4 @@
+@file:Suppress("DEPRECATION")
 package com.hyliankid14.bbcradioplayer
 
 import android.app.ProgressDialog

@@ -1840,8 +1840,8 @@ class PodcastsFragment : Fragment() {
                                     val enrichGen = fullLoadGen
                                     val enrichmentMap = mutableMapOf<String, Episode>()
                                     try {
-                                        incompletePodcasts.chunked(4).forEach { batch ->
-                                            if (!isActive || enrichGen != searchGeneration) return@forEach
+                                        incompletePodcasts.chunked(4).forEach batches@{ batch ->
+                                            if (!isActive || enrichGen != searchGeneration) return@batches
                                             val jobs = batch.map { pod ->
                                                 async(Dispatchers.IO) {
                                                     val fullEpisodes = withTimeoutOrNull(3000L) {
