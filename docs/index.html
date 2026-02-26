@@ -22,6 +22,107 @@
             padding: 20px;
         }
 
+        .cookie-banner {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: white;
+            border-top: 1px solid #e0e0e0;
+            box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.15);
+            padding: 20px;
+            z-index: 1000;
+            display: none;
+        }
+
+        .cookie-banner.show {
+            display: block;
+            animation: slideUp 0.3s ease-out;
+        }
+
+        @keyframes slideUp {
+            from {
+                transform: translateY(100%);
+            }
+            to {
+                transform: translateY(0);
+            }
+        }
+
+        .cookie-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 20px;
+        }
+
+        .cookie-text {
+            flex: 1;
+            font-size: 14px;
+            color: #333;
+            line-height: 1.5;
+        }
+
+        .cookie-text a {
+            color: #667eea;
+            text-decoration: none;
+        }
+
+        .cookie-text a:hover {
+            text-decoration: underline;
+        }
+
+        .cookie-buttons {
+            display: flex;
+            gap: 12px;
+            white-space: nowrap;
+        }
+
+        .cookie-button {
+            padding: 10px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .cookie-button-accept {
+            background: #667eea;
+            color: white;
+        }
+
+        .cookie-button-accept:hover {
+            background: #5568d3;
+        }
+
+        .cookie-button-deny {
+            background: #f0f0f0;
+            color: #333;
+        }
+
+        .cookie-button-deny:hover {
+            background: #e0e0e0;
+        }
+
+        @media (max-width: 768px) {
+            .cookie-content {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .cookie-text {
+                font-size: 13px;
+            }
+
+            .cookie-buttons {
+                flex-direction: column;
+            }
+        }
+
         .container {
             background: white;
             border-radius: 16px;
@@ -306,6 +407,20 @@
     </style>
 </head>
 <body>
+    <!-- Cookies Consent Banner -->
+    <div class="cookie-banner" id="cookieBanner">
+        <div class="cookie-content">
+            <div class="cookie-text">
+                We use analytics to understand how the stream sharing feature is used. This helps us improve the BBC Radio Player. 
+                <a href="#" onclick="player.showPrivacyPolicy(event)">Learn more</a>
+            </div>
+            <div class="cookie-buttons">
+                <button class="cookie-button cookie-button-deny" onclick="player.rejectAnalytics()">Decline</button>
+                <button class="cookie-button cookie-button-accept" onclick="player.acceptAnalytics()">Accept</button>
+            </div>
+        </div>
+    </div>
+
     <div class="container" id="app">
         <div class="loading-state">
             <div class="spinner"></div>
@@ -351,7 +466,124 @@
                 this.allEpisodes = [];
                 this.displayedCount = 0;
                 this.episodesPerPage = 10;
+                this.analyticsEnabled = localStorage.getItem('analytics_consent') === 'accepted';
+                this.analyticsServer = 'https://raspberrypi.tailc23afa.ts.net:8443';
                 this.init();
+                this.initCookieBanner();
+            }
+
+            initCookieBanner() {
+                const consent = localStorage.getItem('analytics_consent');
+                if (!consent) {
+                    // Show banner if consent not yet given
+                    setTimeout(() => {
+                        const banner = document.getElementById('cookieBanner');
+                        if (banner) {
+                            banner.classList.add('show');
+                        }
+                    }, 500);
+                }
+            }
+
+            acceptAnalytics() {
+                localStorage.setItem('analytics_consent', 'accepted');
+                this.analyticsEnabled = true;
+                const banner = document.getElementById('cookieBanner');
+                if (banner) {
+                    banner.classList.remove('show');
+                }
+                // Track that they accepted
+                this.trackEvent('analytics_consent', { consent: 'accepted' });
+            }
+
+            rejectAnalytics() {
+                localStorage.setItem('analytics_consent', 'rejected');
+                this.analyticsEnabled = false;
+                const banner = document.getElementById('cookieBanner');
+                if (banner) {
+                    banner.classList.remove('show');
+                }
+            }
+
+            showPrivacyPolicy(event) {
+                event.preventDefault();
+                const policy = `BBC Radio Player - Web Sharing Analytics Privacy Policy
+
+When you accept analytics on the web player:
+• We track which episodes and podcasts are viewed via shared links
+• We collect the date and time you viewed the content
+• Data is sent over HTTPS to our analytics server
+• Your IP address is immediately discarded
+• No personal or identifiable information is collected
+• Data is anonymous and used only to understand feature popularity
+
+When you decline:
+• No analytics data is sent
+• You can change this decision anytime by clearing your browser cookies
+
+We never sell or share your data with third parties.
+
+To learn more or manage your privacy settings, visit the BBC Radio Player app privacy settings.`;
+                
+                alert(policy);
+            }
+
+            async trackEvent(eventType, data = {}) {
+                if (!this.analyticsEnabled) {
+                    return;
+                }
+
+                try {
+                    const payload = {
+                        event: eventType,
+                        source: 'web_player',
+                        date: new Date().toISOString(),
+                        url: window.location.href,
+                        ...data
+                    };
+
+                    // Try multiple analytics endpoints for resilience
+                    const endpoints = [
+                        `${this.analyticsServer}/event`,
+                        // Fallback to alternative if configured
+                        '/api/analytics/event'
+                    ];
+
+                    let lastError = null;
+
+                    for (const endpoint of endpoints) {
+                        try {
+                            const controller = new AbortController();
+                            const timeout = setTimeout(() => controller.abort(), 5000);
+
+                            const response = await fetch(endpoint, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify(payload),
+                                signal: controller.signal
+                            });
+
+                            clearTimeout(timeout);
+
+                            if (response.ok) {
+                                console.debug('Analytics event sent:', eventType);
+                                return;
+                            }
+                        } catch (error) {
+                            lastError = error;
+                            console.debug(`Analytics endpoint ${endpoint} failed:`, error.message);
+                            continue;
+                        }
+                    }
+
+                    // All endpoints failed, but that's okay - don't interrupt user
+                    console.debug('All analytics endpoints unavailable (expected on restricted networks)');
+                } catch (error) {
+                    // Silently fail - don't interrupt user experience
+                    console.debug('Analytics tracking error:', error.message);
+                }
             }
 
             init() {
@@ -394,6 +626,13 @@
                         imageUrl: img || null,
                         rssUrl: rssUrl
                     };
+                    
+                    // Track podcast view
+                    this.trackEvent('web_player_podcast_view', {
+                        podcast_id: id,
+                        podcast_title: this.currentContent.title
+                    });
+                    
                     this.render();
                     
                     // After rendering, load episodes from RSS if available
@@ -415,6 +654,15 @@
                         durationMins: parseInt(params.get('duration') || '0')
                     };
                     this.currentContent = content;
+                    
+                    // Track episode view
+                    this.trackEvent('web_player_episode_view', {
+                        episode_id: id,
+                        episode_title: content.title,
+                        podcast_id: content.podcastId,
+                        podcast_title: content.podcastTitle
+                    });
+                    
                     this.render();
                 }
             }
@@ -433,10 +681,32 @@
                 } else {
                     app.innerHTML = this.renderEpisode(content);
                 }
+
+                // Attach audio event listeners after rendering
+                setTimeout(() => this.attachAudioListeners(), 100);
             }
 
-            attachEventListeners() {
-                // Event listeners are attached via inline onclick handlers
+            attachAudioListeners() {
+                const audioElements = document.querySelectorAll('audio');
+                audioElements.forEach((audio, index) => {
+                    audio.addEventListener('play', () => {
+                        if (this.currentContent) {
+                            const trackData = {
+                                content_type: this.currentContent.type,
+                                content_id: this.currentContent.id,
+                                content_title: this.currentContent.title,
+                                source: 'web_player'
+                            };
+
+                            if (this.currentContent.type === 'episode') {
+                                trackData.podcast_id = this.currentContent.podcastId;
+                                trackData.podcast_title = this.currentContent.podcastTitle;
+                            }
+
+                            this.trackEvent('web_player_audio_play', trackData);
+                        }
+                    });
+                });
             }
 
             renderPodcast(podcast) {

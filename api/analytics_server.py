@@ -82,14 +82,15 @@ def get_db():
 @app.route('/event', methods=['POST'])
 def log_event():
     """
-    Accept analytics events from the app.
+    Accept analytics events from the app or web player.
     
     Expected JSON format:
     {
-        "event": "station_play",
+        "event": "station_play",  // or web_player_episode_view, web_player_audio_play, etc.
         "station_id": "radio1",  // or "podcast_id" or "episode_id" (use human-visible ID)
         "date": "2026-02-25",
-        "app_version": "0.12.0"
+        "app_version": "0.12.0",
+        "source": "app",  // or "web_player"
     }
     """
     # Don't log IP addresses - privacy first!
@@ -106,6 +107,48 @@ def log_event():
             return jsonify({'error': 'Missing required fields'}), 400
         
         event_type = data['event']
+        source = data.get('source', 'app')
+        
+        # For web player events, be more flexible with validation
+        if source == 'web_player':
+            # Web player events don't require strict validation
+            conn = get_db()
+            c = conn.cursor()
+            c.execute('''
+                INSERT INTO events (
+                    event_type,
+                    station_id,
+                    station_name,
+                    podcast_id,
+                    episode_id,
+                    podcast_title,
+                    episode_title,
+                    date,
+                    app_version
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                event_type,
+                data.get('station_id'),
+                data.get('station_name'),
+                data.get('podcast_id'),
+                data.get('episode_id'),
+                data.get('podcast_title'),
+                data.get('episode_title'),
+                data['date'],
+                data.get('app_version', '1.0.0-web')
+            ))
+            conn.commit()
+            conn.close()
+
+            print(
+                f"[{datetime.now().isoformat()}] WEB_PLAYER "
+                f"event={event_type} podcast={data.get('podcast_id')} episode={data.get('episode_id')} date={data['date']}"
+            )
+            
+            return jsonify({'status': 'ok'}), 201
+        
+        # App source - maintain original strict validation
         station_id = data.get('station_id')
         station_name = data.get('station_name')
         podcast_id = data.get('podcast_id')
@@ -142,7 +185,7 @@ def log_event():
         conn.close()
 
         print(
-            f"[{datetime.now().isoformat()}] "
+            f"[{datetime.now().isoformat()}] APP "
             f"event={event_type} station={station_id} podcast={podcast_id} episode={episode_id} date={date}"
         )
         
@@ -367,27 +410,46 @@ def index():
         <!DOCTYPE html>
         <html>
         <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>BBC Radio Player Analytics Dashboard</title>
             <style>
-                body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; background: #f6f7f9; color: #1f2328; }}
-                .container {{ max-width: 1100px; margin: 0 auto; padding: 32px; }}
-                h1 {{ color: #333; }}
-                p {{ color: #666; line-height: 1.6; }}
-                code {{ background: #f0f0f0; padding: 2px 6px; border-radius: 3px; }}
+                * {{ box-sizing: border-box; }}
+                html, body {{ margin: 0; padding: 0; }}
+                body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f6f7f9; color: #1f2328; }}
+                .container {{ max-width: 1100px; margin: 0 auto; padding: 16px; }}
+                h1 {{ color: #333; margin: 0 0 8px 0; font-size: 24px; }}
+                h3 {{ margin: 0 0 12px 0; font-size: 16px; }}
+                p {{ color: #666; line-height: 1.6; margin: 0; }}
+                code {{ background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-size: 0.9em; }}
                 a {{ color: #0066cc; text-decoration: none; }}
                 a:hover {{ text-decoration: underline; }}
-                .header {{ display: flex; align-items: center; justify-content: space-between; gap: 16px; }}
-                .badge {{ background: #e7f3ff; color: #004a99; padding: 6px 10px; border-radius: 999px; font-size: 12px; }}
-                .panel {{ background: #ffffff; border: 1px solid #e6e8eb; border-radius: 12px; padding: 16px; box-shadow: 0 2px 8px rgba(31,35,40,0.06); }}
-                .panels {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin: 16px 0 24px; }}
+                .header {{ display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }}
+                .header > div:first-child {{ flex: 1; min-width: 0; }}
+                .badge {{ background: #e7f3ff; color: #004a99; padding: 6px 10px; border-radius: 999px; font-size: 11px; white-space: nowrap; }}
+                .panel {{ background: #ffffff; border: 1px solid #e6e8eb; border-radius: 12px; padding: 16px; box-shadow: 0 2px 8px rgba(31,35,40,0.06); margin-bottom: 16px; }}
+                .panels {{ display: grid; grid-template-columns: 1fr; gap: 16px; margin: 16px 0 24px; }}
                 .filters {{ display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }}
-                .filters button {{ border: 1px solid #cfd4d9; background: #fff; border-radius: 10px; padding: 8px 12px; cursor: pointer; }}
+                .filters button {{ border: 1px solid #cfd4d9; background: #fff; border-radius: 10px; padding: 8px 12px; cursor: pointer; font-size: 13px; }}
                 .filters button.active {{ border-color: #1f6feb; background: #e7f0ff; color: #0b4db7; font-weight: 600; }}
-                table {{ width: 100%; border-collapse: collapse; margin-top: 8px; }}
+                .table-wrapper {{ overflow-x: auto; margin-top: 8px; }}
+                table {{ width: 100%; border-collapse: collapse; }}
                 th, td {{ text-align: left; padding: 8px 10px; border-bottom: 1px solid #eef1f4; }}
                 th {{ font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; color: #6b7280; }}
                 .muted {{ color: #6b7280; font-size: 12px; }}
                 .footer {{ margin-top: 24px; color: #6b7280; font-size: 12px; }}
+                
+                /* Tablet and desktop */
+                @media (min-width: 640px) {{
+                    .container {{ padding: 24px; }}
+                    h1 {{ font-size: 28px; }}
+                    .filters button {{ padding: 10px 14px; font-size: 14px; }}
+                }}
+                
+                @media (min-width: 768px) {{
+                    .container {{ padding: 32px; }}
+                    .panels {{ grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }}
+                }}
             </style>
         </head>
         <body>
@@ -418,24 +480,30 @@ def index():
                 <div class="panels">
                     <div class="panel">
                         <h3>Top Stations</h3>
-                        <table id="stationsTable">
-                            <thead><tr><th>Station</th><th>Plays</th></tr></thead>
-                            <tbody></tbody>
-                        </table>
+                        <div class="table-wrapper">
+                            <table id="stationsTable">
+                                <thead><tr><th>Station</th><th>Plays</th></tr></thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
                     </div>
                     <div class="panel">
                         <h3>Top Podcasts</h3>
-                        <table id="podcastsTable">
-                            <thead><tr><th>Podcast</th><th>Plays</th></tr></thead>
-                            <tbody></tbody>
-                        </table>
+                        <div class="table-wrapper">
+                            <table id="podcastsTable">
+                                <thead><tr><th>Podcast</th><th>Plays</th></tr></thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
                     </div>
                     <div class="panel">
                         <h3>Top Episodes</h3>
-                        <table id="episodesTable">
-                            <thead><tr><th>Episode</th><th>Podcast</th><th>Plays</th></tr></thead>
-                            <tbody></tbody>
-                        </table>
+                        <div class="table-wrapper">
+                            <table id="episodesTable">
+                                <thead><tr><th>Episode</th><th>Podcast</th><th>Plays</th></tr></thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
 
