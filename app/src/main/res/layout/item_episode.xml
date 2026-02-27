@@ -90,7 +90,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         app:barrierDirection="bottom"
-        app:constraint_referenced_ids="episode_progress_bar,episode_text_container" />
+        app:constraint_referenced_ids="episode_text_container" />
 
     <LinearLayout
         android:layout_width="0dp"

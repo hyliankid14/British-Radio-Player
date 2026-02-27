@@ -56,4 +56,12 @@
     <!-- Playback scrubber colors (dark mode) -->
     <color name="playback_track">#2B2B2B</color>
     <color name="playback_progress">@color/md_theme_primary</color>
+
+    <!-- Icon colors -->
+    <color name="icon_on_surface">#E6E1E5</color>
+    
+    <!-- in-progress indicator (red to match notification dots) -->
+    <color name="episode_tilde_amber">#FF5252</color>
+    <!-- Notification colors -->
+    <color name="notification_dot_red">#FF5252</color>
 </resources>

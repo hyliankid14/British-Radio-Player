@@ -33,6 +33,7 @@
                     android:layout_width="24dp"
                     android:layout_height="24dp"
                     android:src="@drawable/ic_palette"
+                    android:tint="?attr/colorOnSurface"
                     android:layout_marginEnd="16dp"
                     android:contentDescription="Theme" />
 
@@ -69,6 +70,7 @@
                     android:layout_width="24dp"
                     android:layout_height="24dp"
                     android:src="@drawable/ic_play_arrow"
+                    android:tint="?attr/colorOnSurface"
                     android:layout_marginEnd="16dp"
                     android:contentDescription="Playback Settings" />
 
@@ -105,6 +107,7 @@
                     android:layout_width="24dp"
                     android:layout_height="24dp"
                     android:src="@drawable/ic_android_auto"
+                    android:tint="?attr/colorOnSurface"
                     android:layout_marginEnd="16dp"
                     android:contentDescription="Android Auto" />
 
@@ -141,6 +144,7 @@
                     android:layout_width="24dp"
                     android:layout_height="24dp"
                     android:src="@drawable/ic_podcast"
+                    android:tint="?attr/colorOnSurface"
                     android:layout_marginEnd="16dp"
                     android:contentDescription="Subscriptions" />
 
@@ -177,6 +181,7 @@
                     android:layout_width="24dp"
                     android:layout_height="24dp"
                     android:src="@drawable/ic_search"
+                    android:tint="?attr/colorOnSurface"
                     android:layout_marginEnd="16dp"
                     android:contentDescription="Indexing" />
 
@@ -213,6 +218,7 @@
                     android:layout_width="24dp"
                     android:layout_height="24dp"
                     android:src="@drawable/ic_cloud_sync"
+                    android:tint="?attr/colorOnSurface"
                     android:layout_marginEnd="16dp"
                     android:contentDescription="Backup &amp; Restore" />
 
@@ -249,6 +255,7 @@
                     android:layout_width="24dp"
                     android:layout_height="24dp"
                     android:src="@drawable/ic_settings"
+                    android:tint="?attr/colorOnSurface"
                     android:layout_marginEnd="16dp"
                     android:contentDescription="Privacy" />
 

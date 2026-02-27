@@ -108,7 +108,7 @@
         android:paddingEnd="24dp"
         android:visibility="gone"
         app:layout_constraintTop_toBottomOf="@id/now_playing_next_show"
-        app:layout_constraintBottom_toTopOf="@id/now_playing_artist_track"
+        app:layout_constraintBottom_toTopOf="@id/now_playing_description_container"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
@@ -130,6 +130,7 @@
 
     <!-- Episode Description / Artist/Track Info with Show More link -->
     <LinearLayout
+        android:id="@+id/now_playing_description_container"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:orientation="vertical"
@@ -181,7 +182,7 @@
         android:textAllCaps="false"
         android:visibility="gone"
         android:contentDescription="Open podcast detail"
-        app:layout_constraintTop_toBottomOf="@id/now_playing_show_more"
+        app:layout_constraintTop_toBottomOf="@id/now_playing_description_container"
         app:layout_constraintBottom_toTopOf="@id/podcast_progress_group"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />

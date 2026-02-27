@@ -59,5 +59,12 @@
 
     <!-- Episode status colors -->
     <color name="episode_check_green">#4CAF50</color>
-    <color name="episode_tilde_amber">#FFC107</color>
+    <!-- in-progress indicator (red to match notification dots) -->
+    <color name="episode_tilde_amber">#FF5252</color>
+    
+    <!-- Icon colors -->
+    <color name="icon_on_surface">#1C1B1F</color>
+    
+    <!-- Notification colors -->
+    <color name="notification_dot_red">#FF5252</color>
 </resources>

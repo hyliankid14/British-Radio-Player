@@ -68,7 +68,7 @@
             android:text="•"
             android:textSize="18sp"
             android:visibility="gone"
-            android:textColor="@color/episode_tilde_amber"
+            android:textColor="@color/notification_dot_red"
             android:contentDescription="New episodes" />
 
         <ImageView
