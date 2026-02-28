@@ -1010,9 +1010,9 @@ class PodcastsFragment : Fragment() {
                     // If cached episodes are large, show only an initial page to avoid UI hangs
                     val fullEpisodes = cached.episodeMatches
                     val initialEpisodes = if (fullEpisodes.size > INITIAL_EPISODE_DISPLAY_LIMIT) {
-                        // We'll handle large restores via cached item chunking; disable episode pagination here
-                        usingCachedEpisodePagination = false
-                        cachedEpisodeMatchesFull = emptyList()
+                        // Keep the full list for lazy-loading as the user reaches the bottom.
+                        usingCachedEpisodePagination = true
+                        cachedEpisodeMatchesFull = fullEpisodes
                         fullEpisodes.take(INITIAL_EPISODE_DISPLAY_LIMIT)
                     } else {
                         usingCachedEpisodePagination = false
@@ -1384,8 +1384,24 @@ class PodcastsFragment : Fragment() {
             // to prevent the previous search from briefly showing
             searchAdapter = null
             recyclerView.adapter = null
-            recyclerView.visibility = View.GONE
+            recyclerView.visibility = View.VISIBLE
             emptyState.visibility = View.GONE
+
+            // Reset scroll position/header immediately so the user sees filters + search progress
+            recyclerView.stopScroll()
+            recyclerView.scrollToPosition(0)
+            view?.findViewById<com.google.android.material.appbar.AppBarLayout>(R.id.podcasts_header_appbar)
+                ?.setExpanded(true, false)
+
+            // Show search status card immediately while new saved-search results are loading
+            view?.findViewById<View>(R.id.search_status_card)?.visibility = View.VISIBLE
+            view?.findViewById<ProgressBar>(R.id.search_status_name_progress)?.visibility = View.VISIBLE
+            view?.findViewById<ImageView>(R.id.search_status_name_icon)?.visibility = View.GONE
+            view?.findViewById<ProgressBar>(R.id.search_status_description_progress)?.visibility = View.VISIBLE
+            view?.findViewById<ImageView>(R.id.search_status_description_icon)?.visibility = View.GONE
+            view?.findViewById<ProgressBar>(R.id.search_status_episodes_progress)?.visibility = View.VISIBLE
+            view?.findViewById<ImageView>(R.id.search_status_episodes_icon)?.visibility = View.GONE
+            view?.findViewById<TextView>(R.id.search_status_episodes_message)?.visibility = View.GONE
             
             // Set flag to scroll to top when displaying the new search results
             shouldScrollToTopOnNextResults = true
@@ -1698,9 +1714,9 @@ class PodcastsFragment : Fragment() {
                     loadingView?.visibility = View.GONE
 
                     // ── STEP 2b: full background load ────────────────────────────────────────
-                    // Fetch up to 400 episodes without blocking the UI. When done, the extra
-                    // results are wired into the scroll-pagination mechanism so the user gets
-                    // them on demand. Enrichment (audio URLs, durations) also starts here.
+                    // Fetch all matching episodes in pages without blocking the UI. When done,
+                    // extra results are wired into scroll-pagination so users can reach older
+                    // matches instead of being capped to a fixed top-N window.
                     val fullLoadGen = generation
                     launch(Dispatchers.IO) fullLoad@{
                         if (!isActive || fullLoadGen != searchGeneration) return@fullLoad
@@ -1710,37 +1726,36 @@ class PodcastsFragment : Fragment() {
                         if (q.length >= 3) {
                             try {
                                 val index = com.hyliankid14.bbcradioplayer.db.IndexStore.getInstance(requireContext())
-                                val ftsResults = withTimeoutOrNull(5000) {
-                                    try {
-                                        index.searchEpisodes(q, 400)
-                                    } catch (e: Exception) {
-                                        android.util.Log.w("PodcastsFragment", "FTS episode search (full) failed: ${e.message}")
-                                        emptyList<com.hyliankid14.bbcradioplayer.db.EpisodeFts>()
-                                    }
-                                } ?: emptyList()
+                                // searchEpisodes now does an unlimited FTS scan internally, so a single
+                                // call with Int.MAX_VALUE fetches all matching episodes in one pass
+                                // (sorted by pubEpoch DESC). No multi-page loop needed.
+                                val ftsResults = try {
+                                    index.searchEpisodes(q, Int.MAX_VALUE, 0)
+                                } catch (e: Exception) {
+                                    android.util.Log.w("PodcastsFragment", "FTS episode search (full) failed: ${e.message}")
+                                    emptyList<com.hyliankid14.bbcradioplayer.db.EpisodeFts>()
+                                }
 
-                                if (ftsResults.isNotEmpty()) {
-                                    val uniqueResults = ftsResults.distinctBy { it.episodeId }
-                                    val podcastById = allPodcasts.associateBy { it.id }
-                                    val episodeCacheById: Map<String, List<Episode>?> =
-                                        uniqueResults.map { it.podcastId }.distinct()
-                                            .associateWith { pid -> repository.getEpisodesFromCache(pid) }
-                                    for (ef in uniqueResults) {
-                                        if (!coroutineContext.isActive) break
-                                        val p = podcastById[ef.podcastId] ?: continue
-                                        val found = episodeCacheById[ef.podcastId]?.find { it.id == ef.episodeId }
-                                        eps.add((found ?: Episode(
-                                            id = ef.episodeId,
-                                            title = ef.title,
-                                            description = ef.description,
-                                            audioUrl = "",
-                                            imageUrl = p.imageUrl,
-                                            pubDate = ef.pubDate,
-                                            durationMins = 0,
-                                            podcastId = p.id
-                                        )) to p)
-                                        if (eps.size >= 400) break
+                                val podcastById = allPodcasts.associateBy { it.id }
+                                val episodeCacheByPodcastId = mutableMapOf<String, List<Episode>?>()
+
+                                for (ef in ftsResults) {
+                                    if (!coroutineContext.isActive) break
+                                    val p = podcastById[ef.podcastId] ?: continue
+                                    val cachedEpisodes = episodeCacheByPodcastId.getOrPut(ef.podcastId) {
+                                        repository.getEpisodesFromCache(ef.podcastId)
                                     }
+                                    val found = cachedEpisodes?.find { it.id == ef.episodeId }
+                                    eps.add((found ?: Episode(
+                                        id = ef.episodeId,
+                                        title = ef.title,
+                                        description = ef.description,
+                                        audioUrl = "",
+                                        imageUrl = p.imageUrl,
+                                        pubDate = ef.pubDate,
+                                        durationMins = 0,
+                                        podcastId = p.id
+                                    )) to p)
                                 }
                             } catch (e: Exception) {
                                 android.util.Log.w("PodcastsFragment", "IndexStore unavailable (full): ${e.message}")
@@ -1887,7 +1902,7 @@ class PodcastsFragment : Fragment() {
                                                 query = q,
                                                 titleMatches = titleMatches,
                                                 descMatches = descMatches,
-                                                episodeMatches = enrichedEpisodes.take(300),
+                                                episodeMatches = enrichedEpisodes,
                                                 isComplete = true
                                             )
                                         )
@@ -1900,7 +1915,7 @@ class PodcastsFragment : Fragment() {
                                         query = q,
                                         titleMatches = titleMatches,
                                         descMatches = descMatches,
-                                        episodeMatches = episodes.take(300),
+                                        episodeMatches = episodes,
                                         isComplete = true
                                     )
                                 )

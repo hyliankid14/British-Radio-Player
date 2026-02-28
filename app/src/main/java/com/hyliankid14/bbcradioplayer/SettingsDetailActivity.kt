@@ -321,7 +321,9 @@ class SettingsDetailActivity : AppCompatActivity() {
         val indexNowBtn: Button = findViewById(R.id.index_now_button)
         val indexStatus: TextView = findViewById(R.id.index_status_text)
         val indexLastRebuilt: TextView = findViewById(R.id.index_last_rebuilt)
+        val indexEpisodeCount: TextView = findViewById(R.id.index_episode_count)
         val indexEpisodesProgress: android.widget.ProgressBar = findViewById(R.id.index_episodes_progress)
+        val indexStore = com.hyliankid14.bbcradioplayer.db.IndexStore.getInstance(this)
 
         fun updateLastRebuilt(ts: Long?) {
             indexLastRebuilt.text = if (ts != null) {
@@ -332,8 +334,22 @@ class SettingsDetailActivity : AppCompatActivity() {
             }
         }
 
+        fun updateIndexedEpisodeCount() {
+            lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                val count = try {
+                    indexStore.getIndexedEpisodeCount()
+                } catch (_: Exception) {
+                    0
+                }
+                runOnUiThread {
+                    indexEpisodeCount.text = "$count episodes indexed"
+                }
+            }
+        }
+
         // Initialize display from persisted value
-        updateLastRebuilt(com.hyliankid14.bbcradioplayer.db.IndexStore.getInstance(this).getLastReindexTime())
+        updateLastRebuilt(indexStore.getLastReindexTime())
+        updateIndexedEpisodeCount()
 
         indexNowBtn.setOnClickListener {
             try {
@@ -376,13 +392,15 @@ class SettingsDetailActivity : AppCompatActivity() {
                             if (percent == 100 || status.contains("complete", ignoreCase = true)) {
                                 indexEpisodesProgress.visibility = android.view.View.GONE
                                 updateLastRebuilt(System.currentTimeMillis())
+                                updateIndexedEpisodeCount()
                             }
                         }
                     }
                     runOnUiThread {
                         indexStatus.text = "Indexing complete"
                         indexEpisodesProgress.visibility = android.view.View.GONE
-                        updateLastRebuilt(com.hyliankid14.bbcradioplayer.db.IndexStore.getInstance(this@SettingsDetailActivity).getLastReindexTime())
+                        updateLastRebuilt(indexStore.getLastReindexTime())
+                        updateIndexedEpisodeCount()
                     }
                 }
                 

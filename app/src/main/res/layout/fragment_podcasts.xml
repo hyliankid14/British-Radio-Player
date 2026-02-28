@@ -23,6 +23,7 @@
         android:background="?attr/colorSurfaceContainer">
 
             <com.google.android.material.appbar.AppBarLayout
+                android:id="@+id/podcasts_header_appbar"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:background="?attr/colorSurfaceContainer"

@@ -237,10 +237,9 @@ class SearchResultsAdapter(
             }
             durationView?.text = durText
 
-            val canPlay = episode.audioUrl.isNotEmpty()
-            playButton?.isEnabled = canPlay
-            playButton?.alpha = if (canPlay) 1.0f else 0.45f
-            playButton?.setOnClickListener(if (canPlay) { View.OnClickListener { onPlayEpisode(episode) } } else null)
+            playButton?.isEnabled = true
+            playButton?.alpha = 1.0f
+            playButton?.setOnClickListener { onPlayEpisode(episode) }
         }
 
         fun bind(episode: Episode, podcast: Podcast) {
@@ -272,11 +271,10 @@ class SearchResultsAdapter(
                 downloadIcon?.visibility = View.GONE
             }
 
-            // Disable play affordance when we don't have an audio URL yet
-            val canPlay = episode.audioUrl.isNotEmpty()
-            playButton?.isEnabled = canPlay
-            playButton?.alpha = if (canPlay) 1.0f else 0.45f
-            playButton?.setOnClickListener(if (canPlay) { View.OnClickListener { onPlayEpisode(episode) } } else null)
+            // Keep play affordance enabled; playback flow can resolve missing audio URLs on demand.
+            playButton?.isEnabled = true
+            playButton?.alpha = 1.0f
+            playButton?.setOnClickListener { onPlayEpisode(episode) }
 
             // Open preview (full activity) when title, podcast, or description tapped
             titleView.setOnClickListener { onOpenEpisode(episode, podcast) }

@@ -85,9 +85,20 @@ endorsement intended.
 
 ## F-Droid build notes
 
-- No Google Mobile Services (GMS) metadata is required in the manifest.
+- Android Auto discovery requires this manifest metadata entry:
+
+```xml
+<meta-data
+    android:name="com.google.android.gms.car.application"
+    android:resource="@xml/automotive_app_desc" />
+```
+
+- If this metadata is removed, the app may not appear in Android Auto app lists even though playback service code is present.
+- For user choice, publish two install variants:
+  - **Standard/Android Auto build:** includes the metadata above (recommended for users who want Android Auto visibility).
+  - **F-Droid-compatible build:** excludes Google car metadata for strict FOSS packaging.
 - The app builds without proprietary ML Kit dependencies.
-- Standard F-Droid build command:
+- Example build command:
 
 ```bash
 ./gradlew assembleRelease

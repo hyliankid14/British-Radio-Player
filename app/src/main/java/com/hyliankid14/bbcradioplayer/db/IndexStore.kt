@@ -263,7 +263,8 @@ class IndexStore private constructor(private val context: Context) {
         }
 
         // Try prioritized MATCH variants and return first non-empty result set.
-        val variants = buildFtsVariants(query).take(3)
+        // Keep all generated variants so token-AND fallback is available for broad queries.
+        val variants = buildFtsVariants(query)
         for (v in variants) {
             try {
                 Log.d("IndexStore", "FTS podcast try: variant='$v' originalQuery='$query' limit=$limit")
@@ -350,68 +351,142 @@ class IndexStore private constructor(private val context: Context) {
         return result
     }
 
-    @Synchronized
-    fun searchEpisodes(query: String, limit: Int = 100): List<EpisodeFts> {
-        return searchEpisodesInternal(query, limit, true)
+    /** Fetch both pubEpoch and pubDate for a set of episode IDs in one pass. */
+    private fun batchGetPubData(db: SQLiteDatabase, episodeIds: List<String>): Map<String, Pair<Long, String>> {
+        if (episodeIds.isEmpty()) return emptyMap()
+        val result = mutableMapOf<String, Pair<Long, String>>()
+        episodeIds.chunked(500) { chunk ->
+            val placeholders = chunk.joinToString(",") { "?" }
+            val cursor = db.rawQuery(
+                "SELECT episodeId, pubEpoch, pubDate FROM episode_meta WHERE episodeId IN ($placeholders)",
+                chunk.toTypedArray()
+            )
+            cursor.use {
+                while (it.moveToNext()) {
+                    result[it.getString(0)] = it.getLong(1) to (it.getString(2) ?: "")
+                }
+            }
+        }
+        return result
     }
 
-    private fun searchEpisodesInternal(query: String, limit: Int, allowOrSplit: Boolean): List<EpisodeFts> {
+    /** Fetch title and description (searchable blob) for a specific page of episode IDs. */
+    private fun batchGetEpisodeMeta(db: SQLiteDatabase, episodeIds: List<String>): Map<String, Pair<String, String>> {
+        if (episodeIds.isEmpty()) return emptyMap()
+        val result = mutableMapOf<String, Pair<String, String>>()
+        episodeIds.chunked(500) { chunk ->
+            val placeholders = chunk.joinToString(",") { "?" }
+            val cursor = db.rawQuery(
+                "SELECT episodeId, title, description FROM episode_fts WHERE episodeId IN ($placeholders)",
+                chunk.toTypedArray()
+            )
+            cursor.use {
+                while (it.moveToNext()) {
+                    result[it.getString(0)] = (it.getString(1) ?: "") to (it.getString(2) ?: "")
+                }
+            }
+        }
+        return result
+    }
+
+    /**
+     * Lean FTS scan: returns episodeId → podcastId for all episodes matching the given query
+     * expression (or any of its auto-generated variants). Fetches no heavy columns (title/description)
+     * so it remains fast even for queries that match thousands of episodes. Sorting and pagination
+     * are handled by the caller after a bulk pubEpoch lookup.
+     */
+    private fun scanEpisodeIdsByQuery(db: SQLiteDatabase, query: String): LinkedHashMap<String, String> {
+        val idToPodcastId = LinkedHashMap<String, String>()
+        val variants = buildFtsVariants(query)
+        for (v in variants) {
+            try {
+                val cursor = db.rawQuery(
+                    "SELECT episodeId, podcastId FROM episode_fts WHERE episode_fts MATCH ?",
+                    arrayOf(v)
+                )
+                cursor.use {
+                    while (it.moveToNext()) {
+                        val eid = it.getString(0) ?: continue
+                        idToPodcastId.putIfAbsent(eid, it.getString(1) ?: "")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("IndexStore", "FTS id-scan variant failed '$v': ${e.message}")
+            }
+        }
+        return idToPodcastId
+    }
+
+    @Synchronized
+    fun searchEpisodes(query: String, limit: Int = 100, offset: Int = 0): List<EpisodeFts> {
+        return searchEpisodesInternal(query, limit, offset, true)
+    }
+
+    private fun searchEpisodesInternal(query: String, limit: Int, offset: Int, allowOrSplit: Boolean): List<EpisodeFts> {
         if (query.isBlank()) return emptyList()
         val db = helper.readableDatabase
 
         if (allowOrSplit && isAdvancedFtsQuery(query)) {
             val parts = splitOrClauses(query)
             if (parts.size > 1) {
-                val merged = LinkedHashMap<String, EpisodeFts>()
+                // Collect ALL matching IDs for each OR clause without fetching heavy metadata.
+                val idToPodcastId = LinkedHashMap<String, String>()
                 for (part in parts) {
-                    val results = searchEpisodesInternal(part, limit, false)
-                    for (hit in results) {
-                        merged.putIfAbsent(hit.episodeId, hit)
+                    val ids = scanEpisodeIdsByQuery(db, part) // lean scan: episodeId+podcastId only
+                    for ((eid, pid) in ids) {
+                        idToPodcastId.putIfAbsent(eid, pid)
                     }
                 }
-                // Sort merged results by pubEpoch DESC using a single batch lookup
-                val ids = merged.keys.toList()
-                val pubEpochs = batchGetPubEpochs(db, ids)
-                return merged.values
-                    .sortedByDescending { pubEpochs[it.episodeId] ?: 0L }
+                val allIds = idToPodcastId.keys.toList()
+                val pubData = batchGetPubData(db, allIds)
+                val pageIds = allIds
+                    .sortedByDescending { pubData[it]?.first ?: 0L }
+                    .drop(offset)
                     .take(limit)
+                if (pageIds.isEmpty()) return emptyList()
+                val pageMeta = batchGetEpisodeMeta(db, pageIds)
+                return pageIds.map { eid ->
+                    EpisodeFts(
+                        episodeId = eid,
+                        podcastId = idToPodcastId[eid] ?: "",
+                        title = pageMeta[eid]?.first ?: "",
+                        description = pageMeta[eid]?.second ?: "",
+                        pubDate = pubData[eid]?.second ?: ""
+                    )
+                }
             }
         }
 
-        // Try prioritized MATCH variants and return first non-empty result set
-        // Limit to first 3 variants to include proximity, exact phrase, and field-specific searches
-        val variants = buildFtsVariants(query).take(3)
-        for (v in variants) {
-            try {
-                Log.d("IndexStore", "FTS episode try: variant='$v' originalQuery='$query' limit=$limit")
-                // JOIN with episode_meta and ORDER BY pubDate DESC so the most recent matching
-                // episodes are always returned first within the limit (fixes stale top-1000 issue)
-                val cursor = db.rawQuery(
-                    "SELECT f.episodeId, f.podcastId, f.title, f.description, m.pubDate " +
-                    "FROM episode_fts f " +
-                    "LEFT JOIN episode_meta m ON f.episodeId = m.episodeId " +
-                    "WHERE episode_fts MATCH ? " +
-                    "ORDER BY m.pubEpoch DESC " +
-                    "LIMIT ?",
-                    arrayOf(v, limit.toString())
+        // Collect matching episode IDs across all FTS variants using a lean scan (episodeId+podcastId
+        // only, no heavy description blobs). Sort once after a bulk pubEpoch lookup, then fetch
+        // title/description only for the final page — ensuring every matching episode is reachable
+        // regardless of how many there are (no per-variant LIMIT hides older results).
+        val idToPodcastId = scanEpisodeIdsByQuery(db, query)
+        Log.d("IndexStore", "FTS episode scan total=${idToPodcastId.size} unique ids for query='$query'")
+
+        if (idToPodcastId.isNotEmpty()) {
+            val allIds = idToPodcastId.keys.toList()
+            // Single bulk pubEpoch + pubDate fetch, sort, then take only the page we need.
+            val pubData = batchGetPubData(db, allIds)
+            val pageIds = allIds
+                .sortedByDescending { pubData[it]?.first ?: 0L }
+                .drop(offset)
+                .take(limit)
+
+            Log.d("IndexStore", "FTS episode returning offset=$offset limit=$limit page=${pageIds.size} of total=${allIds.size} for query='$query'")
+
+            if (pageIds.isEmpty()) return emptyList()
+
+            // Fetch title + description only for this page (avoids loading large blobs for all matches).
+            val pageMeta = batchGetEpisodeMeta(db, pageIds) // Map<episodeId, Pair<title, desc>>
+            return pageIds.map { eid ->
+                EpisodeFts(
+                    episodeId = eid,
+                    podcastId = idToPodcastId[eid] ?: "",
+                    title = pageMeta[eid]?.first ?: "",
+                    description = pageMeta[eid]?.second ?: "",
+                    pubDate = pubData[eid]?.second ?: ""
                 )
-                val results = mutableListOf<EpisodeFts>()
-                cursor.use {
-                    while (it.moveToNext()) {
-                        val eid = it.getString(0)
-                        val pid = it.getString(1)
-                        val title = it.getString(2) ?: ""
-                        val desc = it.getString(3) ?: ""
-                        val pub = it.getString(4) ?: ""
-                        results.add(EpisodeFts(eid, pid, title, desc, pub))
-                    }
-                }
-                Log.d("IndexStore", "FTS episode variant returned ${results.size} hits for variant='$v' query='$query'")
-                if (results.isNotEmpty()) {
-                    return results
-                }
-            } catch (e: Exception) {
-                Log.w("IndexStore", "FTS episode variant failed '$v': ${e.message}")
             }
         }
 
@@ -428,9 +503,9 @@ class IndexStore private constructor(private val context: Context) {
             // Only do LIKE fallback for single tokens to keep it fast
             if (tokens.size == 1) {
                 val t = "%${tokens[0]}%"
-                val sql = "SELECT f.episodeId, f.podcastId, f.title, f.description, m.pubDate FROM episode_fts f LEFT JOIN episode_meta m ON f.episodeId = m.episodeId WHERE LOWER(f.title) LIKE ? ORDER BY m.pubEpoch DESC LIMIT ?"
+                val sql = "SELECT f.episodeId, f.podcastId, f.title, f.description, m.pubDate FROM episode_fts f LEFT JOIN episode_meta m ON f.episodeId = m.episodeId WHERE LOWER(f.title) LIKE ? ORDER BY m.pubEpoch DESC LIMIT ? OFFSET ?"
                 Log.d("IndexStore", "FTS single-token fallback SQL token='${tokens[0]}'")
-                val cursor = db.rawQuery(sql, arrayOf(t, limit.toString()))
+                val cursor = db.rawQuery(sql, arrayOf(t, limit.toString(), offset.toString()))
                 val fbResults = mutableListOf<EpisodeFts>()
                 cursor.use {
                     while (it.moveToNext()) {
@@ -546,6 +621,23 @@ class IndexStore private constructor(private val context: Context) {
             Log.w("IndexStore", "hasAnyEpisodes failed: ${e.message}")
         }
         return false
+    }
+
+    // Total number of unique indexed episodes
+    fun getIndexedEpisodeCount(): Int {
+        val db = helper.readableDatabase
+        try {
+            // episode_meta has one row per unique episodeId (PRIMARY KEY)
+            val cursor = db.rawQuery("SELECT COUNT(*) FROM episode_meta", emptyArray())
+            cursor.use {
+                if (it.moveToFirst()) {
+                    return it.getInt(0)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("IndexStore", "getIndexedEpisodeCount failed: ${e.message}")
+        }
+        return 0
     }
 
     // Upsert a podcast row into the podcast_fts table

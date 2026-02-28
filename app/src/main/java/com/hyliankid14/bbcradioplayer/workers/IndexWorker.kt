@@ -71,21 +71,16 @@ object IndexWorker {
                 store.replaceAllPodcasts(podcasts)
 
                 // Fetch & index episodes per-podcast (streamed) to avoid building a huge in-memory list.
+                // NOTE: We intentionally do NOT wipe the episode FTS table before indexing.
+                // The index is additive — previously indexed episodes are preserved even after they
+                // fall off the BBC RSS feed. This ensures saved searches continue to surface
+                // historical results that are no longer available via RSS.
                 var totalEpisodesDiscovered = 0
                 var processedEpisodes = 0
 
                 // Begin episode-phase just above the earlier podcasts step (5%) so the
                 // progress indicator advances smoothly instead of jumping.
                 onProgress("Indexing episodes (streamed)...", 6, true)
-
-                // Wipe episode FTS once up-front (append in small batches below)
-                try {
-                    // We still use the IndexStore's safe append API so each podcast's episodes are
-                    // inserted in bounded-size transactions.
-                    store.replaceAllEpisodes(emptyList()) // this triggers a fast table DELETE then returns
-                } catch (e: Exception) {
-                    // ignore - fall back to append behavior below
-                }
 
                 for ((i, p) in podcasts.withIndex()) {
                     if (!isActive) break
@@ -110,8 +105,21 @@ object IndexWorker {
                     // Count discovered episodes for diagnostics only (do NOT use for UI percent)
                     totalEpisodesDiscovered += eps.size
 
+                    // Only insert episodes not already present in the index to avoid FTS duplicates
+                    // and to preserve the accumulated history of older episodes.
+                    val existingIds = try { store.getEpisodeIdsForPodcast(p.id) } catch (e: Exception) { emptySet() }
+                    val newEps = eps.filter { it.id.isNotBlank() && !existingIds.contains(it.id) }
+                    if (newEps.isEmpty()) {
+                        val completedPct = computePodcastCompletePercent(i, podcasts.size)
+                        onProgress("No new episodes for: ${p.title}", completedPct, true)
+                        Log.d(TAG, "No new episodes for ${p.title} (${eps.size} fetched, all already indexed)")
+                        continue
+                    }
+
+                    Log.d(TAG, "Indexing ${newEps.size} new episodes for ${p.title} (${eps.size - newEps.size} already indexed)")
+
                     // Enrich each episode's description with the podcast title (helps joint queries)
-                    val enriched = eps.map { ep -> ep.copy(description = listOfNotNull(ep.description, p.title).joinToString(" ")) }
+                    val enriched = newEps.map { ep -> ep.copy(description = listOfNotNull(ep.description, p.title).joinToString(" ")) }
 
                     // Insert in bounded-size batches via IndexStore.appendEpisodesBatch
                     try {
@@ -131,7 +139,7 @@ object IndexWorker {
                             processedEpisodes += added
 
                             // Report monotonic overall episode percent based on processedInPodcast
-                            val overallPct = computeOverallEpisodePercent(i, podcasts.size, inserted, eps.size)
+                            val overallPct = computeOverallEpisodePercent(i, podcasts.size, inserted, newEps.size)
                             onProgress("Indexing episodes for: ${p.title}", overallPct, true)
 
                             // Give SQLite a chance to service other threads / GC
@@ -143,7 +151,7 @@ object IndexWorker {
                         // bar reaches the per-podcast completion point.
                         val completedPct = computePodcastCompletePercent(i, podcasts.size)
                         onProgress("Indexed episodes for: ${p.title}", completedPct, true)
-                        Log.d(TAG, "Indexed $inserted episodes for ${p.title}")
+                        Log.d(TAG, "Indexed $inserted new episodes for ${p.title}")
                     } catch (e: Exception) {
                         Log.w(TAG, "Failed to append episodes for ${p.id}: ${e.message}")
                     }

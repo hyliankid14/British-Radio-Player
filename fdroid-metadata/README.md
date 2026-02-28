@@ -14,3 +14,15 @@ This folder contains starter metadata for submitting to F-Droid.
 - Replace `commit: master` with a release tag/commit for reproducibility.
 - Add screenshots and icon assets in the structure expected by `fdroiddata`.
 - Run F-Droid metadata linting in your `fdroiddata` fork before creating a MR.
+- Keep F-Droid release notes explicit that Android Auto discovery may differ from Play/GitHub builds.
+- For Android Auto visibility on Google-powered head units, non-F-Droid builds should include:
+
+```xml
+<meta-data
+		android:name="com.google.android.gms.car.application"
+		android:resource="@xml/automotive_app_desc" />
+```
+
+- Recommended distribution strategy: publish two APK variants so users can choose the install path they prefer:
+	- Standard/Play/GitHub APK with Android Auto metadata enabled.
+	- F-Droid APK with Google car metadata removed.
