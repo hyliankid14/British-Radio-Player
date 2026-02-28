@@ -1,6 +1,7 @@
 package com.hyliankid14.bbcradioplayer
 
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.widget.Button
@@ -29,6 +30,8 @@ class SettingsDetailActivity : AppCompatActivity() {
     private lateinit var openDocumentLauncher: ActivityResultLauncher<Array<String>>
     private var suppressIndexSpinnerSelection = false
     private var lastSeenIndexPercent = 0
+
+    private val githubReleasesUrl = "https://github.com/hyliankid14/BBC-Radio-Player/releases"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -124,10 +127,34 @@ class SettingsDetailActivity : AppCompatActivity() {
 
     private fun setupAndroidAutoSettings() {
         val autoResumeAndroidAutoCheckbox: android.widget.CheckBox = findViewById(R.id.auto_resume_android_auto_checkbox)
+        val nonGoogleNoticeContainer: android.view.View = findViewById(R.id.non_google_android_auto_notice_container)
+        val githubDownloadButton: Button = findViewById(R.id.non_google_android_auto_download_button)
+
+        val hasAndroidAutoMetadata = hasGoogleCarMetadata()
+        if (!hasAndroidAutoMetadata) {
+            nonGoogleNoticeContainer.visibility = android.view.View.VISIBLE
+            autoResumeAndroidAutoCheckbox.isEnabled = false
+            autoResumeAndroidAutoCheckbox.alpha = 0.5f
+
+            githubDownloadButton.setOnClickListener {
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(githubReleasesUrl)))
+            }
+        } else {
+            nonGoogleNoticeContainer.visibility = android.view.View.GONE
+        }
         
         autoResumeAndroidAutoCheckbox.isChecked = PlaybackPreference.isAutoResumeAndroidAutoEnabled(this)
         autoResumeAndroidAutoCheckbox.setOnCheckedChangeListener { _, isChecked ->
             PlaybackPreference.setAutoResumeAndroidAuto(this, isChecked)
+        }
+    }
+
+    private fun hasGoogleCarMetadata(): Boolean {
+        return try {
+            val appInfo = packageManager.getApplicationInfo(packageName, PackageManager.GET_META_DATA)
+            appInfo.metaData?.containsKey("com.google.android.gms.car.application") == true
+        } catch (_: Exception) {
+            false
         }
     }
 

@@ -28,6 +28,32 @@
         android:padding="16dp">
 
         <LinearLayout
+            android:id="@+id/non_google_android_auto_notice_container"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone"
+            android:layout_marginBottom="16dp"
+            android:padding="12dp"
+            android:background="?attr/colorSurfaceContainer">
+
+            <TextView
+                android:id="@+id/non_google_android_auto_notice_text"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Android Auto is not available in this No-Google build. Download the Google-enabled build from GitHub Releases to use Android Auto."
+                android:textSize="14sp"
+                android:textColor="?attr/colorOnSurface" />
+
+            <Button
+                android:id="@+id/non_google_android_auto_download_button"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Open GitHub Releases" />
+        </LinearLayout>
+
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
