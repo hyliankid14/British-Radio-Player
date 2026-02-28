@@ -4,9 +4,9 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <!-- Stroked outline for better visibility on mini player -->
+    <!-- Stroked outline for better visibility on mini player (light mode - dark stroke) -->
     <path
-        android:strokeColor="#FFFFFF"
+        android:strokeColor="#424242"
         android:strokeWidth="1.5"
         android:fillColor="@android:color/transparent"
         android:strokeLineCap="round"

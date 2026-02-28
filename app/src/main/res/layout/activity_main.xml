@@ -176,10 +176,13 @@
                     android:id="@+id/favorite_stations_empty"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="No favorite stations yet"
+                    android:text="No favourite stations yet"
+                    android:textSize="14sp"
                     android:textColor="?attr/colorOnSurfaceVariant"
-                    android:visibility="gone"
-                    android:padding="16dp" />
+                    android:gravity="center"
+                    android:padding="16dp"
+                    android:background="?attr/colorSurface"
+                    android:visibility="gone" />
 
             </LinearLayout>
 
@@ -215,9 +218,12 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="No subscribed podcasts yet"
+                    android:textSize="14sp"
                     android:textColor="?attr/colorOnSurfaceVariant"
-                    android:visibility="gone"
-                    android:padding="8dp" />
+                    android:gravity="center"
+                    android:padding="16dp"
+                    android:background="?attr/colorSurface"
+                    android:visibility="gone" />
             </FrameLayout>
 
             <!-- Saved Episodes: remove collapsible header and show as its own card when selected -->
@@ -248,9 +254,12 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="No saved episodes yet"
+                    android:textSize="14sp"
                     android:textColor="?attr/colorOnSurfaceVariant"
-                    android:visibility="gone"
-                    android:paddingBottom="8dp" />
+                    android:gravity="center"
+                    android:padding="16dp"
+                    android:background="?attr/colorSurface"
+                    android:visibility="gone" />
 
             </LinearLayout>
 
@@ -322,9 +331,12 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="No history yet"
+                    android:textSize="14sp"
                     android:textColor="?attr/colorOnSurfaceVariant"
-                    android:visibility="gone"
-                    android:padding="8dp" />
+                    android:gravity="center"
+                    android:padding="16dp"
+                    android:background="?attr/colorSurface"
+                    android:visibility="gone" />
 
             </FrameLayout>
 

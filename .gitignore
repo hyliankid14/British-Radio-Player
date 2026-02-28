@@ -39,3 +39,5 @@ api/analytics.db.backup
 release.jks
 *.jks
 *.keystore
+.github/instructions/Shai.instructions.md
+.claude/rules/Shai.instructions.md
