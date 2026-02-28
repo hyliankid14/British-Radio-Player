@@ -582,7 +582,7 @@
                 const match = hash.match(/#\/(p|e)\/([^\/?]+)/);
 
                 if (!match) {
-                    this.showError('Invalid podcast or episode link', 'Could not parse the share URL. Please check the link and try again.');
+                    this.showLandingPage();
                     return;
                 }
 
@@ -1325,6 +1325,65 @@
                         <button class="button button-primary" onclick="window.location.href='/'">
                             ← Go Home
                         </button>
+                    </div>
+                `;
+            }
+
+            showLandingPage() {
+                const app = document.getElementById('app');
+                app.innerHTML = `
+                    <div class="header">
+                        <h1>🎙️ BBC Radio Player</h1>
+                        <p>Podcast & Episode Sharing</p>
+                    </div>
+                    <div class="content">
+                        <div class="hero-text" style="text-align: center;">
+                            <div style="font-size: 64px; margin-bottom: 20px;">🎧</div>
+                            <h2>Welcome to BBC Radio Player</h2>
+                            <p style="font-size: 16px; margin-bottom: 20px;">
+                                Your unofficial Android client for BBC Radio and podcasts with support for Android Auto, 
+                                podcast subscriptions, downloads, and episode sharing.
+                            </p>
+                        </div>
+
+                        <div style="background: #f8f8f8; border-radius: 12px; padding: 24px; margin: 30px 0;">
+                            <h3 style="font-size: 18px; margin-bottom: 16px; color: #333;">✨ Features</h3>
+                            <ul style="margin: 0; padding-left: 20px; color: #666; line-height: 1.8;">
+                                <li>Browse BBC stations and podcasts</li>
+                                <li>Subscribe to and download episodes</li>
+                                <li>Android Auto support</li>
+                                <li>Share episodes with friends</li>
+                                <li>Material 3 design with dark mode</li>
+                                <li>Background downloads and notifications</li>
+                            </ul>
+                        </div>
+
+                        <div class="button-group" style="flex-direction: column;">
+                            <a href="https://github.com/hyliankid14/bbc-radio-player/releases" class="button button-primary" target="_blank">
+                                📥 Download Latest Release
+                            </a>
+                            <a href="https://github.com/hyliankid14/bbc-radio-player" class="button button-secondary" target="_blank">
+                                🔗 View on GitHub
+                            </a>
+                        </div>
+
+                        <div style="background: #f0f0f0; border-radius: 12px; padding: 20px; margin-top: 30px; text-align: center;">
+                            <div style="font-size: 14px; color: #666; margin-bottom: 12px;">
+                                <strong>Share Your Favorite Podcast or Episode</strong>
+                            </div>
+                            <p style="font-size: 13px; color: #999; margin-bottom: 0;">
+                                Use the BBC Radio Player app to share podcasts and episodes. Recipients will be able to preview and listen directly from this web player.
+                            </p>
+                        </div>
+
+                        <div class="publication-info" style="justify-content: center; flex-direction: column; text-align: center; margin-top: 40px;">
+                            <p style="font-size: 12px; color: #999; margin-bottom: 8px;">
+                                Unofficial third-party app. BBC and station trademarks are owned by the British Broadcasting Corporation.
+                            </p>
+                            <p style="font-size: 12px; color: #999;">
+                                Streams use public BBC APIs. No affiliation or endorsement intended.
+                            </p>
+                        </div>
                     </div>
                 `;
             }

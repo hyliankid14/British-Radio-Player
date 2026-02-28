@@ -3,7 +3,9 @@
 An unofficial Android client for BBC Radio and podcasts. It focuses on
 reliable streaming on phones and Android Auto, offering a clean Material 3
 interface with useful features for listeners.
+## 📥 Download
 
+**[Get the latest release](https://github.com/hyliankid14/bbc-radio-player/releases)** - Download APK for your device
 ## Features
 
 ### Radio & Android Auto
