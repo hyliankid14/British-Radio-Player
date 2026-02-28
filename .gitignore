@@ -41,3 +41,8 @@ release.jks
 *.keystore
 .github/instructions/Shai.instructions.md
 .claude/rules/Shai.instructions.md
+QUICK_START_FDROID.md
+FDROID_NEXT_STEPS.md
+FDROID_SUBMISSION_GUIDE.md
+FDROID_NEXT_STEPS.md
+GITLAB_SUBMISSION_STEPS.md

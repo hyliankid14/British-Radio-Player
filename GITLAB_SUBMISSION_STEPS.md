@@ -149,7 +149,7 @@ Before starting, you should have:
    **App Details:**
    - Package: com.hyliankid14.bbcradioplayer
    - License: GPL-3.0-or-later
-   - Source: https://github.com/shaivure/Android-Auto-Radio-Player
+   - Source: https://github.com/hyliankid/Android-Auto-Radio-Player
    - Current version: 1.0.7 (versionCode 26)
 
    **F-Droid Compliance:**
@@ -170,7 +170,7 @@ Before starting, you should have:
    **Notes:**
    - Requires internet for streaming BBC Radio content
    - Uses publicly available BBC APIs (RMS, ESS, Sounds)
-   - ML Kit language detection library used for podcast language identification
+   - Podcast language identification uses RSS metadata + heuristic text/script analysis
    - Stream URLs sourced from lsn.lv (third-party BBC stream aggregator)
 
    Ready for review and CI testing.

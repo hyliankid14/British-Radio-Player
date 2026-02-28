@@ -243,7 +243,7 @@ Adding BBC Radio Player to F-Droid
 **Notes:**
 - Requires internet for streaming BBC Radio content
 - Uses publicly available BBC APIs (RMS, ESS, Sounds)
-- ML Kit language detection library used for podcast language identification
+- Podcast language identification uses RSS metadata + heuristic text/script analysis
 - Stream URLs sourced from lsn.lv (third-party BBC stream aggregator)
 
 Ready for review and CI testing.
@@ -272,7 +272,6 @@ F-Droid's CI will automatically:
 
 F-Droid reviewers may ask about:
 - API usage (BBC RMS, ESS, Sounds)
-- ML Kit dependency (and if it requires GMS)
 - Stream provider (lsn.lv)
 - Android Auto functionality without GMS
 

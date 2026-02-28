@@ -98,7 +98,7 @@ endorsement intended.
 - For user choice, publish two install variants:
   - **Standard/Android Auto build:** includes the metadata above (recommended for users who want Android Auto visibility).
   - **F-Droid-compatible build:** excludes Google car metadata for strict FOSS packaging.
-- The app builds without proprietary ML Kit dependencies.
+- The app builds without proprietary language-detection dependencies.
 - Example build command:
 
 ```bash

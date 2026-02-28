@@ -18,65 +18,14 @@ RepoType: git
 Repo: https://github.com/hyliankid14/BBC-Radio-Player.git
 
 Builds:
-  - versionName: 0.12.0
-    versionCode: 18
-    commit: master
-    subdir: .
-    gradle:
-      - yes
-    prebuild: |
-      sed -i '/com.google.mlkit:language-id/d' app/build.gradle || true
-
-  - versionName: 1.0.1
-    versionCode: 20
-    commit: v1.0.1
-    subdir: .
-    gradle:
-      - yes
-    prebuild: |
-      sed -i '/com.google.mlkit:language-id/d' app/build.gradle || true
-
-  - versionName: 1.0.3
-    versionCode: 22
-    commit: v1.0.3
-    subdir: .
-    gradle:
-      - yes
-    prebuild: |
-      sed -i '/com.google.mlkit:language-id/d' app/build.gradle || true
-
-  - versionName: 1.0.4
-    versionCode: 23
-    commit: v1.0.4
-    subdir: .
-    gradle:
-      - yes
-    prebuild: |
-      sed -i '/com.google.mlkit:language-id/d' app/build.gradle || trueAutoUpdateMode: Version
-UpdateCheckMode: Tags
-CurrentVersion: 1.0.7
-CurrentVersionCode: 26
-  - versionName: 1.0.5
-    versionCode: 24
-    commit: v1.0.5
-    subdir: .
-    gradle:
-      - yes
-    prebuild: |
-      sed -i '/com.google.mlkit:language-id/d' app/build.gradle || true
-  - versionName: 1.0.6
-    versionCode: 25
-    commit: v1.0.6
-    subdir: .
-    gradle:
-      - yes
-    prebuild: |
-      sed -i '/com.google.mlkit:language-id/d' app/build.gradle || true
   - versionName: 1.0.7
     versionCode: 26
     commit: v1.0.7
     subdir: .
     gradle:
       - yes
-    prebuild: |
-      sed -i '/com.google.mlkit:language-id/d' app/build.gradle || true
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags
+CurrentVersion: 1.0.7
+CurrentVersionCode: 26

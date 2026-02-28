@@ -47,51 +47,25 @@
 - [x] No Firebase/Analytics ✅
 - [x] No advertisements ✅
 - [x] FOSS dependencies (mostly) ✅
+- [x] **Build flavors implemented** ✅
+  - [x] `fdroid` flavor (no GMS metadata) - F-Droid compliant
+  - [x] `play` flavor (with GMS metadata) - Google Play optimized
+  - [x] Both flavors tested and building successfully
 
 ### ⚠️ Must Fix Before Submission
 
-#### 1. **Remove Google GMS Car Metadata** 🔴 CRITICAL
+✅ **COMPLETE:** Google GMS Car Metadata has been properly handled through build flavors. No manual removal needed!
 
-**Current Issue:**
-```xml
-<meta-data
-    android:name="com.google.android.gms.car.application"
-    android:resource="@xml/automotive_app_desc" />
-```
+**What was done:**
+- Build flavors created (`fdroid` and `play`)
+- GMS metadata removed from main manifest
+- Flavor-specific manifests created:
+  - `app/src/fdroid/AndroidManifest.xml` - Clean, no GMS (F-Droid)
+  - `app/src/play/AndroidManifest.xml` - With GMS metadata (Play Store)
+- Both flavors tested and build successfully
+- Commit: ea62d00
 
-**Why It's a Problem:**
-- F-Droid rejects proprietary Google metadata
-- This is a GMS (Google Mobile Services) declaration
-- Android Auto **works without it** (it's just an optimization)
-
-**Solution Options:**
-
-**Option A: Remove It (Simplest)**
-Delete the meta-data tag. Android Auto will still work, but may be slightly slower to discover your app.
-
-**Option B: Build Flavors (Recommended)**
-Create separate builds:
-- `fdroid` flavor → No GMS metadata (for F-Droid)
-- `play` flavor → Includes GMS metadata (for Google Play)
-
-See "Build Flavors Implementation" section below for details.
-
-#### 2. **Google ML Kit Dependency** 🟡 WARNING
-
-**Current Status:**
-```groovy
-implementation 'com.google.mlkit:language-id:17.0.6'
-```
-
-**Potential Issue:**
-- ML Kit may require Google Play Services
-- F-Droid reviewers will test this
-- May need to make it optional
-
-**Action Required:**
-Test that your app builds and runs WITHOUT Google Play Services installed. If it fails, you'll need to make ML Kit optional for F-Droid builds.
-
-#### 3. **Git Tags for Releases** 📌 IMPORTANT
+#### 2. **Git Tags for Releases** 📌 IMPORTANT
 
 F-Droid uses git tags to identify releases.
 
@@ -115,13 +89,19 @@ git push origin v0.11.0
 
 ## 🔧 Recommended Fixes
 
-### Build Flavors Implementation (Recommended Approach)
+### Build Flavors Implementation (✅ COMPLETED)
+
+**Status:** Build flavors have been successfully implemented as of commit ea62d00.
 
 This lets you have both F-Droid and Google Play versions from the same codebase.
 
-#### Step 1: Update `app/build.gradle`
+#### ✅ What Was Done
 
-Add product flavors:
+**1. Updated `app/build.gradle`**
+- Added `flavorDimensions "distribution"`
+- Added 2 product flavors: `fdroid` and `play`
+
+**2. Created Flavor-Specific Manifests**
 
 ```groovy
 android {
@@ -507,8 +487,8 @@ git push origin add-bbc-radio-player
    - Podcast support with downloads
    - Material Design 3 interface
    
-   **Note:** Uses BBC public APIs for streaming and metadata. ML Kit language
-   identification library is used for podcast language detection.
+  **Note:** Uses BBC public APIs for streaming and metadata. Podcast language
+  identification uses RSS metadata + heuristic text/script analysis.
    ```
 5. Click **Create merge request**
 
@@ -538,7 +518,7 @@ Be prepared to answer:
 ```
 No. The `fdroid` build flavor removes all Google-specific dependencies.
 Android Auto works via standard MediaBrowserService without GMS.
-ML Kit library is included but does not require Play Services to function.
+Podcast language detection uses RSS metadata + heuristic text/script analysis.
 ```
 
 ### "What APIs does this app use?"
