@@ -1,0 +1,12 @@
+BBC Radio Player is an unofficial Android app for listening to BBC live radio and podcasts.
+
+Key features:
+- Live BBC station streaming
+- Podcast search, subscribe, and playback
+- Episode progress and resume support
+- Offline playback for downloaded episodes
+- Media browser service and playback controls
+- Background indexing and refresh workers
+
+This app is independent and not affiliated with or endorsed by the BBC.
+BBC trademarks and content rights belong to the British Broadcasting Corporation.
