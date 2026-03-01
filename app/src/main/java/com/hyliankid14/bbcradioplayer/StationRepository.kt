@@ -44,8 +44,10 @@ object StationRepository {
         station("radio1", "BBC Radio 1", "bbc_radio_one", category = StationCategory.NATIONAL),
         station("1xtra", "BBC Radio 1Xtra", "bbc_1xtra", category = StationCategory.NATIONAL),
         station("radio1dance", "BBC Radio 1 Dance", "bbc_radio_one_dance", category = StationCategory.NATIONAL),
+        station("radio1anthems", "BBC Radio 1 Anthems", "bbc_radio_one_anthems", category = StationCategory.NATIONAL),
         station("radio2", "BBC Radio 2", "bbc_radio_two", category = StationCategory.NATIONAL),
         station("radio3", "BBC Radio 3", "bbc_radio_three", category = StationCategory.NATIONAL),
+        station("radio3unwind", "BBC Radio 3 Unwind", "bbc_radio_three_unwind", category = StationCategory.NATIONAL),
         station("radio4", "BBC Radio 4", "bbc_radio_fourfm", category = StationCategory.NATIONAL),
         station("radio4extra", "BBC Radio 4 Extra", "bbc_radio_four_extra", category = StationCategory.NATIONAL),
         station("radio5live", "BBC Radio 5 Live", "bbc_radio_five_live", category = StationCategory.NATIONAL),
@@ -64,6 +66,7 @@ object StationRepository {
         station("radioshetland", "BBC Radio Shetland", "bbc_radio_shetland", category = StationCategory.REGIONS),
         station("radioulster", "BBC Radio Ulster", "bbc_radio_ulster", category = StationCategory.REGIONS),
         station("radiowales", "BBC Radio Wales", "bbc_radio_wales_fm", category = StationCategory.REGIONS),
+        station("radiowalesextra", "BBC Radio Wales Extra", "bbc_radio_wales_am", category = StationCategory.REGIONS),
 
         // BBC Local/Regional Stations (England and Channel Islands)
         station("radioberkshire", "BBC Radio Berkshire", "bbc_radio_berkshire", category = StationCategory.LOCAL),
