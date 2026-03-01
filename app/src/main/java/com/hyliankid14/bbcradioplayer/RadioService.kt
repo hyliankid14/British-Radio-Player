@@ -970,7 +970,14 @@ class RadioService : MediaBrowserServiceCompat() {
 
     private fun ensurePlayer() {
         if (player == null) {
-            player = ExoPlayer.Builder(this).build().apply {
+            // Create a media source factory with secure HTTPS data source
+            val secureDataSourceFactory = SecureHttpDataSource()
+            val mediaSourceFactory = com.google.android.exoplayer2.source.DefaultMediaSourceFactory(this)
+                .setDataSourceFactory(secureDataSourceFactory)
+            
+            player = ExoPlayer.Builder(this)
+                .setMediaSourceFactory(mediaSourceFactory)
+                .build().apply {
                 // Configure audio attributes for music playback
                 setAudioAttributes(
                     ExoAudioAttributes.Builder()
