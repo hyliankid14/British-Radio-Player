@@ -17,12 +17,10 @@ object IndexScheduler {
             return
         }
 
-        val lastScheduled = IndexPreference.getLastScheduledDays(context)
-        val policy = if (lastScheduled != days) {
-            ExistingPeriodicWorkPolicy.UPDATE
-        } else {
-            ExistingPeriodicWorkPolicy.KEEP
-        }
+        // Always use UPDATE policy to ensure constraints are applied correctly.
+        // This is important when internal scheduling logic changes (e.g., constraint modifications).
+        // WorkManager is smart about not re-running work that hasn't expired, so this is safe.
+        val policy = ExistingPeriodicWorkPolicy.UPDATE
 
         // Use WorkManager for reliable background scheduling
         com.hyliankid14.bbcradioplayer.workers.BackgroundIndexWorker.schedulePeriodicIndexing(
