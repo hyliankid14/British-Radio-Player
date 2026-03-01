@@ -80,6 +80,7 @@ Open the project in Android Studio (2023.2+), or use the CI deploy script
 - ExoPlayer 2.18+, Material 3 Components, WorkManager for background tasks
 
 ## Changelog
+- **v1.0.11** (Mar 2026): dual GitHub APK variants (Android Auto + No-Google), release automation, and metadata sync improvements
 - **v1.0.10** (Mar 2026): dual GitHub APK variants (Android Auto + No-Google), release automation, and metadata sync improvements
 - **v1.0.9** (Mar 2026): dual GitHub APK variants (Android Auto + No-Google), release automation, and metadata sync improvements
 - **v1.0.7** (Feb 2026): dual GitHub APK variants (Android Auto + No-Google), release automation, and metadata sync improvements
