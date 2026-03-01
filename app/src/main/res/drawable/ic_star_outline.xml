@@ -4,8 +4,12 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <!-- Using white fillColor so iconTint can properly color it -->
+    <!-- Dark outline for visibility on light backgrounds -->
     <path
-        android:fillColor="#FFFFFF"
+        android:strokeColor="#424242"
+        android:strokeWidth="1.5"
+        android:fillColor="@android:color/transparent"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
         android:pathData="M12,17.27L18.18,21l-1.64,-7.03L22,9.24l-7.19,-0.61L12,2 9.19,8.63 2,9.24l5.46,4.73L5.82,21z" />
 </vector>
