@@ -386,7 +386,7 @@ class RadioService : MediaBrowserServiceCompat() {
 
         val favoriteIcon = when {
             isPodcast && !currentEpisode.isNullOrEmpty() && isFavorite -> R.drawable.ic_bookmark
-            isPodcast && !currentEpisode.isNullOrEmpty() -> R.drawable.ic_bookmark_outline
+            isPodcast && !currentEpisode.isNullOrEmpty() -> R.drawable.ic_bookmark_outline_stroked
             isFavorite -> R.drawable.ic_star_filled_yellow
             else -> R.drawable.ic_star_outline_stroked
         }
