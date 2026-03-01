@@ -44,7 +44,8 @@ object OPMLParser {
 
     fun fetchAndParseOPML(url: String): List<Podcast> {
         return try {
-            var redirectUrl = url
+            // Force HTTPS to prevent cleartext traffic issues
+            var redirectUrl = url.replace("http://", "https://")
             var redirects = 0
             while (redirects < 5) {
                 val currentUrl = URL(redirectUrl)
@@ -67,10 +68,8 @@ object OPMLParser {
                 ) {
                     val location = connection.getHeaderField("Location") ?: break
                     redirectUrl = URL(currentUrl, location).toString()
-                    // Some BBC endpoints redirect to http; prefer https when available
-                    if (redirectUrl.startsWith("http://podcasts.files.bbci.co.uk")) {
-                        redirectUrl = redirectUrl.replaceFirst("http://", "https://")
-                    }
+                    // Force all redirects to HTTPS to prevent cleartext traffic
+                    redirectUrl = redirectUrl.replace("http://", "https://")
                     redirects++
                     continue
                 }
@@ -117,9 +116,9 @@ object OPMLParser {
                 id = keyName.trim().hashCode().toString(),
                 title = text.trim(),
                 description = description.trim(),
-                rssUrl = xmlUrl.trim(),
-                htmlUrl = htmlUrl.trim(),
-                imageUrl = imageUrl.trim(),
+                rssUrl = xmlUrl.trim().replace("http://", "https://"),
+                htmlUrl = htmlUrl.trim().replace("http://", "https://"),
+                imageUrl = imageUrl.trim().replace("http://", "https://"),
                 genres = genres,
                 typicalDurationMins = duration
             )
@@ -204,7 +203,7 @@ object RSSParser {
                                     id = currentAudioUrl.trim().hashCode().toString(),
                                     title = currentTitle.trim(),
                                     description = currentDescription.trim(),
-                                    audioUrl = currentAudioUrl.trim(),
+                                    audioUrl = currentAudioUrl.trim().replace("http://", "https://"),
                                     imageUrl = "",
                                     pubDate = currentPubDate.trim(),
                                     durationMins = currentDuration,
@@ -230,7 +229,9 @@ object RSSParser {
 
     fun fetchAndParseRSS(url: String, podcastId: String, startIndex: Int, maxCount: Int): List<Episode> {
         return try {
-            val connection = (URL(url).openConnection() as java.net.HttpURLConnection).apply {
+            // Force HTTPS to prevent cleartext traffic issues
+            val secureUrl = url.replace("http://", "https://")
+            val connection = (URL(secureUrl).openConnection() as java.net.HttpURLConnection).apply {
                 instanceFollowRedirects = true
                 connectTimeout = 15000
                 readTimeout = 15000
@@ -240,7 +241,7 @@ object RSSParser {
             
             val responseCode = connection.responseCode
             if (responseCode != 200) {
-                Log.w(TAG, "HTTP $responseCode while fetching RSS from $url")
+                Log.w(TAG, "HTTP $responseCode while fetching RSS from $secureUrl")
                 connection.disconnect()
                 return emptyList()
             }
