@@ -1046,13 +1046,41 @@ class MainActivity : AppCompatActivity() {
         } catch (_: Exception) { }
 
         val stations = FavoritesPreference.getFavorites(this).toMutableList()
-        val adapter = FavoritesAdapter(this, stations, { stationId ->
+        lateinit var adapter: FavoritesAdapter
+        adapter = FavoritesAdapter(this, stations, { stationId ->
             playStation(stationId)
         }, { _ ->
             refreshFavoriteStationsEmptyState()
         }, {
             // Save the new order when changed
             FavoritesPreference.saveFavoritesOrder(this, stations.map { it.id })
+        }, { station, position ->
+            // Handle removal with undo
+            adapter.removeItem(position)
+            refreshFavoriteStationsEmptyState()
+            
+            // Show Snackbar with undo action
+            com.google.android.material.snackbar.Snackbar
+                .make(findViewById(android.R.id.content), "Removed from favourites", com.google.android.material.snackbar.Snackbar.LENGTH_LONG)
+                .setAction("Undo") {
+                    // Restore the item in the list
+                    adapter.restoreItem(station, position)
+                    refreshFavoriteStationsEmptyState()
+                    // Don't persist the removal - item is still in favourites
+                }
+                .addCallback(object : com.google.android.material.snackbar.Snackbar.Callback() {
+                    override fun onDismissed(transientBottomBar: com.google.android.material.snackbar.Snackbar?, event: Int) {
+                        super.onDismissed(transientBottomBar, event)
+                        // Only persist the removal if not dismissed by the undo action
+                        if (event != DISMISS_EVENT_ACTION) {
+                            FavoritesPreference.toggleFavorite(this@MainActivity, station.id)
+                            // Update the saved order
+                            FavoritesPreference.saveFavoritesOrder(this@MainActivity, stations.map { it.id })
+                        }
+                    }
+                })
+                .setAnchorView(findViewById(R.id.stations_content))
+                .show()
         })
         stationsList.adapter = adapter
         refreshFavoriteStationsEmptyState()
@@ -1421,6 +1449,7 @@ class MainActivity : AppCompatActivity() {
     private fun showFavoritesTab(tab: String) {
         when (tab) {
             "stations" -> {
+                supportActionBar?.title = "Favourite Stations"
                 refreshFavoriteStationsEmptyState()
                 findViewById<View>(R.id.favorites_podcasts_container).visibility = View.GONE
                 try { findViewById<TextView>(R.id.favorites_podcasts_empty).visibility = View.GONE } catch (_: Exception) { }
@@ -1432,6 +1461,7 @@ class MainActivity : AppCompatActivity() {
                 try { findViewById<RecyclerView>(R.id.favorites_history_recycler).visibility = View.GONE } catch (_: Exception) { }
             }
             "subscribed" -> {
+                supportActionBar?.title = "Subscribed Podcasts"
                 stationsList.visibility = View.GONE
                 try { findViewById<TextView>(R.id.favorite_stations_empty).visibility = View.GONE } catch (_: Exception) { }
                 findViewById<View>(R.id.favorites_podcasts_container).visibility = View.VISIBLE
@@ -1505,6 +1535,7 @@ class MainActivity : AppCompatActivity() {
                 }.start()
             }
             "saved" -> {
+                supportActionBar?.title = "Saved Episodes"
                 stationsList.visibility = View.GONE
                 try { findViewById<TextView>(R.id.favorite_stations_empty).visibility = View.GONE } catch (_: Exception) { }
                 findViewById<View>(R.id.favorites_podcasts_container).visibility = View.GONE
@@ -1518,6 +1549,7 @@ class MainActivity : AppCompatActivity() {
                 try { refreshSavedEpisodesSection() } catch (_: Exception) { }
             }
             "searches" -> {
+                supportActionBar?.title = "Saved Searches"
                 stationsList.visibility = View.GONE
                 try { findViewById<TextView>(R.id.favorite_stations_empty).visibility = View.GONE } catch (_: Exception) { }
                 findViewById<View>(R.id.favorites_podcasts_container).visibility = View.GONE
@@ -1525,6 +1557,7 @@ class MainActivity : AppCompatActivity() {
                 findViewById<View>(R.id.saved_episodes_container).visibility = View.GONE
                 try { findViewById<TextView>(R.id.saved_episodes_empty).visibility = View.GONE } catch (_: Exception) { }
                 findViewById<View>(R.id.saved_searches_container).visibility = View.VISIBLE
+                try { findViewById<TextView>(R.id.saved_searches_title).visibility = View.GONE } catch (_: Exception) { }
                 findViewById<View>(R.id.favorites_history_container).visibility = View.GONE
                 try { findViewById<TextView>(R.id.favorites_history_empty).visibility = View.GONE } catch (_: Exception) { }
                 try { findViewById<RecyclerView>(R.id.saved_episodes_recycler).visibility = View.GONE } catch (_: Exception) { }
@@ -1532,6 +1565,7 @@ class MainActivity : AppCompatActivity() {
                 try { refreshSavedSearchesSection() } catch (_: Exception) { }
             }
             "history" -> {
+                supportActionBar?.title = "History"
                 stationsList.visibility = View.GONE
                 try { findViewById<TextView>(R.id.favorite_stations_empty).visibility = View.GONE } catch (_: Exception) { }
                 findViewById<View>(R.id.favorites_podcasts_container).visibility = View.GONE
