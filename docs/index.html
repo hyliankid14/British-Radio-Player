@@ -372,6 +372,75 @@
             line-height: 1.6;
         }
 
+        .radio-section {
+            background: #f8f8f8;
+            border-radius: 12px;
+            padding: 24px;
+            margin-top: 30px;
+        }
+
+        .radio-section h3 {
+            font-size: 18px;
+            margin-bottom: 12px;
+            color: #333;
+        }
+
+        .radio-subtitle {
+            font-size: 13px;
+            color: #777;
+            margin-bottom: 16px;
+        }
+
+        .radio-player-box {
+            background: white;
+            border: 1px solid #e6e6e6;
+            border-radius: 10px;
+            padding: 14px;
+            margin-bottom: 16px;
+        }
+
+        .radio-now-playing {
+            font-size: 14px;
+            color: #333;
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+
+        .station-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+            gap: 12px;
+        }
+
+        .station-card {
+            background: white;
+            border: 1px solid #e6e6e6;
+            border-radius: 10px;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .station-title {
+            font-size: 14px;
+            color: #333;
+            line-height: 1.4;
+            min-height: 40px;
+        }
+
+        .station-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .station-actions .button {
+            min-width: 0;
+            padding: 10px 12px;
+            font-size: 12px;
+            border-width: 1px;
+        }
+
         @media (max-width: 600px) {
             .header {
                 padding: 30px 20px;
@@ -465,6 +534,19 @@
             }
         };
 
+        const LIVE_RADIO_STATIONS = [
+            { id: 'radio1', title: 'BBC Radio 1', serviceId: 'bbc_radio_one' },
+            { id: '1xtra', title: 'BBC Radio 1Xtra', serviceId: 'bbc_1xtra' },
+            { id: 'radio2', title: 'BBC Radio 2', serviceId: 'bbc_radio_two' },
+            { id: 'radio3', title: 'BBC Radio 3', serviceId: 'bbc_radio_three' },
+            { id: 'radio4', title: 'BBC Radio 4', serviceId: 'bbc_radio_fourfm' },
+            { id: 'radio4extra', title: 'BBC Radio 4 Extra', serviceId: 'bbc_radio_four_extra' },
+            { id: 'radio5live', title: 'BBC Radio 5 Live', serviceId: 'bbc_radio_five_live' },
+            { id: 'radio6', title: 'BBC Radio 6 Music', serviceId: 'bbc_6music' },
+            { id: 'worldservice', title: 'BBC World Service', serviceId: 'bbc_world_service' },
+            { id: 'asiannetwork', title: 'BBC Asian Network', serviceId: 'bbc_asian_network' }
+        ];
+
         class PodcastPlayer {
             constructor() {
                 this.currentContent = null;
@@ -475,6 +557,10 @@
                 this.analyticsEnabled = localStorage.getItem('analytics_consent') === 'accepted';
                 this.analyticsServer = 'https://raspberrypi.tailc23afa.ts.net:8443';
                 this.deferredInstallPrompt = null;
+                this.streamBase = 'https://lsn.lv/bbcradio.m3u8';
+                this.radioStations = LIVE_RADIO_STATIONS;
+                this.favoriteStationsOrder = this.loadFavoriteStationsOrder();
+                this.currentRadioStationId = this.favoriteStationsOrder[0] || this.radioStations[0]?.id || null;
                 this.init();
                 this.initCookieBanner();
                 this.initPwa();
@@ -613,6 +699,142 @@
                 }
 
                 alert('Install prompt is not available on this browser.');
+            }
+
+            loadFavoriteStationsOrder() {
+                const orderString = localStorage.getItem('favorite_stations_order_string') || '';
+                const ids = orderString.split(',').map(x => x.trim()).filter(Boolean);
+                const allowed = new Set(this.radioStations.map(station => station.id));
+                return ids.filter(id => allowed.has(id));
+            }
+
+            saveFavoriteStationsOrder() {
+                localStorage.setItem('favorite_stations_order_string', this.favoriteStationsOrder.join(','));
+            }
+
+            isFavoriteStation(stationId) {
+                return this.favoriteStationsOrder.includes(stationId);
+            }
+
+            getStationById(stationId) {
+                return this.radioStations.find(station => station.id === stationId) || null;
+            }
+
+            buildStationStreamUrl(serviceId, highQuality = true) {
+                const bitrate = highQuality ? '320000' : '128000';
+                return `${this.streamBase}?station=${encodeURIComponent(serviceId)}&bitrate=${bitrate}`;
+            }
+
+            toggleFavoriteStation(stationId) {
+                if (this.isFavoriteStation(stationId)) {
+                    this.favoriteStationsOrder = this.favoriteStationsOrder.filter(id => id !== stationId);
+                } else {
+                    this.favoriteStationsOrder = [...this.favoriteStationsOrder, stationId];
+                }
+
+                this.saveFavoriteStationsOrder();
+                this.renderLiveRadioSection();
+
+                this.trackEvent('web_player_radio_favorite_toggle', {
+                    station_id: stationId,
+                    is_favorite: this.isFavoriteStation(stationId)
+                });
+            }
+
+            playRadioStation(stationId) {
+                const station = this.getStationById(stationId);
+                if (!station) {
+                    return;
+                }
+
+                this.currentRadioStationId = stationId;
+                this.renderLiveRadioSection();
+
+                setTimeout(() => {
+                    const audio = document.getElementById('live-radio-player');
+                    if (audio) {
+                        audio.play().catch(() => {
+                            console.debug('Autoplay blocked until user interacts with player controls.');
+                        });
+                    }
+                }, 50);
+            }
+
+            renderStationCards(stations) {
+                return stations.map(station => {
+                    const favouriteIcon = this.isFavoriteStation(station.id) ? '⭐' : '☆';
+                    return `
+                        <div class="station-card">
+                            <div class="station-title">${this.escapeHtml(station.title)}</div>
+                            <div class="station-actions">
+                                <button class="button button-primary" onclick="player.playRadioStation('${this.escapeHtml(station.id)}')">▶️ Play</button>
+                                <button class="button button-secondary" onclick="player.toggleFavoriteStation('${this.escapeHtml(station.id)}')">${favouriteIcon} Favourite</button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            renderLiveRadioSection() {
+                const section = document.getElementById('live-radio-section');
+                if (!section) {
+                    return;
+                }
+
+                const favoriteStations = this.favoriteStationsOrder
+                    .map(id => this.getStationById(id))
+                    .filter(Boolean);
+
+                const otherStations = this.radioStations.filter(station => !this.isFavoriteStation(station.id));
+
+                const selectedStation = this.getStationById(this.currentRadioStationId)
+                    || favoriteStations[0]
+                    || this.radioStations[0]
+                    || null;
+
+                if (!selectedStation) {
+                    section.innerHTML = '';
+                    return;
+                }
+
+                this.currentRadioStationId = selectedStation.id;
+
+                section.innerHTML = `
+                    <div class="radio-section">
+                        <h3>📻 Live Radio</h3>
+                        <p class="radio-subtitle">Play live BBC stations and save your favourites on this device.</p>
+
+                        <div class="radio-player-box">
+                            <div class="radio-now-playing">Now playing: ${this.escapeHtml(selectedStation.title)}</div>
+                            <audio id="live-radio-player" controls class="audio-player">
+                                <source src="${this.escapeHtml(this.buildStationStreamUrl(selectedStation.serviceId, true))}" type="application/x-mpegURL">
+                                <source src="${this.escapeHtml(this.buildStationStreamUrl(selectedStation.serviceId, false))}" type="application/x-mpegURL">
+                                Your browser does not support the audio element.
+                            </audio>
+                        </div>
+
+                        ${favoriteStations.length ? `
+                            <h3>⭐ Favourites</h3>
+                            <div class="station-grid">${this.renderStationCards(favoriteStations)}</div>
+                        ` : ''}
+
+                        <h3 style="margin-top: 18px;">🎙️ Stations</h3>
+                        <div class="station-grid">${this.renderStationCards(otherStations)}</div>
+                    </div>
+                `;
+
+                const audio = document.getElementById('live-radio-player');
+                if (audio) {
+                    audio.addEventListener('play', () => {
+                        const station = this.getStationById(this.currentRadioStationId);
+                        if (station) {
+                            this.trackEvent('web_player_radio_play', {
+                                station_id: station.id,
+                                station_title: station.title
+                            });
+                        }
+                    });
+                }
             }
 
             parseUrl() {
@@ -1419,6 +1641,8 @@
                             </p>
                         </div>
 
+                        <div id="live-radio-section"></div>
+
                         <div class="publication-info" style="justify-content: center; flex-direction: column; text-align: center; margin-top: 40px;">
                             <p style="font-size: 12px; color: #999; margin-bottom: 8px;">
                                 Unofficial third-party app. BBC and station trademarks are owned by the British Broadcasting Corporation.
@@ -1429,6 +1653,8 @@
                         </div>
                     </div>
                 `;
+
+                this.renderLiveRadioSection();
             }
 
             escapeHtml(text) {
