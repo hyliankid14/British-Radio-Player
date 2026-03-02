@@ -6,57 +6,19 @@ SourceCode: https://github.com/hyliankid14/BBC-Radio-Player
 IssueTracker: https://github.com/hyliankid14/BBC-Radio-Player/issues
 
 AutoName: BBC Radio Player
-Summary: Unofficial BBC Radio and podcast player
-Description: |
-  Unofficial Android client for BBC Radio and BBC podcasts.
-
-  Features include live radio playback, podcast browsing and subscription,
-  background index refresh, media browsing and controls,
-  episode progress tracking, and offline playback for downloaded episodes.
 
 RepoType: git
 Repo: https://github.com/hyliankid14/BBC-Radio-Player.git
 
 Builds:
-  - versionName: 1.0.8
-    versionCode: 27
-    commit: v1.0.8
+  - versionName: 1.0.12
+    versionCode: 31
+    commit: v1.0.12
     subdir: app
     gradle:
       - fdroid
 
-  - versionName: 1.0.9
-    versionCode: 28
-    commit: v1.0.9
-    subdir: .
-    gradle:
-      - yes
-    prebuild: |
-      sed -i '/com.google.mlkit:language-id/d' app/build.gradle || trueAutoUpdateMode: Version
+AutoUpdateMode: Version
 UpdateCheckMode: Tags
 CurrentVersion: 1.0.12
 CurrentVersionCode: 31
-  - versionName: 1.0.10
-    versionCode: 29
-    commit: v1.0.10
-    subdir: .
-    gradle:
-      - yes
-    prebuild: |
-      sed -i '/com.google.mlkit:language-id/d' app/build.gradle || true
-  - versionName: 1.0.11
-    versionCode: 30
-    commit: v1.0.11
-    subdir: .
-    gradle:
-      - yes
-    prebuild: |
-      sed -i '/com.google.mlkit:language-id/d' app/build.gradle || true
-  - versionName: 1.0.12
-    versionCode: 31
-    commit: v1.0.12
-    subdir: .
-    gradle:
-      - yes
-    prebuild: |
-      sed -i '/com.google.mlkit:language-id/d' app/build.gradle || true
