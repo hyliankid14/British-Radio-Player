@@ -9,6 +9,7 @@
     <meta name="apple-mobile-web-app-title" content="BBC Radio">
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.18/dist/hls.min.js"></script>
     <title>BBC Radio Player - Podcast & Episode Sharing</title>
     <!-- Version: 2.2 - Added PWA baseline support -->
     <style>
@@ -562,6 +563,7 @@
                 this.favoriteStationsOrder = this.loadFavoriteStationsOrder();
                 this.currentRadioStationId = this.favoriteStationsOrder[0] || this.radioStations[0]?.id || null;
                 this.currentRadioObjectUrl = null;
+                this.hlsPlayer = null;
                 this.init();
                 this.initCookieBanner();
                 this.initPwa();
@@ -788,15 +790,52 @@
                         this.currentRadioObjectUrl = resolvedUrl;
                     }
 
-                    audio.src = resolvedUrl;
-                    audio.load();
-                    this.setRadioStatus(`Ready: ${station.title}`);
-
-                    if (shouldAutoplay) {
-                        audio.play().catch(() => {
-                            this.setRadioStatus('Tap play to start audio.');
-                        });
+                    if (this.hlsPlayer) {
+                        this.hlsPlayer.destroy();
+                        this.hlsPlayer = null;
                     }
+
+                    const canNativePlayHls = audio.canPlayType('application/vnd.apple.mpegurl')
+                        || audio.canPlayType('application/x-mpegURL');
+
+                    if (window.Hls && window.Hls.isSupported() && !canNativePlayHls) {
+                        this.hlsPlayer = new window.Hls({
+                            enableWorker: true,
+                            lowLatencyMode: false
+                        });
+                        this.hlsPlayer.loadSource(resolvedUrl);
+                        this.hlsPlayer.attachMedia(audio);
+                        this.hlsPlayer.on(window.Hls.Events.MANIFEST_PARSED, () => {
+                            this.setRadioStatus(`Ready: ${station.title}`);
+                            if (shouldAutoplay) {
+                                audio.play().catch(() => {
+                                    this.setRadioStatus('Tap play to start audio.');
+                                });
+                            }
+                        });
+                        this.hlsPlayer.on(window.Hls.Events.ERROR, (_event, data) => {
+                            if (data?.fatal) {
+                                this.setRadioStatus('Stream error. Try another station.');
+                            }
+                        });
+                    } else {
+                        audio.src = resolvedUrl;
+                        audio.load();
+                        this.setRadioStatus(`Ready: ${station.title}`);
+                        if (shouldAutoplay) {
+                            audio.play().catch(() => {
+                                this.setRadioStatus('Tap play to start audio.');
+                            });
+                        }
+                    }
+
+                    audio.onerror = () => {
+                        this.setRadioStatus('Playback failed in this browser for this stream.');
+                    };
+                    audio.onplaying = () => {
+                        this.setRadioStatus(`Playing: ${station.title}`);
+                    };
+                    this.setRadioStatus(`Ready: ${station.title}`);
                 } catch (error) {
                     this.setRadioStatus('Unable to load stream. Please try another station.');
                     console.debug('Unable to set live radio source:', error?.message || error);

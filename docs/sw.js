@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bbc-radio-player-pwa-v2';
+const CACHE_NAME = 'bbc-radio-player-pwa-v3';
 const APP_SHELL = [
   './',
   './index.html',
