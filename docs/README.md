@@ -41,6 +41,18 @@ Your web player will be live at `https://yourusername.github.io/BBC-Radio-Player
 
 ## Testing
 
+### Test as a PWA (including iPhone)
+
+1. Open the deployed site in Safari on your iPhone.
+2. Tap **Share** → **Add to Home Screen**.
+3. Launch the installed app from the home screen.
+4. Confirm pages load and shared links open inside the installed web app.
+5. Temporarily disconnect network to verify the offline fallback page appears.
+
+Notes:
+- Service worker and manifest are now included for installability.
+- iOS does not always show an automatic install prompt; use Safari's **Add to Home Screen** flow.
+
 ### Test the Web Player
 
 Visit: `https://yourusername.github.io/BBC-Radio-Player/p/example-1`

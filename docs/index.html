@@ -3,8 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#667eea">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="BBC Radio">
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
     <title>BBC Radio Player - Podcast & Episode Sharing</title>
-    <!-- Version: 2.1 - Fixed URL parameter parsing -->
+    <!-- Version: 2.2 - Added PWA baseline support -->
     <style>
         * {
             margin: 0;
@@ -468,8 +474,10 @@
                 this.episodesPerPage = 10;
                 this.analyticsEnabled = localStorage.getItem('analytics_consent') === 'accepted';
                 this.analyticsServer = 'https://raspberrypi.tailc23afa.ts.net:8443';
+                this.deferredInstallPrompt = null;
                 this.init();
                 this.initCookieBanner();
+                this.initPwa();
             }
 
             initCookieBanner() {
@@ -573,6 +581,38 @@
 
             init() {
                 this.parseUrl();
+            }
+
+            initPwa() {
+                if ('serviceWorker' in navigator) {
+                    window.addEventListener('load', () => {
+                        navigator.serviceWorker.register('./sw.js').catch(error => {
+                            console.debug('Service worker registration failed:', error?.message || error);
+                        });
+                    });
+                }
+
+                window.addEventListener('beforeinstallprompt', event => {
+                    event.preventDefault();
+                    this.deferredInstallPrompt = event;
+                });
+            }
+
+            async installPwa() {
+                if (this.deferredInstallPrompt) {
+                    this.deferredInstallPrompt.prompt();
+                    await this.deferredInstallPrompt.userChoice;
+                    this.deferredInstallPrompt = null;
+                    return;
+                }
+
+                const isIos = /iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+                if (isIos && !window.navigator.standalone) {
+                    alert('To install on iPhone: tap Share in Safari, then choose Add to Home Screen.');
+                    return;
+                }
+
+                alert('Install prompt is not available on this browser.');
             }
 
             parseUrl() {
@@ -1359,6 +1399,9 @@
                         </div>
 
                         <div class="button-group" style="flex-direction: column;">
+                            <button class="button button-secondary" onclick="player.installPwa()">
+                                📲 Install Web App
+                            </button>
                             <a href="https://github.com/hyliankid14/bbc-radio-player/releases" class="button button-primary" target="_blank">
                                 📥 Download Latest Release
                             </a>
