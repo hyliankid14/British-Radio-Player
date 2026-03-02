@@ -19,7 +19,8 @@ class FavoritesAdapter(
     private val stations: MutableList<Station>,
     private val onStationClick: (String) -> Unit,
     private val onFavoriteToggle: ((String) -> Unit)? = null,
-    private val onOrderChanged: () -> Unit = {}
+    private val onOrderChanged: () -> Unit = {},
+    private val onFavoriteRemoved: ((Station, Int) -> Unit)? = null
 ) : RecyclerView.Adapter<FavoritesAdapter.StationViewHolder>() {
     
     private val adapterScope = CoroutineScope(Dispatchers.Main + Job())
@@ -116,16 +117,21 @@ class FavoritesAdapter(
         }
         
         holder.starView.setOnClickListener {
-            FavoritesPreference.toggleFavorite(context, station.id)
-            val nowFavorite = FavoritesPreference.isFavorite(context, station.id)
-            if (nowFavorite) {
+            val currentPosition = holder.bindingAdapterPosition
+            if (currentPosition == RecyclerView.NO_POSITION) return@setOnClickListener
+            
+            val isCurrentlyFavorite = FavoritesPreference.isFavorite(context, station.id)
+            
+            if (isCurrentlyFavorite) {
+                // Removing from favourites - trigger undo flow
+                onFavoriteRemoved?.invoke(station, currentPosition)
+            } else {
+                // Adding to favourites - immediate action
+                FavoritesPreference.toggleFavorite(context, station.id)
                 holder.starView.setImageResource(R.drawable.ic_star_filled)
                 holder.starView.setColorFilter(ContextCompat.getColor(context, R.color.favorite_star_color))
-            } else {
-                holder.starView.setImageResource(R.drawable.ic_star_outline)
-                holder.starView.clearColorFilter()
+                onFavoriteToggle?.invoke(station.id)
             }
-            onFavoriteToggle?.invoke(station.id)
         }
         
         // Post a Runnable for the system long-press timeout so the same pointer can continue to move
@@ -238,6 +244,17 @@ class FavoritesAdapter(
         }
         notifyItemMoved(fromPosition, toPosition)
         onOrderChanged()
+    }
+    
+    fun removeItem(position: Int): Station {
+        val station = stations.removeAt(position)
+        notifyItemRemoved(position)
+        return station
+    }
+    
+    fun restoreItem(station: Station, position: Int) {
+        stations.add(position, station)
+        notifyItemInserted(position)
     }
     
     fun clearShowCache() {
