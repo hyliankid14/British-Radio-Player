@@ -28,6 +28,7 @@ import com.google.android.exoplayer2.Player
 import com.google.android.exoplayer2.PlaybackException
 import com.google.android.exoplayer2.MediaItem as ExoMediaItem
 import com.google.android.exoplayer2.MediaMetadata
+import com.google.android.exoplayer2.upstream.DefaultDataSource
 import com.hyliankid14.bbcradioplayer.PodcastSubscriptions
 import com.google.android.exoplayer2.audio.AudioAttributes as ExoAudioAttributes
 import android.util.Log
@@ -997,10 +998,11 @@ class RadioService : MediaBrowserServiceCompat() {
 
     private fun ensurePlayer() {
         if (player == null) {
-            // Create a media source factory with secure HTTPS data source
+            // Route local/content URIs through DefaultDataSource and keep secure HTTP handling for network streams.
             val secureDataSourceFactory = SecureHttpDataSource()
+            val appDataSourceFactory = DefaultDataSource.Factory(this, secureDataSourceFactory)
             val mediaSourceFactory = com.google.android.exoplayer2.source.DefaultMediaSourceFactory(this)
-                .setDataSourceFactory(secureDataSourceFactory)
+                .setDataSourceFactory(appDataSourceFactory)
             
             player = ExoPlayer.Builder(this)
                 .setMediaSourceFactory(mediaSourceFactory)
@@ -2309,8 +2311,21 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                 val localRef = downloadedEntry?.localFilePath
                 when {
                     localRef.isNullOrBlank() -> android.net.Uri.parse(episode.audioUrl)
-                    localRef.startsWith("content://") || localRef.startsWith("file://") || localRef.startsWith("http") -> android.net.Uri.parse(localRef)
-                    else -> android.net.Uri.fromFile(java.io.File(localRef))
+                    localRef.startsWith("content://") -> android.net.Uri.parse(localRef)
+                    localRef.startsWith("file://") -> android.net.Uri.parse(localRef)
+                    localRef.startsWith("http://") || localRef.startsWith("https://") -> android.net.Uri.parse(localRef)
+                    localRef.startsWith("/") -> {
+                        // Absolute file path - create proper Uri with FileProvider
+                        android.net.Uri.fromFile(java.io.File(localRef))
+                    }
+                    else -> {
+                        // Try parsing as-is first
+                        try {
+                            android.net.Uri.fromFile(java.io.File(localRef))
+                        } catch (_: Exception) {
+                            android.net.Uri.parse(episode.audioUrl)
+                        }
+                    }
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Error checking for downloaded episode, using remote URL: ${e.message}")

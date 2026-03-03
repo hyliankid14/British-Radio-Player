@@ -91,21 +91,24 @@ object EpisodeDownloadManager {
                         val autoDownload = json.optBoolean("autoDownload", false)
                         val pendingPath = json.optString("localPath", "")
 
-                        // Prefer a concrete file path when available; fallback to DownloadManager URI ref.
-                        val localRef = when {
-                            pendingPath.isNotBlank() && File(pendingPath).exists() -> pendingPath
-                            !localUri.isNullOrBlank() -> localUri
-                            pendingPath.isNotBlank() -> pendingPath
-                            else -> ""
+                        // Always use the path we specified, since we know it's a real file path
+                        val localRef = if (pendingPath.isNotBlank() && File(pendingPath).exists()) {
+                            pendingPath
+                        } else {
+                            // Fallback: try to extract file path from DownloadManager URI
+                            when {
+                                !localUri.isNullOrBlank() && localUri.startsWith("/") -> localUri
+                                !localUri.isNullOrBlank() && localUri.startsWith("file://") -> Uri.parse(localUri).path ?: ""
+                                else -> ""
+                            }
                         }
 
                         if (localRef.isBlank()) {
-                            throw IllegalStateException("Unable to resolve downloaded file location")
+                            throw IllegalStateException("Unable to resolve downloaded file location (pending: $pendingPath, uri: $localUri)")
                         }
 
                         val fileSize = when {
                             reportedSize > 0 -> reportedSize
-                            localRef.startsWith("file://") -> File(Uri.parse(localRef).path ?: "").takeIf { it.exists() }?.length() ?: 0L
                             localRef.startsWith("/") -> File(localRef).takeIf { it.exists() }?.length() ?: 0L
                             else -> 0L
                         }

@@ -22,6 +22,10 @@ object DownloadedEpisodes {
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
+    private fun sanitizeFilename(value: String): String {
+        return value.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+    }
+
     private fun normalizeUrl(url: String?): String {
         if (url.isNullOrBlank()) return ""
         return try {
@@ -38,15 +42,50 @@ object DownloadedEpisodes {
         return try {
             val baseDir = File(context.getExternalFilesDir(Environment.DIRECTORY_PODCASTS), "episodes")
             if (!baseDir.exists() || !baseDir.isDirectory) return null
-            val direct = File(baseDir, "${episode.title.replace(Regex("[^a-zA-Z0-9._-]"), "_").take(100)}_${episode.id}.mp3")
-            if (direct.exists()) return direct
+            val safeTitle = sanitizeFilename(episode.title).ifBlank { "episode" }
+            val safeEpisodeId = sanitizeFilename(episode.id).ifBlank { episode.id.hashCode().toString() }
+
+            val directCurrentPattern = File(baseDir, "${safeTitle.take(70)}_${safeEpisodeId.take(40)}.mp3")
+            if (directCurrentPattern.exists()) return directCurrentPattern
+
+            val legacyPattern = File(baseDir, "${safeTitle.take(100)}_${episode.id}.mp3")
+            if (legacyPattern.exists()) return legacyPattern
 
             // Fallback: match by episode id suffix used in our download filename format.
             baseDir.listFiles()?.firstOrNull {
-                it.isFile && it.name.endsWith("_${episode.id}.mp3", ignoreCase = true)
+                if (!it.isFile) return@firstOrNull false
+                val name = it.name
+                name.equals(directCurrentPattern.name, ignoreCase = true) ||
+                    name.equals(legacyPattern.name, ignoreCase = true) ||
+                    name.endsWith("_${safeEpisodeId.take(40)}.mp3", ignoreCase = true) ||
+                    name.endsWith("_${episode.id}.mp3", ignoreCase = true)
             }
         } catch (_: Exception) {
             null
+        }
+    }
+
+    private fun normaliseLocalPath(path: String?): String {
+        if (path.isNullOrBlank()) return ""
+        return try {
+            when {
+                path.startsWith("file://") -> android.net.Uri.parse(path).path ?: ""
+                else -> path
+            }
+        } catch (_: Exception) {
+            path
+        }
+    }
+
+    private fun hasReadableLocalFile(path: String?): Boolean {
+        val resolved = normaliseLocalPath(path)
+        if (resolved.isBlank()) return false
+        if (resolved.startsWith("content://") || resolved.startsWith("http://") || resolved.startsWith("https://")) return false
+        return try {
+            val file = File(resolved)
+            file.exists() && file.isFile && file.length() > 0L
+        } catch (_: Exception) {
+            false
         }
     }
 
@@ -128,11 +167,29 @@ object DownloadedEpisodes {
     }
 
     fun getDownloadedEntry(context: Context, episode: Episode): Entry? {
-        getDownloadedEntry(context, episode.id)?.let { return it }
+        getDownloadedEntry(context, episode.id)?.let { byId ->
+            if (hasReadableLocalFile(byId.localFilePath)) {
+                return byId.copy(localFilePath = normaliseLocalPath(byId.localFilePath))
+            }
+            val fallback = findDownloadedFileForEpisode(context, episode)
+            if (fallback != null) {
+                return byId.copy(localFilePath = fallback.absolutePath)
+            }
+            return byId
+        }
 
         val audioKey = normalizeUrl(episode.audioUrl)
         if (audioKey.isNotBlank()) {
-            getDownloadedEntries(context).firstOrNull { normalizeUrl(it.audioUrl) == audioKey }?.let { return it }
+            getDownloadedEntries(context).firstOrNull { normalizeUrl(it.audioUrl) == audioKey }?.let { byAudio ->
+                if (hasReadableLocalFile(byAudio.localFilePath)) {
+                    return byAudio.copy(localFilePath = normaliseLocalPath(byAudio.localFilePath))
+                }
+                val fallback = findDownloadedFileForEpisode(context, episode)
+                if (fallback != null) {
+                    return byAudio.copy(localFilePath = fallback.absolutePath)
+                }
+                return byAudio
+            }
         }
 
         val fallbackFile = findDownloadedFileForEpisode(context, episode) ?: return null
