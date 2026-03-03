@@ -19,4 +19,20 @@
     <string name="shuffle_podcast_desc">Play a random podcast</string>
     <string name="no_podcasts_shuffle">No podcasts available to shuffle</string>
     <string name="no_podcasts_found">No podcasts found</string>
+
+    <!-- Update checker strings -->
+    <string name="about_title">About</string>
+    <string name="current_version">Current Version</string>
+    <string name="check_for_updates">Check for Updates</string>
+    <string name="last_checked">Last checked: %s</string>
+    <string name="never_checked">Never checked</string>
+    <string name="checking_for_updates">Checking for updates...</string>
+    <string name="update_available">Update Available</string>
+    <string name="update_not_available">You are running the latest version.</string>
+    <string name="update_check_failed">Failed to check for updates. Please try again later.</string>
+    <string name="update_download">Download</string>
+    <string name="update_dismiss">Later</string>
+    <string name="current_version_label">Current Version:</string>
+    <string name="available_version_label">Available Version:</string>
+    <string name="whats_new">What\'s New:</string>
 </resources>

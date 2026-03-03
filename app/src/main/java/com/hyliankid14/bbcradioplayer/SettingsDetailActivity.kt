@@ -24,6 +24,7 @@ class SettingsDetailActivity : AppCompatActivity() {
         const val SECTION_INDEXING = "indexing"
         const val SECTION_BACKUP = "backup"
         const val SECTION_PRIVACY = "privacy"
+        const val SECTION_ABOUT = "about"
     }
 
     private lateinit var createDocumentLauncher: ActivityResultLauncher<String>
@@ -68,6 +69,10 @@ class SettingsDetailActivity : AppCompatActivity() {
                 setContentView(R.layout.settings_privacy)
                 setupPrivacySettings()
             }
+            SECTION_ABOUT -> {
+                setContentView(R.layout.settings_about)
+                setupAboutSettings()
+            }
         }
         
         // Set up the toolbar as the action bar
@@ -87,6 +92,7 @@ class SettingsDetailActivity : AppCompatActivity() {
             SECTION_INDEXING -> "Indexing"
             SECTION_BACKUP -> "Backup"
             SECTION_PRIVACY -> "Privacy"
+            SECTION_ABOUT -> "About"
             else -> "Settings"
         }
         supportActionBar?.apply {
@@ -735,5 +741,95 @@ Source code: github.com/hyliankid14/BBC-Radio-Player""".trimIndent()
             .setMessage(privacyPolicyText)
             .setPositiveButton("OK", null)
             .show()
+    }
+    
+    private fun setupAboutSettings() {
+        try {
+            val currentVersionText: TextView = findViewById(R.id.current_version_text)
+            val lastCheckedText: TextView = findViewById(R.id.last_checked_text)
+            val checkUpdatesButton: Button = findViewById(R.id.check_updates_button)
+            val githubButton: Button = findViewById(R.id.github_button)
+            
+            val updateChecker = UpdateChecker(this)
+            
+            // Display current version
+            val currentVersion = try {
+                packageManager.getPackageInfo(packageName, 0).versionName
+            } catch (e: Exception) {
+                "Unknown"
+            }
+            currentVersionText.text = currentVersion
+            
+            // Display last check time
+            updateLastCheckTime(lastCheckedText, updateChecker)
+            
+            // Check for updates button
+            checkUpdatesButton.setOnClickListener {
+                lifecycleScope.launch {
+                    checkUpdatesButton.isEnabled = false
+                    checkUpdatesButton.text = getString(R.string.checking_for_updates)
+                    
+                    val releaseInfo = updateChecker.checkForUpdate()
+                    updateLastCheckTime(lastCheckedText, updateChecker)
+                    
+                    if (releaseInfo != null) {
+                        // Show update dialog
+                        UpdateDialog.show(
+                            this@SettingsDetailActivity,
+                            releaseInfo,
+                            onDownload = {
+                                com.hyliankid14.bbcradioplayer.workers.UpdateDownloadWorker.enqueueDownload(
+                                    this@SettingsDetailActivity,
+                                    releaseInfo.downloadUrl,
+                                    releaseInfo.versionName
+                                )
+                                android.widget.Toast.makeText(
+                                    this@SettingsDetailActivity,
+                                    "Downloading update...",
+                                    android.widget.Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        )
+                    } else {
+                        android.widget.Toast.makeText(
+                            this@SettingsDetailActivity,
+                            getString(R.string.update_not_available),
+                            android.widget.Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                    
+                    checkUpdatesButton.isEnabled = true
+                    checkUpdatesButton.text = getString(R.string.check_for_updates)
+                }
+            }
+            
+            // GitHub button
+            githubButton.setOnClickListener {
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(githubReleasesUrl))
+                startActivity(intent)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("SettingsDetailActivity", "Error setting up about settings", e)
+        }
+    }
+    
+    private fun updateLastCheckTime(textView: TextView, updateChecker: UpdateChecker) {
+        val lastCheckTime = updateChecker.getLastCheckTime()
+        if (lastCheckTime > 0) {
+            val timeAgo = getTimeAgo(lastCheckTime)
+            textView.text = getString(R.string.last_checked, timeAgo)
+        } else {
+            textView.text = getString(R.string.never_checked)
+        }
+    }
+    
+    private fun getTimeAgo(timestamp: Long): String {
+        val diff = System.currentTimeMillis() - timestamp
+        return when {
+            diff < 60_000 -> "just now"
+            diff < 3600_000 -> "${diff / 60_000} minutes ago"
+            diff < 86400_000 -> "${diff / 3600_000} hours ago"
+            else -> "${diff / 86400_000} days ago"
+        }
     }
 }
