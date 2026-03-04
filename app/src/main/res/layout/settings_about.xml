@@ -101,7 +101,7 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="BBC Radio Player is an open-source Android app for listening to podcasts from the BBC."
+                android:text="BBC Radio Player is an open-source Android app for listening to radio and podcasts from the BBC."
                 android:textSize="13sp"
                 android:textColor="?attr/colorOnSurfaceVariant"
                 android:layout_marginBottom="12dp"
