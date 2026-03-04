@@ -140,7 +140,13 @@ class PrivacyAnalytics(private val context: Context) {
     
     private fun getAppVersion(): String {
         return try {
-            context.packageManager.getPackageInfo(context.packageName, 0).versionName
+            val versionName = context.packageManager.getPackageInfo(context.packageName, 0).versionName
+            // Append "-debug" suffix for debug builds to distinguish test data in analytics
+            if (BuildConfig.DEBUG) {
+                "$versionName-debug"
+            } else {
+                versionName
+            }
         } catch (e: Exception) {
             "unknown"
         }
