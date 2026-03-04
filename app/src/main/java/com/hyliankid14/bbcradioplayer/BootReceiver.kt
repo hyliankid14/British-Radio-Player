@@ -24,6 +24,15 @@ class BootReceiver : BroadcastReceiver() {
             } else {
                 SubscriptionRefreshScheduler.cancel(context)
             }
+
+            // Reschedule alarm if enabled
+            if (AlarmPreference.isEnabled(context)) {
+                try {
+                    AlarmScheduler.schedule(context)
+                } catch (e: Exception) {
+                    android.util.Log.e("BootReceiver", "Failed to reschedule alarm after boot", e)
+                }
+            }
         }
     }
 }

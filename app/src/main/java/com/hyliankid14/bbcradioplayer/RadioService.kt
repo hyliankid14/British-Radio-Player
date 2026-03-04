@@ -78,6 +78,7 @@ class RadioService : MediaBrowserServiceCompat() {
     private var currentShowInfo: CurrentShow = CurrentShow("BBC Radio")
     private var lastSongSignature: String? = null
     private val showInfoPollIntervalMs = 30_000L // Poll RMS at BBC's sweet spot (30s)
+    private var alarmVolumeRampRunnable: Runnable? = null
     private var currentArtworkBitmap: android.graphics.Bitmap? = null
     private var currentArtworkUri: String? = null
     private var showInfoRefreshRunnable: Runnable? = null
@@ -129,6 +130,7 @@ class RadioService : MediaBrowserServiceCompat() {
         const val ACTION_SEEK_TO = "com.hyliankid14.bbcradioplayer.ACTION_SEEK_TO"
         const val ACTION_SEEK_DELTA = "com.hyliankid14.bbcradioplayer.ACTION_SEEK_DELTA"
         const val EXTRA_STATION_ID = "com.hyliankid14.bbcradioplayer.EXTRA_STATION_ID"
+        const val EXTRA_ALARM_VOLUME_RAMP = "com.hyliankid14.bbcradioplayer.EXTRA_ALARM_VOLUME_RAMP"
         const val EXTRA_EPISODE = "com.hyliankid14.bbcradioplayer.EXTRA_EPISODE"
         const val EXTRA_PODCAST_ID = "com.hyliankid14.bbcradioplayer.EXTRA_PODCAST_ID"
         const val EXTRA_PODCAST_TITLE = "com.hyliankid14.bbcradioplayer.EXTRA_PODCAST_TITLE"
@@ -2112,6 +2114,7 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
 
     private fun stopPlayback() {
         isStopped = true
+        stopAlarmPlaybackVolumeRamp()
         player?.stop()
         stopForeground(STOP_FOREGROUND_REMOVE)
         try {
@@ -2162,13 +2165,64 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
         Log.d(TAG, "Playback stopped")
     }
 
+    private fun startAlarmPlaybackVolumeRamp() {
+        stopAlarmPlaybackVolumeRamp()
+
+        val totalSteps = 60
+        val stepDelayMs = 1_000L
+        var step = 0
+        var waitAttempts = 0
+        val maxWaitAttempts = 120
+
+        player?.volume = 0.0f
+        alarmVolumeRampRunnable = object : Runnable {
+            override fun run() {
+                val currentPlayer = player
+                if (currentPlayer == null || !currentPlayer.isPlaying || currentStationId.isEmpty()) {
+                    if (waitAttempts < maxWaitAttempts) {
+                        waitAttempts += 1
+                        handler.postDelayed(this, stepDelayMs)
+                    } else {
+                        stopAlarmPlaybackVolumeRamp()
+                    }
+                    return
+                }
+
+                val volume = (step.toFloat() / totalSteps.toFloat()).coerceIn(0.0f, 1.0f)
+                currentPlayer.volume = volume
+                waitAttempts = 0
+
+                if (step < totalSteps) {
+                    step += 1
+                    handler.postDelayed(this, stepDelayMs)
+                }
+            }
+        }
+
+        handler.post(alarmVolumeRampRunnable!!)
+    }
+
+    private fun stopAlarmPlaybackVolumeRamp() {
+        alarmVolumeRampRunnable?.let { handler.removeCallbacks(it) }
+        alarmVolumeRampRunnable = null
+        player?.volume = 1.0f
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(TAG, "onStartCommand - action: ${intent?.action}")
         intent?.let {
             when (it.action) {
                 ACTION_PLAY_STATION -> {
                     val id = it.getStringExtra(EXTRA_STATION_ID)
-                    id?.let { playStation(it) }
+                    val shouldRamp = it.getBooleanExtra(EXTRA_ALARM_VOLUME_RAMP, false)
+                    id?.let { stationId ->
+                        playStation(stationId)
+                        if (shouldRamp) {
+                            startAlarmPlaybackVolumeRamp()
+                        } else {
+                            stopAlarmPlaybackVolumeRamp()
+                        }
+                    }
                 }
                 ACTION_PLAY_PODCAST_EPISODE -> {
                     val episode: Episode? = it.getParcelableExtraCompat<Episode>(EXTRA_EPISODE, Episode::class.java)

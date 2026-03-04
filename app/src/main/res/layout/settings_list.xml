@@ -196,6 +196,43 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
+        <!-- Alarm Section -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/settings_alarm_card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="2dp"
+            android:clickable="true"
+            android:focusable="true">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:padding="16dp"
+                android:gravity="center_vertical">
+
+                <ImageView
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:src="@drawable/ic_notifications"
+                    android:tint="?attr/colorOnSurface"
+                    android:layout_marginEnd="16dp"
+                    android:contentDescription="Alarm" />
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Alarm"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
         <!-- Backup & Restore Section -->
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/settings_backup_card"

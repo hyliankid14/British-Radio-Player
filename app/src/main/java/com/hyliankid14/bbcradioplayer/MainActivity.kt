@@ -300,6 +300,9 @@ class MainActivity : AppCompatActivity() {
         // Setup settings controls
         setupSettings()
         
+        // Create alarm notification channel
+        createAlarmNotificationChannel()
+        
         // Initialize analytics
         analytics = PrivacyAnalytics(this)
         
@@ -2445,6 +2448,13 @@ class MainActivity : AppCompatActivity() {
             startActivity(intent)
         }
         
+        findViewById<com.google.android.material.card.MaterialCardView>(R.id.settings_alarm_card)?.setOnClickListener {
+            val intent = Intent(this, SettingsDetailActivity::class.java).apply {
+                putExtra(SettingsDetailActivity.EXTRA_SECTION, SettingsDetailActivity.SECTION_ALARM)
+            }
+            startActivity(intent)
+        }
+        
         findViewById<com.google.android.material.card.MaterialCardView>(R.id.settings_backup_card)?.setOnClickListener {
             val intent = Intent(this, SettingsDetailActivity::class.java).apply {
                 putExtra(SettingsDetailActivity.EXTRA_SECTION, SettingsDetailActivity.SECTION_BACKUP)
@@ -3372,6 +3382,31 @@ class MainActivity : AppCompatActivity() {
             }
         } catch (e: Exception) {
             Log.w("MainActivity", "Failed to check for updates", e)
+        }
+    }
+
+    private fun createAlarmNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val notificationManager = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
+            
+            // Check if channel already exists
+            if (notificationManager.getNotificationChannel(AlarmReceiver.ALARM_CHANNEL_ID) != null) {
+                return
+            }
+            
+            val channel = android.app.NotificationChannel(
+                AlarmReceiver.ALARM_CHANNEL_ID,
+                getString(R.string.alarm_notification_channel),
+                android.app.NotificationManager.IMPORTANCE_HIGH
+            )
+            channel.description = "Alarm notifications"
+            channel.enableVibration(true)
+            channel.enableLights(true)
+            channel.setShowBadge(true)
+            // Allow sound to bypass DND (alarm-like semantics)
+            channel.setBypassDnd(true)
+            
+            notificationManager.createNotificationChannel(channel)
         }
     }
 

@@ -24,6 +24,7 @@ class SettingsDetailActivity : AppCompatActivity() {
         const val SECTION_INDEXING = "indexing"
         const val SECTION_BACKUP = "backup"
         const val SECTION_PRIVACY = "privacy"
+        const val SECTION_ALARM = "alarm"
         const val SECTION_ABOUT = "about"
     }
 
@@ -69,6 +70,10 @@ class SettingsDetailActivity : AppCompatActivity() {
                 setContentView(R.layout.settings_privacy)
                 setupPrivacySettings()
             }
+            SECTION_ALARM -> {
+                setContentView(R.layout.settings_alarm)
+                setupAlarmSettings()
+            }
             SECTION_ABOUT -> {
                 setContentView(R.layout.settings_about)
                 setupAboutSettings()
@@ -92,6 +97,7 @@ class SettingsDetailActivity : AppCompatActivity() {
             SECTION_INDEXING -> "Indexing"
             SECTION_BACKUP -> "Backup"
             SECTION_PRIVACY -> "Privacy"
+            SECTION_ALARM -> "Alarm"
             SECTION_ABOUT -> "About"
             else -> "Settings"
         }
@@ -743,6 +749,256 @@ Source code: github.com/hyliankid14/BBC-Radio-Player""".trimIndent()
             .show()
     }
     
+    private fun setupAlarmSettings() {
+        try {
+            val alarmEnabledSwitch: androidx.appcompat.widget.SwitchCompat = findViewById(R.id.alarm_enabled_switch)
+            val alarmHourSpinner: com.google.android.material.textfield.MaterialAutoCompleteTextView = findViewById(R.id.alarm_hour_spinner)
+            val alarmMinuteSpinner: com.google.android.material.textfield.MaterialAutoCompleteTextView = findViewById(R.id.alarm_minute_spinner)
+            val alarmStationSpinner: com.google.android.material.textfield.MaterialAutoCompleteTextView = findViewById(R.id.alarm_station_spinner)
+            val alarmVolumeRampCheckbox: android.widget.CheckBox = findViewById(R.id.alarm_volume_ramp_checkbox)
+            val alarmPermissionStatus: TextView = findViewById(R.id.alarm_permission_status)
+            
+            // Day checkboxes
+            val daySunday: android.widget.CheckBox = findViewById(R.id.alarm_day_sunday)
+            val dayMonday: android.widget.CheckBox = findViewById(R.id.alarm_day_monday)
+            val dayTuesday: android.widget.CheckBox = findViewById(R.id.alarm_day_tuesday)
+            val dayWednesday: android.widget.CheckBox = findViewById(R.id.alarm_day_wednesday)
+            val dayThursday: android.widget.CheckBox = findViewById(R.id.alarm_day_thursday)
+            val dayFriday: android.widget.CheckBox = findViewById(R.id.alarm_day_friday)
+            val daySaturday: android.widget.CheckBox = findViewById(R.id.alarm_day_saturday)
+            
+            val dayCheckboxes = listOf(
+                Pair(daySunday, AlarmPreference.DAY_SUNDAY),
+                Pair(dayMonday, AlarmPreference.DAY_MONDAY),
+                Pair(dayTuesday, AlarmPreference.DAY_TUESDAY),
+                Pair(dayWednesday, AlarmPreference.DAY_WEDNESDAY),
+                Pair(dayThursday, AlarmPreference.DAY_THURSDAY),
+                Pair(dayFriday, AlarmPreference.DAY_FRIDAY),
+                Pair(daySaturday, AlarmPreference.DAY_SATURDAY)
+            )
+            
+            // Populate hour spinner
+            val hourOptions = resources.getStringArray(R.array.hour_options).toList()
+            val hourAdapter = android.widget.ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, hourOptions)
+            alarmHourSpinner.setAdapter(hourAdapter)
+            alarmHourSpinner.setText(hourOptions[AlarmPreference.getHour(this)], false)
+            alarmHourSpinner.setOnClickListener { alarmHourSpinner.showDropDown() }
+            alarmHourSpinner.setOnFocusChangeListener { _, hasFocus -> if (hasFocus) alarmHourSpinner.showDropDown() }
+            
+            // Populate minute spinner
+            val minuteOptions = resources.getStringArray(R.array.minute_options).toList()
+            val minuteAdapter = android.widget.ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, minuteOptions)
+            alarmMinuteSpinner.setAdapter(minuteAdapter)
+            alarmMinuteSpinner.setText(minuteOptions[AlarmPreference.getMinute(this) / 5], false)
+            alarmMinuteSpinner.setOnClickListener { alarmMinuteSpinner.showDropDown() }
+            alarmMinuteSpinner.setOnFocusChangeListener { _, hasFocus -> if (hasFocus) alarmMinuteSpinner.showDropDown() }
+            
+            // Check permission status
+            val hasExactAlarmPermission = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                val alarmManager = getSystemService(android.content.Context.ALARM_SERVICE) as android.app.AlarmManager
+                alarmManager.canScheduleExactAlarms()
+            } else {
+                true
+            }
+            
+            // Populate station spinner
+            val stations = try {
+                StationRepository.getStations()
+            } catch (e: Exception) {
+                emptyList()
+            }
+            val stationNames = stations.map { it.title }
+            val stationAdapter = android.widget.ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, stationNames)
+            alarmStationSpinner.setAdapter(stationAdapter)
+            
+            val selectedStationId = AlarmPreference.getStationId(this)
+            if (selectedStationId != null) {
+                val selectedStation = stations.find { it.id == selectedStationId }
+                if (selectedStation != null) {
+                    alarmStationSpinner.setText(selectedStation.title)
+                }
+            }
+            
+            // Load alarm enabled state
+            alarmEnabledSwitch.isChecked = AlarmPreference.isEnabled(this)
+            
+            // Load day selections
+            for ((checkbox, dayBit) in dayCheckboxes) {
+                checkbox.isChecked = AlarmPreference.isDayEnabled(this, dayBit)
+            }
+            
+            // Load volume ramp state
+            alarmVolumeRampCheckbox.isChecked = AlarmPreference.isVolumeRampEnabled(this)
+            
+            // Update permission status display
+            if (!hasExactAlarmPermission) {
+                alarmPermissionStatus.visibility = android.view.View.VISIBLE
+                alarmPermissionStatus.text = getString(R.string.alarm_permission_error)
+            }
+            
+            // Listen for changes
+            alarmEnabledSwitch.setOnCheckedChangeListener { _, isChecked ->
+                saveAlarmSettings(
+                    isChecked,
+                    alarmHourSpinner,
+                    alarmMinuteSpinner,
+                    dayCheckboxes,
+                    alarmStationSpinner,
+                    alarmVolumeRampCheckbox,
+                    stations,
+                    hasExactAlarmPermission,
+                    alarmPermissionStatus
+                )
+            }
+            
+            alarmHourSpinner.setOnItemClickListener { _, _, _, _ ->
+                saveAlarmSettings(
+                    alarmEnabledSwitch.isChecked,
+                    alarmHourSpinner,
+                    alarmMinuteSpinner,
+                    dayCheckboxes,
+                    alarmStationSpinner,
+                    alarmVolumeRampCheckbox,
+                    stations,
+                    hasExactAlarmPermission,
+                    alarmPermissionStatus
+                )
+            }
+            
+            alarmMinuteSpinner.setOnItemClickListener { _, _, _, _ ->
+                saveAlarmSettings(
+                    alarmEnabledSwitch.isChecked,
+                    alarmHourSpinner,
+                    alarmMinuteSpinner,
+                    dayCheckboxes,
+                    alarmStationSpinner,
+                    alarmVolumeRampCheckbox,
+                    stations,
+                    hasExactAlarmPermission,
+                    alarmPermissionStatus
+                )
+            }
+            
+            alarmStationSpinner.setOnItemClickListener { _, _, _, _ ->
+                saveAlarmSettings(
+                    alarmEnabledSwitch.isChecked,
+                    alarmHourSpinner,
+                    alarmMinuteSpinner,
+                    dayCheckboxes,
+                    alarmStationSpinner,
+                    alarmVolumeRampCheckbox,
+                    stations,
+                    hasExactAlarmPermission,
+                    alarmPermissionStatus
+                )
+            }
+            
+            for ((checkbox, _) in dayCheckboxes) {
+                checkbox.setOnCheckedChangeListener { _, _ ->
+                    saveAlarmSettings(
+                        alarmEnabledSwitch.isChecked,
+                        alarmHourSpinner,
+                        alarmMinuteSpinner,
+                        dayCheckboxes,
+                        alarmStationSpinner,
+                        alarmVolumeRampCheckbox,
+                        stations,
+                        hasExactAlarmPermission,
+                        alarmPermissionStatus
+                    )
+                }
+            }
+            
+            alarmVolumeRampCheckbox.setOnCheckedChangeListener { _, _ ->
+                saveAlarmSettings(
+                    alarmEnabledSwitch.isChecked,
+                    alarmHourSpinner,
+                    alarmMinuteSpinner,
+                    dayCheckboxes,
+                    alarmStationSpinner,
+                    alarmVolumeRampCheckbox,
+                    stations,
+                    hasExactAlarmPermission,
+                    alarmPermissionStatus
+                )
+            }
+            
+        } catch (e: Exception) {
+            android.util.Log.e("SettingsDetailActivity", "Error setting up alarm settings", e)
+        }
+    }
+    
+    private fun saveAlarmSettings(
+        enabled: Boolean,
+        hourSpinner: com.google.android.material.textfield.MaterialAutoCompleteTextView,
+        minuteSpinner: com.google.android.material.textfield.MaterialAutoCompleteTextView,
+        dayCheckboxes: List<Pair<android.widget.CheckBox, Int>>,
+        stationSpinner: com.google.android.material.textfield.MaterialAutoCompleteTextView,
+        volumeRampCheckbox: android.widget.CheckBox,
+        stations: List<Station>,
+        hasExactAlarmPermission: Boolean,
+        permissionStatus: TextView
+    ) {
+        try {
+            val hourText = hourSpinner.text.toString()
+            val minuteText = minuteSpinner.text.toString()
+            val stationText = stationSpinner.text.toString()
+            
+            // Parse hour and minute
+            val hour = hourText.takeIf { it.isNotEmpty() }?.toIntOrNull() ?: AlarmPreference.getHour(this)
+            val minuteIndex = resources.getStringArray(R.array.minute_options).indexOf(minuteText)
+            val minute = if (minuteIndex >= 0) minuteIndex * 5 else AlarmPreference.getMinute(this)
+            
+            // Find selected station
+            val selectedStation = stations.find { it.title == stationText }
+            val stationId = selectedStation?.id ?: AlarmPreference.getStationId(this)
+            
+            // Update preferences
+            AlarmPreference.setEnabled(this, enabled)
+            AlarmPreference.setHour(this, hour)
+            AlarmPreference.setMinute(this, minute)
+            AlarmPreference.setStationId(this, stationId)
+            AlarmPreference.setVolumeRampEnabled(this, volumeRampCheckbox.isChecked)
+            
+            // Update day selections
+            for ((checkbox, dayBit) in dayCheckboxes) {
+                AlarmPreference.setDayEnabled(this, dayBit, checkbox.isChecked)
+            }
+            
+            // Try to schedule or cancel alarm
+            if (enabled) {
+                if (!hasExactAlarmPermission) {
+                    permissionStatus.visibility = android.view.View.VISIBLE
+                    permissionStatus.text = getString(R.string.alarm_permission_error)
+                    AlarmPreference.setEnabled(this, false)
+                    return
+                }
+                
+                if (stationId == null) {
+                    permissionStatus.visibility = android.view.View.VISIBLE
+                    permissionStatus.text = getString(R.string.alarm_no_station_error)
+                    AlarmPreference.setEnabled(this, false)
+                    return
+                }
+                
+                try {
+                    AlarmScheduler.schedule(this)
+                    permissionStatus.visibility = android.view.View.GONE
+                } catch (e: Exception) {
+                    permissionStatus.visibility = android.view.View.VISIBLE
+                    permissionStatus.text = e.message ?: "Failed to schedule alarm"
+                    AlarmPreference.setEnabled(this, false)
+                }
+            } else {
+                AlarmScheduler.cancel(this)
+                permissionStatus.visibility = android.view.View.GONE
+            }
+            
+        } catch (e: Exception) {
+            android.util.Log.e("SettingsDetailActivity", "Error saving alarm settings", e)
+        }
+    }
+
     private fun setupAboutSettings() {
         try {
             val currentVersionText: TextView = findViewById(R.id.current_version_text)
