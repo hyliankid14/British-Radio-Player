@@ -117,6 +117,14 @@ class BackgroundIndexWorker(
             WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME_SCHEDULED)
             Log.d(TAG, "Cancelled all indexing work")
         }
+
+        /**
+         * Cancel only one-time indexing work and keep periodic schedule intact.
+         */
+        fun cancelOneTimeIndexing(context: Context) {
+            WorkManager.getInstance(context).cancelAllWorkByTag(WORK_NAME)
+            Log.d(TAG, "Cancelled one-time indexing work")
+        }
     }
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {

@@ -157,10 +157,10 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // Cancel any orphaned background indexing work from previous runs
-        // (manual indexing now uses direct execution, not WorkManager)
+        // Cancel orphaned one-time background indexing work from previous runs.
+        // Keep periodic scheduling intact.
         try {
-            com.hyliankid14.bbcradioplayer.workers.BackgroundIndexWorker.cancelAll(this)
+            com.hyliankid14.bbcradioplayer.workers.BackgroundIndexWorker.cancelOneTimeIndexing(this)
         } catch (e: Exception) {
             android.util.Log.w("MainActivity", "Failed to cancel background work: ${e.message}")
         }

@@ -386,8 +386,8 @@ class SettingsDetailActivity : AppCompatActivity() {
 
         indexNowBtn.setOnClickListener {
             try {
-                // Cancel any pending background work first
-                com.hyliankid14.bbcradioplayer.workers.BackgroundIndexWorker.cancelAll(this@SettingsDetailActivity)
+                // Cancel any pending one-time background work first, but keep periodic scheduling
+                com.hyliankid14.bbcradioplayer.workers.BackgroundIndexWorker.cancelOneTimeIndexing(this@SettingsDetailActivity)
                 
                 indexStatus.text = "Starting index..."
                 indexEpisodesProgress.isIndeterminate = false
