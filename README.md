@@ -80,6 +80,7 @@ Open the project in Android Studio (2023.2+), or use the CI deploy script
 - ExoPlayer 2.18+, Material 3 Components, WorkManager for background tasks
 
 ## Changelog
+- **v1.2.0** (Mar 2026): dual GitHub APK variants (Android Auto + No-Google), release automation, and metadata sync improvements
 - **v1.1.0**: Added alternative BBC Radio 5 Live and Sports Extra links (credit u/Cool-Bus2696), auto updater and various fixes
 - **v1.0.12** (Mar 2026): New icon (credit u/mrnedryerson), added BBC Radio 1 Anthems, Radio 3 Unwind, UI tweaks
 - **v1.0.7**: dual GitHub APK variants (Android Auto + No-Google), release automation, and metadata sync improvements
