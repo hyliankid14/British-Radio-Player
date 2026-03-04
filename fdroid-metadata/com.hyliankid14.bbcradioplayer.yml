@@ -18,7 +18,14 @@ Builds:
     gradle:
       - fdroid
 
-AutoUpdateMode: Version
+  - versionName: 1.1.0
+    versionCode: 32
+    commit: v1.1.0
+    subdir: .
+    gradle:
+      - yes
+    prebuild: |
+      sed -i '/com.google.mlkit:language-id/d' app/build.gradle || trueAutoUpdateMode: Version
 UpdateCheckMode: Tags
-CurrentVersion: 1.0.12
-CurrentVersionCode: 31
+CurrentVersion: 1.1.0
+CurrentVersionCode: 32
