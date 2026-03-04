@@ -112,12 +112,16 @@ class UpdateChecker(private val context: Context) {
             // Get the body as release notes
             val releaseNotes = json.optString("body", "No release notes available")
             
-            // Find the APK download URL for fdroid variant
+            // Find the APK download URL for nogoogle variant (F-Droid compatible)
             val assets = json.getJSONArray("assets")
+            Log.d(TAG, "Found ${assets.length()} assets in release")
+            
             val downloadUrl = (0 until assets.length()).firstNotNullOfOrNull { i ->
                 val asset = assets.getJSONObject(i)
                 val name = asset.getString("name")
-                if (name.endsWith("-fdroid.apk")) {
+                Log.d(TAG, "Asset: $name")
+                if (name.endsWith("-nogoogle.apk")) {
+                    Log.d(TAG, "Found matching APK: $name")
                     asset.getString("browser_download_url")
                 } else {
                     null
