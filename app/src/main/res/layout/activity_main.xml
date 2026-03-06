@@ -290,9 +290,11 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="No saved searches yet"
+                    android:textSize="14sp"
                     android:textColor="?attr/colorOnSurfaceVariant"
-                    android:visibility="gone"
-                    android:paddingBottom="8dp" />
+                    android:gravity="center"
+                    android:padding="16dp"
+                    android:visibility="gone" />
 
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/saved_searches_recycler"
