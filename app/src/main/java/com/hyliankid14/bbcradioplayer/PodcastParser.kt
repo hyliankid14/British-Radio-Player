@@ -112,11 +112,18 @@ object OPMLParser {
 
         val isRssLike = type.isEmpty() || type.lowercase(Locale.US) == "rss"
         return if (xmlUrl.isNotEmpty() && isRssLike) {
+            // Extract podcast ID from RSS URL to match FTS index format.
+            // BBC RSS URLs follow pattern: https://podcasts.files.bbci.co.uk/{id}.rss
+            // This ensures podcast IDs match between OPMLParser (allPodcasts) and
+            // the GitHub Pages index (FTS) for proper enrichment.
+            val rssUrl = xmlUrl.trim().replace("http://", "https://")
+            val podcastId = extractPodcastIdFromRssUrl(rssUrl)
+            
             Podcast(
-                id = keyName.trim().hashCode().toString(),
+                id = podcastId,
                 title = text.trim(),
                 description = description.trim(),
-                rssUrl = xmlUrl.trim().replace("http://", "https://"),
+                rssUrl = rssUrl,
                 htmlUrl = htmlUrl.trim().replace("http://", "https://"),
                 imageUrl = imageUrl.trim().replace("http://", "https://"),
                 genres = genres,
@@ -125,6 +132,17 @@ object OPMLParser {
         } else {
             null
         }
+    }
+
+    /**
+     * Extract BBC podcast ID from RSS URL.
+     * Matches the pattern used by build_index.py: /([a-z0-9]+)\.rss$
+     * e.g., "https://podcasts.files.bbci.co.uk/p02nq0gn.rss" -> "p02nq0gn"
+     */
+    private fun extractPodcastIdFromRssUrl(rssUrl: String): String {
+        val regex = Regex("""/([a-z0-9]+)\.rss$""", RegexOption.IGNORE_CASE)
+        val match = regex.find(rssUrl)
+        return match?.groupValues?.getOrNull(1) ?: rssUrl.hashCode().toString()
     }
 }
 

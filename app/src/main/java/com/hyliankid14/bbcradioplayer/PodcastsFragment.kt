@@ -1553,21 +1553,66 @@ class PodcastsFragment : Fragment() {
                     }
                 }
 
-                // PHASE 1: Quick podcast title/description matches - show immediately
-                val titleMatches = withContext(Dispatchers.Default) {
-                    val raw = allPodcasts.filter { repository.podcastMatchKind(it, qLower) == "title" }
-                    repository.filterPodcasts(raw, currentFilter)
+                // PHASE 1: Quick podcast title/description matches from FTS index
+                val indexPodcastResults = withContext(Dispatchers.IO) {
+                    try {
+                        com.hyliankid14.bbcradioplayer.db.IndexStore.getInstance(requireContext()).searchPodcasts(q, 100)
+                    } catch (e: Exception) {
+                        android.util.Log.w("PodcastsFragment", "FTS podcast search failed: ${e.message}")
+                        emptyList()
+                    }
                 }
+
+                // Enrich FTS results with full metadata from allPodcasts (RSS URLs, artwork, etc.)
+                val titleMatches = withContext(Dispatchers.Default) {
+                    val podcastById = allPodcasts.associateBy { it.id }
+                    var enriched = 0
+                    var fallback = 0
+                    val podcasts = indexPodcastResults.mapNotNull { fts ->
+                        // First try to match against allPodcasts to get full metadata
+                        val fullPodcast = podcastById[fts.podcastId]
+                        if (fullPodcast != null) {
+                            enriched++
+                            fullPodcast
+                        } else {
+                            fallback++
+                            // FTS result not in allPodcasts - create podcast with reconstructed RSS URL
+                            // BBC RSS URLs follow pattern: https://podcasts.files.bbci.co.uk/{id}.rss
+                            // Description may have HTML - strip it for display
+                            val cleanDesc = androidx.core.text.HtmlCompat.fromHtml(
+                                fts.description,
+                                androidx.core.text.HtmlCompat.FROM_HTML_MODE_LEGACY
+                            ).toString().trim()
+                            Podcast(
+                                id = fts.podcastId,
+                                title = fts.title,
+                                description = cleanDesc,
+                                rssUrl = "https://podcasts.files.bbci.co.uk/${fts.podcastId}.rss",
+                                htmlUrl = "",
+                                imageUrl = "",
+                                genres = emptyList(),
+                                typicalDurationMins = 0
+                            )
+                        }
+                    }
+                    android.util.Log.d("PodcastsFragment", "FTS enrichment: ${indexPodcastResults.size} results -> $enriched enriched, $fallback fallback")
+                    if (fallback > 0 && indexPodcastResults.isNotEmpty()) {
+                        val sampleFtsId = indexPodcastResults.firstOrNull()?.podcastId ?: ""
+                        val sampleAllPodcastsIds = allPodcasts.take(3).map { it.id }
+                        android.util.Log.d("PodcastsFragment", "Sample FTS ID: $sampleFtsId, Sample allPodcasts IDs: $sampleAllPodcastsIds")
+                    }
+                    repository.filterPodcasts(podcasts, currentFilter)
+                }
+
+                android.util.Log.d("PodcastsFragment", "FTS podcast search: query='$q' returned ${indexPodcastResults.size} results, after enrichment and filter=${titleMatches.size}")
 
                 // Update name status: search complete, show checkmark
                 nameProgressBar?.visibility = View.GONE
                 nameStatusIcon?.visibility = View.VISIBLE
 
-                val descMatches = withContext(Dispatchers.Default) {
-                    val raw = allPodcasts.filter { repository.podcastMatchKind(it, qLower) == "description" }
-                    repository.filterPodcasts(raw, currentFilter)
-                }
-                
+                // For now, use titleMatches for both (FTS doesn't distinguish title vs description)
+                val descMatches = emptyList<Podcast>()
+
                 // Update description status: search complete, show checkmark
                 descProgressBar?.visibility = View.GONE
                 descStatusIcon?.visibility = View.VISIBLE

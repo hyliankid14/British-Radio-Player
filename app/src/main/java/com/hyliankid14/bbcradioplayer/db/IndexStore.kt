@@ -235,6 +235,16 @@ class IndexStore private constructor(private val context: Context) {
         }
     }
 
+    /**
+     * Clear all episodes from the local index. Used to remove locally-built indices
+     * before applying a remote index.
+     */
+    fun clearAllEpisodes() {
+        val db = helper.writableDatabase
+        db.execSQL("DELETE FROM episode_fts;")
+        db.execSQL("DELETE FROM episode_meta;")
+    }
+
     @Synchronized
     fun searchPodcasts(query: String, limit: Int = 50): List<PodcastFts> {
         return searchPodcastsInternal(query, limit, true)

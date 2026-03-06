@@ -1,16 +1,22 @@
 package com.hyliankid14.bbcradioplayer
 
 import android.content.Context
+import android.util.JsonReader
 import android.util.Log
 import com.hyliankid14.bbcradioplayer.db.EpisodeFts
 import com.hyliankid14.bbcradioplayer.db.PodcastFts
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.BufferedInputStream
+import java.io.BufferedOutputStream
 import java.io.BufferedReader
 import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.zip.GZIPInputStream
 
 /**
  * Client for the remote podcast index.
@@ -39,7 +45,7 @@ class RemoteIndexClient(private val context: Context) {
         // Built nightly by the GitHub Actions workflow in
         // .github/workflows/build-podcast-index.yml.
         internal const val GITHUB_PAGES_INDEX_URL =
-            "https://hyliankid14.github.io/BBC-Radio-Player/podcast-index.json"
+            "https://hyliankid14.github.io/BBC-Radio-Player/podcast-index.json.gz"
 
         // Fallback home server (used only for search queries when the static
         // index has not yet been downloaded).  Must match
@@ -94,14 +100,16 @@ class RemoteIndexClient(private val context: Context) {
      * This is the primary path used by [IndexWorker]: one download replaces
      * hundreds of individual RSS feed fetches and eliminates all per-search
      * home-server traffic.
+     *
+     * @param onProgress Optional callback to report download progress (message, percent)
      */
-    fun downloadIndex(): RemoteIndex? {
+    fun downloadIndex(onProgress: ((String, Int) -> Unit)? = null): RemoteIndex? {
         val cacheFile = File(context.cacheDir, INDEX_CACHE_FILENAME)
 
         // Use cached copy if still fresh.
         if (!isCachedIndexStale() && cacheFile.exists()) {
             Log.d(TAG, "Using cached podcast index (${cacheFile.length() / 1024} KB)")
-            return try { parseIndexJson(JSONObject(cacheFile.readText())) } catch (e: Exception) {
+            return try { parseIndexFromFile(cacheFile) } catch (e: Exception) {
                 Log.w(TAG, "Failed to parse cached index: ${e.message}")
                 null
             }
@@ -109,19 +117,51 @@ class RemoteIndexClient(private val context: Context) {
 
         // Download fresh copy.
         return try {
+            onProgress?.invoke("Connecting to GitHub Pages...", 5)
             Log.d(TAG, "Downloading podcast index from GitHub Pages...")
             val conn = openConnection(GITHUB_PAGES_INDEX_URL)
             conn.requestMethod = "GET"
-            conn.setRequestProperty("Accept-Encoding", "gzip")
             if (conn.responseCode != HttpURLConnection.HTTP_OK) {
                 Log.w(TAG, "GitHub Pages returned HTTP ${conn.responseCode}")
                 conn.disconnect()
                 return null
             }
-            val body = readBody(conn)
-            cacheFile.writeText(body)
-            Log.d(TAG, "Downloaded podcast index (${body.length / 1024} KB)")
-            parseIndexJson(JSONObject(body))
+            onProgress?.invoke("Downloading and decompressing...", 7)
+            
+            // Stream directly to cache file to avoid OOM with large JSON
+            val tempFile = File(context.cacheDir, "${INDEX_CACHE_FILENAME}.tmp")
+            GZIPInputStream(conn.inputStream).use { gzipStream ->
+                BufferedOutputStream(FileOutputStream(tempFile)).use { fileOut ->
+                    val buffer = ByteArray(8192)
+                    var bytesRead: Int
+                    var totalBytes = 0L
+                    var lastProgress = 7
+                    
+                    while (gzipStream.read(buffer).also { bytesRead = it } != -1) {
+                        fileOut.write(buffer, 0, bytesRead)
+                        totalBytes += bytesRead
+                        
+                        // Update progress every ~200KB of decompressed data
+                        if (totalBytes % 200000 < 8192) {
+                            val newProgress = (7 + (totalBytes / 200000).toInt().coerceAtMost(10))
+                                .coerceIn(7, 17)
+                            if (newProgress > lastProgress) {
+                                onProgress?.invoke("Decompressing... (${totalBytes / 1000}KB)", newProgress)
+                                lastProgress = newProgress
+                            }
+                        }
+                    }
+                }
+            }
+            conn.disconnect()
+            
+            onProgress?.invoke("Saving to cache...", 17)
+            tempFile.renameTo(cacheFile)
+            Log.d(TAG, "Downloaded and decompressed podcast index (${cacheFile.length() / 1024} KB)")
+            
+            onProgress?.invoke("Parsing index...", 18)
+            // Parse with streaming JSON reader to avoid OOM
+            parseIndexFromFile(cacheFile)
         } catch (e: Exception) {
             Log.w(TAG, "Failed to download podcast index: ${e.message}")
             null
@@ -169,6 +209,99 @@ class RemoteIndexClient(private val context: Context) {
                 pubDate = obj.optString("pubDate"),
                 durationMins = 0
             )
+        }
+
+        return RemoteIndex(generatedAt, podcasts, episodes)
+    }
+
+    /**
+     * Parse index from file using streaming JSON reader to avoid loading
+     * entire 250+ MB file into memory.
+     */
+    private fun parseIndexFromFile(file: File): RemoteIndex {
+        var generatedAt = ""
+        val podcasts = mutableListOf<Podcast>()
+        val episodes = mutableListOf<Episode>()
+
+        FileInputStream(file).use { fis ->
+            BufferedInputStream(fis).use { bis ->
+                JsonReader(InputStreamReader(bis, "UTF-8")).use { reader ->
+                    reader.beginObject()
+                    while (reader.hasNext()) {
+                        when (reader.nextName()) {
+                            "generated_at" -> generatedAt = reader.nextString()
+                            "podcasts" -> {
+                                reader.beginArray()
+                                while (reader.hasNext()) {
+                                    reader.beginObject()
+                                    var id = ""
+                                    var title = ""
+                                    var description = ""
+                                    while (reader.hasNext()) {
+                                        when (reader.nextName()) {
+                                            "id" -> id = reader.nextString()
+                                            "title" -> title = reader.nextString()
+                                            "description" -> description = reader.nextString()
+                                            else -> reader.skipValue()
+                                        }
+                                    }
+                                    reader.endObject()
+                                    if (id.isNotBlank()) {
+                                        podcasts.add(Podcast(
+                                            id = id,
+                                            title = title,
+                                            description = description,
+                                            rssUrl = "",
+                                            htmlUrl = "",
+                                            imageUrl = "",
+                                            genres = emptyList(),
+                                            typicalDurationMins = 0
+                                        ))
+                                    }
+                                }
+                                reader.endArray()
+                            }
+                            "episodes" -> {
+                                reader.beginArray()
+                                while (reader.hasNext()) {
+                                    reader.beginObject()
+                                    var id = ""
+                                    var podcastId = ""
+                                    var title = ""
+                                    var description = ""
+                                    var pubDate = ""
+                                    while (reader.hasNext()) {
+                                        when (reader.nextName()) {
+                                            "id" -> id = reader.nextString()
+                                            "podcastId" -> podcastId = reader.nextString()
+                                            "title" -> title = reader.nextString()
+                                            "description" -> description = reader.nextString()
+                                            "pubDate" -> pubDate = reader.nextString()
+                                            else -> reader.skipValue()
+                                        }
+                                    }
+                                    reader.endObject()
+                                    if (id.isNotBlank() && podcastId.isNotBlank()) {
+                                        episodes.add(Episode(
+                                            id = id,
+                                            podcastId = podcastId,
+                                            title = title,
+                                            description = description,
+                                            audioUrl = "",
+                                            imageUrl = "",
+                                            pubDate = pubDate,
+                                            durationMins = 0
+                                        ))
+                                    }
+                                }
+                                reader.endArray()
+                            }
+                            else -> reader.skipValue()
+                        }
+                    }
+                    reader.endObject()
+                }
+            }
         }
 
         return RemoteIndex(generatedAt, podcasts, episodes)

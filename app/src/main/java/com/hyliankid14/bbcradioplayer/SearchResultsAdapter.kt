@@ -208,10 +208,22 @@ class SearchResultsAdapter(
 
         fun bind(podcast: Podcast) {
             titleView.text = podcast.title
-            descriptionView.text = podcast.description
+            // Strip HTML from description if present
+            val cleanDesc = if (podcast.description.contains("<") || podcast.description.contains("&")) {
+                androidx.core.text.HtmlCompat.fromHtml(
+                    podcast.description,
+                    androidx.core.text.HtmlCompat.FROM_HTML_MODE_LEGACY
+                ).toString().trim()
+            } else {
+                podcast.description
+            }
+            descriptionView.text = cleanDesc
 
             if (podcast.imageUrl.isNotEmpty()) {
                 Glide.with(itemView.context).load(podcast.imageUrl).into(imageView)
+            } else {
+                // Load placeholder icon for podcasts without artwork
+                imageView.setImageResource(R.drawable.ic_podcast)
             }
 
             itemView.setOnClickListener { onPodcastClick(podcast) }

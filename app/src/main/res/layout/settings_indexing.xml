@@ -37,7 +37,7 @@
                 android:id="@+id/index_now_button"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Index Now" />
+                android:text="Retrieve Index Now" />
 
         </LinearLayout>
 
@@ -78,20 +78,10 @@
         </LinearLayout>
 
         <TextView
-            android:id="@+id/index_status_text"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Index status: idle"
-            android:textSize="14sp"
-            android:layout_marginTop="8dp"
-            android:ellipsize="end"
-            android:maxLines="1" />
-
-        <TextView
             android:id="@+id/index_last_rebuilt"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Last rebuilt: —"
+            android:text="Last retrieved: —"
             android:textSize="12sp"
             android:layout_marginTop="4dp"
             android:ellipsize="end"

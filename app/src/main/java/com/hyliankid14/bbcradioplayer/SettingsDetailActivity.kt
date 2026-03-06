@@ -358,7 +358,6 @@ class SettingsDetailActivity : AppCompatActivity() {
 
     private fun setupIndexingSettings() {
         val indexNowBtn: Button = findViewById(R.id.index_now_button)
-        val indexStatus: TextView = findViewById(R.id.index_status_text)
         val indexLastRebuilt: TextView = findViewById(R.id.index_last_rebuilt)
         val indexEpisodeCount: TextView = findViewById(R.id.index_episode_count)
         val indexEpisodesProgress: android.widget.ProgressBar = findViewById(R.id.index_episodes_progress)
@@ -367,9 +366,9 @@ class SettingsDetailActivity : AppCompatActivity() {
         fun updateLastRebuilt(ts: Long?) {
             indexLastRebuilt.text = if (ts != null) {
                 val fmt = java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT)
-                "Last rebuilt: ${fmt.format(java.util.Date(ts))}"
+                "Last retrieved: ${fmt.format(java.util.Date(ts))}"
             } else {
-                "Last rebuilt: —"
+                "Last retrieved: —"
             }
         }
 
@@ -395,7 +394,6 @@ class SettingsDetailActivity : AppCompatActivity() {
                 // Cancel any pending one-time background work first, but keep periodic scheduling
                 com.hyliankid14.bbcradioplayer.workers.BackgroundIndexWorker.cancelOneTimeIndexing(this@SettingsDetailActivity)
                 
-                indexStatus.text = "Starting index..."
                 indexEpisodesProgress.isIndeterminate = false
                 indexEpisodesProgress.visibility = android.view.View.VISIBLE
                 indexEpisodesProgress.progress = 0
@@ -405,27 +403,15 @@ class SettingsDetailActivity : AppCompatActivity() {
                 lifecycleScope.launch {
                     com.hyliankid14.bbcradioplayer.workers.IndexWorker.reindexAll(this@SettingsDetailActivity) { status, percent, isEpisodePhase ->
                         runOnUiThread {
-                            val displayStatus = when {
-                                percent == 100 || status.contains("complete", ignoreCase = true) -> "Indexing complete"
-                                status.contains("Indexing", ignoreCase = true) || status.contains("Fetching", ignoreCase = true) -> "Indexing..."
-                                else -> status
-                            }
-                            indexStatus.text = displayStatus
-                            
-                            if (isEpisodePhase) {
-                                indexEpisodesProgress.visibility = android.view.View.VISIBLE
-                                if (percent < 0) {
-                                    indexEpisodesProgress.isIndeterminate = true
-                                } else {
-                                    val target = percent.coerceIn(0, 100)
-                                    if (target > lastSeenIndexPercent || target == 100) {
-                                        indexEpisodesProgress.isIndeterminate = false
-                                        indexEpisodesProgress.progress = target
-                                        lastSeenIndexPercent = target
-                                    }
+                            if (percent >= 0) {
+                                val target = percent.coerceIn(0, 100)
+                                if (target > lastSeenIndexPercent || target == 100) {
+                                    indexEpisodesProgress.isIndeterminate = false
+                                    indexEpisodesProgress.progress = target
+                                    lastSeenIndexPercent = target
                                 }
                             } else {
-                                indexEpisodesProgress.visibility = android.view.View.GONE
+                                indexEpisodesProgress.isIndeterminate = true
                             }
                             
                             if (percent == 100 || status.contains("complete", ignoreCase = true)) {
@@ -436,7 +422,6 @@ class SettingsDetailActivity : AppCompatActivity() {
                         }
                     }
                     runOnUiThread {
-                        indexStatus.text = "Indexing complete"
                         indexEpisodesProgress.visibility = android.view.View.GONE
                         updateLastRebuilt(indexStore.getLastReindexTime())
                         updateIndexedEpisodeCount()
@@ -444,8 +429,8 @@ class SettingsDetailActivity : AppCompatActivity() {
                 }
                 
             } catch (e: Exception) {
-                indexStatus.text = "Failed to schedule indexing: ${e.message}"
                 android.util.Log.w("SettingsDetailActivity", "Failed to start indexing: ${e.message}")
+                indexEpisodesProgress.visibility = android.view.View.GONE
             }
         }
 

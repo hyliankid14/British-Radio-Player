@@ -183,6 +183,9 @@ class PodcastAdapter(
                     .load(podcast.imageUrl)
                     .dontAnimate()
                     .into(imageView)
+            } else {
+                // Show placeholder icon for podcasts without artwork
+                imageView.setImageResource(R.drawable.ic_podcast)
             }
             
             // Use cached subscription status instead of SharedPreferences lookups

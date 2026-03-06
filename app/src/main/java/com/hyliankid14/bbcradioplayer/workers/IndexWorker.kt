@@ -2,6 +2,7 @@ package com.hyliankid14.bbcradioplayer.workers
 
 import android.content.Context
 import android.util.Log
+import com.hyliankid14.bbcradioplayer.Episode
 import com.hyliankid14.bbcradioplayer.Podcast
 import com.hyliankid14.bbcradioplayer.RemoteIndexClient
 import com.hyliankid14.bbcradioplayer.db.IndexStore
@@ -60,164 +61,64 @@ object IndexWorker {
             try {
                 onProgress("Starting index...", -1, false)
 
-                // ── Fast path: download pre-built index from GitHub Pages ─────────────
-                // One HTTP request to GitHub's CDN replaces hundreds of individual BBC
-                // RSS feed fetches and eliminates all home-server traffic.
+                // Download pre-built index from GitHub Pages
                 val remoteClient = RemoteIndexClient(context)
                 val downloadedIndex = try {
-                    onProgress("Downloading podcast index from GitHub Pages...", 5, false)
-                    remoteClient.downloadIndex()
+                    remoteClient.downloadIndex { msg, pct ->
+                        onProgress(msg, pct, false)
+                    }
                 } catch (e: Exception) {
                     Log.w(TAG, "GitHub Pages index download failed: ${e.message}")
                     null
                 }
 
-                if (downloadedIndex != null && isActive) {
-                    val store = IndexStore.getInstance(context)
-                    val podcasts = downloadedIndex.podcasts
-                    val episodes = downloadedIndex.episodes
-                    Log.d(TAG, "Applying downloaded index: ${podcasts.size} podcasts, ${episodes.size} episodes")
-
-                    onProgress("Applying ${podcasts.size} podcasts...", 20, false)
-                    store.replaceAllPodcasts(podcasts)
-
-                    // Insert episodes in bounded batches with smooth progress reporting.
-                    val batchSize = 500
-                    var inserted = 0
-                    for (batch in episodes.chunked(batchSize)) {
-                        if (!isActive) break
-                        try {
-                            store.appendEpisodesBatch(batch)
-                        } catch (oom: OutOfMemoryError) {
-                            for (small in batch.chunked(50)) store.appendEpisodesBatch(small)
-                        }
-                        inserted += batch.size
-                        val pct = if (episodes.isEmpty()) 99 else (20 + (inserted * 79) / episodes.size).coerceIn(20, 99)
-                        onProgress("Indexing episodes... ($inserted/${episodes.size})", pct, true)
-                        try { Thread.yield() } catch (_: Throwable) {}
-                    }
-
-                    onProgress(
-                        "Index complete: ${podcasts.size} podcasts, $inserted episodes " +
-                        "(from ${downloadedIndex.generatedAt})",
-                        100, false
-                    )
-                    Log.d(TAG, "Reindex from GitHub Pages complete: podcasts=${podcasts.size}, episodes=$inserted")
-                    try { store.setLastReindexTime(System.currentTimeMillis()) } catch (e: Exception) {
-                        Log.w(TAG, "Failed to persist last reindex time: ${e.message}")
-                    }
+                if (downloadedIndex == null) {
+                    onProgress("Index download failed. Please check your internet connection.", -1, false)
+                    Log.e(TAG, "Unable to download index from GitHub Pages")
                     return@withContext
                 }
 
-                // ── Slow path: fetch each BBC RSS feed individually ───────────────────
-                // Used when GitHub Pages is unreachable (e.g. no internet, first ever run
-                // before the Actions workflow has committed the index file).
-                Log.d(TAG, "Falling back to per-feed RSS indexing")
-                onProgress("Fetching podcasts...", 0, false)
-                val repo = PodcastRepository(context)
-                val podcasts = repo.fetchPodcasts(forceRefresh = true)
-                if (podcasts.isEmpty()) {
-                    onProgress("No podcasts to index", 100, false)
-                    return@withContext
-                }
+                if (!isActive) return@withContext
 
-                onProgress("Indexing ${podcasts.size} podcasts...", 5, false)
                 val store = IndexStore.getInstance(context)
+                val podcasts = downloadedIndex.podcasts
+                val episodes = downloadedIndex.episodes
+                Log.d(TAG, "Applying downloaded index: ${podcasts.size} podcasts, ${episodes.size} episodes")
+
+                // Clear old local index before applying new remote index
+                onProgress("Clearing old index...", 19, false)
+                try {
+                    store.clearAllEpisodes()
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to clear old episode index: ${e.message}")
+                }
+
+                onProgress("Applying ${podcasts.size} podcasts...", 20, false)
                 store.replaceAllPodcasts(podcasts)
 
-                // Fetch & index episodes per-podcast (streamed) to avoid building a huge in-memory list.
-                // NOTE: We intentionally do NOT wipe the episode FTS table before indexing.
-                // The index is additive — previously indexed episodes are preserved even after they
-                // fall off the BBC RSS feed. This ensures saved searches continue to surface
-                // historical results that are no longer available via RSS.
-                var totalEpisodesDiscovered = 0
-                var processedEpisodes = 0
-
-                // Begin episode-phase just above the earlier podcasts step (5%) so the
-                // progress indicator advances smoothly instead of jumping.
-                onProgress("Indexing episodes (streamed)...", 6, true)
-
-                for ((i, p) in podcasts.withIndex()) {
+                // Insert episodes in bounded batches with smooth progress reporting.
+                val batchSize = 500
+                var inserted = 0
+                for (batch in episodes.chunked(batchSize)) {
                     if (!isActive) break
-                    // Fetch episodes for this podcast and report monotonic overall-percent updates
-                    val eps = try { repo.fetchEpisodesIfNeeded(p, forceRefresh = true) } catch (e: Exception) { emptyList() }
-                    if (eps.isEmpty()) {
-                        // No episodes discovered — treat this podcast as complete and emit the
-                        // per-podcast completion percent (monotonic mapping).
-                        val completedPct = computePodcastCompletePercent(i, podcasts.size)
-                        onProgress("Indexed episodes for: ${p.title}", completedPct, true)
-                        continue
-                    }
-
-                    Log.d(TAG, "Fetched ${eps.size} episodes for ${p.title} (ID: ${p.id})")
-                    if (eps.isNotEmpty()) {
-                        val first = eps.first()
-                        val last = eps.last()
-                        Log.d(TAG, "  First episode: '${first.title}' pubDate='${first.pubDate}'")
-                        Log.d(TAG, "  Last episode: '${last.title}' pubDate='${last.pubDate}'")
-                    }
-
-                    // Count discovered episodes for diagnostics only (do NOT use for UI percent)
-                    totalEpisodesDiscovered += eps.size
-
-                    // Only insert episodes not already present in the index to avoid FTS duplicates
-                    // and to preserve the accumulated history of older episodes.
-                    val existingIds = try { store.getEpisodeIdsForPodcast(p.id) } catch (e: Exception) { emptySet() }
-                    val newEps = eps.filter { it.id.isNotBlank() && !existingIds.contains(it.id) }
-                    if (newEps.isEmpty()) {
-                        val completedPct = computePodcastCompletePercent(i, podcasts.size)
-                        onProgress("No new episodes for: ${p.title}", completedPct, true)
-                        Log.d(TAG, "No new episodes for ${p.title} (${eps.size} fetched, all already indexed)")
-                        continue
-                    }
-
-                    Log.d(TAG, "Indexing ${newEps.size} new episodes for ${p.title} (${eps.size - newEps.size} already indexed)")
-
-                    // Enrich each episode's description with the podcast title (helps joint queries)
-                    val enriched = newEps.map { ep -> ep.copy(description = listOfNotNull(ep.description, p.title).joinToString(" ")) }
-
-                    // Insert in bounded-size batches via IndexStore.appendEpisodesBatch
                     try {
-                        var inserted = 0
-                        val batchSize = 500
-                        val chunks = enriched.chunked(batchSize)
-
-                        for (chunk in chunks) {
-                            if (!isActive) break
-                            val added = try { store.appendEpisodesBatch(chunk) } catch (oom: OutOfMemoryError) {
-                                // try smaller chunks if we hit memory pressure
-                                var fallback = 0
-                                for (small in chunk.chunked(50)) fallback += store.appendEpisodesBatch(small)
-                                fallback
-                            }
-                            inserted += added
-                            processedEpisodes += added
-
-                            // Report monotonic overall episode percent based on processedInPodcast
-                            val overallPct = computeOverallEpisodePercent(i, podcasts.size, inserted, newEps.size)
-                            onProgress("Indexing episodes for: ${p.title}", overallPct, true)
-
-                            // Give SQLite a chance to service other threads / GC
-                            try { Thread.yield() } catch (_: Throwable) {}
-                        }
-
-                        // When we've finished inserting *all* episodes for this podcast, advance the
-                        // overall episode progress to the podcast-complete mark so the UI progress
-                        // bar reaches the per-podcast completion point.
-                        val completedPct = computePodcastCompletePercent(i, podcasts.size)
-                        onProgress("Indexed episodes for: ${p.title}", completedPct, true)
-                        Log.d(TAG, "Indexed $inserted new episodes for ${p.title}")
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to append episodes for ${p.id}: ${e.message}")
+                        store.appendEpisodesBatch(batch)
+                    } catch (oom: OutOfMemoryError) {
+                        for (small in batch.chunked(50)) store.appendEpisodesBatch(small)
                     }
+                    inserted += batch.size
+                    val pct = if (episodes.isEmpty()) 99 else (20 + (inserted * 79) / episodes.size).coerceIn(20, 99)
+                    onProgress("Indexing episodes... ($inserted/${episodes.size})", pct, true)
+                    try { Thread.yield() } catch (_: Throwable) {}
                 }
 
-                // final progress report (best-effort)
-                onProgress("Index complete: ${podcasts.size} podcasts, $processedEpisodes episodes", 100, false)
-                Log.d(TAG, "Reindex complete: podcasts=${podcasts.size}, episodes=$processedEpisodes")
-                try {
-                    store.setLastReindexTime(System.currentTimeMillis())
-                } catch (e: Exception) {
+                onProgress(
+                    "Index complete: ${podcasts.size} podcasts, $inserted episodes " +
+                    "(from ${downloadedIndex.generatedAt})",
+                    100, false
+                )
+                Log.d(TAG, "Reindex from GitHub Pages complete: podcasts=${podcasts.size}, episodes=$inserted")
+                try { store.setLastReindexTime(System.currentTimeMillis()) } catch (e: Exception) {
                     Log.w(TAG, "Failed to persist last reindex time: ${e.message}")
                 }
             } catch (e: Exception) {
@@ -231,101 +132,43 @@ object IndexWorker {
      * Incremental indexing: only index new podcasts and episodes not currently present
      * in the on-disk FTS index. Designed for scheduled runs to keep the index fresh
      * without performing a full rebuild.
-     *
-     * Tries GitHub Pages download first (fast path), falls back to per-feed RSS fetching.
      */
     suspend fun reindexNewOnly(context: Context, onProgress: (String, Int, Boolean) -> Unit = { _, _, _ -> }) {
         withContext(Dispatchers.IO) {
             try {
                 onProgress("Starting incremental index...", -1, false)
 
-                // ── Fast path: download pre-built index from GitHub Pages ─────────────
                 val remoteClient = RemoteIndexClient(context)
-                if (remoteClient.isCachedIndexStale()) {
-                    val downloadedIndex = try {
-                        onProgress("Downloading podcast index from GitHub Pages...", 5, false)
-                        remoteClient.downloadIndex()
-                    } catch (e: Exception) {
-                        Log.w(TAG, "GitHub Pages index download failed: ${e.message}")
-                        null
-                    }
-
-                    if (downloadedIndex != null && isActive) {
-                        val store = IndexStore.getInstance(context)
-                        val podcasts = downloadedIndex.podcasts
-                        val episodes = downloadedIndex.episodes
-
-                        // Upsert all podcasts from the downloaded index
-                        var newPodcasts = 0
-                        for (p in podcasts) {
-                            if (!isActive) break
-                            val had = store.hasPodcast(p.id)
-                            try {
-                                store.upsertPodcast(p)
-                                if (!had) newPodcasts++
-                            } catch (e: Exception) {
-                                Log.w(TAG, "Failed to upsert podcast ${p.id}: ${e.message}")
-                            }
-                        }
-
-                        // Append only episodes not already indexed
-                        val newEpisodes = mutableListOf<Episode>()
-                        // Group by podcastId to batch the existing-ID lookups
-                        val byPodcast = episodes.groupBy { it.podcastId }
-                        for ((podcastId, eps) in byPodcast) {
-                            if (!isActive) break
-                            val existingIds = try { store.getEpisodeIdsForPodcast(podcastId) } catch (_: Exception) { emptySet() }
-                            newEpisodes.addAll(eps.filter { it.id.isNotBlank() && !existingIds.contains(it.id) })
-                        }
-
-                        var inserted = 0
-                        for (batch in newEpisodes.chunked(500)) {
-                            if (!isActive) break
-                            try { store.appendEpisodesBatch(batch) } catch (oom: OutOfMemoryError) {
-                                for (small in batch.chunked(50)) store.appendEpisodesBatch(small)
-                            }
-                            inserted += batch.size
-                            onProgress("Indexing new episodes... ($inserted/${newEpisodes.size})", -1, true)
-                            try { Thread.yield() } catch (_: Throwable) {}
-                        }
-
-                        onProgress(
-                            "Incremental index complete: newPodcasts=$newPodcasts, newEpisodes=$inserted",
-                            100, false
-                        )
-                        Log.d(TAG, "Incremental reindex from GitHub Pages: newPodcasts=$newPodcasts, newEpisodes=$inserted")
-                        try { store.setLastReindexTime(System.currentTimeMillis()) } catch (e: Exception) {
-                            Log.w(TAG, "Failed to persist last reindex time: ${e.message}")
-                        }
-                        return@withContext
-                    }
-                } else {
+                if (!remoteClient.isCachedIndexStale()) {
                     onProgress("Podcast index is fresh — skipping download", 100, false)
                     return@withContext
                 }
 
-                // ── Slow path: fetch each BBC RSS feed individually ───────────────────
-                Log.d(TAG, "Falling back to per-feed incremental RSS indexing")
-                onProgress("Fetching podcasts...", 0, false)
-                val repo = PodcastRepository(context)
-                val podcasts = try { repo.fetchPodcasts(forceRefresh = true) } catch (e: Exception) { emptyList<Podcast>() }
-                if (podcasts.isEmpty()) {
-                    onProgress("No podcasts found", 100, false)
+                val downloadedIndex = try {
+                    remoteClient.downloadIndex { msg, pct ->
+                        onProgress(msg, pct, false)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "GitHub Pages index download failed: ${e.message}")
+                    null
+                }
+
+                if (downloadedIndex == null) {
+                    onProgress("Index download failed. Please check your internet connection.", -1, false)
+                    Log.e(TAG, "Unable to download index from GitHub Pages")
                     return@withContext
                 }
 
+                if (!isActive) return@withContext
+
                 val store = IndexStore.getInstance(context)
-                var processedEpisodes = 0
-                var newEpisodes = 0
+                val podcasts = downloadedIndex.podcasts
+                val episodes = downloadedIndex.episodes
+
+                // Upsert all podcasts from the downloaded index
                 var newPodcasts = 0
-
-                // We will map progress to per-podcast completion percent so the bar advances
-                // as each podcast is processed.
-                for ((i, p) in podcasts.withIndex()) {
+                for (p in podcasts) {
                     if (!isActive) break
-                    onProgress("Checking: ${p.title}", -1, true)
-
-                    // Ensure podcast row exists and is up-to-date
                     val had = store.hasPodcast(p.id)
                     try {
                         store.upsertPodcast(p)
@@ -333,61 +176,35 @@ object IndexWorker {
                     } catch (e: Exception) {
                         Log.w(TAG, "Failed to upsert podcast ${p.id}: ${e.message}")
                     }
-
-                    // Fetch episodes for this podcast and only append those not already indexed
-                    val eps = try { repo.fetchEpisodesIfNeeded(p, forceRefresh = true) } catch (e: Exception) { emptyList() }
-                    if (eps.isEmpty()) {
-                        val completedPct = computePodcastCompletePercent(i, podcasts.size)
-                        onProgress("Indexed episodes for: ${p.title}", completedPct, true)
-                        continue
-                    }
-
-                    val existingIds = store.getEpisodeIdsForPodcast(p.id)
-                    val missing = eps.filter { it.id.isNotBlank() && !existingIds.contains(it.id) }
-                    if (missing.isEmpty()) {
-                        val completedPct = computePodcastCompletePercent(i, podcasts.size)
-                        onProgress("No new episodes for: ${p.title}", completedPct, true)
-                        continue
-                    }
-
-                    // Enrich missing episodes and append in chunks
-                    val enriched = missing.map { ep -> ep.copy(description = listOfNotNull(ep.description, p.title).joinToString(" ")) }
-
-                    try {
-                        var inserted = 0
-                        val batchSize = 500
-                        val chunks = enriched.chunked(batchSize)
-                        for (chunk in chunks) {
-                            if (!isActive) break
-                            val added = try { store.appendEpisodesBatch(chunk) } catch (oom: OutOfMemoryError) {
-                                var fallback = 0
-                                for (small in chunk.chunked(50)) fallback += store.appendEpisodesBatch(small)
-                                fallback
-                            }
-                            inserted += added
-                            newEpisodes += added
-                            processedEpisodes += added
-
-                            // Report a reasonable overall percent for UI (per-podcast mapping)
-                            val overallPct = computeOverallEpisodePercent(i, podcasts.size, inserted, enriched.size)
-                            onProgress("Indexing new episodes for: ${p.title}", overallPct, true)
-
-                            try { Thread.yield() } catch (_: Throwable) {}
-                        }
-
-                        // Mark podcast complete
-                        val completedPct = computePodcastCompletePercent(i, podcasts.size)
-                        onProgress("Indexed episodes for: ${p.title}", completedPct, true)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to append new episodes for ${p.id}: ${e.message}")
-                    }
                 }
 
-                onProgress("Incremental index complete: newPodcasts=${newPodcasts}, newEpisodes=${newEpisodes}", 100, false)
-                Log.d(TAG, "Incremental reindex complete: newPodcasts=${newPodcasts}, newEpisodes=${newEpisodes}")
-                try {
-                    store.setLastReindexTime(System.currentTimeMillis())
-                } catch (e: Exception) {
+                // Append only episodes not already indexed
+                val newEpisodes = mutableListOf<Episode>()
+                // Group by podcastId to batch the existing-ID lookups
+                val byPodcast = episodes.groupBy { it.podcastId }
+                for ((podcastId, eps) in byPodcast) {
+                    if (!isActive) break
+                    val existingIds = try { store.getEpisodeIdsForPodcast(podcastId) } catch (_: Exception) { emptySet() }
+                    newEpisodes.addAll(eps.filter { it.id.isNotBlank() && !existingIds.contains(it.id) })
+                }
+
+                var inserted = 0
+                for (batch in newEpisodes.chunked(500)) {
+                    if (!isActive) break
+                    try { store.appendEpisodesBatch(batch) } catch (oom: OutOfMemoryError) {
+                        for (small in batch.chunked(50)) store.appendEpisodesBatch(small)
+                    }
+                    inserted += batch.size
+                    onProgress("Indexing new episodes... ($inserted/${newEpisodes.size})", -1, true)
+                    try { Thread.yield() } catch (_: Throwable) {}
+                }
+
+                onProgress(
+                    "Incremental index complete: newPodcasts=$newPodcasts, newEpisodes=$inserted",
+                    100, false
+                )
+                Log.d(TAG, "Incremental reindex from GitHub Pages: newPodcasts=$newPodcasts, newEpisodes=$inserted")
+                try { store.setLastReindexTime(System.currentTimeMillis()) } catch (e: Exception) {
                     Log.w(TAG, "Failed to persist last reindex time: ${e.message}")
                 }
             } catch (e: Exception) {
