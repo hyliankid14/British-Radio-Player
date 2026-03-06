@@ -1403,16 +1403,6 @@ class PodcastsFragment : Fragment() {
             view?.findViewById<com.google.android.material.appbar.AppBarLayout>(R.id.podcasts_header_appbar)
                 ?.setExpanded(true, false)
 
-            // Show search status card immediately while new saved-search results are loading
-            view?.findViewById<View>(R.id.search_status_card)?.visibility = View.VISIBLE
-            view?.findViewById<ProgressBar>(R.id.search_status_name_progress)?.visibility = View.VISIBLE
-            view?.findViewById<ImageView>(R.id.search_status_name_icon)?.visibility = View.GONE
-            view?.findViewById<ProgressBar>(R.id.search_status_description_progress)?.visibility = View.VISIBLE
-            view?.findViewById<ImageView>(R.id.search_status_description_icon)?.visibility = View.GONE
-            view?.findViewById<ProgressBar>(R.id.search_status_episodes_progress)?.visibility = View.VISIBLE
-            view?.findViewById<ImageView>(R.id.search_status_episodes_icon)?.visibility = View.GONE
-            view?.findViewById<TextView>(R.id.search_status_episodes_message)?.visibility = View.GONE
-            
             // Set flag to scroll to top when displaying the new search results
             shouldScrollToTopOnNextResults = true
             applyFilters(emptyState, recyclerView)
@@ -1421,8 +1411,7 @@ class PodcastsFragment : Fragment() {
 
     // Progressive search implementation that shows results incrementally:
     // 1. Show podcast name/description matches immediately (fast)
-    // 2. Continue indexing episode matches in background (slower)
-    // 3. Update UI with status indicators showing progress
+    // 2. Continue loading episode matches in background (slower)
     private fun simplifiedApplyFilters(emptyState: TextView, recyclerView: RecyclerView) {
         android.util.Log.d("PodcastsFragment", "simplifiedApplyFilters called - BEFORE coroutine launch")
         // Hard-stop if we're restoring cached results to avoid reloading the search
@@ -1444,14 +1433,6 @@ class PodcastsFragment : Fragment() {
             if (generation != searchGeneration) return@launch
 
             val loadingView = view?.findViewById<ProgressBar>(R.id.loading_progress)
-            val searchStatusCard = view?.findViewById<View>(R.id.search_status_card)
-            val nameProgressBar = view?.findViewById<ProgressBar>(R.id.search_status_name_progress)
-            val nameStatusIcon = view?.findViewById<ImageView>(R.id.search_status_name_icon)
-            val descProgressBar = view?.findViewById<ProgressBar>(R.id.search_status_description_progress)
-            val descStatusIcon = view?.findViewById<ImageView>(R.id.search_status_description_icon)
-            val episodesProgressBar = view?.findViewById<ProgressBar>(R.id.search_status_episodes_progress)
-            val episodesCheckIcon = view?.findViewById<ImageView>(R.id.search_status_episodes_icon)
-            val episodesMessage = view?.findViewById<TextView>(R.id.search_status_episodes_message)
             
             // Get the query first to determine if we should show the large spinner
             val q = (viewModel.activeSearchQuery.value ?: searchQuery).trim()
@@ -1459,7 +1440,7 @@ class PodcastsFragment : Fragment() {
             
             // Delay showing the spinner slightly to avoid a flicker on very-fast searches
             // But only delay if we have podcasts to process - don't delay the empty case
-            // Don't show the large spinner when searching (q is not empty) because the Search Status card shows individual progress indicators
+            // Don't show the large spinner when searching (q is not empty) since results appear near instantly
             val showSpinnerJob = if (allPodcasts.isNotEmpty() && q.isEmpty()) {
                 launch spinner@{
                     kotlinx.coroutines.delay(120)
@@ -1493,9 +1474,6 @@ class PodcastsFragment : Fragment() {
                 // Empty -> show main list (preserve sorting/pagination)
                 if (q.isEmpty()) {
                     android.util.Log.d("PodcastsFragment", "simplifiedApplyFilters: Empty query, showing main list")
-                    // Hide search status card when not searching
-                    searchStatusCard?.visibility = View.GONE
-                    
                     val effectiveFilter = currentFilter.copy(searchQuery = "")
                     val filtered = withContext(Dispatchers.Default) { repository.filterPodcasts(allPodcasts, effectiveFilter) }
 
@@ -1523,7 +1501,7 @@ class PodcastsFragment : Fragment() {
                     return@launch
                 }
 
-                // Hide empty state while searching to avoid overlap with the status card
+                // Hide empty state while searching
                 emptyState.visibility = View.GONE
                 isSearchPopulating = true
                 // Reset episode pagination state at the start of a fresh search to avoid stale data/races.
@@ -1531,17 +1509,6 @@ class PodcastsFragment : Fragment() {
                 cachedEpisodeMatchesFull = emptyList()
                 resolvedEpisodeMatches = mutableListOf()
                 displayedEpisodeCount = 0
-
-                // Show search status card with initial state - all spinners showing
-                searchStatusCard?.visibility = View.VISIBLE
-                nameProgressBar?.visibility = View.VISIBLE
-                nameStatusIcon?.visibility = View.GONE
-                descProgressBar?.visibility = View.VISIBLE
-                descStatusIcon?.visibility = View.GONE
-                episodesProgressBar?.visibility = View.VISIBLE
-                episodesCheckIcon?.visibility = View.GONE
-                episodesMessage?.visibility = View.GONE
-
                 val qLower = q.lowercase(Locale.getDefault())
                 
                 // Check if episodes have been indexed
@@ -1559,18 +1526,10 @@ class PodcastsFragment : Fragment() {
                     repository.filterPodcasts(raw, currentFilter)
                 }
 
-                // Update name status: search complete, show checkmark
-                nameProgressBar?.visibility = View.GONE
-                nameStatusIcon?.visibility = View.VISIBLE
-
                 val descMatches = withContext(Dispatchers.Default) {
                     val raw = allPodcasts.filter { repository.podcastMatchKind(it, qLower) == "description" }
                     repository.filterPodcasts(raw, currentFilter)
                 }
-                
-                // Update description status: search complete, show checkmark
-                descProgressBar?.visibility = View.GONE
-                descStatusIcon?.visibility = View.VISIBLE
                 
                 // Apply sort order to podcast matches
                 android.util.Log.d("PodcastsFragment", "simplifiedApplyFilters: applying sort order '$currentSort' to titleMatches=${titleMatches.size} descMatches=${descMatches.size}")
@@ -1598,20 +1557,7 @@ class PodcastsFragment : Fragment() {
                     }
                 }
                 
-                // Set up episode search status
-                if (hasIndexedEpisodes) {
-                    // Episodes are indexed, show progress spinner
-                    episodesMessage?.visibility = View.GONE
-                    episodesProgressBar?.visibility = View.VISIBLE
-                    episodesCheckIcon?.visibility = View.GONE
-                } else {
-                    // No episodes indexed, show guidance message
-                    episodesMessage?.visibility = View.VISIBLE
-                    episodesProgressBar?.visibility = View.GONE
-                    episodesCheckIcon?.visibility = View.GONE
-                }
-                
-                // Show podcast matches immediately (before episode indexing)
+                // Show podcast matches immediately (before episode loading)
                 val podcastMatches = (sortedTitleMatches + sortedDescMatches).distinctBy { it.id }
                 android.util.Log.d("PodcastsFragment", "simplifiedApplyFilters: sorted results - titleMatches=${sortedTitleMatches.size} descMatches=${sortedDescMatches.size} combined=${podcastMatches.size}")
                 if (sortedTitleMatches.isNotEmpty()) {
@@ -1658,10 +1604,7 @@ class PodcastsFragment : Fragment() {
                 // episodes load silently and become available for scroll-pagination.
 
                 if (!hasIndexedEpisodes) {
-                    // No episode index available — show the informational message and stop here.
-                    episodesProgressBar?.visibility = View.GONE
-                    episodesCheckIcon?.visibility = View.GONE
-                    episodesMessage?.visibility = View.VISIBLE
+                    // No episode index available — stop here.
                 } else {
                     // ── STEP 2a: fast first batch ────────────────────────────────────────────
                     // Fetch the 30 newest matching episodes without any timeout. This should
@@ -1728,9 +1671,6 @@ class PodcastsFragment : Fragment() {
 
                     if (!isActive || generation != searchGeneration) return@launch
 
-                    // Paint the quick batch immediately — no waiting for the full 400.
-                    episodesProgressBar?.visibility = View.GONE
-                    episodesCheckIcon?.visibility = View.VISIBLE
                     android.util.Log.d("PodcastsFragment", "Quick episode batch: ${quickEps.size} episodes sorted by '$currentSort'")
 
                     if (searchAdapter == null) {
@@ -1745,10 +1685,7 @@ class PodcastsFragment : Fragment() {
                         )
                         val hasContent = quickEps.isNotEmpty()
                         if (!hasContent && q.isNotEmpty()) {
-                            searchStatusCard?.visibility = View.GONE
                             emptyState.text = getString(R.string.no_podcasts_found)
-                        } else {
-                            searchStatusCard?.visibility = View.GONE
                         }
                         showResultsSafely(recyclerView, searchAdapter, isSearchAdapter = true, hasContent = hasContent, emptyState)
                         rebuildFilterSpinners(emptyState, recyclerView)
@@ -1756,10 +1693,7 @@ class PodcastsFragment : Fragment() {
                         searchAdapter?.appendEpisodeMatches(quickEps)
                         val hasContent = podcastMatches.isNotEmpty() || quickEps.isNotEmpty()
                         if (!hasContent && q.isNotEmpty()) {
-                            searchStatusCard?.visibility = View.GONE
                             emptyState.text = getString(R.string.no_podcasts_found)
-                        } else {
-                            searchStatusCard?.visibility = View.GONE
                         }
                         rebuildFilterSpinners(emptyState, recyclerView)
                     }
