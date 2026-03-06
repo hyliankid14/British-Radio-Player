@@ -3,6 +3,7 @@ package com.hyliankid14.bbcradioplayer.workers
 import android.content.Context
 import android.util.Log
 import com.hyliankid14.bbcradioplayer.Podcast
+import com.hyliankid14.bbcradioplayer.RemoteIndexClient
 import com.hyliankid14.bbcradioplayer.db.IndexStore
 import com.hyliankid14.bbcradioplayer.PodcastRepository
 import kotlinx.coroutines.Dispatchers
@@ -70,6 +71,18 @@ object IndexWorker {
                 val store = IndexStore.getInstance(context)
                 store.replaceAllPodcasts(podcasts)
 
+                // Push podcast metadata to the remote server index (best-effort)
+                val remoteClient = RemoteIndexClient(context)
+                val serverAvailable = try { remoteClient.isServerAvailable() } catch (_: Exception) { false }
+                if (serverAvailable) {
+                    try {
+                        remoteClient.pushPodcasts(podcasts)
+                        Log.d(TAG, "Pushed ${podcasts.size} podcasts to remote index")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to push podcasts to remote index: ${e.message}")
+                    }
+                }
+
                 // Fetch & index episodes per-podcast (streamed) to avoid building a huge in-memory list.
                 // NOTE: We intentionally do NOT wipe the episode FTS table before indexing.
                 // The index is additive — previously indexed episodes are preserved even after they
@@ -120,6 +133,15 @@ object IndexWorker {
 
                     // Enrich each episode's description with the podcast title (helps joint queries)
                     val enriched = newEps.map { ep -> ep.copy(description = listOfNotNull(ep.description, p.title).joinToString(" ")) }
+
+                    // Push new episodes to the remote server index (best-effort)
+                    if (serverAvailable) {
+                        try {
+                            remoteClient.pushEpisodes(p.id, enriched)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to push episodes for ${p.id} to remote: ${e.message}")
+                        }
+                    }
 
                     // Insert in bounded-size batches via IndexStore.appendEpisodesBatch
                     try {
@@ -190,6 +212,8 @@ object IndexWorker {
                 }
 
                 val store = IndexStore.getInstance(context)
+                val remoteClient = RemoteIndexClient(context)
+                val serverAvailable = try { remoteClient.isServerAvailable() } catch (_: Exception) { false }
                 var processedEpisodes = 0
                 var newEpisodes = 0
                 var newPodcasts = 0
@@ -207,6 +231,13 @@ object IndexWorker {
                         if (!had) newPodcasts++
                     } catch (e: Exception) {
                         Log.w(TAG, "Failed to upsert podcast ${p.id}: ${e.message}")
+                    }
+
+                    // Push podcast to remote server if it's new (best-effort)
+                    if (!had && serverAvailable) {
+                        try { remoteClient.pushPodcasts(listOf(p)) } catch (e: Exception) {
+                            Log.w(TAG, "Failed to push new podcast ${p.id} to remote: ${e.message}")
+                        }
                     }
 
                     // Fetch episodes for this podcast and only append those not already indexed
@@ -227,6 +258,16 @@ object IndexWorker {
 
                     // Enrich missing episodes and append in chunks
                     val enriched = missing.map { ep -> ep.copy(description = listOfNotNull(ep.description, p.title).joinToString(" ")) }
+
+                    // Push new episodes to the remote server index (best-effort)
+                    if (serverAvailable) {
+                        try {
+                            remoteClient.pushEpisodes(p.id, enriched)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to push new episodes for ${p.id} to remote: ${e.message}")
+                        }
+                    }
+
                     try {
                         var inserted = 0
                         val batchSize = 500

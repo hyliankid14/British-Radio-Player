@@ -36,6 +36,8 @@ __pycache__/
 # Local analytics database (should not be committed)
 api/analytics.db
 api/analytics.db.backup
+# Server-side podcast index database (should not be committed)
+api/podcast_index.db
 release.jks
 *.jks
 *.keystore

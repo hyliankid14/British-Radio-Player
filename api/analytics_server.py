@@ -5,6 +5,9 @@ Simple F-Droid compliant analytics server for BBC Radio Player.
 Self-hosted server for collecting anonymous, aggregated analytics data.
 It does NOT store IP addresses or any PII.
 
+Also hosts a server-side podcast/episode FTS index so the Android app can
+search without building a large local index on the device.
+
 Installation:
     pip install flask
 
@@ -15,6 +18,7 @@ The server will start on http://localhost:5000
 
 Configure in the app by setting:
     private const val ANALYTICS_ENDPOINT = "https://yourdomain.com/event"
+    (RemoteIndexClient derives its base URL from the same host)
 """
 
 from flask import Flask, request, jsonify, Response
@@ -24,6 +28,8 @@ import sys
 import csv
 import io
 import logging
+import re
+import unicodedata
 from pathlib import Path
 
 app = Flask(__name__)
@@ -40,8 +46,78 @@ def add_cors_headers(response):
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
     return response
 
-# Database path
+# Database paths
 DB_PATH = Path(__file__).parent / 'analytics.db'
+PODCAST_INDEX_DB_PATH = Path(__file__).parent / 'podcast_index.db'
+
+
+def init_podcast_index_db():
+    """Initialize the podcast index database with FTS4 tables."""
+    conn = sqlite3.connect(PODCAST_INDEX_DB_PATH)
+    c = conn.cursor()
+    c.execute(
+        'CREATE VIRTUAL TABLE IF NOT EXISTS podcast_fts '
+        'USING fts4(podcastId TEXT, title TEXT, description TEXT)'
+    )
+    c.execute(
+        'CREATE VIRTUAL TABLE IF NOT EXISTS episode_fts '
+        'USING fts4(episodeId TEXT, podcastId TEXT, title TEXT, description TEXT)'
+    )
+    c.execute(
+        'CREATE TABLE IF NOT EXISTS episode_meta ('
+        'episodeId TEXT PRIMARY KEY, podcastId TEXT, '
+        'pubDate TEXT, pubEpoch INTEGER DEFAULT 0)'
+    )
+    c.execute(
+        'CREATE TABLE IF NOT EXISTS index_meta ('
+        'key TEXT PRIMARY KEY, value TEXT)'
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_podcast_index_db():
+    """Get podcast index database connection."""
+    conn = sqlite3.connect(PODCAST_INDEX_DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _normalize_query(query):
+    """
+    Normalize a free-text query into an FTS4 MATCH expression.
+    Advanced queries (containing AND/OR/NEAR/quotes/-) are passed through as-is.
+    Simple single-word queries get a prefix wildcard.
+    Multi-word queries are converted to a prefix-AND expression.
+    """
+    q = query.strip()
+    if not q:
+        return ''
+
+    # Detect advanced FTS syntax and pass through unchanged
+    advanced_markers = ('"', '(', ')', ' AND ', ' OR ', ' NEAR', ' -')
+    upper = q.upper()
+    if any(m in q for m in ('"', '(', ')')) or \
+       ' AND ' in upper or ' OR ' in upper or ' NEAR' in upper or \
+       q.startswith('-') or ' -' in q or '*' in q or ':' in q:
+        return q
+
+    # Normalise: strip diacritics, remove non-alphanumeric (except spaces), collapse whitespace
+    nfkd = unicodedata.normalize('NFD', q)
+    stripped = ''.join(c for c in nfkd if unicodedata.category(c) != 'Mn')
+    cleaned = re.sub(r'[^\w\s]', ' ', stripped, flags=re.UNICODE)
+    collapsed = re.sub(r'\s+', ' ', cleaned).strip().lower()
+
+    tokens = [t for t in collapsed.split(' ') if t]
+    if not tokens:
+        return ''
+    if len(tokens) == 1:
+        return f'{tokens[0]}*'
+
+    phrase = '"' + ' '.join(tokens) + '"'
+    near = ' NEAR/10 '.join(tokens)
+    token_and = ' AND '.join(f'{t}*' for t in tokens)
+    return f'({near}) OR ({phrase}) OR ({token_and})'
 
 
 def init_db():
@@ -91,6 +167,11 @@ def get_db():
     conn.row_factory = sqlite3.Row
     return conn
 
+
+# Initialise both databases when the module is loaded (covers gunicorn production deployments
+# as well as direct `python3 analytics_server.py` invocations).
+init_db()
+init_podcast_index_db()
 
 @app.route('/event', methods=['POST'])
 def log_event():
@@ -401,6 +482,329 @@ def export_csv():
         return jsonify({'error': 'Internal server error'}), 500
 
 
+# ── Podcast Index Endpoints ────────────────────────────────────────────────────
+
+@app.route('/index/status', methods=['GET'])
+def index_status():
+    """
+    Return the current state of the server-side podcast index.
+
+    Response:
+        {
+            "podcast_count": <int>,
+            "episode_count": <int>,
+            "last_updated": "<ISO 8601 string or null>"
+        }
+    """
+    try:
+        conn = get_podcast_index_db()
+        c = conn.cursor()
+        c.execute('SELECT COUNT(*) AS n FROM podcast_fts')
+        podcast_count = c.fetchone()['n']
+        c.execute('SELECT COUNT(*) AS n FROM episode_meta')
+        episode_count = c.fetchone()['n']
+        c.execute("SELECT value FROM index_meta WHERE key = 'last_updated'")
+        row = c.fetchone()
+        last_updated = row['value'] if row else None
+        conn.close()
+        return jsonify({
+            'podcast_count': podcast_count,
+            'episode_count': episode_count,
+            'last_updated': last_updated
+        }), 200
+    except Exception as e:
+        print(f"Error getting index status: {e}", file=sys.stderr)
+        return jsonify({'error': 'Internal server error'}), 500
+
+
+@app.route('/index/podcasts', methods=['POST'])
+def index_podcasts():
+    """
+    Receive a batch of podcast records from the app and store them in the
+    server-side FTS index.
+
+    Expected JSON body:
+        [
+            {"id": "p00tgwjb", "title": "Desert Island Discs", "description": "..."},
+            ...
+        ]
+    """
+    try:
+        data = request.get_json()
+        if not isinstance(data, list):
+            return jsonify({'error': 'Expected a JSON array of podcast objects'}), 400
+
+        conn = get_podcast_index_db()
+        c = conn.cursor()
+        inserted = 0
+        for item in data:
+            pid = item.get('id', '').strip()
+            title = item.get('title', '')
+            description = item.get('description', '')
+            if not pid:
+                continue
+            # Delete-then-insert is the standard FTS4 upsert pattern
+            c.execute('DELETE FROM podcast_fts WHERE podcastId = ?', (pid,))
+            c.execute(
+                'INSERT INTO podcast_fts(podcastId, title, description) VALUES (?, ?, ?)',
+                (pid, title, description)
+            )
+            inserted += 1
+
+        _touch_index_meta(c)
+        conn.commit()
+        conn.close()
+        print(f"[{datetime.now().isoformat()}] INDEX podcasts inserted/updated={inserted}")
+        return jsonify({'status': 'ok', 'inserted': inserted}), 200
+    except Exception as e:
+        print(f"Error indexing podcasts: {e}", file=sys.stderr)
+        return jsonify({'error': 'Internal server error'}), 500
+
+
+@app.route('/index/episodes', methods=['POST'])
+def index_episodes():
+    """
+    Receive a batch of episode records from the app and store them in the
+    server-side FTS index.
+
+    Expected JSON body:
+        {
+            "podcastId": "p00tgwjb",
+            "episodes": [
+                {
+                    "id": "p0abc123",
+                    "title": "Episode title",
+                    "description": "...",
+                    "pubDate": "Mon, 01 Jan 2024 00:00:00 +0000",
+                    "pubEpoch": 1704067200000
+                },
+                ...
+            ]
+        }
+    """
+    try:
+        data = request.get_json()
+        if not isinstance(data, dict):
+            return jsonify({'error': 'Expected a JSON object with podcastId and episodes'}), 400
+
+        podcast_id = data.get('podcastId', '').strip()
+        episodes = data.get('episodes', [])
+        if not podcast_id:
+            return jsonify({'error': 'podcastId is required'}), 400
+        if not isinstance(episodes, list):
+            return jsonify({'error': 'episodes must be a list'}), 400
+
+        conn = get_podcast_index_db()
+        c = conn.cursor()
+
+        # Fetch already-indexed episode IDs for this podcast to avoid duplicates
+        c.execute('SELECT episodeId FROM episode_fts WHERE podcastId = ?', (podcast_id,))
+        existing_ids = {row['episodeId'] for row in c.fetchall()}
+
+        inserted = 0
+        for ep in episodes:
+            eid = ep.get('id', '').strip()
+            if not eid or eid in existing_ids:
+                continue
+            title = ep.get('title', '')
+            description = ep.get('description', '')
+            pub_date = ep.get('pubDate', '')
+            pub_epoch = ep.get('pubEpoch', 0)
+            c.execute(
+                'INSERT INTO episode_fts(episodeId, podcastId, title, description) VALUES (?, ?, ?, ?)',
+                (eid, podcast_id, title, description)
+            )
+            c.execute(
+                'INSERT OR REPLACE INTO episode_meta(episodeId, podcastId, pubDate, pubEpoch) '
+                'VALUES (?, ?, ?, ?)',
+                (eid, podcast_id, pub_date, pub_epoch)
+            )
+            inserted += 1
+
+        _touch_index_meta(c)
+        conn.commit()
+        conn.close()
+        return jsonify({'status': 'ok', 'inserted': inserted}), 200
+    except Exception as e:
+        print(f"Error indexing episodes: {e}", file=sys.stderr)
+        return jsonify({'error': 'Internal server error'}), 500
+
+
+def _touch_index_meta(cursor):
+    """Update the last_updated timestamp in index_meta."""
+    cursor.execute(
+        'INSERT OR REPLACE INTO index_meta(key, value) VALUES (?, ?)',
+        ('last_updated', datetime.utcnow().isoformat() + 'Z')
+    )
+
+
+@app.route('/search/podcasts', methods=['GET'])
+def search_podcasts():
+    """
+    Search the server-side podcast FTS index.
+
+    Query parameters:
+        q     - search query (required)
+        limit - max results to return (default 50, max 200)
+
+    Response:
+        [{"podcastId": "...", "title": "...", "description": "..."}, ...]
+    """
+    q = request.args.get('q', '').strip()
+    if not q:
+        return jsonify([]), 200
+
+    try:
+        limit = min(int(request.args.get('limit', 50)), 200)
+    except (ValueError, TypeError):
+        limit = 50
+
+    fts_query = _normalize_query(q)
+    if not fts_query:
+        return jsonify([]), 200
+
+    try:
+        conn = get_podcast_index_db()
+        c = conn.cursor()
+        results = []
+        try:
+            c.execute(
+                'SELECT podcastId, title, description FROM podcast_fts '
+                'WHERE podcast_fts MATCH ? LIMIT ?',
+                (fts_query, limit)
+            )
+            results = [dict(row) for row in c.fetchall()]
+        except Exception as fts_err:
+            # FTS query failed (e.g. syntax error) — try individual tokens with LIKE as fallback
+            print(f"FTS podcast search failed (query='{fts_query}'): {fts_err}", file=sys.stderr)
+            tokens = [t for t in q.lower().split() if t]
+            if tokens:
+                like_pat = '%' + tokens[0] + '%'
+                c.execute(
+                    'SELECT podcastId, title, description FROM podcast_fts '
+                    'WHERE LOWER(title) LIKE ? OR LOWER(description) LIKE ? LIMIT ?',
+                    (like_pat, like_pat, limit)
+                )
+                results = [dict(row) for row in c.fetchall()]
+        conn.close()
+        return jsonify(results), 200
+    except Exception as e:
+        print(f"Error searching podcasts: {e}", file=sys.stderr)
+        return jsonify({'error': 'Internal server error'}), 500
+
+
+@app.route('/search/episodes', methods=['GET'])
+def search_episodes():
+    """
+    Search the server-side episode FTS index.
+
+    Query parameters:
+        q      - search query (required)
+        limit  - max results to return (default 100, max 500)
+        offset - pagination offset (default 0)
+
+    Response:
+        [{"episodeId": "...", "podcastId": "...", "title": "...",
+          "description": "...", "pubDate": "..."}, ...]
+    """
+    q = request.args.get('q', '').strip()
+    if not q:
+        return jsonify([]), 200
+
+    try:
+        limit = min(int(request.args.get('limit', 100)), 500)
+    except (ValueError, TypeError):
+        limit = 100
+
+    try:
+        offset = max(0, int(request.args.get('offset', 0)))
+    except (ValueError, TypeError):
+        offset = 0
+
+    fts_query = _normalize_query(q)
+    if not fts_query:
+        return jsonify([]), 200
+
+    try:
+        conn = get_podcast_index_db()
+        c = conn.cursor()
+
+        # Collect all matching episode IDs (lean scan)
+        id_to_podcast = {}
+        try:
+            c.execute(
+                'SELECT episodeId, podcastId FROM episode_fts WHERE episode_fts MATCH ?',
+                (fts_query,)
+            )
+            for row in c.fetchall():
+                eid = row['episodeId']
+                if eid not in id_to_podcast:
+                    id_to_podcast[eid] = row['podcastId']
+        except Exception as fts_err:
+            print(f"FTS episode search failed (query='{fts_query}'): {fts_err}", file=sys.stderr)
+            # Fallback: LIKE on title for single-token queries only
+            tokens = [t for t in q.lower().split() if t]
+            if len(tokens) == 1:
+                like_pat = '%' + tokens[0] + '%'
+                c.execute(
+                    'SELECT episodeId, podcastId FROM episode_fts '
+                    'WHERE LOWER(title) LIKE ? LIMIT 500',
+                    (like_pat,)
+                )
+                for row in c.fetchall():
+                    eid = row['episodeId']
+                    if eid not in id_to_podcast:
+                        id_to_podcast[eid] = row['podcastId']
+
+        if not id_to_podcast:
+            conn.close()
+            return jsonify([]), 200
+
+        # Sort by pubEpoch DESC, paginate
+        all_ids = list(id_to_podcast.keys())
+        placeholders = ','.join('?' * len(all_ids))
+        c.execute(
+            f'SELECT episodeId, pubEpoch, pubDate FROM episode_meta '
+            f'WHERE episodeId IN ({placeholders})',
+            all_ids
+        )
+        pub_data = {row['episodeId']: (row['pubEpoch'] or 0, row['pubDate'] or '')
+                    for row in c.fetchall()}
+
+        sorted_ids = sorted(all_ids, key=lambda eid: pub_data.get(eid, (0, ''))[0], reverse=True)
+        page_ids = sorted_ids[offset: offset + limit]
+
+        if not page_ids:
+            conn.close()
+            return jsonify([]), 200
+
+        # Fetch title + description only for this page
+        ph2 = ','.join('?' * len(page_ids))
+        c.execute(
+            f'SELECT episodeId, title, description FROM episode_fts WHERE episodeId IN ({ph2})',
+            page_ids
+        )
+        meta = {row['episodeId']: (row['title'] or '', row['description'] or '')
+                for row in c.fetchall()}
+
+        conn.close()
+        results = []
+        for eid in page_ids:
+            title, desc = meta.get(eid, ('', ''))
+            _, pub_date = pub_data.get(eid, (0, ''))
+            results.append({
+                'episodeId': eid,
+                'podcastId': id_to_podcast[eid],
+                'title': title,
+                'description': desc,
+                'pubDate': pub_date
+            })
+        return jsonify(results), 200
+    except Exception as e:
+        print(f"Error searching episodes: {e}", file=sys.stderr)
+        return jsonify({'error': 'Internal server error'}), 500
+
+
 @app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint."""
@@ -418,6 +822,23 @@ def index():
         c.execute('SELECT COUNT(*) as count FROM events')
         total_events = c.fetchone()['count']
         conn.close()
+
+        # Podcast index stats
+        try:
+            idx_conn = get_podcast_index_db()
+            idx_c = idx_conn.cursor()
+            idx_c.execute('SELECT COUNT(*) AS n FROM podcast_fts')
+            podcast_count = idx_c.fetchone()['n']
+            idx_c.execute('SELECT COUNT(*) AS n FROM episode_meta')
+            episode_count = idx_c.fetchone()['n']
+            idx_c.execute("SELECT value FROM index_meta WHERE key = 'last_updated'")
+            row = idx_c.fetchone()
+            last_updated = row['value'] if row else 'never'
+            idx_conn.close()
+        except Exception:
+            podcast_count = 0
+            episode_count = 0
+            last_updated = 'unavailable'
         
         html = f"""
         <!DOCTYPE html>
@@ -521,11 +942,27 @@ def index():
                 </div>
 
                 <div class="panel">
+                    <h3>Podcast Search Index</h3>
+                    <p class="muted">Server-side FTS index used by the app for searches (no local index needed on device).</p>
+                    <div style="margin-top: 10px;">
+                        <strong>{podcast_count}</strong> podcasts &nbsp;·&nbsp;
+                        <strong>{episode_count}</strong> episodes &nbsp;·&nbsp;
+                        Last updated: <code>{last_updated}</code>
+                    </div>
+                </div>
+
+                <div class="panel">
                     <h3>API Endpoints</h3>
                     <p><code>POST /event</code> - Accept analytics events from the app</p>
                     <p><code>GET /stats</code> - Get aggregated statistics (use <code>?days=7</code> or <code>?days=all</code>)</p>
                     <p><code>GET /health</code> - Health check</p>
                     <p><code>GET /export.csv</code> - Download CSV archive (use <code>?days=30</code> or <code>?days=all</code>)</p>
+                    <p style="margin-top: 8px;"><strong>Podcast Index:</strong></p>
+                    <p><code>GET /index/status</code> - Podcast index statistics</p>
+                    <p><code>POST /index/podcasts</code> - Submit podcast records to the index</p>
+                    <p><code>POST /index/episodes</code> - Submit episode records to the index</p>
+                    <p><code>GET /search/podcasts?q=...</code> - Search podcasts</p>
+                    <p><code>GET /search/episodes?q=...</code> - Search episodes</p>
                 </div>
 
                 <div class="footer">
@@ -602,8 +1039,9 @@ def index():
 
 
 if __name__ == '__main__':
-    # Initialize database on startup
+    # Initialize databases on startup
     init_db()
+    init_podcast_index_db()
     
     print("""
     ╔═══════════════════════════════════════════════════════════════╗

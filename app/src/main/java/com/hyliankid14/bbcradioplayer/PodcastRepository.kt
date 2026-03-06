@@ -436,13 +436,53 @@ class PodcastRepository(private val context: Context) {
         indexPodcasts(baseFiltered)
         val qLower = q.lowercase(Locale.getDefault())
 
-        // Attempt to use the on-disk FTS index (SQLite FTS4) if available. This provides
-        // fast, global searching across podcast titles/descriptions and episode text.
+        // Attempt to use the remote server index first, then fall back to the on-disk
+        // SQLite FTS index, and finally fall back to the in-memory cache.
         val titleMatches = mutableListOf<Podcast>()
         val descMatches = mutableListOf<Podcast>()
         val epTitleMatches = mutableListOf<Podcast>()
         val epDescMatches = mutableListOf<Podcast>()
 
+        // Try remote server index first (fastest and most complete)
+        var usedRemote = false
+        try {
+            val remote = RemoteIndexClient(context)
+            if (remote.isServerAvailable()) {
+                val pMatches = remote.searchPodcasts(q, 50)
+                android.util.Log.d("PodcastRepository", "Remote searchPodcasts q='$q' returned ${pMatches.size}")
+                val pTitleIds = pMatches.filter { ftsMatchesTitle(it, q) }.map { it.podcastId }.toSet()
+                val pDescIds  = pMatches.filter { !ftsMatchesTitle(it, q) }.map { it.podcastId }.toSet()
+
+                val eMatches = remote.searchEpisodes(q, 200)
+                val eTitleIds = eMatches.filter { textMatchesNormalized(it.title, q) }.map { it.podcastId }.toSet()
+                val eDescIds  = eMatches.filter { !textMatchesNormalized(it.title, q) && textMatchesNormalized(it.description, q) }.map { it.podcastId }.toSet()
+
+                val seen = mutableSetOf<String>()
+                for (p in baseFiltered) {
+                    when (p.id) {
+                        in pTitleIds -> { titleMatches.add(p); seen.add(p.id) }
+                        in pDescIds  -> { descMatches.add(p); seen.add(p.id) }
+                    }
+                }
+                for (p in baseFiltered) {
+                    if (p.id in seen) continue
+                    if (p.id in eTitleIds) { epTitleMatches.add(p); seen.add(p.id) }
+                }
+                for (p in baseFiltered) {
+                    if (p.id in seen) continue
+                    if (p.id in eDescIds) { epDescMatches.add(p); seen.add(p.id) }
+                }
+                usedRemote = true
+            }
+        } catch (e: Exception) {
+            android.util.Log.d("PodcastRepository", "Remote index unavailable, falling back: ${e.message}")
+        }
+
+        if (usedRemote) {
+            return titleMatches + descMatches + epTitleMatches + epDescMatches
+        }
+
+        // Fall back to on-disk SQLite FTS4 index
         try {
             val index = com.hyliankid14.bbcradioplayer.db.IndexStore.getInstance(context)
 

@@ -1670,12 +1670,25 @@ class PodcastsFragment : Fragment() {
                         withContext(Dispatchers.IO) {
                             val eps = mutableListOf<Pair<Episode, Podcast>>()
                             try {
-                                val index = com.hyliankid14.bbcradioplayer.db.IndexStore.getInstance(requireContext())
-                                val ftsResults = try {
-                                    index.searchEpisodes(q, 30)
-                                } catch (e: Exception) {
-                                    android.util.Log.w("PodcastsFragment", "FTS episode search (quick) failed: ${e.message}")
-                                    emptyList<com.hyliankid14.bbcradioplayer.db.EpisodeFts>()
+                                // Try remote server index first; fall back to local SQLite FTS
+                                val ftsResults: List<com.hyliankid14.bbcradioplayer.db.EpisodeFts> = run {
+                                    val remote = com.hyliankid14.bbcradioplayer.RemoteIndexClient(requireContext())
+                                    if (remote.isServerAvailable()) {
+                                        try {
+                                            val r = remote.searchEpisodes(q, 30)
+                                            if (r.isNotEmpty()) return@run r
+                                        } catch (e: Exception) {
+                                            android.util.Log.w("PodcastsFragment", "Remote episode search (quick) failed: ${e.message}")
+                                        }
+                                    }
+                                    // Local fallback
+                                    try {
+                                        com.hyliankid14.bbcradioplayer.db.IndexStore.getInstance(requireContext())
+                                            .searchEpisodes(q, 30)
+                                    } catch (e: Exception) {
+                                        android.util.Log.w("PodcastsFragment", "FTS episode search (quick) failed: ${e.message}")
+                                        emptyList()
+                                    }
                                 }
                                 if (ftsResults.isNotEmpty()) {
                                     val uniqueResults = ftsResults.distinctBy { it.episodeId }
@@ -1768,15 +1781,27 @@ class PodcastsFragment : Fragment() {
 
                         if (q.length >= 3) {
                             try {
-                                val index = com.hyliankid14.bbcradioplayer.db.IndexStore.getInstance(requireContext())
-                                // searchEpisodes now does an unlimited FTS scan internally, so a single
-                                // call with Int.MAX_VALUE fetches all matching episodes in one pass
-                                // (sorted by pubEpoch DESC). No multi-page loop needed.
-                                val ftsResults = try {
-                                    index.searchEpisodes(q, Int.MAX_VALUE, 0)
-                                } catch (e: Exception) {
-                                    android.util.Log.w("PodcastsFragment", "FTS episode search (full) failed: ${e.message}")
-                                    emptyList<com.hyliankid14.bbcradioplayer.db.EpisodeFts>()
+                                // Try remote server index first; fall back to local SQLite FTS
+                                val ftsResults: List<com.hyliankid14.bbcradioplayer.db.EpisodeFts> = run {
+                                    val remote = com.hyliankid14.bbcradioplayer.RemoteIndexClient(requireContext())
+                                    if (remote.isServerAvailable()) {
+                                        try {
+                                            val r = remote.searchEpisodes(q, 500, 0)
+                                            if (r.isNotEmpty()) return@run r
+                                        } catch (e: Exception) {
+                                            android.util.Log.w("PodcastsFragment", "Remote episode search (full) failed: ${e.message}")
+                                        }
+                                    }
+                                    // Local fallback — searchEpisodes does an unlimited FTS scan
+                                    // internally, so a single call fetches all matching episodes
+                                    // in one pass (sorted by pubEpoch DESC).
+                                    try {
+                                        com.hyliankid14.bbcradioplayer.db.IndexStore.getInstance(requireContext())
+                                            .searchEpisodes(q, Int.MAX_VALUE, 0)
+                                    } catch (e: Exception) {
+                                        android.util.Log.w("PodcastsFragment", "FTS episode search (full) failed: ${e.message}")
+                                        emptyList()
+                                    }
                                 }
 
                                 val podcastById = allPodcasts.associateBy { it.id }
