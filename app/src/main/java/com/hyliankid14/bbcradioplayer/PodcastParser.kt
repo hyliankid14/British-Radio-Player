@@ -154,6 +154,24 @@ object RSSParser {
     private const val ENCLOSURE = "enclosure"
     private const val PUB_DATE = "pubDate"
     private const val DURATION = "duration"
+    private const val GUID = "guid"
+
+    /**
+     * Extract a BBC episode PID from a guid URL, matching the logic used by build_index.py.
+     * BBC guid URLs follow the pattern: https://www.bbc.co.uk/programmes/p0abc123
+     * Returns the last path segment (e.g. "p0abc123") if it looks like a BBC PID,
+     * or the full guid text as a fallback.
+     *
+     * Uses the same regex as build_index.py (`/([a-z0-9]+)$`) intentionally: matching
+     * that exact pattern is required so that IDs produced here align with IDs stored in
+     * the FTS index, which is the only way the episode-lookup in playEpisode() can succeed.
+     */
+    internal fun extractEpisodeIdFromGuid(guid: String): String {
+        if (guid.isBlank()) return ""
+        val trimmed = guid.trim()
+        val match = Regex("""/([a-z0-9]+)$""", RegexOption.IGNORE_CASE).find(trimmed)
+        return match?.groupValues?.getOrNull(1) ?: trimmed
+    }
 
     fun parseRSS(inputStream: InputStream, podcastId: String, startIndex: Int = 0, maxCount: Int = Int.MAX_VALUE): List<Episode> {
         val episodes = mutableListOf<Episode>()
@@ -166,6 +184,7 @@ object RSSParser {
             var currentAudioUrl = ""
             var currentPubDate = ""
             var currentDuration = 0
+            var currentGuid = ""
             var itemIndex = -1
 
             while (eventType != XmlPullParser.END_DOCUMENT) {
@@ -178,6 +197,7 @@ object RSSParser {
                                 currentAudioUrl = ""
                                 currentPubDate = ""
                                 currentDuration = 0
+                                currentGuid = ""
                                 itemIndex++
                             }
                             TITLE -> {
@@ -211,14 +231,27 @@ object RSSParser {
                                     currentDuration = parseDuration(parser.text)
                                 }
                             }
+                            GUID -> {
+                                if (parser.next() == XmlPullParser.TEXT) {
+                                    currentGuid = parser.text
+                                }
+                            }
                         }
                     }
                     XmlPullParser.END_TAG -> {
                         if (parser.name == ITEM && currentAudioUrl.isNotEmpty()) {
                             // Only add episodes within the requested window [startIndex, startIndex+maxCount)
                             if (itemIndex >= startIndex && episodes.size < maxCount) {
+                                // Use the BBC PID extracted from the guid URL so episode IDs match
+                                // the FTS index (built by build_index.py using the same guid logic).
+                                // Fall back to the audio URL hash only when no guid is available;
+                                // this is deterministic (same URL always produces the same hash) so
+                                // it won't break episode identity across multiple parses.
+                                val episodeId = extractEpisodeIdFromGuid(currentGuid)
+                                    .takeIf { it.isNotBlank() }
+                                    ?: currentAudioUrl.trim().hashCode().toString()
                                 val episode = Episode(
-                                    id = currentAudioUrl.trim().hashCode().toString(),
+                                    id = episodeId,
                                     title = currentTitle.trim(),
                                     description = currentDescription.trim(),
                                     audioUrl = currentAudioUrl.trim(),
