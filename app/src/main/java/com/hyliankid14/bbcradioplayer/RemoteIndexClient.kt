@@ -11,6 +11,7 @@ import java.io.File
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.zip.GZIPInputStream
 
 /**
  * Client for the remote podcast index.
@@ -38,8 +39,9 @@ class RemoteIndexClient(private val context: Context) {
         // GitHub Pages URL for the pre-built static podcast/episode index.
         // Built nightly by the GitHub Actions workflow in
         // .github/workflows/build-podcast-index.yml.
+        // The file is gzip-compressed to stay within GitHub's 100 MB file size limit.
         internal const val GITHUB_PAGES_INDEX_URL =
-            "https://hyliankid14.github.io/BBC-Radio-Player/podcast-index.json"
+            "https://hyliankid14.github.io/BBC-Radio-Player/podcast-index.json.gz"
 
         // Fallback home server (used only for search queries when the static
         // index has not yet been downloaded).  Must match
@@ -112,15 +114,14 @@ class RemoteIndexClient(private val context: Context) {
             Log.d(TAG, "Downloading podcast index from GitHub Pages...")
             val conn = openConnection(GITHUB_PAGES_INDEX_URL)
             conn.requestMethod = "GET"
-            conn.setRequestProperty("Accept-Encoding", "gzip")
             if (conn.responseCode != HttpURLConnection.HTTP_OK) {
                 Log.w(TAG, "GitHub Pages returned HTTP ${conn.responseCode}")
                 conn.disconnect()
                 return null
             }
-            val body = readBody(conn)
+            val body = readGzipBody(conn)
             cacheFile.writeText(body)
-            Log.d(TAG, "Downloaded podcast index (${body.length / 1024} KB)")
+            Log.d(TAG, "Downloaded podcast index (${body.length / 1024} KB uncompressed)")
             parseIndexJson(JSONObject(body))
         } catch (e: Exception) {
             Log.w(TAG, "Failed to download podcast index: ${e.message}")
@@ -286,6 +287,16 @@ class RemoteIndexClient(private val context: Context) {
     private fun readBody(conn: HttpURLConnection): String {
         return try {
             BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    private fun readGzipBody(conn: HttpURLConnection): String {
+        return try {
+            GZIPInputStream(conn.inputStream).use { gzipStream ->
+                BufferedReader(InputStreamReader(gzipStream, Charsets.UTF_8)).use { it.readText() }
+            }
         } finally {
             conn.disconnect()
         }
