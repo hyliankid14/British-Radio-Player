@@ -8,7 +8,7 @@ search.
 
 Usage:
     python3 api/build_index.py [--output docs/podcast-index.json]
-                               [--max-episodes 50]
+                               [--max-episodes N]
                                [--workers 16]
 """
 
@@ -30,9 +30,9 @@ USER_AGENT = (
     "BBC-Radio-Player-IndexBuilder/1.0 "
     "(github.com/hyliankid14/BBC-Radio-Player)"
 )
-MAX_EPISODES_PER_PODCAST = 50   # Keeps the JSON file a manageable size
-REQUEST_TIMEOUT = 20            # seconds per HTTP request
-DEFAULT_WORKERS = 16            # parallel RSS fetch threads
+MAX_EPISODES_PER_PODCAST = sys.maxsize  # Index all available episodes per podcast
+REQUEST_TIMEOUT = 20                    # seconds per HTTP request
+DEFAULT_WORKERS = 16                    # parallel RSS fetch threads
 
 
 # ── HTTP helpers ──────────────────────────────────────────────────────────────
@@ -250,7 +250,7 @@ if __name__ == "__main__":
         "--max-episodes",
         type=int,
         default=MAX_EPISODES_PER_PODCAST,
-        help=f"Max episodes per podcast (default: {MAX_EPISODES_PER_PODCAST})",
+        help="Max episodes per podcast (default: all available)",
     )
     parser.add_argument(
         "--workers",
