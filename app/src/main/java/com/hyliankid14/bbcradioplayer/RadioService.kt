@@ -166,6 +166,9 @@ class RadioService : MediaBrowserServiceCompat() {
         // Number of episodes returned per page when Android Auto requests paginated episode lists.
         private const val EPISODE_PAGE_SIZE = 20
         private const val AUTO_RECONNECT_REFRESH_COOLDOWN_MS = 5_000L
+        // Platform pagination keys used by MediaBrowserService; not present on MediaBrowserServiceCompat.
+        private const val EXTRA_PAGE = "android.service.media.extra.PAGE"
+        private const val EXTRA_PAGE_SIZE = "android.service.media.extra.PAGE_SIZE"
     }
 
     override fun onCreate() {
@@ -668,8 +671,8 @@ class RadioService : MediaBrowserServiceCompat() {
      * been fetched once for page 0.  Everything else is delegated to the non-paginated override.
      */
     override fun onLoadChildren(parentId: String, result: Result<List<MediaItem>>, options: Bundle) {
-        val page = options.getInt(MediaBrowserServiceCompat.EXTRA_PAGE, -1)
-        val pageSize = options.getInt(MediaBrowserServiceCompat.EXTRA_PAGE_SIZE, EPISODE_PAGE_SIZE)
+        val page = options.getInt(EXTRA_PAGE, -1)
+        val pageSize = options.getInt(EXTRA_PAGE_SIZE, EPISODE_PAGE_SIZE)
             .coerceAtLeast(1)
 
         // Only apply custom pagination for individual podcast episode lists.
