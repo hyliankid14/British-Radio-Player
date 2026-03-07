@@ -1217,6 +1217,12 @@ class MainActivity : AppCompatActivity() {
             favoritesPodcastsRecycler.visibility = View.GONE
             favoritesPodcastsRecycler.isNestedScrollingEnabled = false
 
+            // If the subscribed tab is already visible, show a loading indicator immediately
+            val subscribedTabAlreadyActive = (currentMode == "favorites" && isButtonChecked(R.id.fav_tab_subscribed))
+            if (subscribedTabAlreadyActive) {
+                setSubscribedPodcastsLoading(true)
+            }
+
             // Refresh Saved Episodes data (visibility itself handled by the Saved tab)
             refreshSavedEpisodesSection()
 
@@ -1234,6 +1240,7 @@ class MainActivity : AppCompatActivity() {
                     latest > lastPlayed
                 }.map { it.id }.toSet()
                 runOnUiThread {
+                    setSubscribedPodcastsLoading(false)
                     val podcastAdapter = PodcastAdapter(this, onPodcastClick = { podcast ->
                         // Show app bar so podcast title and back button are visible
                         supportActionBar?.show()
@@ -1468,6 +1475,14 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** Show or hide the loading spinner in the Subscribed Podcasts section. */
+    private fun setSubscribedPodcastsLoading(loading: Boolean) {
+        try {
+            val visibility = if (loading) View.VISIBLE else View.GONE
+            findViewById<android.widget.ProgressBar>(R.id.favorites_podcasts_loading).visibility = visibility
+        } catch (_: Exception) { }
+    }
+
     /**
      * Show the requested Favorites sub-tab. Extracted to class level so it can be called from
      * lifecycle methods (onResume) and other places outside the original local scope.
@@ -1498,6 +1513,12 @@ class MainActivity : AppCompatActivity() {
                 try { findViewById<TextView>(R.id.favorites_history_empty).visibility = View.GONE } catch (_: Exception) { }
                 try { findViewById<RecyclerView>(R.id.saved_episodes_recycler).visibility = View.GONE } catch (_: Exception) { }
 
+                // Show loading indicator while fetching subscribed podcasts
+                val existingAdapter = try { findViewById<RecyclerView>(R.id.favorites_podcasts_recycler).adapter as? PodcastAdapter } catch (_: Exception) { null }
+                if (existingAdapter == null || existingAdapter.itemCount == 0) {
+                    setSubscribedPodcastsLoading(true)
+                }
+
                 // Refresh subscribed podcasts list asynchronously
                 Thread {
                     try {
@@ -1506,6 +1527,7 @@ class MainActivity : AppCompatActivity() {
                             runOnUiThread {
                                 val rv = findViewById<RecyclerView>(R.id.favorites_podcasts_recycler)
                                 val empty = findViewById<TextView>(R.id.favorites_podcasts_empty)
+                                setSubscribedPodcastsLoading(false)
                                 rv.adapter = null
                                 rv.visibility = View.GONE
                                 empty.visibility = View.VISIBLE
@@ -1525,6 +1547,7 @@ class MainActivity : AppCompatActivity() {
                             latest > lastPlayed
                         }.map { it.id }.toSet()
                         runOnUiThread {
+                            setSubscribedPodcastsLoading(false)
                             val rv = try { findViewById<RecyclerView>(R.id.favorites_podcasts_recycler) } catch (_: Exception) { null }
                             rv?.layoutManager = LinearLayoutManager(this@MainActivity)
                             val podcastAdapter = PodcastAdapter(this@MainActivity, onPodcastClick = { podcast ->
@@ -1557,7 +1580,9 @@ class MainActivity : AppCompatActivity() {
                             findViewById<TextView>(R.id.favorites_podcasts_empty).visibility = View.GONE
                             rv?.visibility = View.VISIBLE
                         }
-                    } catch (_: Exception) { }
+                    } catch (_: Exception) {
+                        runOnUiThread { setSubscribedPodcastsLoading(false) }
+                    }
                 }.start()
             }
             "saved" -> {

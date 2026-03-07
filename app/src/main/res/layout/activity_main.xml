@@ -224,6 +224,15 @@
                     android:padding="16dp"
                     android:background="?attr/colorSurface"
                     android:visibility="gone" />
+
+                <ProgressBar
+                    android:id="@+id/favorites_podcasts_loading"
+                    style="?android:attr/progressBarStyle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:padding="16dp"
+                    android:visibility="gone" />
             </FrameLayout>
 
             <!-- Saved Episodes: remove collapsible header and show as its own card when selected -->
