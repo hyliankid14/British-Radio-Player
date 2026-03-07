@@ -1269,7 +1269,7 @@ class RadioService : MediaBrowserServiceCompat() {
         )
 
         // Create play/pause action
-        val playPauseAction = if (player?.isPlaying == true) {
+        val playPauseAction = if (PlaybackStateHelper.getIsPlaying()) {
             NotificationCompat.Action(
                 android.R.drawable.ic_media_pause,
                 "Pause",
@@ -2395,11 +2395,13 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                 }
                 ACTION_PLAY -> {
                     player?.play()
+                    PlaybackStateHelper.setIsPlaying(true)
                     updatePlaybackState(PlaybackStateCompat.STATE_PLAYING)
                     startForegroundNotification()
                 }
                 ACTION_PAUSE -> {
                     player?.pause()
+                    PlaybackStateHelper.setIsPlaying(false)
                     updatePlaybackState(PlaybackStateCompat.STATE_PAUSED)
                     startForegroundNotification()
                 }
