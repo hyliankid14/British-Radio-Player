@@ -165,6 +165,10 @@ class RadioService : MediaBrowserServiceCompat() {
         private const val ANDROID_AUTO_CLIENT_HINT = "gearhead"
         // Number of episodes returned per page when Android Auto requests paginated episode lists.
         private const val EPISODE_PAGE_SIZE = 20
+        // Maximum number of episodes fetched from an RSS feed for Android Auto display.
+        // Limits RSS download/parse time for podcasts with hundreds of episodes so that
+        // onLoadChildren returns before Android Auto's internal timeout fires.
+        private const val AUTO_MAX_EPISODES = 100
         private const val AUTO_RECONNECT_REFRESH_COOLDOWN_MS = 5_000L
         // Platform pagination keys used by MediaBrowserService; not present on MediaBrowserServiceCompat.
         private const val EXTRA_PAGE = "android.service.media.extra.PAGE"
@@ -702,7 +706,7 @@ class RadioService : MediaBrowserServiceCompat() {
                     val podcast = all.find { it.id == podcastId }
                     if (podcast != null) {
                         val fetched = withContext(Dispatchers.IO) {
-                            repo.fetchEpisodesPaged(podcast, 0, Int.MAX_VALUE)
+                            repo.fetchEpisodesPaged(podcast, 0, AUTO_MAX_EPISODES)
                         }
                         if (fetched.isNotEmpty()) {
                             autoEpisodesCache[podcastId] = fetched
@@ -938,7 +942,7 @@ class RadioService : MediaBrowserServiceCompat() {
                                 val podcast = all.find { it.id == podcastId }
                                 if (podcast != null) {
                                     val fetched = withContext(Dispatchers.IO) {
-                                        repo.fetchEpisodesPaged(podcast, 0, Int.MAX_VALUE)
+                                        repo.fetchEpisodesPaged(podcast, 0, AUTO_MAX_EPISODES)
                                     }
                                     if (fetched.isNotEmpty()) {
                                         autoEpisodesCache[podcastId] = fetched
