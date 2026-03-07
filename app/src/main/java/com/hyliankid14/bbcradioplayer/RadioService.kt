@@ -2601,11 +2601,9 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                     try {
                         val pos = player?.currentPosition ?: 0L
                         val dur = player?.duration ?: 0L
-                        val show = CurrentShow(
-                            title = episode.title,
-                            episodeTitle = episode.title,
-                            description = episode.description,
-                            imageUrl = null,
+                        // Build the progress snapshot by copying the current show info so the podcast/station
+                        // title and episode title are preserved. Only position and duration change each tick.
+                        val show = currentShowInfo.copy(
                             segmentStartMs = pos,
                             segmentDurationMs = if (dur > 0) dur else null
                         )
@@ -2614,22 +2612,7 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                         // also keep the service-local `currentShowInfo` in sync so `updateMediaMetadata()`
                         // continues to surface the episode title reliably to Android Auto.
                         PlaybackStateHelper.setCurrentShow(show)
-
-                        // Sync service-local show state but DO NOT overwrite artwork/title with nulls from the
-                        // progress snapshot — preserve existing artwork/episodeTitle where possible.
-                        try {
-                            currentShowInfo = currentShowInfo.copy(
-                                // prefer an existing episodeTitle (set at play) but fall back to progress snapshot
-                                episodeTitle = (currentShowInfo.episodeTitle ?: "").ifEmpty { show.episodeTitle },
-                                // keep the original imageUrl (series artwork) if present
-                                imageUrl = currentShowInfo.imageUrl ?: show.imageUrl,
-                                segmentStartMs = show.segmentStartMs,
-                                segmentDurationMs = show.segmentDurationMs
-                            )
-                            currentEpisodeTitle = currentShowInfo.episodeTitle ?: currentEpisodeTitle
-                        } catch (t: Throwable) {
-                            Log.w(TAG, "Failed to sync currentShowInfo from progress runnable: ${'$'}{t.message}")
-                        }
+                        currentShowInfo = show
 
                         // Check if we should mark the episode as played (>=95%)
                         checkAndMarkEpisodePlayed(episode, pos, dur)

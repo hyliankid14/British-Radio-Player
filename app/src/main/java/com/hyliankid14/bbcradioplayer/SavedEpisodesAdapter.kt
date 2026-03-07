@@ -129,6 +129,8 @@ class SavedEpisodesAdapter(
 
     override fun getItemCount(): Int = entries.size
 
+    fun getEntryAt(position: Int): SavedEpisodes.Entry? = entries.getOrNull(position)
+
     fun updateEntries(newEntries: List<SavedEpisodes.Entry>) {
         entries = newEntries
         notifyDataSetChanged()

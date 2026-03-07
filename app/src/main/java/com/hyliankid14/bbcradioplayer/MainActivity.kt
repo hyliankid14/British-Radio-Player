@@ -632,8 +632,13 @@ class MainActivity : AppCompatActivity() {
                         override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
                             val pos = viewHolder.bindingAdapterPosition
                             if (pos != RecyclerView.NO_POSITION) {
-                                // Capture the removed entry so it can be restored if the user taps Undo
-                                val removedEntry = savedEntries[pos]
+                                // Get the entry from the current adapter data (not a stale captured list)
+                                val savedAdapter = savedRecycler.adapter as? SavedEpisodesAdapter
+                                val removedEntry = savedAdapter?.getEntryAt(pos)
+                                if (removedEntry == null) {
+                                    try { savedRecycler.adapter?.notifyItemChanged(pos) } catch (_: Exception) { }
+                                    return
+                                }
 
                                 // Remove saved entry and refresh adapter immediately
                                 SavedEpisodes.remove(this@MainActivity, removedEntry.id)
@@ -3174,7 +3179,7 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                 }
-                edit.apply()
+                edit.commit()
             }
 
             // Ensure critical preferences are set via their helpers so any logic they perform runs
