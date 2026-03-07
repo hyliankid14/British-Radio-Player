@@ -1035,14 +1035,12 @@ Source code: github.com/hyliankid14/BBC-Radio-Player""".trimIndent()
             
             val updateChecker = UpdateChecker(this)
             
-            // Display current version (with debug- prefix if debuggable)
+            // Display current version
+            // The versionName already encodes the build type at build time:
+            //   release: "1.2.0"
+            //   debug:   "1.2.0-debug.42"  (commit count since last tag)
             val currentVersion = try {
-                val version = packageManager.getPackageInfo(packageName, 0).versionName ?: "Unknown"
-                if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
-                    "debug-$version"
-                } else {
-                    version
-                }
+                packageManager.getPackageInfo(packageName, 0).versionName ?: "Unknown"
             } catch (e: Exception) {
                 "Unknown"
             }

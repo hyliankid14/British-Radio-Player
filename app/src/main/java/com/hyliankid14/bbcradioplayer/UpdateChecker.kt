@@ -11,13 +11,10 @@ import java.net.URL
 
 fun getDisplayVersion(context: Context): String {
     return try {
-        val version = context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "Unknown"
-        if (android.util.Log::class.java.simpleName == "DEBUG" || 
-            context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
-            "debug-$version"
-        } else {
-            version
-        }
+        // The versionName already encodes the build type:
+        //   release: "1.2.0"
+        //   debug:   "1.2.0-debug.42"  (commit count since last tag, set at build time)
+        context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "Unknown"
     } catch (e: Exception) {
         "Unknown"
     }
@@ -46,6 +43,9 @@ class UpdateChecker(private val context: Context) {
             "https://api.github.com/repos/hyliankid14/bbc-radio-player/releases/latest"
         // Reduced to 15 minutes for testing; can be changed to 24 hours in production
         private const val CHECK_INTERVAL_MS = 15 * 60 * 1000L // 15 minutes
+
+        // Matches the debug pre-release suffix appended at build time (e.g. "-debug.42")
+        private val DEBUG_SUFFIX_PATTERN = Regex("-debug\\.\\d+$")
     }
     
     private val prefs: SharedPreferences = 
@@ -63,8 +63,9 @@ class UpdateChecker(private val context: Context) {
                 Log.w(TAG, "Failed to get app version", e)
                 return@withContext null
             }
-            // Strip debug prefix for version comparison
-            val currentVersion = fullVersionString.removePrefix("debug-")
+            // Strip debug pre-release suffix for version comparison
+            // e.g. "1.2.0-debug.42" -> "1.2.0"
+            val currentVersion = fullVersionString.replace(DEBUG_SUFFIX_PATTERN, "")
             Log.d(TAG, "Checking for updates. Current version: $currentVersion (display: $fullVersionString)")
             
             val releaseInfo = fetchLatestRelease() ?: return@withContext null

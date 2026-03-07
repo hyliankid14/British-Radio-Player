@@ -19,13 +19,11 @@ object UpdateDialog {
         onDownload: () -> Unit,
         onDismiss: () -> Unit = {}
     ) {
+        // The versionName already encodes the build type at build time:
+        //   release: "1.2.0"
+        //   debug:   "1.2.0-debug.42"  (commit count since last tag)
         val currentVersion = try {
-            val version = context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "Unknown"
-            if (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
-                "debug-$version"
-            } else {
-                version
-            }
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "Unknown"
         } catch (e: Exception) {
             "Unknown"
         }

@@ -2,7 +2,6 @@ package com.hyliankid14.bbcradioplayer
 
 import android.content.Context
 import android.content.SharedPreferences
-import android.content.pm.ApplicationInfo
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -141,13 +140,10 @@ class PrivacyAnalytics(private val context: Context) {
     
     private fun getAppVersion(): String {
         return try {
-            val version = context.packageManager.getPackageInfo(context.packageName, 0).versionName
-            // Add "debug-" prefix for debug builds (matches Settings > About display)
-            if (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
-                "debug-$version"
-            } else {
-                version
-            }
+            // The versionName already encodes the build type:
+            //   release: "1.2.0"
+            //   debug:   "1.2.0-debug.42"  (commit count since last tag, set at build time)
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown"
         } catch (e: Exception) {
             "unknown"
         }
