@@ -841,69 +841,48 @@ class RadioService : MediaBrowserServiceCompat() {
                             result.sendResult(emptyList())
                         }
                     } else if (parentId.startsWith("podcast_")) {
-                        // Support paged requests using mediaId format: podcast_<id>[:start=<n>[:count=<m>]]
-                        val parts = parentId.split(':')
-                        val podcastId = parts[0].removePrefix("podcast_")
-                        var startIndex = 0
-                        var pageCount = 100
-                        try {
-                            for (p in parts.drop(1)) {
-                                val kv = p.split('=')
-                                if (kv.size == 2) {
-                                    when (kv[0]) {
-                                        "start" -> startIndex = kv[1].toIntOrNull() ?: startIndex
-                                        "count" -> pageCount = kv[1].toIntOrNull() ?: pageCount
-                                    }
-                                }
-                            }
-                        } catch (_: Exception) {}
+                        // Extract the plain podcast ID; any legacy ":start=<n>:count=<m>" suffix is
+                        // intentionally ignored – we now return the full episode list and let the
+                        // MediaBrowserServiceCompat framework apply EXTRA_PAGE / EXTRA_PAGE_SIZE
+                        // slicing so Android Auto can page through all available episodes.
+                        val podcastId = parentId.split(':')[0].removePrefix("podcast_")
 
                         try {
                             val repo = PodcastRepository(this@RadioService)
                             val all = withContext(Dispatchers.IO) { repo.fetchPodcasts(false) }
                             val podcast = all.find { it.id == podcastId }
                             if (podcast != null) {
-                                // Fetch one extra episode to determine whether more pages exist
-                                val epsWithExtra = withContext(Dispatchers.IO) { repo.fetchEpisodesPaged(podcast, startIndex, pageCount + 1) }
-                                val hasMore = epsWithExtra.size > pageCount
-                                val eps = if (hasMore) epsWithExtra.take(pageCount) else epsWithExtra
+                                // Fetch ALL episodes (no artificial page cap). fetchEpisodesPaged always
+                                // downloads the full RSS feed before slicing, so passing Int.MAX_VALUE
+                                // here just prevents any in-memory truncation and does not increase
+                                // network or memory cost. This allows the MediaBrowserServiceCompat
+                                // framework to apply EXTRA_PAGE / EXTRA_PAGE_SIZE slicing correctly so
+                                // Android Auto can page through every available episode.
+                                val eps = withContext(Dispatchers.IO) { repo.fetchEpisodesPaged(podcast, 0, Int.MAX_VALUE) }
                                 if (eps.isNotEmpty()) {
                                     val downloadedIds = DownloadedEpisodes.getDownloadedEntries(this@RadioService)
                                         .map { it.id }.toSet()
-                                    val itemsEpisodes = buildList {
-                                        for (ep in eps) {
-                                            val played = PlayedEpisodesPreference.isPlayed(this@RadioService, ep.id)
-                                            val progress = PlayedEpisodesPreference.getProgress(this@RadioService, ep.id)
-                                            val isDownloaded = ep.id in downloadedIds
-                                            val subtitle = when {
-                                                isDownloaded && played -> "Downloaded • Played"
-                                                isDownloaded && progress > 0L -> "Downloaded • In progress"
-                                                isDownloaded -> "Downloaded"
-                                                played -> "Played"
-                                                progress > 0L -> "In progress"
-                                                else -> ""
-                                            }
-                                            add(MediaItem(
-                                                MediaDescriptionCompat.Builder()
-                                                    .setMediaId("podcast_episode_${ep.id}")
-                                                    .setTitle(ep.title)
-                                                    .setSubtitle(subtitle)
-                                                    .setIconUri(android.net.Uri.parse(ep.imageUrl))
-                                                    .build(),
-                                                MediaItem.FLAG_PLAYABLE
-                                            ))
+                                    val itemsEpisodes = eps.map { ep ->
+                                        val played = PlayedEpisodesPreference.isPlayed(this@RadioService, ep.id)
+                                        val progress = PlayedEpisodesPreference.getProgress(this@RadioService, ep.id)
+                                        val isDownloaded = ep.id in downloadedIds
+                                        val subtitle = when {
+                                            isDownloaded && played -> "Downloaded • Played"
+                                            isDownloaded && progress > 0L -> "Downloaded • In progress"
+                                            isDownloaded -> "Downloaded"
+                                            played -> "Played"
+                                            progress > 0L -> "In progress"
+                                            else -> ""
                                         }
-                                        if (hasMore) {
-                                            val nextStart = startIndex + pageCount
-                                            add(MediaItem(
-                                                MediaDescriptionCompat.Builder()
-                                                    .setMediaId("podcast_${podcastId}:start=${nextStart}:count=${pageCount}")
-                                                    .setTitle("More episodes…")
-                                                    .setSubtitle("Episodes ${nextStart + 1}–${nextStart + pageCount}")
-                                                    .build(),
-                                                MediaItem.FLAG_BROWSABLE
-                                            ))
-                                        }
+                                        MediaItem(
+                                            MediaDescriptionCompat.Builder()
+                                                .setMediaId("podcast_episode_${ep.id}")
+                                                .setTitle(ep.title)
+                                                .setSubtitle(subtitle)
+                                                .setIconUri(android.net.Uri.parse(ep.imageUrl))
+                                                .build(),
+                                            MediaItem.FLAG_PLAYABLE
+                                        )
                                     }
                                     result.sendResult(itemsEpisodes)
                                 } else {
