@@ -44,13 +44,10 @@ android {
             // same signing certificate.  This allows a device to update from one CI
             // debug build to the next without a "package conflict" error.
             // Credentials are intentionally public — this key is never used for release.
-            def debugKeystorePath = rootProject.file("keystore/debug.keystore")
-            if (debugKeystorePath.exists()) {
-                storeFile debugKeystorePath
-                storePassword "android"
-                keyAlias "androiddebugkey"
-                keyPassword "android"
-            }
+            storeFile rootProject.file("keystore/debug.keystore")
+            storePassword "android"
+            keyAlias "androiddebugkey"
+            keyPassword "android"
         }
         release {
             if (hasReleaseSigning) {
@@ -65,6 +62,10 @@ android {
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
+            // Use a unique package ID for debug builds so that a debug APK can be
+            // installed alongside a release build (F-Droid / Play Store) without a
+            // "package conflict" error caused by mismatched signing certificates.
+            applicationIdSuffix ".debug"
         }
         release {
             if (hasReleaseSigning) {
