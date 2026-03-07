@@ -13,7 +13,8 @@ on:
   workflow_dispatch:       # allow manual trigger from the Actions tab
 
 permissions:
-  contents: write          # needed to commit docs/podcast-index.json.gz
+  contents: write          # needed to push the index branch
+  pull-requests: write     # needed to open the pull request
 
 jobs:
   build-index:
@@ -32,14 +33,11 @@ jobs:
       - name: Build podcast index
         run: python3 api/build_index.py
 
-      - name: Commit updated index
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/podcast-index.json.gz
-          if git diff --staged --quiet; then
-            echo "Index unchanged — nothing to commit"
-          else
-            git commit -m "chore: refresh podcast index [skip ci]"
-            git push
-          fi
+      - name: Create pull request with updated index
+        uses: peter-evans/create-pull-request@v7
+        with:
+          commit-message: "chore: refresh podcast index [skip ci]"
+          branch: chore/refresh-podcast-index
+          title: "chore: refresh podcast index"
+          body: "Automated daily refresh of the pre-computed podcast/episode search index."
+          add-paths: docs/podcast-index.json.gz
