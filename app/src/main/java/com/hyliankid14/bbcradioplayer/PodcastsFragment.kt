@@ -728,52 +728,53 @@ class PodcastsFragment : Fragment() {
         emptyState.text = "No podcasts found"
         viewLifecycleOwner.lifecycleScope.launch {
             try {
-                allPodcasts = repository.fetchPodcasts()
-                android.util.Log.d("PodcastsFragment", "Loaded ${allPodcasts.size} podcasts")
+                // STEP 1: Show any locally available data immediately (stale disk cache or bundled
+                //         seed asset) so the list appears without waiting for a network round-trip.
+                val (immediate, needsRefresh) = withContext(Dispatchers.IO) {
+                    repository.getAvailablePodcastsNow() to repository.needsNetworkRefresh()
+                }
 
-                if (allPodcasts.isEmpty()) {
-                    emptyState.text = "No podcasts found. Check your connection and try again."
+                if (immediate.isNotEmpty()) {
+                    android.util.Log.d("PodcastsFragment", "Showing ${immediate.size} local podcasts immediately (needsRefresh=$needsRefresh)")
+                    displayPodcasts(immediate, loadingIndicator, emptyState, recyclerView, genreSpinner, sortSpinner)
+                }
+
+                // STEP 2: If the cache is stale or missing, fetch fresh data from the network.
+                //         This runs in the background after the local data is already displayed.
+                if (needsRefresh) {
+                    // forceRefresh=false: use the network only when the TTL has expired
+                    val fresh = withContext(Dispatchers.IO) { repository.fetchPodcasts(forceRefresh = false) }
+                    android.util.Log.d("PodcastsFragment", "Network refresh: loaded ${fresh.size} podcasts")
+
+                    if (fresh.isEmpty()) {
+                        if (allPodcasts.isEmpty()) {
+                            emptyState.text = "No podcasts found. Check your connection and try again."
+                            emptyState.visibility = View.VISIBLE
+                            loadingIndicator.visibility = View.GONE
+                        }
+                        return@launch
+                    }
+
+                    displayPodcasts(fresh, loadingIndicator, emptyState, recyclerView, genreSpinner, sortSpinner)
+                } else if (immediate.isEmpty()) {
+                    // This branch should not occur in practice: a fresh cache implies data exists.
+                    // Handled defensively to avoid leaving the UI in a broken state.
+                    emptyState.text = "No podcasts found. Try refreshing the app."
                     emptyState.visibility = View.VISIBLE
                     loadingIndicator.visibility = View.GONE
                     return@launch
                 }
 
-                // Cache the list for future restores
-                viewModel.cachedPodcasts = allPodcasts
-
-                val genres = listOf("All Genres") + repository.getUniqueGenres(allPodcasts)
-                viewModel.cachedGenres = genres
-                bindGenreSpinner(genreSpinner, genres, emptyState, recyclerView)
-                bindSortSpinner(sortSpinner, emptyState, recyclerView)
-
-                val hasActiveSearch = !viewModel.activeSearchQuery.value.isNullOrBlank() || searchQuery.isNotBlank()
-                if (!hasActiveSearch) {
-                    // INSTANT DISPLAY: Sort by most popular and show immediately without waiting for updates
-                    // Most popular sorting doesn't need updates, so we can display instantly
-                    allPodcasts = allPodcasts.sortedWith(compareBy { getPopularRank(it) })
-                    currentSort = "Most popular"
-                    currentFilter = PodcastFilter(genres = emptySet(), minDuration = 0, maxDuration = Int.MAX_VALUE, searchQuery = "")
-                    viewModel.cachedSort = currentSort
-                    viewModel.cachedFilter = currentFilter
-                }
-                
-                // Hide loading indicator and show list immediately
-                loadingIndicator.visibility = View.GONE
-                
-                // Display results without waiting for updates
-                applyFilters(emptyState, recyclerView)
-                
-                // NOW fetch updates in the background to refresh timestamps for "Most recent" sorting
+                // STEP 3 runs after Steps 1 and 2 have completed (all sequential in this coroutine).
+                // Fetch update timestamps in the background for "Most recent" sort.
+                // allPodcasts has been updated by whichever display step ran last.
                 val updates = withContext(Dispatchers.IO) { repository.fetchLatestUpdates(allPodcasts) }
                 cachedUpdates = updates
                 viewModel.cachedUpdates = updates
-                
-                // If user switches to "Most recent" sort, the cached updates will be used
-
                 loadingIndicator.visibility = View.GONE
                 applyFilters(emptyState, recyclerView)
 
-                // Start a background prefetch of episode metadata for the top podcasts only
+                // STEP 4: Background prefetch of episode metadata for top podcasts.
                 // (prefetching all podcasts was too expensive and caused slowdown).
                 viewLifecycleOwner.lifecycleScope.launch {
                     try {
@@ -790,11 +791,48 @@ class PodcastsFragment : Fragment() {
                 loadingIndicator.visibility = View.GONE
             } catch (e: Exception) {
                 android.util.Log.e("PodcastsFragment", "Error loading podcasts", e)
-                emptyState.text = "Error loading podcasts: ${e.message}"
-                emptyState.visibility = View.VISIBLE
+                if (allPodcasts.isEmpty()) {
+                    emptyState.text = "Error loading podcasts: ${e.message}"
+                    emptyState.visibility = View.VISIBLE
+                }
                 loadingIndicator.visibility = View.GONE
             }
         }
+    }
+
+    /**
+     * Update [allPodcasts] with the given list and refresh all related UI state:
+     * genre/sort spinners, default sort order, loading indicator, and the list display.
+     * Called from [loadPodcasts] both for the immediate local result and the subsequent
+     * network-refresh result.
+     */
+    private fun displayPodcasts(
+        podcasts: List<Podcast>,
+        loadingIndicator: ProgressBar,
+        emptyState: TextView,
+        recyclerView: RecyclerView,
+        genreSpinner: com.google.android.material.textfield.MaterialAutoCompleteTextView,
+        sortSpinner: com.google.android.material.textfield.MaterialAutoCompleteTextView
+    ) {
+        val genres = listOf("All Genres") + repository.getUniqueGenres(podcasts)
+        viewModel.cachedGenres = genres
+        bindGenreSpinner(genreSpinner, genres, emptyState, recyclerView)
+        bindSortSpinner(sortSpinner, emptyState, recyclerView)
+
+        val hasActiveSearch = !viewModel.activeSearchQuery.value.isNullOrBlank() || searchQuery.isNotBlank()
+        allPodcasts = if (!hasActiveSearch) {
+            currentSort = "Most popular"
+            currentFilter = PodcastFilter(genres = emptySet(), minDuration = 0, maxDuration = Int.MAX_VALUE, searchQuery = "")
+            viewModel.cachedSort = currentSort
+            viewModel.cachedFilter = currentFilter
+            podcasts.sortedWith(compareBy { getPopularRank(it) })
+        } else {
+            podcasts
+        }
+        viewModel.cachedPodcasts = allPodcasts
+
+        loadingIndicator.visibility = View.GONE
+        applyFilters(emptyState, recyclerView)
     }
 
     private fun applyFilters(

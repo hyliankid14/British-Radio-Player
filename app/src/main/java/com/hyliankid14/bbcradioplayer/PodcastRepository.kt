@@ -610,7 +610,7 @@ class PodcastRepository(private val context: Context) {
         }
     }
 
-    private fun getCachedPodcasts(): List<Podcast>? {
+    private fun getCachedPodcasts(ignoreExpiry: Boolean = false): List<Podcast>? {
         if (!cacheFile.exists()) return null
         
         return try {
@@ -620,7 +620,7 @@ class PodcastRepository(private val context: Context) {
             val rootObj = JSONObject(content)
             val timestamp = rootObj.optLong("timestamp", 0)
             
-            if (System.currentTimeMillis() - timestamp > cacheTTL) {
+            if (!ignoreExpiry && System.currentTimeMillis() - timestamp > cacheTTL) {
                 Log.d("PodcastRepository", "Cache expired")
                 return null
             }
@@ -648,13 +648,93 @@ class PodcastRepository(private val context: Context) {
                 ))
             }
             if (podcasts.isNotEmpty()) {
-                Log.d("PodcastRepository", "Loaded ${podcasts.size} podcasts from cache")
+                Log.d("PodcastRepository", "Loaded ${podcasts.size} podcasts from cache (ignoreExpiry=$ignoreExpiry)")
                 return podcasts
             }
             null
         } catch (e: Exception) {
             Log.e("PodcastRepository", "Error reading cache", e)
             null
+        }
+    }
+
+    /**
+     * Returns true when the on-disk podcast cache is absent or older than [cacheTTL],
+     * meaning a network refresh is required to get up-to-date data.
+     *
+     * Uses the file's last-modified timestamp (a fast OS call) rather than re-reading
+     * the full JSON, since [cachePodcasts] is the only writer for this file.
+     */
+    fun needsNetworkRefresh(): Boolean {
+        if (!cacheFile.exists()) return true
+        return (System.currentTimeMillis() - cacheFile.lastModified()) > cacheTTL
+    }
+
+    /**
+     * Return any podcasts that are available locally right now — either from the on-disk
+     * cache (even if stale / expired) or from the bundled seed asset shipped with the app.
+     * No network I/O is performed, so this returns instantly.
+     *
+     * The bundled seed is only read when the on-disk cache file does not yet exist (e.g.
+     * on first launch).  Once the network refresh writes the real cache, the seed is never
+     * consulted again.
+     *
+     * If the user has opted to exclude non-English podcasts, only persisted language-detector
+     * results are used here (fast — no ML inference).  Unknowns are included optimistically;
+     * the subsequent background network refresh will apply the full ML filter.
+     *
+     * Returns an empty list when no local data is available (i.e. fresh install with no seed).
+     */
+    fun getAvailablePodcastsNow(): List<Podcast> {
+        val raw = getCachedPodcasts(ignoreExpiry = true) ?: getBundledPodcasts()
+        if (raw.isEmpty()) return emptyList()
+
+        if (!PodcastFilterPreference.excludeNonEnglish(context)) return raw
+
+        // Fast language filter — persisted results only, unknowns included optimistically
+        return raw.filter { p ->
+            LanguageDetector.persistedIsPodcastEnglish(context, p) != false
+        }
+    }
+
+    /**
+     * Load the bundled podcast seed that is shipped as an app asset
+     * (assets/podcasts_seed.json.gz).  Used as a fallback on first launch before
+     * the network cache has been populated.  Returns an empty list on any failure.
+     */
+    private fun getBundledPodcasts(): List<Podcast> {
+        return try {
+            context.assets.open("podcasts_seed.json.gz").use { assetStream ->
+                java.util.zip.GZIPInputStream(assetStream).use { gzipStream ->
+                    val content = gzipStream.bufferedReader(Charsets.UTF_8).readText()
+                    val rootObj = JSONObject(content)
+                    val jsonArray = rootObj.getJSONArray("data")
+                    val podcasts = mutableListOf<Podcast>()
+                    for (i in 0 until jsonArray.length()) {
+                        val obj = jsonArray.getJSONObject(i)
+                        val genresJson = obj.optJSONArray("genres") ?: JSONArray()
+                        val genres = mutableListOf<String>()
+                        for (j in 0 until genresJson.length()) {
+                            genres.add(genresJson.getString(j))
+                        }
+                        podcasts.add(Podcast(
+                            id = obj.getString("id"),
+                            title = obj.getString("title"),
+                            description = obj.optString("description", ""),
+                            rssUrl = obj.optString("rssUrl", ""),
+                            htmlUrl = obj.optString("htmlUrl", ""),
+                            imageUrl = obj.optString("imageUrl", ""),
+                            genres = genres,
+                            typicalDurationMins = obj.optInt("typicalDurationMins", 0)
+                        ))
+                    }
+                    Log.d("PodcastRepository", "Loaded ${podcasts.size} podcasts from bundled seed")
+                    podcasts
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("PodcastRepository", "Failed to load bundled podcasts: ${e.message}")
+            emptyList()
         }
     }
 }
