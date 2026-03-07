@@ -39,6 +39,19 @@ android {
     }
 
     signingConfigs {
+        debug {
+            // Use a committed debug keystore so all CI-generated debug APKs share the
+            // same signing certificate.  This allows a device to update from one CI
+            // debug build to the next without a "package conflict" error.
+            // Credentials are intentionally public — this key is never used for release.
+            def debugKeystorePath = rootProject.file("keystore/debug.keystore")
+            if (debugKeystorePath.exists()) {
+                storeFile debugKeystorePath
+                storePassword "android"
+                keyAlias "androiddebugkey"
+                keyPassword "android"
+            }
+        }
         release {
             if (hasReleaseSigning) {
                 storeFile file(releaseStoreFile)
@@ -50,6 +63,9 @@ android {
     }
 
     buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+        }
         release {
             if (hasReleaseSigning) {
                 signingConfig signingConfigs.release

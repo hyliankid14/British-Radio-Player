@@ -41,6 +41,8 @@ api/podcast_index.db
 release.jks
 *.jks
 *.keystore
+# Allow the committed debug keystore used for consistent CI signing
+!keystore/debug.keystore
 .github/instructions/Shai.instructions.md
 .claude/rules/Shai.instructions.md
 QUICK_START_FDROID.md
