@@ -110,6 +110,11 @@ class RadioService : MediaBrowserServiceCompat() {
     private var lastAndroidAutoClientUid: Int? = null
     private var lastAndroidAutoRefreshMs: Long = 0L
     private var lastAndroidAutoAutoplayMs: Long = 0L
+
+    // Service-level episode cache for Android Auto pagination.
+    // Keyed by podcast ID; populated on first episode load so subsequent page requests
+    // (and non-paginated back-navigation) are served instantly without refetching the RSS feed.
+    private val autoEpisodesCache: MutableMap<String, List<Episode>> = mutableMapOf()
     
     // Receiver to react to history/import changes so Android Auto clients can refresh
     private var historyChangeReceiver: android.content.BroadcastReceiver? = null
@@ -158,6 +163,8 @@ class RadioService : MediaBrowserServiceCompat() {
         private const val MEDIA_ID_PODCASTS = "podcasts"
         private const val MEDIA_ID_PODCASTS_DOWNLOADED = "podcasts_downloaded"
         private const val ANDROID_AUTO_CLIENT_HINT = "gearhead"
+        // Number of episodes returned per page when Android Auto requests paginated episode lists.
+        private const val EPISODE_PAGE_SIZE = 20
         private const val AUTO_RECONNECT_REFRESH_COOLDOWN_MS = 5_000L
     }
 
@@ -654,6 +661,81 @@ class RadioService : MediaBrowserServiceCompat() {
         lastAndroidAutoClientUid = clientUid
     }
 
+    /**
+     * Paginated version of onLoadChildren called by Android Auto (and other clients that support
+     * the EXTRA_PAGE / EXTRA_PAGE_SIZE protocol).  For podcast episode lists we serve episodes
+     * from an in-service cache so page 1+ are returned almost instantly after the RSS feed has
+     * been fetched once for page 0.  Everything else is delegated to the non-paginated override.
+     */
+    override fun onLoadChildren(parentId: String, result: Result<List<MediaItem>>, options: Bundle) {
+        val page = options.getInt(MediaBrowserServiceCompat.EXTRA_PAGE, -1)
+        val pageSize = options.getInt(MediaBrowserServiceCompat.EXTRA_PAGE_SIZE, EPISODE_PAGE_SIZE)
+            .coerceAtLeast(1)
+
+        // Only apply custom pagination for individual podcast episode lists.
+        val isPodcastEpisodeList = page >= 0
+            && parentId.startsWith("podcast_")
+            && parentId != "podcasts_subscribed"
+            && parentId != "podcasts_saved_episodes"
+            && parentId != "podcasts_history"
+            && parentId != MEDIA_ID_PODCASTS_DOWNLOADED
+
+        if (!isPodcastEpisodeList) {
+            // Delegate to the standard (non-paginated) implementation.
+            onLoadChildren(parentId, result)
+            return
+        }
+
+        val podcastId = parentId.removePrefix("podcast_").substringBefore(':')
+        Log.d(TAG, "onLoadChildren paginated - podcastId: $podcastId page: $page pageSize: $pageSize")
+
+        result.detach()
+        serviceScope.launch {
+            try {
+                // Use cached episodes when available so pages 1+ are returned without a network round-trip.
+                val allEps = autoEpisodesCache[podcastId] ?: run {
+                    val repo = PodcastRepository(this@RadioService)
+                    val all = withContext(Dispatchers.IO) { repo.fetchPodcasts(false) }
+                    val podcast = all.find { it.id == podcastId }
+                    if (podcast != null) {
+                        val fetched = withContext(Dispatchers.IO) {
+                            repo.fetchEpisodesPaged(podcast, 0, Int.MAX_VALUE)
+                        }
+                        if (fetched.isNotEmpty()) {
+                            autoEpisodesCache[podcastId] = fetched
+                        }
+                        fetched
+                    } else {
+                        emptyList()
+                    }
+                }
+
+                val startIndex = page * pageSize
+                val pageEps = allEps.drop(startIndex).take(pageSize)
+                if (pageEps.isEmpty()) {
+                    result.sendResult(emptyList())
+                } else {
+                    val downloadedIds = DownloadedEpisodes.getDownloadedEntries(this@RadioService)
+                        .map { it.id }.toSet()
+                    result.sendResult(pageEps.map { ep -> episodeToMediaItem(ep, downloadedIds) })
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error loading paged episodes for podcast $podcastId page $page", e)
+                try {
+                    val downloadedEps = DownloadedEpisodes.getDownloadedEpisodesForPodcast(
+                        this@RadioService, podcastId)
+                    val startIndex = page * pageSize
+                    result.sendResult(
+                        downloadedEps.drop(startIndex).take(pageSize)
+                            .map { d -> downloadedEntryToMediaItem(d) }
+                    )
+                } catch (ex: Exception) {
+                    result.sendResult(emptyList())
+                }
+            }
+        }
+    }
+
     override fun onLoadChildren(parentId: String, result: Result<List<MediaItem>>) {
         Log.d(TAG, "onLoadChildren - parentId: $parentId")
         
@@ -841,66 +923,35 @@ class RadioService : MediaBrowserServiceCompat() {
                             result.sendResult(emptyList())
                         }
                     } else if (parentId.startsWith("podcast_")) {
-                        // Extract the plain podcast ID; any legacy ":start=<n>:count=<m>" suffix is
-                        // intentionally ignored – we now return the full episode list and let the
-                        // MediaBrowserServiceCompat framework apply EXTRA_PAGE / EXTRA_PAGE_SIZE
-                        // slicing so Android Auto can page through all available episodes.
-                        val podcastId = parentId.split(':')[0].removePrefix("podcast_")
+                        // Extract the plain podcast ID (strip any legacy ":start=<n>:count=<m>" suffix).
+                        val podcastId = parentId.removePrefix("podcast_").substringBefore(':')
 
                         try {
-                            val repo = PodcastRepository(this@RadioService)
-                            val all = withContext(Dispatchers.IO) { repo.fetchPodcasts(false) }
-                            val podcast = all.find { it.id == podcastId }
-                            if (podcast != null) {
-                                // Fetch ALL episodes (no artificial page cap). fetchEpisodesPaged always
-                                // downloads the full RSS feed before slicing, so passing Int.MAX_VALUE
-                                // here just prevents any in-memory truncation and does not increase
-                                // network or memory cost. This allows the MediaBrowserServiceCompat
-                                // framework to apply EXTRA_PAGE / EXTRA_PAGE_SIZE slicing correctly so
-                                // Android Auto can page through every available episode.
-                                val eps = withContext(Dispatchers.IO) { repo.fetchEpisodesPaged(podcast, 0, Int.MAX_VALUE) }
-                                if (eps.isNotEmpty()) {
-                                    val downloadedIds = DownloadedEpisodes.getDownloadedEntries(this@RadioService)
-                                        .map { it.id }.toSet()
-                                    val itemsEpisodes = eps.map { ep ->
-                                        val played = PlayedEpisodesPreference.isPlayed(this@RadioService, ep.id)
-                                        val progress = PlayedEpisodesPreference.getProgress(this@RadioService, ep.id)
-                                        val isDownloaded = ep.id in downloadedIds
-                                        val subtitle = when {
-                                            isDownloaded && played -> "Downloaded • Played"
-                                            isDownloaded && progress > 0L -> "Downloaded • In progress"
-                                            isDownloaded -> "Downloaded"
-                                            played -> "Played"
-                                            progress > 0L -> "In progress"
-                                            else -> ""
-                                        }
-                                        MediaItem(
-                                            MediaDescriptionCompat.Builder()
-                                                .setMediaId("podcast_episode_${ep.id}")
-                                                .setTitle(ep.title)
-                                                .setSubtitle(subtitle)
-                                                .setIconUri(android.net.Uri.parse(ep.imageUrl))
-                                                .build(),
-                                            MediaItem.FLAG_PLAYABLE
-                                        )
+                            // Use the service-level cache when available so re-visiting a podcast
+                            // (e.g. after back-navigation in Android Auto) is instant.
+                            val eps = autoEpisodesCache[podcastId] ?: run {
+                                val repo = PodcastRepository(this@RadioService)
+                                val all = withContext(Dispatchers.IO) { repo.fetchPodcasts(false) }
+                                val podcast = all.find { it.id == podcastId }
+                                if (podcast != null) {
+                                    val fetched = withContext(Dispatchers.IO) {
+                                        repo.fetchEpisodesPaged(podcast, 0, Int.MAX_VALUE)
                                     }
-                                    result.sendResult(itemsEpisodes)
-                                } else {
-                                    // Offline fallback: show downloaded episodes for this podcast
-                                    val downloadedEps = DownloadedEpisodes.getDownloadedEpisodesForPodcast(this@RadioService, podcastId)
-                                    if (downloadedEps.isNotEmpty()) {
-                                        val fallbackItems = downloadedEps.map { d -> downloadedEntryToMediaItem(d) }
-                                        result.sendResult(fallbackItems)
-                                    } else {
-                                        result.sendResult(emptyList())
+                                    if (fetched.isNotEmpty()) {
+                                        autoEpisodesCache[podcastId] = fetched
                                     }
-                                }
+                                    fetched
+                                } else emptyList<Episode>()
+                            }
+                            if (eps.isNotEmpty()) {
+                                val downloadedIds = DownloadedEpisodes.getDownloadedEntries(this@RadioService)
+                                    .map { it.id }.toSet()
+                                result.sendResult(eps.map { ep -> episodeToMediaItem(ep, downloadedIds) })
                             } else {
-                                // Podcast not found in cache (possibly offline); show downloaded episodes if available
+                                // Podcast not found or has no online episodes – show downloaded fallback
                                 val downloadedEps = DownloadedEpisodes.getDownloadedEpisodesForPodcast(this@RadioService, podcastId)
                                 if (downloadedEps.isNotEmpty()) {
-                                    val fallbackItems = downloadedEps.map { d -> downloadedEntryToMediaItem(d) }
-                                    result.sendResult(fallbackItems)
+                                    result.sendResult(downloadedEps.map { d -> downloadedEntryToMediaItem(d) })
                                 } else {
                                     result.sendResult(null)
                                 }
@@ -987,6 +1038,36 @@ class RadioService : MediaBrowserServiceCompat() {
                 .setTitle(d.title)
                 .setSubtitle(subtitle)
                 .setIconUri(android.net.Uri.parse(d.imageUrl))
+                .build(),
+            MediaItem.FLAG_PLAYABLE
+        )
+    }
+
+    /**
+     * Convert a [Episode] to a [MediaItem] for Android Auto, annotating the subtitle with
+     * playback status (played, in-progress, downloaded).
+     *
+     * @param ep           The episode to convert.
+     * @param downloadedIds Set of episode IDs that have been downloaded locally.
+     */
+    private fun episodeToMediaItem(ep: Episode, downloadedIds: Set<String>): MediaItem {
+        val played = PlayedEpisodesPreference.isPlayed(this, ep.id)
+        val progress = PlayedEpisodesPreference.getProgress(this, ep.id)
+        val isDownloaded = ep.id in downloadedIds
+        val subtitle = when {
+            isDownloaded && played -> "Downloaded • Played"
+            isDownloaded && progress > 0L -> "Downloaded • In progress"
+            isDownloaded -> "Downloaded"
+            played -> "Played"
+            progress > 0L -> "In progress"
+            else -> ""
+        }
+        return MediaItem(
+            MediaDescriptionCompat.Builder()
+                .setMediaId("podcast_episode_${ep.id}")
+                .setTitle(ep.title)
+                .setSubtitle(subtitle)
+                .setIconUri(android.net.Uri.parse(ep.imageUrl))
                 .build(),
             MediaItem.FLAG_PLAYABLE
         )
