@@ -244,14 +244,22 @@ class EpisodeAdapter(
     private val onOpenFull: (Episode) -> Unit
 ) : RecyclerView.Adapter<EpisodeAdapter.EpisodeViewHolder>() {
 
+    // Maintained in sync with `episodes` to allow O(1) duplicate checks in addEpisodes.
+    private val episodeIds = mutableSetOf<String>()
+
     fun updateEpisodes(newEpisodes: List<Episode>) {
         // Sort by publication date (most recent first). Unknown dates are treated as epoch 0.
         episodes = newEpisodes.sortedByDescending { EpisodeDateParser.parsePubDateToEpoch(it.pubDate) }
+        episodeIds.clear()
+        episodes.mapTo(episodeIds) { it.id }
         notifyDataSetChanged()
     }
 
     fun addEpisodes(newEpisodes: List<Episode>) {
-        episodes = (episodes + newEpisodes).sortedByDescending { EpisodeDateParser.parsePubDateToEpoch(it.pubDate) }
+        val uniqueNew = newEpisodes.filter { it.id !in episodeIds }
+        if (uniqueNew.isEmpty()) return
+        episodes = (episodes + uniqueNew).sortedByDescending { EpisodeDateParser.parsePubDateToEpoch(it.pubDate) }
+        uniqueNew.mapTo(episodeIds) { it.id }
         notifyDataSetChanged()
     }
 
