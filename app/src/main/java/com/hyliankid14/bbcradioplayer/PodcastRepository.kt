@@ -280,8 +280,12 @@ class PodcastRepository(private val context: Context) {
     suspend fun fetchEpisodesPaged(podcast: Podcast, startIndex: Int, count: Int): List<Episode> = withContext(Dispatchers.IO) {
         try {
             Log.d("PodcastRepository", "Fetching episodes page for ${podcast.title} start=$startIndex count=$count")
-            // Fetch the full feed and page from newest -> oldest so page 0 is the most recent episodes.
-            val all = RSSParser.fetchAndParseRSS(podcast.rssUrl, podcast.id)
+            // When a bounded count is given, limit the RSS parse to avoid reading the entire feed
+            // for large podcasts (hundreds of episodes). BBC feeds are reverse-chronological so
+            // the first (startIndex + count) items are the most recent ones.
+            // Guard against Int overflow: only apply the limit when count is a reasonable value.
+            val fetchLimit = if (count < Int.MAX_VALUE / 2) startIndex + count else Int.MAX_VALUE
+            val all = RSSParser.fetchAndParseRSS(podcast.rssUrl, podcast.id, 0, fetchLimit)
             if (all.isEmpty()) return@withContext emptyList()
 
             fun parsePubDate(raw: String): Long {

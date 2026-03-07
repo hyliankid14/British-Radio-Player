@@ -187,7 +187,7 @@ object RSSParser {
             var currentGuid = ""
             var itemIndex = -1
 
-            while (eventType != XmlPullParser.END_DOCUMENT) {
+            parseLoop@ while (eventType != XmlPullParser.END_DOCUMENT) {
                 when (eventType) {
                     XmlPullParser.START_TAG -> {
                         when (parser.name) {
@@ -261,6 +261,8 @@ object RSSParser {
                                     podcastId = podcastId
                                 )
                                 episodes.add(episode)
+                                // Stop reading the stream once we have collected enough episodes.
+                                if (episodes.size >= maxCount) break@parseLoop
                             }
                         }
                     }
