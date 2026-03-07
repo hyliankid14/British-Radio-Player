@@ -13,12 +13,5 @@
         android:textSize="14sp"
         android:lineSpacingExtra="4dp" />
     
-    <CheckBox
-        android:id="@+id/analytics_checkbox"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:text="Enable anonymous popularity analytics"
-        android:checked="false" />
-    
+
 </LinearLayout>
