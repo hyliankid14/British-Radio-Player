@@ -2447,11 +2447,27 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
             requestAudioFocus()
 
             // Use downloaded URI/file reference when available, otherwise use remote URL.
+            // If the audio URL is blank, attempt to resolve it from the episode cache first.
+            val effectiveAudioUrl = if (episode.audioUrl.isNotBlank()) {
+                episode.audioUrl
+            } else {
+                try {
+                    val repo = PodcastRepository(this)
+                    val cached = repo.getEpisodesFromCache(episode.podcastId)
+                    val found = cached?.firstOrNull { it.id == episode.id }
+                    if (found != null && found.audioUrl.isNotBlank()) {
+                        Log.d(TAG, "Resolved blank audioUrl for episode ${episode.id} from cache: ${found.audioUrl}")
+                        found.audioUrl
+                    } else {
+                        episode.audioUrl
+                    }
+                } catch (_: Exception) { episode.audioUrl }
+            }
             val playbackUri = try {
                 val downloadedEntry = DownloadedEpisodes.getDownloadedEntry(this, episode)
                 val localRef = downloadedEntry?.localFilePath
                 when {
-                    localRef.isNullOrBlank() -> android.net.Uri.parse(episode.audioUrl)
+                    localRef.isNullOrBlank() -> android.net.Uri.parse(effectiveAudioUrl)
                     localRef.startsWith("content://") -> android.net.Uri.parse(localRef)
                     localRef.startsWith("file://") -> android.net.Uri.parse(localRef)
                     localRef.startsWith("http://") || localRef.startsWith("https://") -> android.net.Uri.parse(localRef)
@@ -2464,13 +2480,13 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                         try {
                             android.net.Uri.fromFile(java.io.File(localRef))
                         } catch (_: Exception) {
-                            android.net.Uri.parse(episode.audioUrl)
+                            android.net.Uri.parse(effectiveAudioUrl)
                         }
                     }
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Error checking for downloaded episode, using remote URL: ${e.message}")
-                android.net.Uri.parse(episode.audioUrl)
+                android.net.Uri.parse(effectiveAudioUrl)
             }
 
             val mediaItem = ExoMediaItem.Builder()

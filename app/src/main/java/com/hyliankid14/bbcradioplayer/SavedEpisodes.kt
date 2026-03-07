@@ -75,6 +75,8 @@ object SavedEpisodes {
             }
 
             var resolvedAudio = episode.audioUrl
+            var resolvedDuration = episode.durationMins
+            var resolvedPubDate = episode.pubDate
             if (looksLikePreview(resolvedAudio, episode.durationMins)) {
                 // 1) Prefer the currently-playing media URI if it's different and looks valid
                 val fromPlayer = PlaybackStateHelper.getCurrentMediaUri()
@@ -88,6 +90,8 @@ object SavedEpisodes {
                         val found = cached?.firstOrNull { it.id == episode.id }
                         if (found != null && !looksLikePreview(found.audioUrl, found.durationMins)) {
                             resolvedAudio = found.audioUrl
+                            resolvedDuration = found.durationMins
+                            if (resolvedPubDate.isBlank()) resolvedPubDate = found.pubDate
                         } else {
                             // 3) Try index lookup to find parent podcast id and then check that cache
                             try {
@@ -97,6 +101,8 @@ object SavedEpisodes {
                                     val candidate = repo.getEpisodesFromCache(ef.podcastId)?.firstOrNull { it.id == episode.id }
                                     if (candidate != null && !looksLikePreview(candidate.audioUrl, candidate.durationMins)) {
                                         resolvedAudio = candidate.audioUrl
+                                        resolvedDuration = candidate.durationMins
+                                        if (resolvedPubDate.isBlank()) resolvedPubDate = candidate.pubDate
                                     }
                                 }
                             } catch (_: Exception) { /* best-effort */ }
@@ -111,8 +117,8 @@ object SavedEpisodes {
             j.put("description", episode.description)
             j.put("imageUrl", episode.imageUrl)
             j.put("audioUrl", resolvedAudio)
-            j.put("pubDate", episode.pubDate)
-            j.put("durationMins", episode.durationMins)
+            j.put("pubDate", resolvedPubDate)
+            j.put("durationMins", resolvedDuration)
             j.put("podcastId", episode.podcastId)
             j.put("podcastTitle", podcastTitle ?: "")
             j.put("savedAtMs", System.currentTimeMillis())
