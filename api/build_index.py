@@ -2,18 +2,20 @@
 """
 Builds a static podcast index JSON from the BBC OPML feed and the individual
 podcast RSS feeds.  Intended to be run by a nightly GitHub Actions workflow;
-the output is committed to docs/podcast-index.json and served from GitHub Pages
-so the Android app can download it without hitting the home server on every
-search.
+the output is committed to docs/podcast-index.json.gz and served from GitHub
+Pages so the Android app can download it without hitting the home server on
+every search.  The file is gzip-compressed to stay well below GitHub's 100 MB
+file size limit.
 
 Usage:
-    python3 api/build_index.py [--output docs/podcast-index.json]
+    python3 api/build_index.py [--output docs/podcast-index.json.gz]
                                [--max-episodes N]
                                [--workers 16]
 """
 
 import sys
 import json
+import gzip
 import time
 import re
 import argparse
@@ -115,6 +117,7 @@ def parse_rss(content, podcast_title, max_episodes):
     podcast_desc = (ch_desc_elem.text or "").strip() if ch_desc_elem is not None else ""
 
     episodes = []
+    seen_ids: set = set()
     for item in channel.findall("item"):
         if len(episodes) >= max_episodes:
             break
@@ -131,15 +134,23 @@ def parse_rss(content, podcast_title, max_episodes):
         elif desc_elem is not None and desc_elem.text:
             description = desc_elem.text.strip()
 
-        # Episode ID from guid (extract BBC PID if present)
+        # Episode ID from guid (extract BBC PID if present).
+        # Handles both URL-style GUIDs (https://…/p0abc123) and
+        # URN-style GUIDs (urn:bbc:podcast:p0abc123) by matching the last
+        # slash- or colon-delimited alphanumeric segment.
         guid_elem = item.find("guid")
         ep_id = ""
         if guid_elem is not None and guid_elem.text:
-            m = re.search(r'/([a-z0-9]+)$', guid_elem.text.strip())
+            m = re.search(r'[/:]([a-z0-9]+)$', guid_elem.text.strip())
             ep_id = m.group(1) if m else guid_elem.text.strip()
 
         if not ep_id or not ep_title:
             continue
+
+        # Skip duplicate episodes (same ID appearing more than once in the feed).
+        if ep_id in seen_ids:
+            continue
+        seen_ids.add(ep_id)
 
         pub_date_elem = item.find("pubDate")
         pub_date = (pub_date_elem.text or "").strip() if pub_date_elem is not None else ""
@@ -175,7 +186,7 @@ def fetch_podcast(pid, title, rss_url, max_episodes):
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def build_index(
-    output_path="docs/podcast-index.json",
+    output_path="docs/podcast-index.json.gz",
     max_episodes=MAX_EPISODES_PER_PODCAST,
     workers=DEFAULT_WORKERS,
 ):
@@ -223,15 +234,14 @@ def build_index(
 
     out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(
-        json.dumps(index, ensure_ascii=False, separators=(",", ":")),
-        encoding="utf-8",
-    )
+    json_bytes = json.dumps(index, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    with gzip.open(str(out), "wb", compresslevel=9) as f:
+        f.write(json_bytes)
 
     size_kb = out.stat().st_size / 1024
     print(
         f"\nWrote {len(podcasts_out)} podcasts, {len(episodes_out)} episodes "
-        f"→ {out} ({size_kb:.0f} KB)"
+        f"→ {out} ({size_kb:.0f} KB, gzip-compressed)"
     )
     if failed:
         print(f"{failed} podcasts failed (see warnings above)")
@@ -243,8 +253,8 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--output",
-        default="docs/podcast-index.json",
-        help="Output JSON path (default: docs/podcast-index.json)",
+        default="docs/podcast-index.json.gz",
+        help="Output gzip-compressed JSON path (default: docs/podcast-index.json.gz)",
     )
     parser.add_argument(
         "--max-episodes",

@@ -159,22 +159,24 @@ object RSSParser {
     /**
      * Extract a BBC episode PID from a guid URL, matching the logic used by build_index.py.
      * BBC guid URLs follow the pattern: https://www.bbc.co.uk/programmes/p0abc123
-     * Returns the last path segment (e.g. "p0abc123") if it looks like a BBC PID,
+     * BBC guid URNs follow the pattern:  urn:bbc:podcast:p0abc123
+     * Returns the last slash- or colon-delimited alphanumeric segment (e.g. "p0abc123"),
      * or the full guid text as a fallback.
      *
-     * Uses the same regex as build_index.py (`/([a-z0-9]+)$`) intentionally: matching
+     * Uses the same regex as build_index.py (`[/:]([a-z0-9]+)$`) intentionally: matching
      * that exact pattern is required so that IDs produced here align with IDs stored in
      * the FTS index, which is the only way the episode-lookup in playEpisode() can succeed.
      */
     internal fun extractEpisodeIdFromGuid(guid: String): String {
         if (guid.isBlank()) return ""
         val trimmed = guid.trim()
-        val match = Regex("""/([a-z0-9]+)$""", RegexOption.IGNORE_CASE).find(trimmed)
+        val match = Regex("""[/:]([a-z0-9]+)$""", RegexOption.IGNORE_CASE).find(trimmed)
         return match?.groupValues?.getOrNull(1) ?: trimmed
     }
 
     fun parseRSS(inputStream: InputStream, podcastId: String, startIndex: Int = 0, maxCount: Int = Int.MAX_VALUE): List<Episode> {
         val episodes = mutableListOf<Episode>()
+        val seenEpisodeIds = mutableSetOf<String>()
         return try {
             val parser = Xml.newPullParser()
             parser.setInput(inputStream, null)
@@ -250,19 +252,23 @@ object RSSParser {
                                 val episodeId = extractEpisodeIdFromGuid(currentGuid)
                                     .takeIf { it.isNotBlank() }
                                     ?: currentAudioUrl.trim().hashCode().toString()
-                                val episode = Episode(
-                                    id = episodeId,
-                                    title = currentTitle.trim(),
-                                    description = currentDescription.trim(),
-                                    audioUrl = currentAudioUrl.trim(),
-                                    imageUrl = "",
-                                    pubDate = currentPubDate.trim(),
-                                    durationMins = currentDuration,
-                                    podcastId = podcastId
-                                )
-                                episodes.add(episode)
-                                // Stop reading the stream once we have collected enough episodes.
-                                if (episodes.size >= maxCount) break@parseLoop
+                                // Skip episodes whose ID has already been seen in this feed to
+                                // prevent duplicates when the RSS feed contains repeated items.
+                                if (seenEpisodeIds.add(episodeId)) {
+                                    val episode = Episode(
+                                        id = episodeId,
+                                        title = currentTitle.trim(),
+                                        description = currentDescription.trim(),
+                                        audioUrl = currentAudioUrl.trim(),
+                                        imageUrl = "",
+                                        pubDate = currentPubDate.trim(),
+                                        durationMins = currentDuration,
+                                        podcastId = podcastId
+                                    )
+                                    episodes.add(episode)
+                                    // Stop reading the stream once we have collected enough episodes.
+                                    if (episodes.size >= maxCount) break@parseLoop
+                                }
                             }
                         }
                     }
