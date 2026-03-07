@@ -19,6 +19,8 @@
     <string name="shuffle_podcast_desc">Play a random podcast</string>
     <string name="no_podcasts_shuffle">No podcasts available to shuffle</string>
     <string name="no_podcasts_found">No podcasts found</string>
+    <string name="search_no_results_download_hint">No results found. For advanced search (including episode content), download the search index (~47 MB). Go to Indexing Settings.</string>
+    <string name="search_indexing_settings_link">Indexing Settings</string>
 
     <!-- Update checker strings -->
     <string name="about_title">About</string>

@@ -196,12 +196,43 @@ class PodcastsFragment : Fragment() {
         }
         
         if (hasContent) {
+            emptyState.movementMethod = null // clear any clickable span movement from a previous hint
             emptyState.visibility = View.GONE
             recyclerView.visibility = View.VISIBLE
         } else {
             emptyState.visibility = View.VISIBLE
             recyclerView.visibility = View.GONE
         }
+    }
+
+    /**
+     * Show the empty state with a clickable hint to open the Indexing Settings page when no
+     * search index has been downloaded yet.  The hint states the approximate download size so
+     * the user can make an informed decision.
+     */
+    private fun showNoIndexSearchHint(emptyState: TextView, recyclerView: RecyclerView) {
+        val fullMessage = getString(R.string.search_no_results_download_hint)
+        val linkLabel = getString(R.string.search_indexing_settings_link)
+        val spannable = android.text.SpannableString(fullMessage)
+        val linkStart = fullMessage.indexOf(linkLabel)
+        if (linkStart >= 0) {
+            val clickSpan = object : android.text.style.ClickableSpan() {
+                override fun onClick(widget: View) {
+                    val intent = android.content.Intent(requireContext(), SettingsDetailActivity::class.java).apply {
+                        putExtra(SettingsDetailActivity.EXTRA_SECTION, SettingsDetailActivity.SECTION_INDEXING)
+                    }
+                    startActivity(intent)
+                }
+                override fun updateDrawState(ds: android.text.TextPaint) {
+                    super.updateDrawState(ds)
+                    ds.isUnderlineText = true
+                }
+            }
+            spannable.setSpan(clickSpan, linkStart, linkStart + linkLabel.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        emptyState.text = spannable
+        emptyState.movementMethod = android.text.method.LinkMovementMethod.getInstance()
+        showResultsSafely(recyclerView, podcastAdapter, isSearchAdapter = false, hasContent = false, emptyState)
     }
 
     // Leading quick-search helper: run the unified search immediately for snappy UX
@@ -1613,18 +1644,39 @@ class PodcastsFragment : Fragment() {
 
                 // For now, use titleMatches for both (FTS doesn't distinguish title vs description)
                 val descMatches = emptyList<Podcast>()
-                
+
+                // Check if the podcast FTS index has any data (empty on first launch before the
+                // index file has been downloaded).
+                val hasIndexedPodcasts = withContext(Dispatchers.IO) {
+                    try {
+                        com.hyliankid14.bbcradioplayer.db.IndexStore.getInstance(requireContext()).hasAnyPodcasts()
+                    } catch (e: Exception) { false }
+                }
+
+                // FALLBACK: When the FTS index has no podcast data (e.g. first launch before the
+                // index is downloaded), fall back to basic in-memory text matching on the loaded
+                // podcast list so that basic search always works.
+                val effectiveTitleMatches: List<Podcast> = if (titleMatches.isEmpty() && !hasIndexedPodcasts) {
+                    withContext(Dispatchers.Default) {
+                        val basicResults = allPodcasts.filter { pod ->
+                            pod.title.contains(qLower, ignoreCase = true) ||
+                            pod.description.contains(qLower, ignoreCase = true)
+                        }
+                        repository.filterPodcasts(basicResults, currentFilter)
+                    }
+                } else titleMatches
+
                 // Apply sort order to podcast matches
-                android.util.Log.d("PodcastsFragment", "simplifiedApplyFilters: applying sort order '$currentSort' to titleMatches=${titleMatches.size} descMatches=${descMatches.size}")
+                android.util.Log.d("PodcastsFragment", "simplifiedApplyFilters: applying sort order '$currentSort' to effectiveTitleMatches=${effectiveTitleMatches.size} descMatches=${descMatches.size}")
                 val sortedTitleMatches = withContext(Dispatchers.Default) {
                     when (currentSort) {
-                        "Most popular" -> titleMatches.sortedWith(
+                        "Most popular" -> effectiveTitleMatches.sortedWith(
                             compareBy<Podcast> { getPopularRank(it) }
                                 .thenByDescending { if (getPopularRank(it) > 100) cachedUpdates[it.id] ?: Long.MAX_VALUE else 0L }
                         )
-                        "Most recent" -> titleMatches.sortedByDescending { cachedUpdates[it.id] ?: Long.MAX_VALUE }
-                        "Alphabetical (A-Z)" -> titleMatches.sortedBy { it.title }
-                        else -> titleMatches
+                        "Most recent" -> effectiveTitleMatches.sortedByDescending { cachedUpdates[it.id] ?: Long.MAX_VALUE }
+                        "Alphabetical (A-Z)" -> effectiveTitleMatches.sortedBy { it.title }
+                        else -> effectiveTitleMatches
                     }
                 }
                 
@@ -1687,7 +1739,18 @@ class PodcastsFragment : Fragment() {
                 // episodes load silently and become available for scroll-pagination.
 
                 if (!hasIndexedEpisodes) {
-                    // No episode index available — stop here.
+                    // No episode index available. If podcast search also returned nothing,
+                    // show the empty state with an appropriate hint.
+                    if (podcastMatches.isEmpty() && q.isNotEmpty() && isActive) {
+                        if (generation != searchGeneration) return@launch
+                        if (!hasIndexedPodcasts) {
+                            // No search index at all — prompt the user to download it
+                            showNoIndexSearchHint(emptyState, recyclerView)
+                        } else {
+                            emptyState.text = getString(R.string.no_podcasts_found)
+                            showResultsSafely(recyclerView, podcastAdapter, isSearchAdapter = false, hasContent = false, emptyState)
+                        }
+                    }
                 } else {
                     // ── STEP 2a: fast first batch ────────────────────────────────────────────
                     // Fetch the 30 newest matching episodes without any timeout. This should

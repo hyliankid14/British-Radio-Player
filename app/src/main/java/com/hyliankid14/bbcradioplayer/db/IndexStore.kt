@@ -617,6 +617,20 @@ class IndexStore private constructor(private val context: Context) {
         return false
     }
 
+    // Check if any podcasts have been indexed
+    fun hasAnyPodcasts(): Boolean {
+        val db = helper.readableDatabase
+        try {
+            val cursor = db.rawQuery("SELECT 1 FROM podcast_fts LIMIT 1", emptyArray())
+            cursor.use {
+                return it.moveToFirst()
+            }
+        } catch (e: Exception) {
+            Log.w("IndexStore", "hasAnyPodcasts failed: ${e.message}")
+        }
+        return false
+    }
+
     // Check if any episodes have been indexed
     fun hasAnyEpisodes(): Boolean {
         val db = helper.readableDatabase
