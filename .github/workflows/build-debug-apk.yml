@@ -6,8 +6,6 @@ name: Build Debug APK
 # downloaded and installed directly on a phone.
 
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:       # allow manual trigger from the Actions tab
 
 permissions:
