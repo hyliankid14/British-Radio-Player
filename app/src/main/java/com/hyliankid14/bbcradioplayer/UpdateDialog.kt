@@ -20,8 +20,8 @@ object UpdateDialog {
         onDismiss: () -> Unit = {}
     ) {
         // The versionName already encodes the build type at build time:
-        //   release: "1.2.1"
-        //   debug:   "1.2.1-debug"  (next intended version with -debug suffix)
+        //   release: "1.3.0"  (auto-computed from conventional commits since last tag)
+        //   debug:   "1.3.0-debug"
         val currentVersion = try {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "Unknown"
         } catch (e: Exception) {

@@ -6,6 +6,44 @@ plugins {
 
 }
 
+/**
+ * Derives the next semantic version by analysing conventional-commit messages
+ * since the most recent git tag.  Rules (highest priority first):
+ *   BREAKING CHANGE footer or any "!" type modifier → major bump  (e.g. 2.0.0)
+ *   feat: / feat(...):                               → minor bump  (e.g. 1.3.0)
+ *   anything else (fix:, chore:, …)                 → patch bump  (e.g. 1.2.1)
+ * Falls back to a patch bump of the last tag when git is unavailable.
+ */
+def computeNextVersion = {
+    // Default fallback used only if git is completely unavailable
+    def fallback = "1.2.1"
+    try {
+        def lastTag = ['git', 'describe', '--tags', '--abbrev=0'].execute().text.trim()
+        def baseVersion = lastTag.replaceAll('^v', '').replaceAll('[^0-9.].*$', '')
+        def parts = baseVersion.tokenize('.').collect { it.toInteger() }
+        def major = parts[0]
+        def minor = parts[1]
+        def patch = parts.size() > 2 ? parts[2] : 0
+
+        // Refine fallback now that we know the last tag: patch bump of that tag
+        fallback = "${major}.${minor}.${patch + 1}"
+
+        def log = ['git', 'log', '--format=%B', "${lastTag}..HEAD"].execute().text
+
+        // Major: explicit "BREAKING CHANGE:" footer or any "!" type modifier
+        // (e.g. feat!:, fix!:, chore(scope)!: — per conventional commits spec)
+        def hasMajor = (log =~ /(?m)(^BREAKING CHANGE:|^[a-z]+(\([^)]+\))?!:)/).find()
+        // Minor: any feat: / feat(scope): commit (and no breaking change)
+        def hasMinor = !hasMajor && (log =~ /(?m)^feat(\([^)]+\))?:/).find()
+
+        if (hasMajor) return "${major + 1}.0.0"
+        if (hasMinor) return "${major}.${minor + 1}.0"
+        return "${major}.${minor}.${patch + 1}"
+    } catch (Exception ignored) {
+        return fallback
+    }
+}
+
 def releaseStoreFile = project.findProperty("RELEASE_STORE_FILE") ?: System.getenv("RELEASE_STORE_FILE")
 def releaseStorePassword = project.findProperty("RELEASE_STORE_PASSWORD") ?: System.getenv("RELEASE_STORE_PASSWORD")
 def releaseKeyAlias = project.findProperty("RELEASE_KEY_ALIAS") ?: System.getenv("RELEASE_KEY_ALIAS")
@@ -21,7 +59,7 @@ android {
         minSdk = 21
         targetSdk = 34
         versionCode = 33
-        versionName = "1.2.1"
+        versionName = computeNextVersion()
     }
 
     signingConfigs {
@@ -52,11 +90,12 @@ android {
             // installed alongside a release build (F-Droid / Play Store) without a
             // "package conflict" error caused by mismatched signing certificates.
             applicationIdSuffix ".debug"
-            // Append "-debug" to the version name so debug builds are clearly
-            // identified (e.g. "1.2.1-debug").  The base versionName in defaultConfig
-            // should already reflect the next intended version relative to the last
-            // GitHub release — increment the patch for small changes (1.2.1) or the
-            // minor component for larger ones (1.3.0).
+            // Append "-debug" to the auto-computed next version so debug builds are
+            // clearly identified (e.g. "1.3.0-debug").  The version is derived
+            // automatically from conventional-commit messages since the last tag:
+            //   any type with ! or BREAKING CHANGE  → major bump (e.g. 2.0.0-debug)
+            //   feat:                               → minor bump (e.g. 1.3.0-debug)
+            //   fix: / chore: / …                  → patch bump (e.g. 1.2.1-debug)
             versionNameSuffix "-debug"
         }
         release {

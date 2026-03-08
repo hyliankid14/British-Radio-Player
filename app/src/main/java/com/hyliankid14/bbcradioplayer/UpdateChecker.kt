@@ -12,8 +12,8 @@ import java.net.URL
 fun getDisplayVersion(context: Context): String {
     return try {
         // The versionName already encodes the build type:
-        //   release: "1.2.1"
-        //   debug:   "1.2.1-debug"  (next intended version with -debug suffix, set at build time)
+        //   release: "1.3.0"  (auto-computed from conventional commits since last tag)
+        //   debug:   "1.3.0-debug"  (same base version with -debug suffix)
         context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "Unknown"
     } catch (e: Exception) {
         "Unknown"
