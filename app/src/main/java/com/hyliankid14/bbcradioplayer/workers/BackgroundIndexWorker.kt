@@ -30,6 +30,8 @@ class BackgroundIndexWorker(
         const val INPUT_MODE = "mode"
         const val MODE_FULL = "full"
         const val MODE_INCREMENTAL = "incremental"
+        const val KEY_STATUS = "status"
+        const val KEY_PERCENT = "percent"
 
         /**
          * Enqueue a one-time indexing work request that runs in the background
@@ -144,27 +146,27 @@ class BackgroundIndexWorker(
 
             Log.d(TAG, "Running indexing (mode=$mode)")
 
+            val onProgress: (String, Int, Boolean) -> Unit = { status, percent, _ ->
+                // Update notification with progress
+                val notification = createForegroundInfo(status, percent)
+                try {
+                    setForegroundAsync(notification)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to update foreground notification: ${e.message}")
+                }
+                // Emit progress data so UI observers can show live status
+                setProgressAsync(workDataOf(KEY_STATUS to status, KEY_PERCENT to percent))
+            }
+
             if (isFullReindex) {
                 // Full reindex
-                IndexWorker.reindexAll(applicationContext) { status, percent, _ ->
-                    // Update notification with progress
-                    val notification = createForegroundInfo(status, percent)
-                    try {
-                        setForegroundAsync(notification)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to update foreground notification: ${e.message}")
-                    }
+                IndexWorker.reindexAll(applicationContext) { status, percent, isEpisodePhase ->
+                    onProgress(status, percent, isEpisodePhase)
                 }
             } else {
                 // Incremental indexing
-                IndexWorker.reindexNewOnly(applicationContext) { status, percent, _ ->
-                    // Update notification with progress
-                    val notification = createForegroundInfo(status, percent)
-                    try {
-                        setForegroundAsync(notification)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to update foreground notification: ${e.message}")
-                    }
+                IndexWorker.reindexNewOnly(applicationContext) { status, percent, isEpisodePhase ->
+                    onProgress(status, percent, isEpisodePhase)
                 }
             }
 

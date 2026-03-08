@@ -10,6 +10,8 @@ import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
 import kotlinx.coroutines.launch
 
 class SettingsDetailActivity : AppCompatActivity() {
@@ -336,6 +338,7 @@ class SettingsDetailActivity : AppCompatActivity() {
         val indexLastRebuilt: TextView = findViewById(R.id.index_last_rebuilt)
         val indexEpisodeCount: TextView = findViewById(R.id.index_episode_count)
         val indexEpisodesProgress: android.widget.ProgressBar = findViewById(R.id.index_episodes_progress)
+        val indexStatusText: TextView = findViewById(R.id.index_status_text)
         val indexStore = com.hyliankid14.bbcradioplayer.db.IndexStore.getInstance(this)
 
         fun updateLastRebuilt(ts: Long?) {
@@ -360,52 +363,86 @@ class SettingsDetailActivity : AppCompatActivity() {
             }
         }
 
+        // Observe WorkManager progress for the one-time indexing work
+        WorkManager.getInstance(this)
+            .getWorkInfosForUniqueWorkLiveData(com.hyliankid14.bbcradioplayer.workers.BackgroundIndexWorker.WORK_NAME)
+            .observe(this) { workInfoList ->
+                val workInfo = workInfoList?.firstOrNull()
+                if (workInfo == null) {
+                    indexEpisodesProgress.visibility = android.view.View.GONE
+                    indexStatusText.visibility = android.view.View.GONE
+                    return@observe
+                }
+                when (workInfo.state) {
+                    WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED -> {
+                        indexEpisodesProgress.isIndeterminate = true
+                        indexEpisodesProgress.visibility = android.view.View.VISIBLE
+                        indexStatusText.text = "Waiting to start..."
+                        indexStatusText.visibility = android.view.View.VISIBLE
+                    }
+                    WorkInfo.State.RUNNING -> {
+                        val status = workInfo.progress.getString(com.hyliankid14.bbcradioplayer.workers.BackgroundIndexWorker.KEY_STATUS)
+                        val percent = workInfo.progress.getInt(com.hyliankid14.bbcradioplayer.workers.BackgroundIndexWorker.KEY_PERCENT, -1)
+                        if (percent >= 0) {
+                            val target = percent.coerceIn(0, 100)
+                            if (target > lastSeenIndexPercent) {
+                                indexEpisodesProgress.isIndeterminate = false
+                                indexEpisodesProgress.progress = target
+                                lastSeenIndexPercent = target
+                            }
+                        } else {
+                            indexEpisodesProgress.isIndeterminate = true
+                        }
+                        indexEpisodesProgress.visibility = android.view.View.VISIBLE
+                        if (!status.isNullOrBlank()) {
+                            indexStatusText.text = status
+                            indexStatusText.visibility = android.view.View.VISIBLE
+                        }
+                    }
+                    WorkInfo.State.SUCCEEDED -> {
+                        indexEpisodesProgress.visibility = android.view.View.GONE
+                        indexStatusText.visibility = android.view.View.GONE
+                        lastSeenIndexPercent = 0
+                        updateLastRebuilt(indexStore.getLastReindexTime())
+                        updateIndexedEpisodeCount()
+                    }
+                    WorkInfo.State.FAILED, WorkInfo.State.CANCELLED -> {
+                        indexEpisodesProgress.visibility = android.view.View.GONE
+                        val lastStatus = workInfo.progress.getString(com.hyliankid14.bbcradioplayer.workers.BackgroundIndexWorker.KEY_STATUS)
+                        if (!lastStatus.isNullOrBlank()) {
+                            indexStatusText.text = lastStatus
+                            indexStatusText.visibility = android.view.View.VISIBLE
+                        } else {
+                            indexStatusText.visibility = android.view.View.GONE
+                        }
+                        lastSeenIndexPercent = 0
+                    }
+                    else -> {}
+                }
+            }
+
         // Initialize display from persisted value
         updateLastRebuilt(indexStore.getLastReindexTime())
         updateIndexedEpisodeCount()
 
         indexNowBtn.setOnClickListener {
             try {
-                // Cancel any pending one-time background work first, but keep periodic scheduling
-                com.hyliankid14.bbcradioplayer.workers.BackgroundIndexWorker.cancelOneTimeIndexing(this@SettingsDetailActivity)
-                
-                indexEpisodesProgress.isIndeterminate = false
-                indexEpisodesProgress.visibility = android.view.View.VISIBLE
-                indexEpisodesProgress.progress = 0
                 lastSeenIndexPercent = 0
-                
-                // Use direct execution for manual indexing (faster, with progress updates)
-                lifecycleScope.launch {
-                    com.hyliankid14.bbcradioplayer.workers.IndexWorker.reindexAll(this@SettingsDetailActivity) { status, percent, isEpisodePhase ->
-                        runOnUiThread {
-                            if (percent >= 0) {
-                                val target = percent.coerceIn(0, 100)
-                                if (target > lastSeenIndexPercent || target == 100) {
-                                    indexEpisodesProgress.isIndeterminate = false
-                                    indexEpisodesProgress.progress = target
-                                    lastSeenIndexPercent = target
-                                }
-                            } else {
-                                indexEpisodesProgress.isIndeterminate = true
-                            }
-                            
-                            if (percent == 100 || status.contains("complete", ignoreCase = true)) {
-                                indexEpisodesProgress.visibility = android.view.View.GONE
-                                updateLastRebuilt(System.currentTimeMillis())
-                                updateIndexedEpisodeCount()
-                            }
-                        }
-                    }
-                    runOnUiThread {
-                        indexEpisodesProgress.visibility = android.view.View.GONE
-                        updateLastRebuilt(indexStore.getLastReindexTime())
-                        updateIndexedEpisodeCount()
-                    }
-                }
-                
+                indexEpisodesProgress.isIndeterminate = true
+                indexEpisodesProgress.visibility = android.view.View.VISIBLE
+                indexStatusText.text = "Starting index..."
+                indexStatusText.visibility = android.view.View.VISIBLE
+
+                // Enqueue as a background WorkManager job so indexing continues
+                // even if the user navigates away from this screen.
+                com.hyliankid14.bbcradioplayer.workers.BackgroundIndexWorker.enqueueIndexing(
+                    this@SettingsDetailActivity,
+                    fullReindex = true
+                )
             } catch (e: Exception) {
                 android.util.Log.w("SettingsDetailActivity", "Failed to start indexing: ${e.message}")
                 indexEpisodesProgress.visibility = android.view.View.GONE
+                indexStatusText.visibility = android.view.View.GONE
             }
         }
 
