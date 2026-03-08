@@ -59,8 +59,8 @@
                     app:hintEnabled="false"
                     app:startIconDrawable="@drawable/ic_search"
                     app:endIconMode="custom"
-                    app:endIconDrawable="@drawable/ic_clear"
-                    app:endIconContentDescription="@string/clear_search">
+                    app:endIconDrawable="@drawable/ic_shuffle"
+                    app:endIconContentDescription="@string/shuffle_podcast_desc">
 
                     <com.google.android.material.textfield.MaterialAutoCompleteTextView
                         android:id="@+id/search_podcast_edittext"

@@ -275,8 +275,8 @@ class PodcastsFragment : Fragment() {
             try {
                 // Set appropriate icon and behaviour depending on whether the field is empty
                 fun setIconForState(empty: Boolean) {
+                    searchInputLayout.endIconMode = com.google.android.material.textfield.TextInputLayout.END_ICON_CUSTOM
                     if (empty) {
-                        searchInputLayout.endIconMode = com.google.android.material.textfield.TextInputLayout.END_ICON_CUSTOM
                         searchInputLayout.endIconDrawable = requireContext().getDrawable(R.drawable.ic_shuffle)
                         searchInputLayout.endIconContentDescription = getString(R.string.shuffle_podcast_desc)
                         searchInputLayout.setEndIconOnClickListener {
@@ -284,8 +284,8 @@ class PodcastsFragment : Fragment() {
                             try { shuffleAndOpenRandomPodcast() } catch (e: Exception) { android.util.Log.w("PodcastsFragment", "Shuffle failed: ${e.message}") }
                         }
                     } else {
-                        searchInputLayout.endIconMode = com.google.android.material.textfield.TextInputLayout.END_ICON_CLEAR_TEXT
-                        // Clear listener is handled by END_ICON_CLEAR_TEXT behaviour automatically, but we also ensure IME is hidden
+                        searchInputLayout.endIconDrawable = requireContext().getDrawable(R.drawable.ic_clear)
+                        searchInputLayout.endIconContentDescription = getString(R.string.clear_search)
                         searchInputLayout.setEndIconOnClickListener {
                             suppressSearchWatcher = true
                             searchEditText.text?.clear()
@@ -297,13 +297,14 @@ class PodcastsFragment : Fragment() {
                             searchEditText.clearFocus()
                         }
                     }
+                    searchInputLayout.isEndIconVisible = true
                 }
 
                 setIconForState(searchEditText.text.isNullOrEmpty())
             } catch (_: Exception) { }
 
-            // Force visibility for non-empty text regardless of focus/IME state
-            if (!searchEditText.text.isNullOrEmpty()) searchInputLayout.isEndIconVisible = true
+            // Ensure icon is always visible regardless of text content or focus/IME state
+            searchInputLayout.isEndIconVisible = true
         } catch (_: Exception) { }
         suppressSearchWatcher = false
         android.util.Log.d("PodcastsFragment", "onViewCreated: viewModel.activeSearchQuery='${restored}' searchEditText='${searchEditText.text}'")
@@ -346,16 +347,25 @@ class PodcastsFragment : Fragment() {
                 // Ensure end-icon updates when we apply text programmatically
                 try {
                     val empty = q.isNullOrEmpty()
+                    searchInputLayout.endIconMode = com.google.android.material.textfield.TextInputLayout.END_ICON_CUSTOM
                     if (empty) {
-                        searchInputLayout.endIconMode = com.google.android.material.textfield.TextInputLayout.END_ICON_CUSTOM
                         searchInputLayout.endIconDrawable = requireContext().getDrawable(R.drawable.ic_shuffle)
                         searchInputLayout.endIconContentDescription = getString(R.string.shuffle_podcast_desc)
                         searchInputLayout.setEndIconOnClickListener { try { shuffleAndOpenRandomPodcast() } catch (e: Exception) { android.util.Log.w("PodcastsFragment", "Shuffle failed: ${e.message}") } }
-                        searchInputLayout.isEndIconVisible = true
                     } else {
-                        searchInputLayout.endIconMode = com.google.android.material.textfield.TextInputLayout.END_ICON_CLEAR_TEXT
-                        searchInputLayout.isEndIconVisible = true
+                        searchInputLayout.endIconDrawable = requireContext().getDrawable(R.drawable.ic_clear)
+                        searchInputLayout.endIconContentDescription = getString(R.string.clear_search)
+                        searchInputLayout.setEndIconOnClickListener {
+                            suppressSearchWatcher = true
+                            searchEditText.text?.clear()
+                            suppressSearchWatcher = false
+                            viewModel.clearActiveSearch()
+                            val imm = requireContext().getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                            imm.hideSoftInputFromWindow(searchEditText.windowToken, 0)
+                            searchEditText.clearFocus()
+                        }
                     }
+                    searchInputLayout.isEndIconVisible = true
                 } catch (_: Exception) { }
                 suppressSearchWatcher = false
             }
@@ -387,14 +397,14 @@ class PodcastsFragment : Fragment() {
                 // Update the end-icon: show shuffle when empty, clear when non-empty
                 try {
                     val empty = s.isNullOrEmpty()
-                    // set icon state
+                    searchInputLayout.endIconMode = com.google.android.material.textfield.TextInputLayout.END_ICON_CUSTOM
                     if (empty) {
-                        searchInputLayout.endIconMode = com.google.android.material.textfield.TextInputLayout.END_ICON_CUSTOM
                         searchInputLayout.endIconDrawable = requireContext().getDrawable(R.drawable.ic_shuffle)
                         searchInputLayout.endIconContentDescription = getString(R.string.shuffle_podcast_desc)
                         searchInputLayout.setEndIconOnClickListener { try { shuffleAndOpenRandomPodcast() } catch (e: Exception) { android.util.Log.w("PodcastsFragment", "Shuffle failed: ${e.message}") } }
                     } else {
-                        searchInputLayout.endIconMode = com.google.android.material.textfield.TextInputLayout.END_ICON_CLEAR_TEXT
+                        searchInputLayout.endIconDrawable = requireContext().getDrawable(R.drawable.ic_clear)
+                        searchInputLayout.endIconContentDescription = getString(R.string.clear_search)
                         searchInputLayout.setEndIconOnClickListener {
                             suppressSearchWatcher = true
                             searchEditText.text?.clear()
@@ -406,6 +416,7 @@ class PodcastsFragment : Fragment() {
                             searchEditText.clearFocus()
                         }
                     }
+                    searchInputLayout.isEndIconVisible = true
                 } catch (_: Exception) { }
 
                 searchQuery = s?.toString() ?: ""
@@ -496,8 +507,8 @@ class PodcastsFragment : Fragment() {
             // Keep local searchQuery in sync so other code paths rely on the latest value
             searchQuery = current
 
-            // Re-assert end-icon visibility after the IME is dismissed (persistent clear icon behavior)
-            try { searchInputLayout.isEndIconVisible = current.isNotBlank() } catch (_: Exception) { }
+            // Re-assert end-icon visibility after the IME is dismissed (icon is always visible)
+            try { searchInputLayout.isEndIconVisible = true } catch (_: Exception) { }
 
             // Commit current query as active search and add to history
             if (current.isNotBlank()) {
@@ -531,8 +542,8 @@ class PodcastsFragment : Fragment() {
                 historyAdapter.addAll(searchHistory.getRecent())
                 searchEditText.showDropDown()
             }
-            // Keep end-icon visibility consistent when focus changes
-            try { searchInputLayout.isEndIconVisible = !searchEditText.text.isNullOrEmpty() } catch (_: Exception) { }
+            // Always keep the end icon visible regardless of focus state
+            try { searchInputLayout.isEndIconVisible = true } catch (_: Exception) { }
         }
         // When the user selects a history item, populate search and apply immediately
         searchEditText.setOnItemClickListener { parent, _, position, _ ->
@@ -1409,7 +1420,18 @@ class PodcastsFragment : Fragment() {
             editText?.setText(savedSearch.query)
             if (!savedSearch.query.isBlank()) editText?.setSelection(savedSearch.query.length)
             try {
-                inputLayout?.endIconMode = com.google.android.material.textfield.TextInputLayout.END_ICON_CLEAR_TEXT
+                inputLayout?.endIconMode = com.google.android.material.textfield.TextInputLayout.END_ICON_CUSTOM
+                inputLayout?.endIconDrawable = requireContext().getDrawable(R.drawable.ic_clear)
+                inputLayout?.endIconContentDescription = getString(R.string.clear_search)
+                inputLayout?.setEndIconOnClickListener {
+                    suppressSearchWatcher = true
+                    editText?.text?.clear()
+                    suppressSearchWatcher = false
+                    viewModel.clearActiveSearch()
+                    val imm = requireContext().getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                    imm.hideSoftInputFromWindow(editText?.windowToken, 0)
+                    editText?.clearFocus()
+                }
                 inputLayout?.isEndIconVisible = true
             } catch (_: Exception) { }
 
