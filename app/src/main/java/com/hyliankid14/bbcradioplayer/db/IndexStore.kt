@@ -30,7 +30,11 @@ class IndexStore private constructor(private val context: Context) {
             override fun initialValue(): List<SimpleDateFormat> {
                 return listOf(
                     "EEE, dd MMM yyyy HH:mm:ss Z",
+                    "EEE, dd MMM yyyy HH:mm:ss z",
                     "dd MMM yyyy HH:mm:ss Z",
+                    "dd MMM yyyy HH:mm:ss z",
+                    "EEE, dd MMM yyyy HH:mm:ss",
+                    "dd MMM yyyy HH:mm:ss",
                     "EEE, dd MMM yyyy",
                     "dd MMM yyyy"
                 ).map { SimpleDateFormat(it, Locale.US) }

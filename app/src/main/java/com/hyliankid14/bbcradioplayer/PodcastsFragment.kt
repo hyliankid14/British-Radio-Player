@@ -224,6 +224,7 @@ class PodcastsFragment : Fragment() {
     // Episode-search pagination state (index-backed)
     private val INITIAL_EPISODE_DISPLAY_LIMIT = 150        // how many episodes to try to show immediately
     private val EPISODE_PAGE_SIZE = 25                    // page size when scrolling
+    private val INDEX_STALE_THRESHOLD_MS = 7L * 24L * 60L * 60L * 1_000L  // 7 days
     private var resolvedEpisodeMatches: MutableList<Pair<Episode, Podcast>> = mutableListOf()
     // How many episode items are currently displayed by the adapter (used for search pagination)
     private var displayedEpisodeCount: Int = 0
@@ -1744,9 +1745,28 @@ class PodcastsFragment : Fragment() {
                             }
                             viewModel.cachedSearchItems = searchAdapter?.snapshotItems()
                         } else if (q.isNotEmpty()) {
-                            // Nothing found at all — standard empty state
-                            emptyState.text = getString(R.string.no_podcasts_found)
-                            showResultsSafely(recyclerView, podcastAdapter, isSearchAdapter = false, hasContent = false, emptyState)
+                            // Nothing found at all and no episode index — show index download hint
+                            if (searchAdapter == null) {
+                                searchAdapter = SearchResultsAdapter(
+                                    context = requireContext(),
+                                    titleMatches = emptyList(),
+                                    descMatches = emptyList(),
+                                    episodeMatches = emptyList(),
+                                    onPodcastClick = { podcast -> onPodcastClicked(podcast) },
+                                    onPlayEpisode = { ep -> playEpisode(ep) },
+                                    onOpenEpisode = { ep, pod -> openEpisodePreview(ep, pod) }
+                                )
+                            }
+                            val hintMessage = getString(R.string.search_no_results_download_hint)
+                            searchAdapter?.setIndexHint(hintMessage) {
+                                val intent = android.content.Intent(requireContext(), SettingsDetailActivity::class.java).apply {
+                                    putExtra(SettingsDetailActivity.EXTRA_SECTION, SettingsDetailActivity.SECTION_INDEXING)
+                                }
+                                startActivity(intent)
+                            }
+                            showResultsSafely(recyclerView, searchAdapter, isSearchAdapter = true, hasContent = true, emptyState)
+                            rebuildFilterSpinners(emptyState, recyclerView)
+                            viewModel.cachedSearchItems = searchAdapter?.snapshotItems()
                         }
                     }
                 } else {
@@ -1976,6 +1996,22 @@ class PodcastsFragment : Fragment() {
                             cachedEpisodeMatchesFull = if (usingCachedEpisodePagination) mergedAll else emptyList()
                             resolvedEpisodeMatches = initialBatch.toMutableList()
                             displayedEpisodeCount = resolvedEpisodeMatches.size
+
+                            // If no episodes were found at all, show a hint about the index
+                            if (episodes.isEmpty() && quickEps.isEmpty() && q.length >= 3) {
+                                val hintMessage = if (isEpisodeIndexStale()) {
+                                    getString(R.string.search_index_outdated_hint)
+                                } else {
+                                    getString(R.string.search_no_results_download_hint)
+                                }
+                                searchAdapter?.setIndexHint(hintMessage) {
+                                    val intent = android.content.Intent(requireContext(), SettingsDetailActivity::class.java).apply {
+                                        putExtra(SettingsDetailActivity.EXTRA_SECTION, SettingsDetailActivity.SECTION_INDEXING)
+                                    }
+                                    startActivity(intent)
+                                }
+                            }
+
                             viewModel.cachedSearchItems = searchAdapter?.snapshotItems()
 
                             // Background enrichment: fill in missing audio URLs / durations.
@@ -2088,6 +2124,14 @@ class PodcastsFragment : Fragment() {
                 )
             }
         }
+    }
+
+    private fun isEpisodeIndexStale(): Boolean {
+        return try {
+            val lastReindex = com.hyliankid14.bbcradioplayer.db.IndexStore.getInstance(requireContext()).getLastReindexTime()
+                ?: return false // no recorded reindex time — cannot determine staleness
+            System.currentTimeMillis() - lastReindex > INDEX_STALE_THRESHOLD_MS
+        } catch (_: Exception) { false }
     }
 
     private fun getPopularRank(podcast: Podcast): Int {
