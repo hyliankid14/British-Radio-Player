@@ -14,7 +14,7 @@ on:
 
 permissions:
   contents: write          # needed to commit the updated index to a branch
-  pull-requests: write     # needed to open a pull request into main
+  pull-requests: write     # needed to open/update and auto-merge the pull request
 
 jobs:
   build-index:
@@ -43,3 +43,4 @@ jobs:
           body: "Automated update of `docs/podcast-index.json.gz` by the Build Podcast Index workflow."
           add-paths: docs/podcast-index.json.gz
           author: "github-actions[bot] <github-actions[bot]@users.noreply.github.com>"
+          auto-merge: squash
