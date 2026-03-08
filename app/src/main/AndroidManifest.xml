@@ -80,6 +80,13 @@
             </intent-filter>
         </activity>
 
+        <!-- Android Auto integration: declares this app as an Android Auto media app.
+             The meta-data key is a conventional string recognised by the Android Auto host;
+             it does not require any Google Play Services library. -->
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
+
         <service
             android:name=".RadioService"
             android:exported="true"
