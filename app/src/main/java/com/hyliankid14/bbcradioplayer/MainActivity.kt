@@ -170,7 +170,7 @@ class MainActivity : AppCompatActivity() {
         try {
             val episodeCount = com.hyliankid14.bbcradioplayer.db.IndexStore.getInstance(this)
                 .getIndexedEpisodeCount()
-            if (episodeCount == 0L) {
+            if (episodeCount == 0) {
                 com.hyliankid14.bbcradioplayer.workers.BackgroundIndexWorker.enqueueIndexing(
                     this, fullReindex = true
                 )
