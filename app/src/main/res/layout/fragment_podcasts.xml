@@ -80,6 +80,15 @@
                 </com.google.android.material.textfield.TextInputLayout>
 
                 <ImageButton
+                    android:id="@+id/podcasts_shuffle_button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:src="@drawable/ic_shuffle"
+                    android:contentDescription="@string/shuffle_podcast_desc"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:tint="?attr/colorOnSurface" />
+
+                <ImageButton
                     android:id="@+id/podcasts_filter_button"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"

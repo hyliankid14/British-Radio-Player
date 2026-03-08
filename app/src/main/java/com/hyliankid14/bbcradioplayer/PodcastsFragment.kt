@@ -58,7 +58,33 @@ class PodcastsFragment : Fragment() {
     private var usingCachedItemAppend: Boolean = false
     // Flag to scroll to top when next results are displayed
     private var shouldScrollToTopOnNextResults: Boolean = false
-    // Use viewLifecycleOwner.lifecycleScope for UI coroutines (auto-cancelled when the view is destroyed) 
+    // Use viewLifecycleOwner.lifecycleScope for UI coroutines (auto-cancelled when the view is destroyed)
+
+    // Shake-to-random-podcast detection
+    private var sensorManager: android.hardware.SensorManager? = null
+    private var lastShakeTime: Long = 0L
+    private val shakeListener = object : android.hardware.SensorEventListener {
+        private var lastUpdate: Long = 0L
+        override fun onSensorChanged(event: android.hardware.SensorEvent) {
+            val now = System.currentTimeMillis()
+            if (now - lastUpdate < 100) return
+            lastUpdate = now
+            val x = event.values[0]
+            val y = event.values[1]
+            val z = event.values[2]
+            val gForce = kotlin.math.sqrt((x * x + y * y + z * z).toDouble()).toFloat() /
+                android.hardware.SensorManager.GRAVITY_EARTH
+            if (gForce > SHAKE_THRESHOLD_GRAVITY && now - lastShakeTime > SHAKE_DEBOUNCE_MS) {
+                lastShakeTime = now
+                activity?.runOnUiThread {
+                    try { shuffleAndOpenRandomPodcast() } catch (e: Exception) {
+                        android.util.Log.w("PodcastsFragment", "Shake shuffle failed: ${e.message}")
+                    }
+                }
+            }
+        }
+        override fun onAccuracyChanged(sensor: android.hardware.Sensor?, accuracy: Int) {}
+    }
 
     // Normalize queries for robust cache lookups (trim + locale-aware lowercase)
     private fun normalizeQuery(q: String?): String = q?.trim()?.lowercase(Locale.getDefault()) ?: ""
@@ -375,6 +401,12 @@ class PodcastsFragment : Fragment() {
         }
 
         val filterButton: android.widget.ImageButton = view.findViewById(R.id.podcasts_filter_button)
+        val shuffleButton: android.widget.ImageButton = view.findViewById(R.id.podcasts_shuffle_button)
+        shuffleButton.setOnClickListener {
+            try { shuffleAndOpenRandomPodcast() } catch (e: Exception) {
+                android.util.Log.w("PodcastsFragment", "Shuffle button failed: ${e.message}")
+            }
+        }
         val genreSpinner: com.google.android.material.textfield.MaterialAutoCompleteTextView = view.findViewById(R.id.genre_filter_spinner)
         val sortSpinner: com.google.android.material.textfield.MaterialAutoCompleteTextView = view.findViewById(R.id.sort_spinner)
         val resetButton: android.widget.Button = view.findViewById(R.id.reset_filters_button)
@@ -947,6 +979,7 @@ class PodcastsFragment : Fragment() {
 
     override fun onDestroyView() {
         super.onDestroyView()
+        sensorManager?.unregisterListener(shakeListener)
         filterDebounceJob?.cancel()
         searchJob?.cancel()
         episodePaginationJob?.cancel()
@@ -963,8 +996,37 @@ class PodcastsFragment : Fragment() {
         }
     }
 
+    override fun onPause() {
+        super.onPause()
+        sensorManager?.unregisterListener(shakeListener)
+    }
+
+    override fun onHiddenChanged(hidden: Boolean) {
+        super.onHiddenChanged(hidden)
+        if (hidden) {
+            sensorManager?.unregisterListener(shakeListener)
+        } else {
+            registerShakeListener()
+        }
+    }
+
+    private fun registerShakeListener() {
+        if (isHidden) return
+        if (sensorManager == null) {
+            sensorManager = requireContext().getSystemService(android.content.Context.SENSOR_SERVICE)
+                as? android.hardware.SensorManager
+        }
+        val sensor = sensorManager?.getDefaultSensor(android.hardware.Sensor.TYPE_ACCELEROMETER)
+        if (sensor == null) {
+            android.util.Log.d("PodcastsFragment", "Accelerometer not available; shake-to-random disabled")
+            return
+        }
+        sensorManager?.registerListener(shakeListener, sensor, android.hardware.SensorManager.SENSOR_DELAY_UI)
+    }
+
     override fun onResume() {
         super.onResume()
+        registerShakeListener()
         android.util.Log.d("PodcastsFragment", "onResume: activeSearchQuery='${viewModel.activeSearchQuery.value}' searchQuery='${searchQuery}' allPodcasts.size=${allPodcasts.size}")
         
         // Refresh the adapter's subscription cache to reflect any changes
@@ -2142,6 +2204,8 @@ class PodcastsFragment : Fragment() {
     }
 
     companion object {
+        private const val SHAKE_THRESHOLD_GRAVITY = 2.7f
+        private const val SHAKE_DEBOUNCE_MS = 1000L
         private val POPULAR_RANKING = mapOf(
             "Global News Podcast" to 1,
             "Football Daily" to 2,
