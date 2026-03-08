@@ -34,6 +34,7 @@ jobs:
         run: python3 api/build_index.py
 
       - name: Create pull request with updated index
+        id: create-pr
         uses: peter-evans/create-pull-request@v7
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -43,4 +44,13 @@ jobs:
           body: "Automated update of `docs/podcast-index.json.gz` by the Build Podcast Index workflow."
           add-paths: docs/podcast-index.json.gz
           author: "github-actions[bot] <github-actions[bot]@users.noreply.github.com>"
-          auto-merge: squash
+
+      - name: Merge pull request
+        if: steps.create-pr.outputs.pull-request-number != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr merge ${{ steps.create-pr.outputs.pull-request-number }} \
+            --repo hyliankid14/BBC-Radio-Player \
+            --squash \
+            --delete-branch
