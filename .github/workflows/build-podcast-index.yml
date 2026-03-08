@@ -41,8 +41,10 @@ jobs:
           commit-message: "chore: refresh podcast index [skip ci]"
           branch: chore/refresh-podcast-index
           title: "chore: refresh podcast index"
-          body: "Automated update of `docs/podcast-index.json.gz` by the Build Podcast Index workflow."
-          add-paths: docs/podcast-index.json.gz
+          body: "Automated update of `docs/podcast-index.json.gz` and `docs/podcast-index-meta.json` by the Build Podcast Index workflow."
+          add-paths: |
+            docs/podcast-index.json.gz
+            docs/podcast-index-meta.json
           author: "github-actions[bot] <github-actions[bot]@users.noreply.github.com>"
 
       - name: Merge pull request
@@ -53,4 +55,20 @@ jobs:
           gh pr merge ${{ steps.create-pr.outputs.pull-request-number }} \
             --repo hyliankid14/BBC-Radio-Player \
             --squash \
+            --admin \
             --delete-branch
+
+      - name: Verify merge succeeded
+        if: steps.create-pr.outputs.pull-request-number != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          STATE=$(gh pr view ${{ steps.create-pr.outputs.pull-request-number }} \
+            --repo hyliankid14/BBC-Radio-Player \
+            --json state,mergedAt \
+            --jq '.state')
+          if [ "$STATE" != "MERGED" ]; then
+            echo "::error::PR ${{ steps.create-pr.outputs.pull-request-number }} was not merged (state=$STATE)"
+            exit 1
+          fi
+          echo "PR ${{ steps.create-pr.outputs.pull-request-number }} merged successfully."

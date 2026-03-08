@@ -238,11 +238,23 @@ def build_index(
     with gzip.open(str(out), "wb", compresslevel=9) as f:
         f.write(json_bytes)
 
+    # Write a tiny companion metadata file so the app can do a lightweight
+    # freshness check (< 100 bytes) before committing to a full index download.
+    meta = {
+        "generated_at": index["generated_at"],
+        "podcast_count": index["podcast_count"],
+        "episode_count": index["episode_count"],
+    }
+    meta_path = out.with_name("podcast-index-meta.json")
+    with open(str(meta_path), "w", encoding="utf-8") as f:
+        json.dump(meta, f, separators=(",", ":"))
+
     size_kb = out.stat().st_size / 1024
     print(
         f"\nWrote {len(podcasts_out)} podcasts, {len(episodes_out)} episodes "
         f"→ {out} ({size_kb:.0f} KB, gzip-compressed)"
     )
+    print(f"Wrote metadata → {meta_path}")
     if failed:
         print(f"{failed} podcasts failed (see warnings above)")
 

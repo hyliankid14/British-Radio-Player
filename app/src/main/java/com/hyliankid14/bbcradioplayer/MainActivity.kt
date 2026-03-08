@@ -165,6 +165,31 @@ class MainActivity : AppCompatActivity() {
             android.util.Log.w("MainActivity", "Failed to cancel background work: ${e.message}")
         }
 
+        // On first install (empty index), trigger an immediate background download
+        // so the user sees episodes without having to visit Settings first.
+        try {
+            val episodeCount = com.hyliankid14.bbcradioplayer.db.IndexStore.getInstance(this)
+                .getIndexedEpisodeCount()
+            if (episodeCount == 0L) {
+                com.hyliankid14.bbcradioplayer.workers.BackgroundIndexWorker.enqueueIndexing(
+                    this, fullReindex = true
+                )
+                android.util.Log.i("MainActivity", "No local index found — enqueued initial full reindex")
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("MainActivity", "Could not check index count: ${e.message}")
+        }
+
+        // Activate periodic background indexing (defaults to daily for new installs).
+        try {
+            val days = IndexPreference.getIntervalDays(this)
+            if (days > 0) {
+                IndexScheduler.scheduleIndexing(this)
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("MainActivity", "Could not schedule background indexing: ${e.message}")
+        }
+
         supportFragmentManager.addOnBackStackChangedListener(backStackListener)
 
         // Use Material Top App Bar instead of a classic action bar

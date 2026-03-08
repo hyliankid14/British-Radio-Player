@@ -47,6 +47,12 @@ class RemoteIndexClient(private val context: Context) {
         internal const val GITHUB_PAGES_INDEX_URL =
             "https://hyliankid14.github.io/BBC-Radio-Player/podcast-index.json.gz"
 
+        // Lightweight companion metadata file (< 100 bytes).  The app fetches this
+        // first to decide whether the full index needs re-downloading; avoids a
+        // 250 MB+ download when nothing has changed since the last sync.
+        internal const val GITHUB_PAGES_META_URL =
+            "https://hyliankid14.github.io/BBC-Radio-Player/podcast-index-meta.json"
+
         // Fallback home server (used only for search queries when the static
         // index has not yet been downloaded).  Must match
         // PrivacyAnalytics.ANALYTICS_ENDPOINT host.
@@ -84,6 +90,61 @@ class RemoteIndexClient(private val context: Context) {
     )
 
     /**
+     * Lightweight metadata from `podcast-index-meta.json`.
+     * Fetched to check whether the remote index is newer than the locally
+     * cached version before committing to a full 250 MB+ download.
+     */
+    data class RemoteIndexMeta(
+        val generatedAt: String,
+        val podcastCount: Int,
+        val episodeCount: Int
+    )
+
+    /**
+     * Fetch the tiny companion metadata file from GitHub Pages.
+     * Returns null on any network or parse error.
+     */
+    fun fetchRemoteIndexMeta(): RemoteIndexMeta? {
+        return try {
+            val conn = openConnection(GITHUB_PAGES_META_URL)
+            conn.requestMethod = "GET"
+            if (conn.responseCode != HttpURLConnection.HTTP_OK) {
+                conn.disconnect()
+                return null
+            }
+            val json = JSONObject(readBody(conn))
+            RemoteIndexMeta(
+                generatedAt  = json.optString("generated_at", ""),
+                podcastCount = json.optInt("podcast_count", 0),
+                episodeCount = json.optInt("episode_count", 0)
+            )
+        } catch (e: Exception) {
+            Log.d(TAG, "Failed to fetch remote index meta: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Return true when the remote index has a different (newer) `generated_at`
+     * than [currentGeneratedAt].  Falls back to the cache-age check if the
+     * metadata endpoint is unreachable.
+     *
+     * @param currentGeneratedAt The `generated_at` value from the last
+     *   successfully applied index, or null/blank for a first-time install.
+     */
+    fun isRemoteIndexNewer(currentGeneratedAt: String?): Boolean {
+        if (currentGeneratedAt.isNullOrBlank()) return true
+        return try {
+            val meta = fetchRemoteIndexMeta()
+                ?: return isCachedIndexStale() // metadata unavailable — use cache TTL
+            meta.generatedAt.isNotBlank() && meta.generatedAt != currentGeneratedAt
+        } catch (e: Exception) {
+            Log.w(TAG, "Remote freshness check failed: ${e.message}")
+            isCachedIndexStale()
+        }
+    }
+
+    /**
      * Return true if the cached `podcast-index.json` is older than
      * [INDEX_CACHE_TTL_MS] (or does not exist yet).
      */
@@ -101,13 +162,16 @@ class RemoteIndexClient(private val context: Context) {
      * hundreds of individual RSS feed fetches and eliminates all per-search
      * home-server traffic.
      *
+     * @param forceDownload When true the cached copy is ignored and a fresh
+     *   download is always performed (e.g. after [isRemoteIndexNewer] says the
+     *   remote has been updated).
      * @param onProgress Optional callback to report download progress (message, percent)
      */
-    fun downloadIndex(onProgress: ((String, Int) -> Unit)? = null): RemoteIndex? {
+    fun downloadIndex(forceDownload: Boolean = false, onProgress: ((String, Int) -> Unit)? = null): RemoteIndex? {
         val cacheFile = File(context.cacheDir, INDEX_CACHE_FILENAME)
 
-        // Use cached copy if still fresh.
-        if (!isCachedIndexStale() && cacheFile.exists()) {
+        // Use cached copy if still fresh and not forcing a re-download.
+        if (!forceDownload && !isCachedIndexStale() && cacheFile.exists()) {
             Log.d(TAG, "Using cached podcast index (${cacheFile.length() / 1024} KB)")
             return try { parseIndexFromFile(cacheFile) } catch (e: Exception) {
                 Log.w(TAG, "Failed to parse cached index: ${e.message}")

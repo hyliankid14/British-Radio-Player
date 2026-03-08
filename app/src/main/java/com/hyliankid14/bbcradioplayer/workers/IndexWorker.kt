@@ -3,6 +3,7 @@ package com.hyliankid14.bbcradioplayer.workers
 import android.content.Context
 import android.util.Log
 import com.hyliankid14.bbcradioplayer.Episode
+import com.hyliankid14.bbcradioplayer.IndexPreference
 import com.hyliankid14.bbcradioplayer.Podcast
 import com.hyliankid14.bbcradioplayer.RemoteIndexClient
 import com.hyliankid14.bbcradioplayer.db.IndexStore
@@ -61,10 +62,11 @@ object IndexWorker {
             try {
                 onProgress("Starting index...", -1, false)
 
-                // Download pre-built index from GitHub Pages
+                // Download pre-built index from GitHub Pages.
+                // Always force a fresh download for full reindex (user initiated or first install).
                 val remoteClient = RemoteIndexClient(context)
                 val downloadedIndex = try {
-                    remoteClient.downloadIndex { msg, pct ->
+                    remoteClient.downloadIndex(forceDownload = true) { msg, pct ->
                         onProgress(msg, pct, false)
                     }
                 } catch (e: Exception) {
@@ -121,6 +123,11 @@ object IndexWorker {
                 try { store.setLastReindexTime(System.currentTimeMillis()) } catch (e: Exception) {
                     Log.w(TAG, "Failed to persist last reindex time: ${e.message}")
                 }
+                if (downloadedIndex.generatedAt.isNotBlank()) {
+                    try { IndexPreference.setLastGeneratedAt(context, downloadedIndex.generatedAt) } catch (e: Exception) {
+                        Log.w(TAG, "Failed to persist last generated_at: ${e.message}")
+                    }
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Reindex failed", e)
                 onProgress("Index failed: ${e.message}", -1, false)
@@ -139,13 +146,22 @@ object IndexWorker {
                 onProgress("Starting incremental index...", -1, false)
 
                 val remoteClient = RemoteIndexClient(context)
-                if (!remoteClient.isCachedIndexStale()) {
-                    onProgress("Podcast index is fresh — skipping download", 100, false)
+
+                // Compare the remote index's generated_at against the last
+                // successfully applied value.  This fetches only the tiny
+                // companion metadata file (~200 bytes) before committing to
+                // a full 250 MB+ download.
+                val lastGeneratedAt = IndexPreference.getLastGeneratedAt(context)
+                val isNewer = remoteClient.isRemoteIndexNewer(lastGeneratedAt)
+                if (!isNewer) {
+                    onProgress("Podcast index is up to date — skipping download", 100, false)
                     return@withContext
                 }
 
                 val downloadedIndex = try {
-                    remoteClient.downloadIndex { msg, pct ->
+                    // Force a fresh download: isRemoteIndexNewer() confirmed the remote
+                    // is newer than our last applied index, so bypass the disk cache.
+                    remoteClient.downloadIndex(forceDownload = true) { msg, pct ->
                         onProgress(msg, pct, false)
                     }
                 } catch (e: Exception) {
@@ -206,6 +222,11 @@ object IndexWorker {
                 Log.d(TAG, "Incremental reindex from GitHub Pages: newPodcasts=$newPodcasts, newEpisodes=$inserted")
                 try { store.setLastReindexTime(System.currentTimeMillis()) } catch (e: Exception) {
                     Log.w(TAG, "Failed to persist last reindex time: ${e.message}")
+                }
+                if (downloadedIndex.generatedAt.isNotBlank()) {
+                    try { IndexPreference.setLastGeneratedAt(context, downloadedIndex.generatedAt) } catch (e: Exception) {
+                        Log.w(TAG, "Failed to persist last generated_at: ${e.message}")
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Incremental reindex failed", e)
