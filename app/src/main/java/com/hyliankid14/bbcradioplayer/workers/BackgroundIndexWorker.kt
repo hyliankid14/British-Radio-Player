@@ -37,12 +37,14 @@ class BackgroundIndexWorker(
         fun enqueueIndexing(context: Context, fullReindex: Boolean = true) {
             val mode = if (fullReindex) MODE_FULL else MODE_INCREMENTAL
             val inputData = workDataOf(INPUT_MODE to mode)
+            val wifiOnly = com.hyliankid14.bbcradioplayer.IndexPreference.getWifiOnly(context)
+            val networkType = if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED
 
             val workRequest = OneTimeWorkRequestBuilder<BackgroundIndexWorker>()
                 .setInputData(inputData)
                 .setConstraints(
                     Constraints.Builder()
-                        .setRequiredNetworkType(NetworkType.CONNECTED)
+                        .setRequiredNetworkType(networkType)
                         .build()
                 )
                 .addTag(WORK_NAME)
@@ -75,6 +77,8 @@ class BackgroundIndexWorker(
                 return
             }
 
+            val wifiOnly = com.hyliankid14.bbcradioplayer.IndexPreference.getWifiOnly(context)
+            val networkType = if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED
             val inputData = workDataOf(INPUT_MODE to MODE_INCREMENTAL)
             val workRequest = PeriodicWorkRequestBuilder<BackgroundIndexWorker>(
                 intervalDays.toLong(),
@@ -84,9 +88,7 @@ class BackgroundIndexWorker(
                 .setInitialDelay(15, java.util.concurrent.TimeUnit.MINUTES)
                 .setConstraints(
                     Constraints.Builder()
-                        .setRequiredNetworkType(NetworkType.CONNECTED)
-                        // Removed setRequiresBatteryNotLow to ensure more reliable execution
-                        // Indexing is lightweight enough to run even on low battery
+                        .setRequiredNetworkType(networkType)
                         .build()
                 )
                 .addTag(WORK_NAME_SCHEDULED)

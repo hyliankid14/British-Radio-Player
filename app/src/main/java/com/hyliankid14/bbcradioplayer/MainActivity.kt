@@ -165,22 +165,7 @@ class MainActivity : AppCompatActivity() {
             android.util.Log.w("MainActivity", "Failed to cancel background work: ${e.message}")
         }
 
-        // On first install (empty index), trigger an immediate background download
-        // so the user sees episodes without having to visit Settings first.
-        try {
-            val episodeCount = com.hyliankid14.bbcradioplayer.db.IndexStore.getInstance(this)
-                .getIndexedEpisodeCount()
-            if (episodeCount == 0) {
-                com.hyliankid14.bbcradioplayer.workers.BackgroundIndexWorker.enqueueIndexing(
-                    this, fullReindex = true
-                )
-                android.util.Log.i("MainActivity", "No local index found — enqueued initial full reindex")
-            }
-        } catch (e: Exception) {
-            android.util.Log.w("MainActivity", "Could not check index count: ${e.message}")
-        }
-
-        // Activate periodic background indexing (defaults to daily for new installs).
+        // Activate periodic background indexing only if the user has configured a schedule.
         try {
             val days = IndexPreference.getIntervalDays(this)
             if (days > 0) {

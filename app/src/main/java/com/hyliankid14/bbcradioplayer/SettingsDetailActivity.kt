@@ -469,6 +469,20 @@ class SettingsDetailActivity : AppCompatActivity() {
                     android.widget.Toast.makeText(this, if (isChecked) "Non-English podcasts will be hidden and not indexed" else "All podcasts will be shown and indexed", android.widget.Toast.LENGTH_SHORT).show()
                 }
             } catch (_: Exception) {}
+
+            // Initialize 'wifi only' checkbox and bind preference
+            try {
+                val wifiOnlyCb: android.widget.CheckBox = findViewById(R.id.index_wifi_only_checkbox)
+                wifiOnlyCb.isChecked = IndexPreference.getWifiOnly(this)
+                wifiOnlyCb.setOnCheckedChangeListener { _, isChecked ->
+                    IndexPreference.setWifiOnly(this, isChecked)
+                    // Re-schedule with updated network constraint if a schedule is active
+                    val currentDays = IndexPreference.getIntervalDays(this@SettingsDetailActivity)
+                    if (currentDays > 0) {
+                        IndexScheduler.scheduleIndexing(this@SettingsDetailActivity)
+                    }
+                }
+            } catch (_: Exception) {}
         } catch (_: Exception) {}
     }
 
