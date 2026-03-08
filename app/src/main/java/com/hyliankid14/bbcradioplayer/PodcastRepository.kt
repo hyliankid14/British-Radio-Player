@@ -280,26 +280,25 @@ class PodcastRepository(private val context: Context) {
     suspend fun fetchEpisodesPaged(podcast: Podcast, startIndex: Int, count: Int): List<Episode> = withContext(Dispatchers.IO) {
         try {
             Log.d("PodcastRepository", "Fetching episodes page for ${podcast.title} start=$startIndex count=$count")
-            // When a bounded count is given, limit the RSS parse to avoid reading the entire feed
-            // for large podcasts (hundreds of episodes). BBC feeds are reverse-chronological so
-            // the first (startIndex + count) items are the most recent ones.
-            // Guard against Int overflow: only apply the limit when count is a reasonable value.
-            val fetchLimit = if (count < Int.MAX_VALUE / 2) startIndex + count else Int.MAX_VALUE
-            val all = RSSParser.fetchAndParseRSS(podcast.rssUrl, podcast.id, 0, fetchLimit)
+            // Always fetch and cache the full episode list so that pagination is consistent
+            // regardless of the BBC feed's native sort order (some feeds are oldest-first).
+            // Subsequent calls for the same podcast reuse the in-memory cache to avoid
+            // redundant HTTP requests and to guarantee stable pagination.
+            // The cache lives for the lifetime of this PodcastRepository instance (i.e. the
+            // current screen/session). It is not persisted to disk, so it is effectively
+            // cleared on app restart. It can also be bypassed via fetchEpisodesIfNeeded with
+            // forceRefresh=true for an explicit pull-to-refresh flow.
+            val all = episodesCache[podcast.id]?.takeIf { it.isNotEmpty() } ?: run {
+                val eps = RSSParser.fetchAndParseRSS(podcast.rssUrl, podcast.id)
+                if (eps.isNotEmpty()) {
+                    episodesCache[podcast.id] = eps
+                    episodesIndex[podcast.id] = eps.map { it.title.lowercase(Locale.getDefault()) to it.description.lowercase(Locale.getDefault()) }
+                }
+                eps
+            }
             if (all.isEmpty()) return@withContext emptyList()
 
-            fun parsePubDate(raw: String): Long {
-                val patterns = listOf("EEE, dd MMM yyyy HH:mm:ss Z", "dd MMM yyyy HH:mm:ss Z", "EEE, dd MMM yyyy")
-                for (pattern in patterns) {
-                    try {
-                        val t = java.text.SimpleDateFormat(pattern, java.util.Locale.US).parse(raw)?.time
-                        if (t != null) return t
-                    } catch (_: Exception) { }
-                }
-                return 0L
-            }
-
-            val sorted = all.sortedByDescending { parsePubDate(it.pubDate) }
+            val sorted = all.sortedByDescending { EpisodeDateParser.parsePubDateToEpoch(it.pubDate) }
             val from = startIndex.coerceAtLeast(0)
             val to = kotlin.math.min(sorted.size, startIndex + count)
             if (from >= to) return@withContext emptyList()
