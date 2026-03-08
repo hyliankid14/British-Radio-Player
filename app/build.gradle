@@ -6,29 +6,6 @@ plugins {
 
 }
 
-/**
- * Returns the number of commits since the most recent git tag, or the total
- * commit count when no tags exist yet.  This value is embedded in the debug
- * versionName as a pre-release identifier (e.g. "1.2.0-debug.42") so that
- * every debug build carries an automatically-incrementing counter that clearly
- * sits ahead of the corresponding release build.
- */
-def getCommitsSinceLastTag = {
-    try {
-        // git describe outputs "<tag>-<N>-g<hash>" when a tag exists
-        def gitDescribe = ['git', 'describe', '--tags', '--long'].execute().text.trim()
-        def matcher = (gitDescribe =~ /^(.*)-(\d+)-g[0-9a-f]+$/)
-        if (matcher.matches()) {
-            return matcher.group(2).toInteger()
-        }
-    } catch (Exception ignored) {}
-    // No tags yet — fall back to total commit count
-    try {
-        return ['git', 'rev-list', '--count', 'HEAD'].execute().text.trim().toInteger()
-    } catch (Exception ignored) {}
-    return 0
-}
-
 def releaseStoreFile = project.findProperty("RELEASE_STORE_FILE") ?: System.getenv("RELEASE_STORE_FILE")
 def releaseStorePassword = project.findProperty("RELEASE_STORE_PASSWORD") ?: System.getenv("RELEASE_STORE_PASSWORD")
 def releaseKeyAlias = project.findProperty("RELEASE_KEY_ALIAS") ?: System.getenv("RELEASE_KEY_ALIAS")
@@ -44,7 +21,7 @@ android {
         minSdk = 21
         targetSdk = 34
         versionCode = 33
-        versionName = "1.2.0"
+        versionName = "1.2.1"
     }
 
     signingConfigs {
@@ -75,11 +52,12 @@ android {
             // installed alongside a release build (F-Droid / Play Store) without a
             // "package conflict" error caused by mismatched signing certificates.
             applicationIdSuffix ".debug"
-            // Embed a SemVer pre-release identifier that reflects the number of
-            // commits made since the last release tag (e.g. "1.2.0-debug.42").
-            // This ensures debug builds always sort ahead of the release they
-            // follow and the counter increments automatically with every commit.
-            versionNameSuffix "-debug.${getCommitsSinceLastTag()}"
+            // Append "-debug" to the version name so debug builds are clearly
+            // identified (e.g. "1.2.1-debug").  The base versionName in defaultConfig
+            // should already reflect the next intended version relative to the last
+            // GitHub release — increment the patch for small changes (1.2.1) or the
+            // minor component for larger ones (1.3.0).
+            versionNameSuffix "-debug"
         }
         release {
             if (hasReleaseSigning) {
