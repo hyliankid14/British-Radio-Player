@@ -47,20 +47,6 @@ android {
         versionName = "1.2.0"
     }
 
-    flavorDimensions "distribution"
-
-    productFlavors {
-        fdroid {
-            dimension "distribution"
-            // F-Droid variant: clean, no Google-specific metadata or dependencies
-        }
-
-        play {
-            dimension "distribution"
-            // Google Play variant: includes Google-specific optimizations
-        }
-    }
-
     signingConfigs {
         debug {
             // Use a committed debug keystore so all CI-generated debug APKs share the

@@ -115,18 +115,14 @@ endorsement intended.
 
 ## F-Droid build notes
 
-- Android Auto discovery requires this manifest metadata entry:
-
-```xml
-<meta-data
-    android:name="com.google.android.gms.car.application"
-    android:resource="@xml/automotive_app_desc" />
-```
-
-- If this metadata is removed, the app may not appear in Android Auto app lists even though playback service code is present.
-- For user choice, publish two install variants:
-  - **Standard/Android Auto build:** includes the metadata above (recommended for users who want Android Auto visibility).
-  - **F-Droid-compatible build:** excludes Google car metadata for strict FOSS packaging.
+- Android Auto works via the standard `MediaBrowserServiceCompat` (AndroidX/AOSP) API — no
+  Google GMS libraries or proprietary metadata are required.
+- The `com.google.android.gms.car.application` manifest metadata is **not** included.
+  Android Auto head units discover the app through the standard
+  `android.media.browse.MediaBrowserService` intent declared in the manifest, which is a
+  fully AOSP-based mechanism.
+- The app is built from a single unified build — there is no separate "Google" or
+  "No-Google" APK variant.
 - The app builds without proprietary language-detection dependencies.
 - Example build command:
 
