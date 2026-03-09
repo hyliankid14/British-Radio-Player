@@ -913,31 +913,34 @@ def index():
 
                 <div class="panels">
                     <div class="panel">
-                        <h3>Top Stations</h3>
+                        <h3>Top 20 Stations</h3>
                         <div class="table-wrapper">
                             <table id="stationsTable">
                                 <thead><tr><th>Station</th><th>Plays</th></tr></thead>
                                 <tbody></tbody>
                             </table>
                         </div>
+                        <p class="muted" style="margin-top: 8px; font-size: 13px;">Showing top 20. Download the CSV for the full list.</p>
                     </div>
                     <div class="panel">
-                        <h3>Top Podcasts</h3>
+                        <h3>Top 20 Podcasts</h3>
                         <div class="table-wrapper">
                             <table id="podcastsTable">
                                 <thead><tr><th>Podcast</th><th>Plays</th></tr></thead>
                                 <tbody></tbody>
                             </table>
                         </div>
+                        <p class="muted" style="margin-top: 8px; font-size: 13px;">Showing top 20. Download the CSV for the full list.</p>
                     </div>
                     <div class="panel">
-                        <h3>Top Episodes</h3>
+                        <h3>Top 20 Episodes</h3>
                         <div class="table-wrapper">
                             <table id="episodesTable">
                                 <thead><tr><th>Episode</th><th>Podcast</th><th>Plays</th></tr></thead>
                                 <tbody></tbody>
                             </table>
                         </div>
+                        <p class="muted" style="margin-top: 8px; font-size: 13px;">Showing top 20. Download the CSV for the full list.</p>
                     </div>
                 </div>
 
