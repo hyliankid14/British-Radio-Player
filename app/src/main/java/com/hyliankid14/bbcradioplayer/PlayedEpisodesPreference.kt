@@ -47,17 +47,23 @@ object PlayedEpisodesPreference {
      */
     fun markPlayedWithMeta(context: Context, episodeId: String, podcastId: String?, pubDateEpochMs: Long?) {
         val current = getPlayedIds(context).toMutableSet()
-        if (!current.contains(episodeId)) {
+        val wasAlreadyMarkedPlayed = current.contains(episodeId)
+
+        // Always update the podcast's last-played epoch regardless of prior played status.
+        // This handles the case where an episode was previously marked via markPlayed (no epoch),
+        // ensuring the notification dot clears correctly once all episodes have been played.
+        pubDateEpochMs?.let { epoch ->
+            podcastId?.let { pid ->
+                val existing = getLastPlayedEpoch(context, pid)
+                if (epoch > existing) setLastPlayedEpoch(context, pid, epoch)
+            }
+        }
+
+        if (!wasAlreadyMarkedPlayed) {
             current.add(episodeId)
             // Remove saved progress when episode is considered completed
             removeProgress(context, episodeId)
             prefs(context).edit().putStringSet(KEY_PLAYED_IDS, current).apply()
-            pubDateEpochMs?.let { epoch ->
-                podcastId?.let { pid ->
-                    val existing = getLastPlayedEpoch(context, pid)
-                    if (epoch > existing) setLastPlayedEpoch(context, pid, epoch)
-                }
-            }
             // Broadcast change so UI can update
             val intent = android.content.Intent(ACTION_PLAYED_STATUS_CHANGED)
             context.sendBroadcast(intent)

@@ -2921,18 +2921,9 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
             if (dur <= 0) return
             val ratio = pos.toDouble() / dur.toDouble()
             if (ratio >= 0.95) {
-                // Try to parse pubDate to epoch and record it when marking played so we can detect newer episodes
-                val epoch = try {
-                    val patterns = listOf("EEE, dd MMM yyyy HH:mm:ss Z", "dd MMM yyyy HH:mm:ss Z", "EEE, dd MMM yyyy")
-                    var parsed: Long? = null
-                    for (pattern in patterns) {
-                        try {
-                            val t = java.text.SimpleDateFormat(pattern, java.util.Locale.US).parse(episode.pubDate)?.time
-                            if (t != null) { parsed = t; break }
-                        } catch (_: Exception) { }
-                    }
-                    parsed
-                } catch (_: Exception) { null }
+                // Parse pubDate to epoch using the shared parser so all date formats (including
+                // named timezones like "GMT") are handled consistently across the app.
+                val epoch = EpisodeDateParser.parsePubDateToEpoch(episode.pubDate).takeIf { it > 0L }
                 PlayedEpisodesPreference.markPlayedWithMeta(this, episode.id, episode.podcastId, epoch)
                 android.util.Log.d(TAG, "Marked episode as played (95% reached): ${episode.id}")
                 

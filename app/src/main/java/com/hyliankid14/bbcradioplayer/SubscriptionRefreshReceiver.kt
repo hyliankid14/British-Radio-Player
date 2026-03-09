@@ -36,7 +36,11 @@ class SubscriptionRefreshReceiver : BroadcastReceiver() {
                         }
 
                         if (autoDownloadEnabled) {
-                            val candidates = sortedEpisodes.take(autoDownloadLimit)
+                            // Skip already-played episodes to avoid re-downloading them after
+                            // they have been deleted via the "delete on played" setting.
+                            val candidates = sortedEpisodes
+                                .filter { !PlayedEpisodesPreference.isPlayed(context, it.id) }
+                                .take(autoDownloadLimit)
                             for (episode in candidates) {
                                 if (!DownloadedEpisodes.isDownloaded(context, episode)) {
                                     try {

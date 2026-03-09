@@ -1191,7 +1191,11 @@ class NowPlayingActivity : AppCompatActivity() {
                     }
 
                     R.id.action_mark_played -> {
-                        val episodeId = previewEpisodeProp?.id ?: PlaybackStateHelper.getCurrentEpisodeId() ?: currentShownEpisodeId
+                        // Fall back to playingEpisode so metadata is available even when
+                        // the user marks an episode as played while it is actively playing
+                        // (at which point previewEpisodeProp is null).
+                        val episodeForMeta = previewEpisodeProp ?: playingEpisode
+                        val episodeId = episodeForMeta?.id ?: PlaybackStateHelper.getCurrentEpisodeId() ?: currentShownEpisodeId
                         if (!episodeId.isNullOrEmpty()) {
                             val nowPlayed = PlayedEpisodesPreference.isPlayed(this, episodeId)
                             if (nowPlayed) {
@@ -1200,7 +1204,17 @@ class NowPlayingActivity : AppCompatActivity() {
                                     .setAnchorView(findViewById(R.id.playback_controls))
                                     .show()
                             } else {
-                                PlayedEpisodesPreference.markPlayed(this, episodeId)
+                                // Use markPlayedWithMeta so lastPlayedEpoch is updated for the podcast.
+                                // This ensures the new-episode dot clears correctly when manually marking
+                                // the newest episode as played (not just via 95% playback completion).
+                                val pubDateEpoch = episodeForMeta?.pubDate
+                                    ?.let { EpisodeDateParser.parsePubDateToEpoch(it).takeIf { parsedEpoch -> parsedEpoch > 0L } }
+                                if (pubDateEpoch == null && episodeForMeta?.pubDate?.isNotBlank() == true) {
+                                    android.util.Log.w("NowPlayingActivity", "Could not parse pubDate for epoch: ${episodeForMeta.pubDate}")
+                                }
+                                PlayedEpisodesPreference.markPlayedWithMeta(
+                                    this, episodeId, episodeForMeta?.podcastId, pubDateEpoch
+                                )
                                 com.google.android.material.snackbar.Snackbar.make(findViewById(android.R.id.content), "Marked as played", com.google.android.material.snackbar.Snackbar.LENGTH_SHORT)
                                     .setAnchorView(findViewById(R.id.playback_controls))
                                     .show()
