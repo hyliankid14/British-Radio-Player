@@ -1573,15 +1573,21 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                         return@Thread
                     }
 
-                    // Ensure updated notification keeps podcast title + episode subtitle (some UIs read subText)
-                    val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                    notificationManager.notify(NOTIFICATION_ID, updatedNotification)
-                    Log.d(TAG, "Updated notification with artwork from: $finalUrl")
-
-                    WidgetUpdateHelper.updateAllWidgets(this)
-                    
-                    // Update MediaSession metadata with the bitmap AND the correct URI
-                    updateMediaMetadata(bitmap, finalUrl)
+                    // Post the notification update to the main thread so it is serialised with
+                    // stopPlayback().  Without this, a race between the background image-load
+                    // completing and stopPlayback() cancelling the notification causes the
+                    // notification to reappear in the shade even after the user taps Stop.
+                    handler.post {
+                        if (isStopped || currentStationId.isBlank()) {
+                            // stopPlayback() ran while we were loading – discard the result
+                            return@post
+                        }
+                        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                        notificationManager.notify(NOTIFICATION_ID, updatedNotification)
+                        Log.d(TAG, "Updated notification with artwork from: $finalUrl")
+                        WidgetUpdateHelper.updateAllWidgets(this)
+                        updateMediaMetadata(bitmap, finalUrl)
+                    }
                 } else {
                     // If bitmap load failed completely, still update metadata with the fallback URI
                     // This ensures AA at least has a valid URI to try, rather than the broken one or the placeholder
@@ -2747,7 +2753,13 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                             Log.w(TAG, "Error updating media metadata/state during progress runnable: ${e.message}")
                         }
                     } finally {
-                        handler.postDelayed(this, 500)
+                        // Only reschedule while playback is active.  The unconditional postDelayed
+                        // here previously caused the runnable to re-queue itself indefinitely even
+                        // after stopPlayback() set isStopped = true, because Kotlin's finally block
+                        // runs even when an early `return` is hit inside the same try statement.
+                        if (!isStopped) {
+                            handler.postDelayed(this, 500)
+                        }
                     }
                 }
             }
