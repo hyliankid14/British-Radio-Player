@@ -103,7 +103,7 @@ class RadioService : MediaBrowserServiceCompat() {
     private var episodeAnalyticsScheduled: Boolean = false
 
     private var notificationHadProgress: Boolean = false
-    private var isStopped: Boolean = false
+    @Volatile private var isStopped: Boolean = false
     // Track last-saved progress per episode to avoid excessive writes
     private val lastSavedProgress = mutableMapOf<String, Long>()
     private val serviceScope = CoroutineScope(Dispatchers.Main)
@@ -1568,6 +1568,11 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
 
                     val updatedNotification = nb.build()
 
+                    // Guard: stop may have been called while the image was loading
+                    if (isStopped || currentStationId.isBlank()) {
+                        return@Thread
+                    }
+
                     // Ensure updated notification keeps podcast title + episode subtitle (some UIs read subText)
                     val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                     notificationManager.notify(NOTIFICATION_ID, updatedNotification)
@@ -2697,6 +2702,7 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
             podcastProgressRunnable?.let { handler.removeCallbacks(it) }
             podcastProgressRunnable = object : Runnable {
                 override fun run() {
+                    if (isStopped) return
                     try {
                         val pos = player?.currentPosition ?: 0L
                         val dur = player?.duration ?: 0L
