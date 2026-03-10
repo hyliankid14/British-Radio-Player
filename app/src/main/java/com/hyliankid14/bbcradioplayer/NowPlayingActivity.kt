@@ -1215,6 +1215,10 @@ class NowPlayingActivity : AppCompatActivity() {
                                 PlayedEpisodesPreference.markPlayedWithMeta(
                                     this, episodeId, episodeForMeta?.podcastId, pubDateEpoch
                                 )
+                                // Auto-delete downloaded episode if setting is enabled
+                                if (DownloadPreferences.isDeleteOnPlayed(this) && DownloadedEpisodes.isDownloaded(this, episodeId)) {
+                                    EpisodeDownloadManager.deleteDownload(this, episodeId)
+                                }
                                 com.google.android.material.snackbar.Snackbar.make(findViewById(android.R.id.content), "Marked as played", com.google.android.material.snackbar.Snackbar.LENGTH_SHORT)
                                     .setAnchorView(findViewById(R.id.playback_controls))
                                     .show()
