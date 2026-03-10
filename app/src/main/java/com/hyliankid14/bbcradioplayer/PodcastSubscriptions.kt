@@ -9,6 +9,8 @@ object PodcastSubscriptions {
     private const val PREFS_NAME = "podcast_subscriptions"
     private const val KEY_SUBSCRIBED_IDS = "subscribed_ids"
     private const val KEY_NOTIFICATIONS_ENABLED = "notifications_enabled"
+    private const val KEY_LAST_AUTO_SYNC_MS = "last_auto_sync_ms"
+    private const val AUTO_SYNC_MIN_INTERVAL_MS = 15L * 60L * 1000L
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
@@ -65,6 +67,8 @@ object PodcastSubscriptions {
                 val sortedEpisodes = episodes.sortedByDescending {
                     EpisodeDateParser.parsePubDateToEpoch(it.pubDate)
                 }
+                // Enforce the configured retention even when no new episode is downloaded.
+                EpisodeDownloadManager.pruneDownloadsForPodcastToLimit(context, podcast.id, autoDownloadLimit)
                 val candidates = sortedEpisodes
                     .filter { !PlayedEpisodesPreference.isPlayed(context, it.id) }
                     .take(autoDownloadLimit)
@@ -86,8 +90,14 @@ object PodcastSubscriptions {
      * This is useful when the user enables auto-download for the first time
      * or when they want to catch up on all their subscriptions.
      */
-    fun triggerAutoDownloadForAllSubscriptions(context: Context) {
+    fun triggerAutoDownloadForAllSubscriptions(context: Context, force: Boolean = false) {
         if (!DownloadPreferences.isAutoDownloadEnabled(context)) return
+        val now = System.currentTimeMillis()
+        if (!force) {
+            val lastSync = prefs(context).getLong(KEY_LAST_AUTO_SYNC_MS, 0L)
+            if (now - lastSync < AUTO_SYNC_MIN_INTERVAL_MS) return
+        }
+        prefs(context).edit().putLong(KEY_LAST_AUTO_SYNC_MS, now).apply()
         
         CoroutineScope(Dispatchers.IO).launch {
             try {

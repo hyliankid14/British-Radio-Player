@@ -335,6 +335,10 @@ class MainActivity : AppCompatActivity() {
 
         // Setup settings controls
         setupSettings()
+
+        // Run a throttled sync on app start so subscription auto-downloads stay current
+        // even before the next scheduled background refresh alarm fires.
+        PodcastSubscriptions.triggerAutoDownloadForAllSubscriptions(this)
         
         // Create alarm notification channel
         createAlarmNotificationChannel()

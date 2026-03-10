@@ -296,7 +296,7 @@ class SettingsDetailActivity : AppCompatActivity() {
                 
                 if (isChecked) {
                     // When enabling auto-download, immediately trigger downloads for all existing subscriptions
-                    PodcastSubscriptions.triggerAutoDownloadForAllSubscriptions(this)
+                    PodcastSubscriptions.triggerAutoDownloadForAllSubscriptions(this, force = true)
                     android.widget.Toast.makeText(this, "Auto-download enabled - checking subscribed podcasts...", android.widget.Toast.LENGTH_SHORT).show()
                 } else {
                     android.widget.Toast.makeText(this, "Auto-download disabled", android.widget.Toast.LENGTH_SHORT).show()
@@ -329,6 +329,7 @@ class SettingsDetailActivity : AppCompatActivity() {
             autoDownloadLimitSpinner.setOnItemClickListener { _, _, position, _ ->
                 val limit = limitValues[position]
                 DownloadPreferences.setAutoDownloadLimit(this, limit)
+                PodcastSubscriptions.triggerAutoDownloadForAllSubscriptions(this, force = true)
                 android.widget.Toast.makeText(this, "Auto-download limit: ${limitOptions[position]}", android.widget.Toast.LENGTH_SHORT).show()
             }
 

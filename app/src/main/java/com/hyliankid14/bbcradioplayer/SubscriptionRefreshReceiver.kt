@@ -36,6 +36,7 @@ class SubscriptionRefreshReceiver : BroadcastReceiver() {
                         }
 
                         if (autoDownloadEnabled) {
+                            EpisodeDownloadManager.pruneDownloadsForPodcastToLimit(context, podcast.id, autoDownloadLimit)
                             // Skip already-played episodes to avoid re-downloading them after
                             // they have been deleted via the "delete on played" setting.
                             val candidates = sortedEpisodes
