@@ -143,9 +143,33 @@ class MainActivity : AppCompatActivity() {
 
             // Ensure the favourites toggle visibility is corrected for the inferred mode
             updateFavoritesToggleVisibility()
+            // Keep action bar visibility in sync with the currently visible container.
+            syncActionBarVisibility()
         } catch (_: Exception) {
             // Defensive: never crash from backstack bookkeeping
             updateActionBarTitle()
+            syncActionBarVisibility()
+        }
+    }
+
+    private fun syncActionBarVisibility() {
+        val actionBar = supportActionBar ?: return
+        if (!::staticContentContainer.isInitialized || !::fragmentContainer.isInitialized) return
+        val showingStaticContent = staticContentContainer.visibility == View.VISIBLE
+        if (showingStaticContent) {
+            actionBar.show()
+            actionBar.setDisplayHomeAsUpEnabled(false)
+            actionBar.setDisplayShowHomeEnabled(false)
+            return
+        }
+
+        // Fragment content (podcasts) can have either list (own title bar) or detail pages.
+        // Keep the existing behaviour: hide for list, show for detail/back stack.
+        val hasDetailOnBackStack = supportFragmentManager.backStackEntryCount > 0
+        if (hasDetailOnBackStack) {
+            actionBar.show()
+        } else {
+            actionBar.hide()
         }
     }
 
@@ -2549,6 +2573,9 @@ class MainActivity : AppCompatActivity() {
                 setDisplayShowHomeEnabled(false)
             }
         }
+        // Defensive sync for intermittent cases where the action bar remains hidden
+        // after returning from fragment-heavy flows.
+        syncActionBarVisibility()
 
         // If returning to Favorites ensure the last-selected sub-tab is restored and its
         // content (Saved / History) is refreshed so it doesn't remain hidden after navigation.
