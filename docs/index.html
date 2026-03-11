@@ -630,9 +630,10 @@
         }
 
         .podcast-detail-art {
-            width: 110px;
-            height: 110px;
-            font-size: 44px;
+            width: 130px;
+            height: 130px;
+            font-size: 48px;
+            flex-shrink: 0;
         }
 
         .podcast-detail-copy {
@@ -796,12 +797,85 @@
         }
 
         .station-icon-button.play {
+
+                    /* Radio player box redesign */
+                    .radio-player-header {
+                        display: flex;
+                        gap: 14px;
+                        align-items: center;
+                        margin-bottom: 14px;
+                    }
+
+                    .radio-player-art {
+                        width: 80px;
+                        height: 80px;
+                        border-radius: 12px;
+                        flex-shrink: 0;
+                        object-fit: cover;
+                        background: #f2f2f2;
+                    }
+
+                    .radio-player-info {
+                        flex: 1;
+                        min-width: 0;
+                    }
+
+                    .radio-player-station-name {
+                        font-size: 18px;
+                        font-weight: 700;
+                        color: #222;
+                        margin-bottom: 4px;
+                    }
+
+                    .radio-player-show-name {
+                        font-size: 13px;
+                        color: #666;
+                        line-height: 1.4;
+                        white-space: nowrap;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                    }
+
+                    /* Podcast detail full-page view */
+                    .podcast-detail-view {
+                        max-width: 760px;
+                    }
+
+                    .podcast-back-row {
+                        margin-bottom: 18px;
+                    }
+
+                    .podcast-back-btn {
+                        display: inline-flex;
+                        align-items: center;
+                        gap: 6px;
+                        padding: 8px 14px;
+                        background: #f5f5f5;
+                        border: 1px solid #e0e0e0;
+                        border-radius: 8px;
+                        cursor: pointer;
+                        font-size: 14px;
+                        color: #333;
+                    }
+
+                    .podcast-back-btn:hover {
+                        background: #ebebeb;
+                    }
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             border: none;
             color: white;
         }
 
         @media (max-width: 600px) {
+            .radio-player-art {
+                width: 64px;
+                height: 64px;
+            }
+
+            .radio-player-station-name {
+                font-size: 15px;
+            }
+
             .header {
                 padding: 30px 20px;
             }
@@ -1028,6 +1102,7 @@
                 this.isLoadingPodcasts = false;
                 this.currentWebAppTab = 'radio';
                 this.currentPodcastId = null;
+                this.currentPodcastDetailId = null;
                 this.currentPodcastSearch = '';
                 this.currentView = 'landing';
                 this.init();
@@ -1575,42 +1650,32 @@
             }
 
             buildPodcastsFromIndex(indexData) {
-                // indexData is { generated_at, podcast_count, episode_count, podcasts[], episodes[] }
+                // Episodes in the index have no audio URLs — those come from the RSS feed on demand.
                 const podcasts = indexData.podcasts || [];
                 const episodes = indexData.episodes || [];
-                
-                // Create a map of episodes by podcast ID for quick lookup
-                const episodesByPodcast = {};
+
+                const episodeCountByPodcast = {};
+                const latestByPodcast = {};
                 for (const episode of episodes) {
-                    const podcastId = episode.podcastId;
-                    if (!podcastId) continue;
-                    
-                    if (!episodesByPodcast[podcastId]) {
-                        episodesByPodcast[podcastId] = [];
-                    }
-                    if (episodesByPodcast[podcastId].length < 24) {
-                        episodesByPodcast[podcastId].push({
-                            id: episode.id || `ep-${Math.random()}`,
-                            title: episode.title || 'Untitled',
-                            description: episode.description || '',
-                            audioUrl: episode.enclosureUrl || episode.audioUrl || '',
-                            imageUrl: episode.image || '',
-                            pubDate: episode.pubDate || '',
-                            durationMins: episode.durationMins || 0
-                        });
+                    const pid = episode.podcastId;
+                    if (!pid) continue;
+                    episodeCountByPodcast[pid] = (episodeCountByPodcast[pid] || 0) + 1;
+                    if (!latestByPodcast[pid]) {
+                        latestByPodcast[pid] = { title: episode.title || '', pubDate: episode.pubDate || '' };
                     }
                 }
 
-                // Enrich podcasts with their episodes
                 return podcasts.map(podcast => ({
                     id: podcast.id,
                     title: podcast.title || 'Unknown Podcast',
                     description: podcast.description || 'BBC podcast',
-                    rssUrl: '',
-                    imageUrl: podcast.image || null,
-                    episodes: episodesByPodcast[podcast.id] || [],
-                    episodeCount: (episodesByPodcast[podcast.id] || []).length,
+                    rssUrl: `https://podcasts.files.bbci.co.uk/${podcast.id}.rss`,
+                    imageUrl: null,
+                    episodes: [],
+                    episodeCount: episodeCountByPodcast[podcast.id] || 0,
+                    latestEpisode: latestByPodcast[podcast.id] || null,
                     isLoading: false,
+                    rssLoaded: false,
                     loadError: ''
                 })).sort((a, b) => a.title.localeCompare(b.title));
             }
@@ -1634,7 +1699,14 @@
             async selectPodcast(podcastId) {
                 this.currentWebAppTab = 'podcasts';
                 this.currentPodcastId = podcastId;
+                this.currentPodcastDetailId = podcastId;
+                this.renderLiveRadioSection(); // show loading state immediately
                 await this.ensurePodcastLoaded(podcastId);
+                this.renderLiveRadioSection(); // update with loaded content
+            }
+
+            backToPodcastList() {
+                this.currentPodcastDetailId = null;
                 this.renderLiveRadioSection();
             }
 
@@ -1651,10 +1723,11 @@
                     throw new Error('Missing channel element');
                 }
 
-                const imageUrl = channel.querySelector('itunes\\:image')?.getAttribute('href')
+                const rawImageUrl = channel.querySelector('itunes\\:image')?.getAttribute('href')
                     || channel.querySelector('image url')?.textContent?.trim()
                     || podcast.imageUrl
                     || null;
+                const imageUrl = rawImageUrl ? rawImageUrl.replace(/^http:\/\//i, 'https://') : null;
                 const description = channel.querySelector('itunes\\:summary')?.textContent?.trim()
                     || channel.querySelector('description')?.textContent?.trim()
                     || podcast.description
@@ -1663,10 +1736,12 @@
 
                 const episodes = Array.from(channel.querySelectorAll('item')).slice(0, 24).map(item => {
                     const guid = item.querySelector('guid')?.textContent?.trim() || '';
-                    const enclosureUrl = item.querySelector('enclosure')?.getAttribute('url') || '';
-                    const itemImage = item.querySelector('itunes\\:image')?.getAttribute('href')
+                    const enclosureUrl = (item.querySelector('enclosure')?.getAttribute('url') || '').replace(/^http:\/\//i, 'https://');
+                    const rawItemImage = item.querySelector('itunes\\:image')?.getAttribute('href')
                         || item.querySelector('image url')?.textContent?.trim()
-                        || imageUrl;
+                        || rawImageUrl
+                        || '';
+                    const itemImage = rawItemImage.replace(/^http:\/\//i, 'https://');
                     const itemDescription = item.querySelector('itunes\\:summary')?.textContent?.trim()
                         || item.querySelector('description')?.textContent?.trim()
                         || '';
@@ -1699,21 +1774,21 @@
 
             async ensurePodcastLoaded(podcastId) {
                 const podcast = this.getPodcastById(podcastId);
-                if (!podcast) {
-                    return;
-                }
+                if (!podcast || podcast.rssLoaded || podcast.isLoading) return;
 
-                // Episodes are already loaded from the pre-built index
-                // Just mark it as loaded (no need to fetch RSS anymore)
-                if (Array.isArray(podcast.episodes) && podcast.episodes.length > 0) {
+                podcast.isLoading = true;
+                podcast.loadError = '';
+
+                try {
+                    const text = await this.fetchPodcastFeedText(podcast.rssUrl);
+                    const updated = this.parsePodcastFeed(text, podcast);
+                    Object.assign(podcast, updated);
+                    podcast.rssLoaded = true;
+                } catch (e) {
+                    podcast.loadError = 'Could not load episodes. Check your connection and try again.';
+                } finally {
                     podcast.isLoading = false;
-                    return;
                 }
-
-                // If no episodes, mark as complete (empty podcast)
-                podcast.isLoading = false;
-                podcast.episodeCount = 0;
-                podcast.episodes = [];
             }
 
             renderPodcastCards(podcasts) {
@@ -1729,16 +1804,17 @@
 
                 return podcasts.map(podcast => {
                     const description = this.stripHtml(podcast.description || 'BBC podcast');
-                    const artwork = podcast.imageUrl
-                        ? `<img src="${this.escapeHtml(podcast.imageUrl)}" alt="${this.escapeHtml(podcast.title)}" onerror="this.parentElement.innerHTML='🎙️'">`
-                        : '🎙️';
+                    const episodeMeta = podcast.episodeCount
+                        ? `${podcast.episodeCount} episode${podcast.episodeCount !== 1 ? 's' : ''}`
+                        : '';
 
                     return `
-                        <button class="podcast-card ${this.currentPodcastId === podcast.id ? 'active' : ''}" onclick="player.selectPodcast('${this.escapeHtml(podcast.id)}')" type="button">
-                            <div class="podcast-card-art">${artwork}</div>
+                        <button class="podcast-card" onclick="player.selectPodcast('${this.escapeHtml(podcast.id)}')" type="button">
+                            <div class="podcast-card-art">🎙️</div>
                             <div class="podcast-card-copy">
                                 <div class="podcast-card-title">${this.escapeHtml(podcast.title)}</div>
                                 <div class="podcast-card-description">${this.escapeHtml(description || 'BBC podcast')}</div>
+                                ${episodeMeta ? `<div style="font-size:12px;color:#999;margin-top:4px;">${this.escapeHtml(episodeMeta)}</div>` : ''}
                             </div>
                         </button>
                     `;
@@ -1876,13 +1952,14 @@
                 for (const s of toFetch) s.nowPlayingLoaded = true;
 
                 await Promise.allSettled(toFetch.map(async (station) => {
-                    const apiUrl = `https://rms.api.bbc.co.uk/v2/broadcasts/latest?service=${encodeURIComponent(station.serviceId)}&lang=en&limit=55`;
-                    const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(apiUrl)}`;
+                    const apiUrl = `https://rms.api.bbc.co.uk/v2/broadcasts/latest?service=${encodeURIComponent(station.serviceId)}&lang=en&limit=100`;
+                    const proxy1 = `https://api.allorigins.win/raw?url=${encodeURIComponent(apiUrl)}`;
+                    const proxy2 = `https://corsproxy.io/?${encodeURIComponent(apiUrl)}`;
 
-                    for (const endpoint of [apiUrl, proxyUrl]) {
+                    for (const endpoint of [apiUrl, proxy1, proxy2]) {
                         try {
                             const controller = new AbortController();
-                            const t = setTimeout(() => controller.abort(), 8000);
+                            const t = setTimeout(() => controller.abort(), 10000);
                             const resp = await fetch(endpoint, { signal: controller.signal });
                             clearTimeout(t);
                             if (!resp.ok) continue;
@@ -1895,18 +1972,20 @@
                                 return start <= nowMs && nowMs < end;
                             });
 
-                            if (current) {
-                                station.nowPlaying = current.programme.titles.primary;
-                            } else {
-                                station.nowPlaying = '';
-                            }
+                            station.nowPlaying = current ? current.programme.titles.primary : '';
                             break;
                         } catch (_) { /* try next endpoint */ }
                     }
 
-                    // Patch only this station's subtitle element — no re-render
+                    // Patch the station row subtitle
                     const el = document.querySelector(`[data-station-id="${station.id}"] .station-row-subtitle`);
                     if (el) el.textContent = station.nowPlaying || '';
+
+                    // Also patch the player box show name if this is the currently playing station
+                    if (station.id === this.currentRadioStationId && station.nowPlaying) {
+                        const playerShow = document.getElementById('radio-player-show');
+                        if (playerShow) playerShow.textContent = station.nowPlaying;
+                    }
                 }));
             }
 
@@ -1950,61 +2029,66 @@
                         this.ensurePodcastDirectoryLoaded().finally(() => this.renderLiveRadioSection());
                     }
 
-                    this.podcasts = this.getFilteredPodcasts();
-                    if (!this.currentPodcastId && this.podcasts[0]) {
-                        this.currentPodcastId = this.podcasts[0].id;
+                    const toolbar = `
+                        <div class="webapp-toolbar">
+                            <button class="button button-secondary" onclick="window.location.hash = '#/'">← Home</button>
+                            <div>
+                                <div class="webapp-title">BBC Radio Web App</div>
+                                <div class="webapp-subtitle">Live radio and BBC podcasts in one place</div>
+                            </div>
+                            <button class="button button-secondary" onclick="player.installPwa()">Install</button>
+                        </div>
+                    `;
+
+                    // --- Detail page: show when a podcast has been tapped ---
+                    if (this.currentPodcastDetailId) {
+                        const podcast = this.getPodcastById(this.currentPodcastDetailId);
+                        section.innerHTML = `
+                            <div class="radio-section">
+                                ${toolbar}
+                                ${appTabs}
+                                <div class="webapp-panel podcast-detail-view">
+                                    <div class="podcast-back-row">
+                                        <button class="podcast-back-btn" onclick="player.backToPodcastList()">← All Podcasts</button>
+                                    </div>
+                                    ${this.renderPodcastDetail(podcast)}
+                                </div>
+                            </div>
+                        `;
+                        this.attachPodcastInteractions();
+                        return;
                     }
 
-                    const selectedPodcast = this.getPodcastById(this.currentPodcastId)
-                        || this.podcasts[0]
-                        || this.allPodcasts[0]
-                        || null;
+                    // --- List page ---
+                    this.podcasts = this.getFilteredPodcasts();
+                    const podcastList = this.podcasts.length ? this.podcasts : this.allPodcasts;
 
                     section.innerHTML = `
                         <div class="radio-section">
-                            <div class="webapp-toolbar">
-                                <button class="button button-secondary" onclick="window.location.hash = '#/'">← Home</button>
-                                <div>
-                                    <div class="webapp-title">BBC Radio Web App</div>
-                                    <div class="webapp-subtitle">Live radio and BBC podcasts in one place</div>
-                                </div>
-                                <button class="button button-secondary" onclick="player.installPwa()">Install</button>
-                            </div>
-
+                            ${toolbar}
                             ${appTabs}
-
-                            <div class="webapp-panel podcast-shell">
-                                <div class="podcast-browser">
-                                    <div class="podcast-search-row">
-                                        <input id="podcast-search" class="podcast-search-input" type="search" placeholder="Search BBC podcasts" value="${this.escapeHtml(this.currentPodcastSearch)}">
-                                        <div class="podcast-search-meta">
-                                            ${this.isLoadingPodcasts ? 'Loading podcast directory...' : `${this.escapeHtml(String(this.podcasts.length || this.allPodcasts.length || 0))} podcasts available`}
-                                        </div>
-                                    </div>
-                                    <div class="podcast-list">
-                                        ${this.podcastsLoaded || this.allPodcasts.length
-                                            ? this.renderPodcastCards(this.podcasts.length ? this.podcasts : this.allPodcasts)
-                                            : `
-                                                <div class="empty-state-card">
-                                                    <div class="spinner" style="margin: 0 auto 16px;"></div>
-                                                    <div style="font-weight: 700; color: #333; margin-bottom: 6px;">Loading podcasts</div>
-                                                    <div>Fetching the BBC podcast directory so you can browse and search.</div>
-                                                </div>
-                                            `}
+                            <div class="webapp-panel">
+                                <div class="podcast-search-row">
+                                    <input id="podcast-search" class="podcast-search-input" type="search" placeholder="Search BBC podcasts" value="${this.escapeHtml(this.currentPodcastSearch)}">
+                                    <div class="podcast-search-meta">
+                                        ${this.isLoadingPodcasts ? 'Loading podcast directory...' : `${this.escapeHtml(String(podcastList.length || 0))} podcasts available`}
                                     </div>
                                 </div>
-
-                                <div class="podcast-detail-panel">
-                                    ${this.renderPodcastDetail(selectedPodcast)}
+                                <div class="podcast-list">
+                                    ${this.podcastsLoaded || this.allPodcasts.length
+                                        ? this.renderPodcastCards(podcastList)
+                                        : `
+                                            <div class="empty-state-card">
+                                                <div class="spinner" style="margin: 0 auto 16px;"></div>
+                                                <div style="font-weight: 700; color: #333; margin-bottom: 6px;">Loading podcasts</div>
+                                                <div>Fetching the BBC podcast directory so you can browse and search.</div>
+                                            </div>
+                                        `}
                                 </div>
                             </div>
                         </div>
                     `;
-
                     this.attachPodcastInteractions();
-                    if (selectedPodcast && !selectedPodcast.isLoading && !selectedPodcast.episodes && !selectedPodcast.loadError) {
-                        this.selectPodcast(selectedPodcast.id);
-                    }
                     return;
                 }
 
@@ -2046,13 +2130,19 @@
                         ${appTabs}
 
                         <div class="radio-player-box">
-                            <div class="radio-now-playing">Now playing: ${this.escapeHtml(selectedStation.title)}</div>
-                            <div style="display: flex; gap: 12px; align-items: center; margin: 14px 0;">
+                            <div class="radio-player-header">
+                                <img class="radio-player-art" src="${this.escapeHtml(selectedStation.logoUrl)}" alt="${this.escapeHtml(selectedStation.title)}" onerror="this.style.display='none'">
+                                <div class="radio-player-info">
+                                    <div class="radio-player-station-name">${this.escapeHtml(selectedStation.title)}</div>
+                                    <div id="radio-player-show" class="radio-player-show-name">${this.escapeHtml(selectedStation.nowPlaying || '')}</div>
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 12px; align-items: center; margin: 10px 0 8px;">
                                 <button id="radio-play-btn" class="station-icon-button play" onclick="player.toggleRadioPlayback()" style="width: 44px; height: 44px; font-size: 18px;">▶</button>
                                 <button id="radio-pause-btn" class="station-icon-button play" onclick="player.toggleRadioPlayback()" style="width: 44px; height: 44px; font-size: 18px; display: none;">⏸</button>
                                 <audio id="live-radio-player" style="display: none;"></audio>
+                                <div id="radio-status" class="duration-info" style="margin: 0;">Preparing stream...</div>
                             </div>
-                            <div id="radio-status" class="duration-info">Preparing stream...</div>
                         </div>
 
                         <div class="webapp-categories">
