@@ -398,6 +398,14 @@ class RadioService : MediaBrowserServiceCompat() {
     }
 
     private fun updatePlaybackState(state: Int) {
+        // Once stopPlayback() sets isStopped = true the MediaSession has already been
+        // deactivated and cleared. Samsung One UI 8's "Live notifications" system monitors
+        // setPlaybackState() calls on *any* MediaSession – active or not – and will rebuild
+        // its media-player widget whenever it sees one.  Returning here prevents both the
+        // ExoPlayer onPlaybackStateChanged(STATE_IDLE) callback (fired synchronously from
+        // player?.stop()) and any subsequent explicit calls from posting new state to the
+        // session after it has been cleared.
+        if (isStopped) return
         val isPodcast = currentStationId.startsWith("podcast_")
         val podcastId = currentPodcastId
         // For podcasts with an active episode, treat the star as saved-episode state. Otherwise treat as subscription state.
@@ -2233,14 +2241,27 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
         isStopped = true
         stopAlarmPlaybackVolumeRamp()
 
-        // Deactivate the MediaSession and clear its metadata FIRST, before player?.stop()
-        // triggers ExoPlayer state-change callbacks that call updatePlaybackState() on the
-        // still-active session.  Samsung One UI 8's "Live notifications" system monitors
-        // active MediaSessions; if the session is still active when STATE_STOPPED is posted
-        // (either from the explicit call below or from the ExoPlayer IDLE callback) Samsung
-        // rebuilds its own media-player card in the notification shade even after
-        // stopForeground() + NotificationManager.cancel() have already removed the app's
-        // own notification.  Deactivating the session here prevents that from happening.
+        // Shut down the MediaSession completely BEFORE player?.stop() so that neither
+        // the ExoPlayer onPlaybackStateChanged(STATE_IDLE) callback nor any subsequent
+        // updatePlaybackState() call can post new state to the session.
+        // updatePlaybackState() now returns immediately when isStopped == true (see guard
+        // at the top of that function), so the steps below are the last writes to the
+        // session.  Sequence matters for Samsung One UI 8:
+        //   1. Set STATE_NONE (no actions, position 0) — signals "no active playback" to
+        //      Samsung's Live-notifications system which monitors setPlaybackState() on
+        //      any MediaSession, active or not.
+        //   2. Clear metadata (empty builder) — removes the episode/station title and
+        //      artwork that Samsung's media-player card would otherwise cache.
+        //   3. Deactivate the session — final signal that the session is dormant.
+        try {
+            mediaSession.setPlaybackState(
+                PlaybackStateCompat.Builder()
+                    .setState(PlaybackStateCompat.STATE_NONE, 0L, 0f)
+                    .build()
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to clear MediaSession playback state on stop: ${e.message}")
+        }
         try {
             mediaSession.setMetadata(android.support.v4.media.MediaMetadataCompat.Builder().build())
         } catch (e: Exception) {
@@ -2259,8 +2280,10 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
             nm.cancel(NOTIFICATION_ID)
         } catch (_: Exception) { }
         notificationHadProgress = false
-        updatePlaybackState(PlaybackStateCompat.STATE_STOPPED)
-        
+        // updatePlaybackState(STATE_STOPPED) removed: the isStopped guard added to
+        // updatePlaybackState() makes any call here a no-op, and the STATE_NONE already
+        // set above is the correct terminal state for Samsung Live notifications.
+
         // Cancel show refresh
         showInfoRefreshRunnable?.let { handler.removeCallbacks(it) }
         podcastProgressRunnable?.let { handler.removeCallbacks(it) }
