@@ -1147,7 +1147,104 @@
                         { id: 'inside-health', title: 'Inside Health', description: 'BBC health and medicine podcast', genres: ['Health', 'BBC'], imageUrl: null },
                         { id: 'desert-island-discs', title: 'Desert Island Discs', description: 'BBC Radio 4 interview show', genres: ['Talk', 'BBC'], imageUrl: null }
                     ];
-                    this.podcastsLoaded = true;\n                } catch (error) {\n                    console.error('Failed to load podcasts index:', error);\n                }\n            }\n\n            async openPodcastsView() {\n                await this.loadPodcastsIndex();\n                this.currentView = 'podcasts';\n                this.showPodcastsPage();\n            }\n\n            showPodcastsPage() {\n                const app = document.getElementById('app');\n                app.innerHTML = `\n                    <div class=\"header\">\n                        <h1>🎙️ BBC Podcasts</h1>\n                        <p>Browse and listen to BBC podcasts</p>\n                    </div>\n                    <div class=\"content\">\n                        <div class=\"button-group\" style=\"flex-direction: row; margin: 20px 0;\">\n                            <button class=\"button button-secondary\" onclick=\"window.location.hash = '#/'\" style=\"flex: 0;\">← Home</button>\n                            <input type=\"text\" id=\"podcast-search\" placeholder=\"Search podcasts...\" style=\"flex: 1; padding: 10px; border: 1px solid #e0e0e0; border-radius: 8px; font-size: 14px;\">\n                        </div>\n                        <div id=\"podcasts-container\" style=\"margin-top: 20px;\"></div>\n                    </div>\n                `;\n\n                this.renderPodcastsList();\n\n                const searchInput = document.getElementById('podcast-search');\n                if (searchInput) {\n                    searchInput.addEventListener('input', (e) => this.filterPodcasts(e.target.value));\n                }\n            }\n\n            filterPodcasts(query) {\n                const filtered = query.trim() === '' \n                    ? this.allPodcasts \n                    : this.allPodcasts.filter(p => \n                        p.title.toLowerCase().includes(query.toLowerCase()) ||\n                        p.description.toLowerCase().includes(query.toLowerCase())\n                      );\n                this.podcasts = filtered;\n                this.renderPodcastsList();\n            }\n\n            renderPodcastsList() {\n                const container = document.getElementById('podcasts-container');\n                if (!container) return;\n\n                if (this.podcasts.length === 0 && this.allPodcasts.length > 0) {\n                    this.podcasts = this.allPodcasts.slice(0, 10);\n                }\n\n                if (this.podcasts.length === 0) {\n                    container.innerHTML = `\n                        <div style=\"text-align: center; padding: 40px 20px;\">\n                            <div style=\"font-size: 48px; margin-bottom: 16px;\">🎙️</div>\n                            <p style=\"color: #666; font-size: 16px;\">Loading podcasts...</p>\n                        </div>\n                    `;\n                    return;\n                }\n\n                container.innerHTML = this.podcasts.map(podcast => `\n                    <div style=\"background: white; border: 1px solid #e6e6e6; border-radius: 10px; padding: 16px; margin-bottom: 12px; cursor: pointer;\" onclick=\"player.showPodcastDetail('${this.escapeHtml(podcast.id)}', '${this.escapeHtml(podcast.title)}')\">\n                        <div style=\"display: flex; gap: 12px; align-items: flex-start;\">\n                            <div style=\"width: 60px; height: 60px; min-width: 60px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; font-size: 28px;\">🎙️</div>\n                            <div style=\"flex: 1;\">\n                                <h3 style=\"margin: 0 0 6px 0; color: #333; font-size: 16px;\">${this.escapeHtml(podcast.title)}</h3>\n                                <p style=\"margin: 0 0 8px 0; color: #666; font-size: 13px; line-height: 1.4;\">${this.escapeHtml(podcast.description)}</p>\n                                <div style=\"display: flex; gap: 8px; flex-wrap: wrap;\">\n                                    ${podcast.genres.map(g => `<span style=\"background: #f0f0f0; color: #666; padding: 4px 10px; border-radius: 12px; font-size: 12px;\">${this.escapeHtml(g)}</span>`).join('')}\n                                </div>\n                            </div>\n                            <button class=\"station-icon-button play\" onclick=\"event.stopPropagation(); player.playPodcast('${this.escapeHtml(podcast.id)}');\" style=\"margin-top: 4px;\">▶</button>\n                        </div>\n                    </div>\n                `).join('');\n            }\n\n            showPodcastDetail(podcastId, podcastTitle) {\n                window.location.hash = `#/podcasts/${encodeURIComponent(podcastId)}`;\n            }\n\n            playPodcast(podcastId) {\n                const podcast = this.allPodcasts.find(p => p.id === podcastId);\n                if (!podcast) return;\n                \n                alert(`Now playing: ${podcast.title}\\n\\nTo download the BBC Radio Player app for full podcast support including offline listening, tap Download App from the home page.`);\n                this.trackEvent('web_player_podcast_play', {\n                    podcast_id: podcastId,\n                    podcast_title: podcast.title\n                });\n            }\n\n            renderStationRows(stations) {
+                    this.podcastsLoaded = true;
+                } catch (error) {
+                    console.error('Failed to load podcasts index:', error);
+                }
+            }
+
+            async openPodcastsView() {
+                await this.loadPodcastsIndex();
+                this.currentView = 'podcasts';
+                this.showPodcastsPage();
+            }
+
+            showPodcastsPage() {
+                const app = document.getElementById('app');
+                app.innerHTML = `
+                    <div class="header">
+                        <h1>🎙️ BBC Podcasts</h1>
+                        <p>Browse and listen to BBC podcasts</p>
+                    </div>
+                    <div class="content">
+                        <div class="button-group" style="flex-direction: row; margin: 20px 0;">
+                            <button class="button button-secondary" onclick="window.location.hash = '#/'" style="flex: 0;">← Home</button>
+                            <input type="text" id="podcast-search" placeholder="Search podcasts..." style="flex: 1; padding: 10px; border: 1px solid #e0e0e0; border-radius: 8px; font-size: 14px;">
+                        </div>
+                        <div id="podcasts-container" style="margin-top: 20px;"></div>
+                    </div>
+                `;
+
+                this.renderPodcastsList();
+
+                const searchInput = document.getElementById('podcast-search');
+                if (searchInput) {
+                    searchInput.addEventListener('input', (e) => this.filterPodcasts(e.target.value));
+                }
+            }
+
+            filterPodcasts(query) {
+                const filtered = query.trim() === '' 
+                    ? this.allPodcasts 
+                    : this.allPodcasts.filter(p => 
+                        p.title.toLowerCase().includes(query.toLowerCase()) ||
+                        p.description.toLowerCase().includes(query.toLowerCase())
+                      );
+                this.podcasts = filtered;
+                this.renderPodcastsList();
+            }
+
+            renderPodcastsList() {
+                const container = document.getElementById('podcasts-container');
+                if (!container) return;
+
+                if (this.podcasts.length === 0 && this.allPodcasts.length > 0) {
+                    this.podcasts = this.allPodcasts.slice(0, 10);
+                }
+
+                if (this.podcasts.length === 0) {
+                    container.innerHTML = `
+                        <div style="text-align: center; padding: 40px 20px;">
+                            <div style="font-size: 48px; margin-bottom: 16px;">🎙️</div>
+                            <p style="color: #666; font-size: 16px;">Loading podcasts...</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                container.innerHTML = this.podcasts.map(podcast => `
+                    <div style="background: white; border: 1px solid #e6e6e6; border-radius: 10px; padding: 16px; margin-bottom: 12px; cursor: pointer;" onclick="player.showPodcastDetail('${this.escapeHtml(podcast.id)}', '${this.escapeHtml(podcast.title)}')">
+                        <div style="display: flex; gap: 12px; align-items: flex-start;">
+                            <div style="width: 60px; height: 60px; min-width: 60px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; font-size: 28px;">🎙️</div>
+                            <div style="flex: 1;">
+                                <h3 style="margin: 0 0 6px 0; color: #333; font-size: 16px;">${this.escapeHtml(podcast.title)}</h3>
+                                <p style="margin: 0 0 8px 0; color: #666; font-size: 13px; line-height: 1.4;">${this.escapeHtml(podcast.description)}</p>
+                                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                                    ${podcast.genres.map(g => `<span style="background: #f0f0f0; color: #666; padding: 4px 10px; border-radius: 12px; font-size: 12px;">${this.escapeHtml(g)}</span>`).join('')}
+                                </div>
+                            </div>
+                            <button class="station-icon-button play" onclick="event.stopPropagation(); player.playPodcast('${this.escapeHtml(podcast.id)}');" style="margin-top: 4px;">▶</button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            showPodcastDetail(podcastId, podcastTitle) {
+                window.location.hash = `#/podcasts/${encodeURIComponent(podcastId)}`;
+            }
+
+            playPodcast(podcastId) {
+                const podcast = this.allPodcasts.find(p => p.id === podcastId);
+                if (!podcast) return;
+                
+                alert(`Now playing: ${podcast.title}\n\nTo download the BBC Radio Player app for full podcast support including offline listening, tap Download App from the home page.`);
+                this.trackEvent('web_player_podcast_play', {
+                    podcast_id: podcastId,
+                    podcast_title: podcast.title
+                });
+            }
+
+            renderStationRows(stations) {
                 return stations.map(station => {
                     const favouriteIcon = this.isFavoriteStation(station.id) ? '⭐' : '☆';
                     return `
