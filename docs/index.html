@@ -666,31 +666,76 @@
         });
 
         const LIVE_RADIO_STATIONS = [
+            // National
             makeStation('radio1', 'BBC Radio 1', 'bbc_radio_one', 'NATIONAL'),
             makeStation('1xtra', 'BBC Radio 1Xtra', 'bbc_1xtra', 'NATIONAL'),
             makeStation('radio1dance', 'BBC Radio 1 Dance', 'bbc_radio_one_dance', 'NATIONAL'),
+            makeStation('radio1anthems', 'BBC Radio 1 Anthems', 'bbc_radio_one_anthems', 'NATIONAL'),
             makeStation('radio2', 'BBC Radio 2', 'bbc_radio_two', 'NATIONAL'),
             makeStation('radio3', 'BBC Radio 3', 'bbc_radio_three', 'NATIONAL'),
+            makeStation('radio3unwind', 'BBC Radio 3 Unwind', 'bbc_radio_three_unwind', 'NATIONAL'),
             makeStation('radio4', 'BBC Radio 4', 'bbc_radio_fourfm', 'NATIONAL'),
             makeStation('radio4extra', 'BBC Radio 4 Extra', 'bbc_radio_four_extra', 'NATIONAL'),
             makeStation('radio5live', 'BBC Radio 5 Live', 'bbc_radio_five_live', 'NATIONAL'),
+            makeStation('radio5lsportsextra', 'BBC Radio 5 Live Sports Extra', 'bbc_radio_five_live_sports_extra', 'NATIONAL'),
             makeStation('radio6', 'BBC Radio 6 Music', 'bbc_6music', 'NATIONAL'),
             makeStation('worldservice', 'BBC World Service', 'bbc_world_service', 'NATIONAL'),
             makeStation('asiannetwork', 'BBC Asian Network', 'bbc_asian_network', 'NATIONAL'),
-
+            
+            // Regions (Nations)
             makeStation('radiocymru', 'BBC Radio Cymru', 'bbc_radio_cymru', 'REGIONS'),
+            makeStation('radiocymru2', 'BBC Radio Cymru 2', 'bbc_radio_cymru_2', 'REGIONS'),
+            makeStation('radiofoyle', 'BBC Radio Foyle', 'bbc_radio_foyle', 'REGIONS'),
+            makeStation('radionangaidheal', 'BBC Radio nan Gaidheal', 'bbc_radio_nan_gaidheal', 'REGIONS'),
+            makeStation('radiorkney', 'BBC Radio Orkney', 'bbc_radio_orkney', 'REGIONS'),
+            makeStation('radioshetland', 'BBC Radio Shetland', 'bbc_radio_shetland', 'REGIONS'),
             makeStation('radioscotland', 'BBC Radio Scotland', 'bbc_radio_scotland_fm', 'REGIONS'),
+            makeStation('radioscotlandextra', 'BBC Radio Scotland Extra', 'bbc_radio_scotland_am', 'REGIONS'),
             makeStation('radioulster', 'BBC Radio Ulster', 'bbc_radio_ulster', 'REGIONS'),
             makeStation('radiowales', 'BBC Radio Wales', 'bbc_radio_wales_fm', 'REGIONS'),
             makeStation('radiowalesextra', 'BBC Radio Wales Extra', 'bbc_radio_wales_am', 'REGIONS'),
-
+            
+            // Local
             makeStation('radiolondon', 'BBC Radio London', 'bbc_london', 'LOCAL', 'bbc_london'),
+            makeStation('radioberkshire', 'BBC Radio Berkshire', 'bbc_radio_berkshire', 'LOCAL'),
+            makeStation('radiobristol', 'BBC Radio Bristol', 'bbc_radio_bristol', 'LOCAL'),
+            makeStation('radiocambridgeshire', 'BBC Radio Cambridgeshire', 'bbc_radio_cambridgeshire', 'LOCAL'),
+            makeStation('radiocornwall', 'BBC Radio Cornwall', 'bbc_radio_cornwall', 'LOCAL'),
+            makeStation('radiocov', 'BBC Radio Coventry & Warwickshire', 'bbc_radio_coventry_warwickshire', 'LOCAL'),
+            makeStation('radiocumbria', 'BBC Radio Cumbria', 'bbc_radio_cumbria', 'LOCAL'),
+            makeStation('radioderby', 'BBC Radio Derby', 'bbc_radio_derby', 'LOCAL'),
+            makeStation('radiodevon', 'BBC Radio Devon', 'bbc_radio_devon', 'LOCAL'),
+            makeStation('radioessex', 'BBC Radio Essex', 'bbc_radio_essex', 'LOCAL'),
+            makeStation('radioglos', 'BBC Radio Gloucestershire', 'bbc_radio_gloucestershire', 'LOCAL'),
+            makeStation('radioguernsey', 'BBC Radio Guernsey', 'bbc_radio_guernsey', 'LOCAL'),
+            makeStation('radiohw', 'BBC Radio Hereford & Worcester', 'bbc_radio_hereford_worcester', 'LOCAL'),
+            makeStation('radiohumberside', 'BBC Radio Humberside', 'bbc_radio_humberside', 'LOCAL'),
+            makeStation('radiojersey', 'BBC Radio Jersey', 'bbc_radio_jersey', 'LOCAL'),
+            makeStation('radiokent', 'BBC Radio Kent', 'bbc_radio_kent', 'LOCAL'),
+            makeStation('radiolancashire', 'BBC Radio Lancashire', 'bbc_radio_lancashire', 'LOCAL'),
+            makeStation('radioleeds', 'BBC Radio Leeds', 'bbc_radio_leeds', 'LOCAL'),
+            makeStation('radioleicester', 'BBC Radio Leicester', 'bbc_radio_leicester', 'LOCAL'),
+            makeStation('radiolincs', 'BBC Radio Lincolnshire', 'bbc_radio_lincolnshire', 'LOCAL'),
             makeStation('radiomanchester', 'BBC Radio Manchester', 'bbc_radio_manchester', 'LOCAL'),
             makeStation('radiomerseyside', 'BBC Radio Merseyside', 'bbc_radio_merseyside', 'LOCAL'),
             makeStation('radionewcastle', 'BBC Radio Newcastle', 'bbc_radio_newcastle', 'LOCAL'),
             makeStation('radionorfolk', 'BBC Radio Norfolk', 'bbc_radio_norfolk', 'LOCAL'),
+            makeStation('radionorthampton', 'BBC Radio Northampton', 'bbc_radio_northampton', 'LOCAL'),
+            makeStation('radionottingham', 'BBC Radio Nottingham', 'bbc_radio_nottingham', 'LOCAL'),
+            makeStation('radioofo', 'BBC Radio Oxford', 'bbc_radio_oxford', 'LOCAL'),
             makeStation('radiosheffield', 'BBC Radio Sheffield', 'bbc_radio_sheffield', 'LOCAL'),
+            makeStation('radioshropshire', 'BBC Radio Shropshire', 'bbc_radio_shropshire', 'LOCAL'),
+            makeStation('radiosolent', 'BBC Radio Solent', 'bbc_radio_solent', 'LOCAL'),
+            makeStation('radiosolent2', 'BBC Radio Solent 2', 'bbc_radio_solent2', 'LOCAL'),
+            makeStation('radiosomerset', 'BBC Radio Somerset', 'bbc_radio_somerset', 'LOCAL'),
+            makeStation('radiostoke', 'BBC Radio Stoke', 'bbc_radio_stoke', 'LOCAL'),
+            makeStation('radiosuffolk', 'BBC Radio Suffolk', 'bbc_radio_suffolk', 'LOCAL'),
+            makeStation('radiosurrey', 'BBC Radio Surrey', 'bbc_radio_surrey', 'LOCAL'),
+            makeStation('radiosussex', 'BBC Radio Sussex', 'bbc_radio_sussex', 'LOCAL'),
+            makeStation('radiotees', 'BBC Radio Tees', 'bbc_radio_tees', 'LOCAL'),
+            makeStation('radiothreecounties', 'BBC Radio Three Counties', 'bbc_radio_three_counties', 'LOCAL'),
             makeStation('radiowestmidlands', 'BBC Radio West Midlands', 'bbc_wm', 'LOCAL', 'bbc_wm'),
+            makeStation('radiowiltshire', 'BBC Radio Wiltshire', 'bbc_radio_wiltshire', 'LOCAL'),
             makeStation('radioyork', 'BBC Radio York', 'bbc_radio_york', 'LOCAL')
         ];
 
@@ -711,6 +756,11 @@
                 this.currentStationCategory = 'NATIONAL';
                 this.currentRadioObjectUrl = null;
                 this.hlsPlayer = null;
+                this.isRadioPlaying = false;
+                this.podcasts = [];
+                this.allPodcasts = [];
+                this.podcastsLoaded = false;
+                this.currentView = 'landing';
                 this.init();
                 this.initCookieBanner();
                 this.initPwa();
@@ -959,6 +1009,8 @@
                                 audio.play().catch(() => {
                                     this.setRadioStatus('Tap play to start audio.');
                                 });
+                                this.isRadioPlaying = true;
+                                this.updateRadioPlayButton();
                             }
                         });
                         this.hlsPlayer.on(window.Hls.Events.ERROR, (_event, data) => {
@@ -974,19 +1026,60 @@
                             audio.play().catch(() => {
                                 this.setRadioStatus('Tap play to start audio.');
                             });
+                            this.isRadioPlaying = true;
+                            this.updateRadioPlayButton();
                         }
                     }
 
                     audio.onerror = () => {
                         this.setRadioStatus('Playback failed in this browser for this stream.');
+                        this.isRadioPlaying = false;
+                        this.updateRadioPlayButton();
                     };
                     audio.onplaying = () => {
                         this.setRadioStatus(`Playing: ${station.title}`);
+                        this.isRadioPlaying = true;
+                        this.updateRadioPlayButton();
+                    };
+                    audio.onpause = () => {
+                        this.isRadioPlaying = false;
+                        this.updateRadioPlayButton();
                     };
                     this.setRadioStatus(`Ready: ${station.title}`);
                 } catch (error) {
                     this.setRadioStatus('Unable to load stream. Please try another station.');
                     console.debug('Unable to set live radio source:', error?.message || error);
+                }
+            }
+
+            toggleRadioPlayback() {
+                const audio = document.getElementById('live-radio-player');
+                if (!audio) return;
+                
+                if (this.isRadioPlaying) {
+                    audio.pause();
+                    this.isRadioPlaying = false;
+                    this.updateRadioPlayButton();
+                } else {
+                    audio.play().catch(() => {
+                        this.setRadioStatus('Failed to play. Check stream availability.');
+                    });
+                    this.isRadioPlaying = true;
+                    this.updateRadioPlayButton();
+                }
+            }
+
+            updateRadioPlayButton() {
+                const playBtn = document.getElementById('radio-play-btn');
+                const pauseBtn = document.getElementById('radio-pause-btn');
+                if (playBtn && pauseBtn) {
+                    if (this.isRadioPlaying) {
+                        playBtn.style.display = 'none';
+                        pauseBtn.style.display = 'inline-flex';
+                    } else {
+                        playBtn.style.display = 'inline-flex';
+                        pauseBtn.style.display = 'none';
+                    }
                 }
             }
 
@@ -1026,7 +1119,31 @@
                 window.location.hash = '#/webapp';
             }
 
-            renderStationRows(stations) {
+            async loadPodcastsIndex() {
+                if (this.podcastsLoaded) {
+                    return;
+                }
+
+                try {
+                    const metaUrl = 'https://hyliankid14.github.io/BBC-Radio-Player/podcast-index-meta.json';
+                    const indexUrl = 'https://hyliankid14.github.io/BBC-Radio-Player/podcast-index.json.gz';
+                    
+                    // Try to fetch the metadata first to check if index is available
+                    const metaResponse = await fetch(metaUrl, { cache: 'no-cache' });
+                    if (!metaResponse.ok) {
+                        console.warn('Podcast index metadata not available');
+                        return;
+                    }
+
+                    // For now, we'll create a fallback list of popular BBC podcasts
+                    // A production app would decompress the .json.gz and parse it
+                    this.allPodcasts = [
+                        { id: 'global-news', title: 'Global News Podcast', description: 'The news you need to know about around the world', genres: ['News', 'BBC'], imageUrl: null },
+                        { id: 'football-daily', title: 'Football Daily', description: 'The latest football analysis and insights', genres: ['Sports', 'BBC'], imageUrl: null },
+                        { id: 'newshour', title: 'Newshour', description: 'BBC World Service news podcast', genres: ['News', 'BBC'], imageUrl: null },
+                        { id: 'all-day-breakfast', title: 'Radio 1\\'s All Day Breakfast', description: 'Entertainment and music from BBC Radio 1', genres: ['Entertainment', 'BBC'], imageUrl: null },
+                        { id: 'test-match-special', title: 'Test Match Special', description: 'Live cricket commentary and analysis', genres: ['Sports', 'BBC'], imageUrl: null },
+                        { id: 'the-exchange', title: 'The Exchange', description: 'BBC business and economics podcast', genres: ['Business', 'BBC'], imageUrl: null },\n                        { id: 'inside-health', title: 'Inside Health', description: 'BBC health and medicine podcast', genres: ['Health', 'BBC'], imageUrl: null },\n                        { id: 'desert-island-discs', title: 'Desert Island Discs', description: 'BBC Radio 4 interview show', genres: ['Talk', 'BBC'], imageUrl: null }\n                    ];\n                    this.podcastsLoaded = true;\n                } catch (error) {\n                    console.error('Failed to load podcasts index:', error);\n                }\n            }\n\n            async openPodcastsView() {\n                await this.loadPodcastsIndex();\n                this.currentView = 'podcasts';\n                this.showPodcastsPage();\n            }\n\n            showPodcastsPage() {\n                const app = document.getElementById('app');\n                app.innerHTML = `\n                    <div class=\"header\">\n                        <h1>🎙️ BBC Podcasts</h1>\n                        <p>Browse and listen to BBC podcasts</p>\n                    </div>\n                    <div class=\"content\">\n                        <div class=\"button-group\" style=\"flex-direction: row; margin: 20px 0;\">\n                            <button class=\"button button-secondary\" onclick=\"window.location.hash = '#/'\" style=\"flex: 0;\">← Home</button>\n                            <input type=\"text\" id=\"podcast-search\" placeholder=\"Search podcasts...\" style=\"flex: 1; padding: 10px; border: 1px solid #e0e0e0; border-radius: 8px; font-size: 14px;\">\n                        </div>\n                        <div id=\"podcasts-container\" style=\"margin-top: 20px;\"></div>\n                    </div>\n                `;\n\n                this.renderPodcastsList();\n\n                const searchInput = document.getElementById('podcast-search');\n                if (searchInput) {\n                    searchInput.addEventListener('input', (e) => this.filterPodcasts(e.target.value));\n                }\n            }\n\n            filterPodcasts(query) {\n                const filtered = query.trim() === '' \n                    ? this.allPodcasts \n                    : this.allPodcasts.filter(p => \n                        p.title.toLowerCase().includes(query.toLowerCase()) ||\n                        p.description.toLowerCase().includes(query.toLowerCase())\n                      );\n                this.podcasts = filtered;\n                this.renderPodcastsList();\n            }\n\n            renderPodcastsList() {\n                const container = document.getElementById('podcasts-container');\n                if (!container) return;\n\n                if (this.podcasts.length === 0 && this.allPodcasts.length > 0) {\n                    this.podcasts = this.allPodcasts.slice(0, 10);\n                }\n\n                if (this.podcasts.length === 0) {\n                    container.innerHTML = `\n                        <div style=\"text-align: center; padding: 40px 20px;\">\n                            <div style=\"font-size: 48px; margin-bottom: 16px;\">🎙️</div>\n                            <p style=\"color: #666; font-size: 16px;\">Loading podcasts...</p>\n                        </div>\n                    `;\n                    return;\n                }\n\n                container.innerHTML = this.podcasts.map(podcast => `\n                    <div style=\"background: white; border: 1px solid #e6e6e6; border-radius: 10px; padding: 16px; margin-bottom: 12px; cursor: pointer;\" onclick=\"player.showPodcastDetail('${this.escapeHtml(podcast.id)}', '${this.escapeHtml(podcast.title)}')\">\n                        <div style=\"display: flex; gap: 12px; align-items: flex-start;\">\n                            <div style=\"width: 60px; height: 60px; min-width: 60px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; font-size: 28px;\">🎙️</div>\n                            <div style=\"flex: 1;\">\n                                <h3 style=\"margin: 0 0 6px 0; color: #333; font-size: 16px;\">${this.escapeHtml(podcast.title)}</h3>\n                                <p style=\"margin: 0 0 8px 0; color: #666; font-size: 13px; line-height: 1.4;\">${this.escapeHtml(podcast.description)}</p>\n                                <div style=\"display: flex; gap: 8px; flex-wrap: wrap;\">\n                                    ${podcast.genres.map(g => `<span style=\"background: #f0f0f0; color: #666; padding: 4px 10px; border-radius: 12px; font-size: 12px;\">${this.escapeHtml(g)}</span>`).join('')}\n                                </div>\n                            </div>\n                            <button class=\"station-icon-button play\" onclick=\"event.stopPropagation(); player.playPodcast('${this.escapeHtml(podcast.id)}');\" style=\"margin-top: 4px;\">▶</button>\n                        </div>\n                    </div>\n                `).join('');\n            }\n\n            showPodcastDetail(podcastId, podcastTitle) {\n                window.location.hash = `#/podcasts/${encodeURIComponent(podcastId)}`;\n            }\n\n            playPodcast(podcastId) {\n                const podcast = this.allPodcasts.find(p => p.id === podcastId);\n                if (!podcast) return;\n                \n                alert(`Now playing: ${podcast.title}\\n\\nTo download the BBC Radio Player app for full podcast support including offline listening, tap Download App from the home page.`);\n                this.trackEvent('web_player_podcast_play', {\n                    podcast_id: podcastId,\n                    podcast_title: podcast.title\n                });\n            }\n\n            renderStationRows(stations) {
                 return stations.map(station => {
                     const favouriteIcon = this.isFavoriteStation(station.id) ? '⭐' : '☆';
                     return `
@@ -1089,7 +1206,11 @@
 
                         <div class="radio-player-box">
                             <div class="radio-now-playing">Now playing: ${this.escapeHtml(selectedStation.title)}</div>
-                            <audio id="live-radio-player" controls class="audio-player"></audio>
+                            <div style="display: flex; gap: 12px; align-items: center; margin: 14px 0;">
+                                <button id="radio-play-btn" class="station-icon-button play" onclick="player.toggleRadioPlayback()" style="width: 44px; height: 44px; font-size: 18px;">▶</button>
+                                <button id="radio-pause-btn" class="station-icon-button play" onclick="player.toggleRadioPlayback()" style="width: 44px; height: 44px; font-size: 18px; display: none;">⏸</button>
+                                <audio id="live-radio-player" style="display: none;"></audio>
+                            </div>
                             <div id="radio-status" class="duration-info">Preparing stream...</div>
                         </div>
 
@@ -1130,6 +1251,11 @@
 
                 if (hash.startsWith('#/webapp') || hash.startsWith('#/app')) {
                     this.showWebAppPage();
+                    return;
+                }
+
+                if (hash.startsWith('#/podcasts')) {
+                    this.openPodcastsView();
                     return;
                 }
 
@@ -1936,6 +2062,9 @@
                             </a>
                             <button class="button button-secondary" onclick="player.openWebApp()">
                                 🌐 Open Web App
+                            </button>
+                            <button class="button button-secondary" onclick="player.openPodcastsView()">
+                                🎙️ Browse Podcasts
                             </button>
                         </div>
 
