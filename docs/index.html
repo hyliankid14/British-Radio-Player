@@ -1528,66 +1528,72 @@
             async fetchPodcastFeedText(rssUrl) {
                 const decodedRssUrl = decodeURIComponent(rssUrl || '');
                 const safeUrl = decodedRssUrl.replace(/^http:\/\//i, 'https://');
-                const endpoints = [
-                    `https://api.allorigins.win/raw?url=${encodeURIComponent(safeUrl)}`,
-                    `https://corsproxy.io/?${encodeURIComponent(safeUrl)}`
+                let lastError = null;
+                const endpointsFor = url => [
+                    `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+                    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+                    `https://corsproxy.io/?${encodeURIComponent(url)}`
                 ];
 
-                let lastError = null;
-                for (const endpoint of endpoints) {
-                    try {
-                        const controller = new AbortController();
-                        const timeoutId = setTimeout(() => controller.abort(), 15000);
-                        const response = await fetch(endpoint, {
-                            cache: 'no-store',
-                            signal: controller.signal
-                        });
+                for (let attempt = 0; attempt < 2; attempt += 1) {
+                    const urlWithCacheBust = `${safeUrl}${safeUrl.includes('?') ? '&' : '?'}cb=${Date.now()}-${attempt}`;
+                    const endpoints = endpointsFor(urlWithCacheBust);
 
-                        if (!response.ok) {
-                            clearTimeout(timeoutId);
-                            throw new Error(`HTTP ${response.status}`);
-                        }
+                    for (const endpoint of endpoints) {
+                        try {
+                            const controller = new AbortController();
+                            const timeoutId = setTimeout(() => controller.abort(), 12000);
+                            const response = await fetch(endpoint, {
+                                cache: 'no-store',
+                                signal: controller.signal
+                            });
 
-                        if (!response.body || !response.body.getReader) {
-                            const text = await response.text();
+                            if (!response.ok) {
+                                clearTimeout(timeoutId);
+                                throw new Error(`HTTP ${response.status}`);
+                            }
+
+                            if (!response.body || !response.body.getReader) {
+                                const text = await response.text();
+                                clearTimeout(timeoutId);
+                                return text;
+                            }
+
+                            const reader = response.body.getReader();
+                            const decoder = new TextDecoder();
+                            let text = '';
+                            let itemCount = 0;
+
+                            while (true) {
+                                const { done, value } = await reader.read();
+                                if (done) {
+                                    break;
+                                }
+
+                                text += decoder.decode(value, { stream: true });
+                                const closedMatches = text.match(/<\/item>/gi);
+                                itemCount = closedMatches ? closedMatches.length : 0;
+
+                                if (text.length > 2000000 && itemCount >= 24) {
+                                    reader.cancel();
+                                    const lastItemEnd = text.lastIndexOf('</item>');
+                                    if (lastItemEnd !== -1) {
+                                        text = `${text.substring(0, lastItemEnd + 7)}\n</channel>\n</rss>`;
+                                    }
+                                    break;
+                                }
+
+                                if (text.length > 10000000) {
+                                    reader.cancel();
+                                    break;
+                                }
+                            }
+
                             clearTimeout(timeoutId);
                             return text;
+                        } catch (error) {
+                            lastError = error;
                         }
-
-                        const reader = response.body.getReader();
-                        const decoder = new TextDecoder();
-                        let text = '';
-                        let itemCount = 0;
-
-                        while (true) {
-                            const { done, value } = await reader.read();
-                            if (done) {
-                                break;
-                            }
-
-                            text += decoder.decode(value, { stream: true });
-                            const closedMatches = text.match(/<\/item>/gi);
-                            itemCount = closedMatches ? closedMatches.length : 0;
-
-                            if (text.length > 2000000 && itemCount >= 18) {
-                                reader.cancel();
-                                const lastItemEnd = text.lastIndexOf('</item>');
-                                if (lastItemEnd !== -1) {
-                                    text = `${text.substring(0, lastItemEnd + 7)}\n</channel>\n</rss>`;
-                                }
-                                break;
-                            }
-
-                            if (text.length > 10000000) {
-                                reader.cancel();
-                                break;
-                            }
-                        }
-
-                        clearTimeout(timeoutId);
-                        return text;
-                    } catch (error) {
-                        lastError = error;
                     }
                 }
 
@@ -1812,6 +1818,17 @@
                 const parser = new DOMParser();
                 const xml = parser.parseFromString(text, 'text/xml');
 
+                const normaliseAudioUrl = rawUrl => {
+                    const cleaned = String(rawUrl || '').trim();
+                    if (!cleaned) {
+                        return '';
+                    }
+
+                    return cleaned
+                        .replace(/^http:\/\//i, 'https://')
+                        .replace(/\/proto\/http\//i, '/proto/https/');
+                };
+
                 if (xml.documentElement.tagName === 'parsererror') {
                     throw new Error('Invalid RSS feed');
                 }
@@ -1823,6 +1840,7 @@
 
                 const rawImageUrl = channel.querySelector('itunes\\:image')?.getAttribute('href')
                     || channel.querySelector('image url')?.textContent?.trim()
+                    || channel.querySelector('media\\:thumbnail')?.getAttribute('url')
                     || podcast.imageUrl
                     || null;
                 const imageUrl = rawImageUrl ? rawImageUrl.replace(/^http:\/\//i, 'https://') : null;
@@ -1834,9 +1852,16 @@
 
                 const episodes = Array.from(channel.querySelectorAll('item')).slice(0, 24).map(item => {
                     const guid = item.querySelector('guid')?.textContent?.trim() || '';
-                    const enclosureUrl = (item.querySelector('enclosure')?.getAttribute('url') || '').replace(/^http:\/\//i, 'https://');
+                    const enclosureUrl = normaliseAudioUrl(
+                        item.querySelector('ppg\\:enclosureSecure')?.getAttribute('url')
+                        || item.querySelector('enclosure')?.getAttribute('url')
+                        || item.querySelector('media\\:content')?.getAttribute('url')
+                        || item.querySelector('ppg\\:enclosureLegacy')?.getAttribute('url')
+                        || ''
+                    );
                     const rawItemImage = item.querySelector('itunes\\:image')?.getAttribute('href')
                         || item.querySelector('image url')?.textContent?.trim()
+                        || item.querySelector('media\\:thumbnail')?.getAttribute('url')
                         || rawImageUrl
                         || '';
                     const itemImage = rawItemImage.replace(/^http:\/\//i, 'https://');
@@ -2004,7 +2029,7 @@
                                   `
                                 : `
                                         <div class="podcast-loading-note">
-                                            Playable audio is still loading for this episode.
+                                            Audio link unavailable for this episode.
                                         </div>
                                   `;
 
