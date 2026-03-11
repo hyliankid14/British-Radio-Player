@@ -225,7 +225,7 @@ class RemoteIndexClient(private val context: Context) {
             
             onProgress?.invoke("Parsing index...", 18)
             // Parse with streaming JSON reader to avoid OOM
-            parseIndexFromFile(cacheFile)
+            parseIndexFromFile(cacheFile, onProgress)
         } catch (e: Exception) {
             Log.w(TAG, "Failed to download podcast index: ${e.message}")
             null
@@ -282,10 +282,22 @@ class RemoteIndexClient(private val context: Context) {
      * Parse index from file using streaming JSON reader to avoid loading
      * entire 250+ MB file into memory.
      */
-    private fun parseIndexFromFile(file: File): RemoteIndex {
+    private fun parseIndexFromFile(file: File, onProgress: ((String, Int) -> Unit)? = null): RemoteIndex {
         var generatedAt = ""
         val podcasts = mutableListOf<Podcast>()
         val episodes = mutableListOf<Episode>()
+
+        var lastPodcastReport = 0
+        var lastEpisodeReport = 0
+
+        fun reportParsingStatus() {
+            val podcastCount = podcasts.size
+            val episodeCount = episodes.size
+            onProgress?.invoke(
+                "Parsing index... podcasts: $podcastCount, episodes: $episodeCount",
+                18
+            )
+        }
 
         FileInputStream(file).use { fis ->
             BufferedInputStream(fis).use { bis ->
@@ -321,9 +333,14 @@ class RemoteIndexClient(private val context: Context) {
                                             genres = emptyList(),
                                             typicalDurationMins = 0
                                         ))
+                                        if (podcasts.size - lastPodcastReport >= 250) {
+                                            reportParsingStatus()
+                                            lastPodcastReport = podcasts.size
+                                        }
                                     }
                                 }
                                 reader.endArray()
+                                reportParsingStatus()
                             }
                             "episodes" -> {
                                 reader.beginArray()
@@ -356,9 +373,14 @@ class RemoteIndexClient(private val context: Context) {
                                             pubDate = pubDate,
                                             durationMins = 0
                                         ))
+                                        if (episodes.size - lastEpisodeReport >= 5_000) {
+                                            reportParsingStatus()
+                                            lastEpisodeReport = episodes.size
+                                        }
                                     }
                                 }
                                 reader.endArray()
+                                reportParsingStatus()
                             }
                             else -> reader.skipValue()
                         }
