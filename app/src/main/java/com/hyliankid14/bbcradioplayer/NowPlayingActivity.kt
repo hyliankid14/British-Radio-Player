@@ -185,6 +185,9 @@ class NowPlayingActivity : AppCompatActivity() {
         remainingView = findViewById(R.id.playback_remaining)
         markPlayedButton = findViewById(R.id.now_playing_mark_played) 
 
+        // Keep a high-contrast white glyph for the play/pause control.
+        playPauseButton.iconTint = android.content.res.ColorStateList.valueOf(android.graphics.Color.WHITE)
+
         // Setup control button listeners
         stopButton.setOnClickListener { stopPlayback() }
         previousButton.setOnClickListener { skipToPrevious() }
@@ -672,7 +675,7 @@ class NowPlayingActivity : AppCompatActivity() {
 
             if (isPodcast && !currentEpisodeId.isNullOrEmpty()) {
                 val saved = SavedEpisodes.isSaved(this, currentEpisodeId)
-                favoriteButton.icon = ContextCompat.getDrawable(this, if (saved) R.drawable.ic_bookmark else R.drawable.ic_bookmark_outline)
+                favoriteButton.icon = ContextCompat.getDrawable(this, if (saved) R.drawable.ic_bookmark else getUnsavedBookmarkIconRes())
             } else {
                 val isFavorited = if (isPodcast) {
                     PodcastSubscriptions.isSubscribed(this, podcastId)
@@ -766,7 +769,7 @@ class NowPlayingActivity : AppCompatActivity() {
         // Update favorite button to reflect saved-episode state for the previewed episode (separate from podcast subscriptions)
         try {
             val saved = SavedEpisodes.isSaved(this, episode.id)
-            favoriteButton.icon = ContextCompat.getDrawable(this, if (saved) R.drawable.ic_bookmark else R.drawable.ic_bookmark_outline)
+            favoriteButton.icon = ContextCompat.getDrawable(this, if (saved) R.drawable.ic_bookmark else getUnsavedBookmarkIconRes())
         } catch (_: Exception) {}
 
         // Show scrubber controls if episode has a duration so user can see progress
@@ -1402,6 +1405,10 @@ class NowPlayingActivity : AppCompatActivity() {
         updateUI()
     }
 
+    private fun getUnsavedBookmarkIconRes(): Int {
+        return if (currentIsLightBackground) R.drawable.ic_bookmark_outline_stroked else R.drawable.ic_bookmark_outline
+    }
+
     private fun updateFavoriteButtonBackground() {
         val station = PlaybackStateHelper.getCurrentStation()
         val isPodcast = station?.id?.startsWith("podcast_") == true
@@ -1409,6 +1416,7 @@ class NowPlayingActivity : AppCompatActivity() {
         val episodeId = previewEpisodeProp?.id ?: episodeIdInPlayback ?: currentShownEpisodeId
         
         val playPauseColorStateList = android.content.res.ColorStateList.valueOf(currentPlayPauseButtonColor)
+        val selectedIconTint = android.content.res.ColorStateList.valueOf(android.graphics.Color.WHITE)
         
         // For episodes being played/previewed, show bookmark styling
         if (!episodeId.isNullOrEmpty()) {
@@ -1416,7 +1424,7 @@ class NowPlayingActivity : AppCompatActivity() {
             if (isSaved) {
                 // Saved: use same filled circle style as play/pause button
                 favoriteButton.backgroundTintList = playPauseColorStateList
-                favoriteButton.iconTint = null
+                favoriteButton.iconTint = selectedIconTint
             } else {
                 // Not saved: transparent background with colored icon
                 favoriteButton.backgroundTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.TRANSPARENT)
@@ -1428,7 +1436,7 @@ class NowPlayingActivity : AppCompatActivity() {
             if (isFavorited) {
                 // Favorited: use same filled circle style as play/pause button
                 favoriteButton.backgroundTintList = playPauseColorStateList
-                favoriteButton.iconTint = null
+                favoriteButton.iconTint = selectedIconTint
             } else {
                 // Not favorited: transparent background with colored icon
                 favoriteButton.backgroundTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.TRANSPARENT)
@@ -1463,7 +1471,7 @@ class NowPlayingActivity : AppCompatActivity() {
                 .setAnchorView(findViewById(R.id.playback_controls))
                 .show()
             // Immediately reflect saved state in the UI (bookmark icon)
-            favoriteButton.icon = ContextCompat.getDrawable(this, if (nowSaved) R.drawable.ic_bookmark else R.drawable.ic_bookmark_outline)
+            favoriteButton.icon = ContextCompat.getDrawable(this, if (nowSaved) R.drawable.ic_bookmark else getUnsavedBookmarkIconRes())
             updateFavoriteButtonBackground()
             updateUI()
             return
@@ -1497,7 +1505,7 @@ class NowPlayingActivity : AppCompatActivity() {
             com.google.android.material.snackbar.Snackbar.make(findViewById(android.R.id.content), msg, com.google.android.material.snackbar.Snackbar.LENGTH_SHORT)
                 .setAnchorView(findViewById(R.id.playback_controls))
                 .show()
-            favoriteButton.icon = ContextCompat.getDrawable(this, if (nowSaved) R.drawable.ic_bookmark else R.drawable.ic_bookmark_outline)
+            favoriteButton.icon = ContextCompat.getDrawable(this, if (nowSaved) R.drawable.ic_bookmark else getUnsavedBookmarkIconRes())
             updateFavoriteButtonBackground()
         }
     }
@@ -1672,7 +1680,7 @@ class NowPlayingActivity : AppCompatActivity() {
                             if (isSaved) {
                                 // Saved: use same filled circle style as play/pause button
                                 favoriteButton.backgroundTintList = playPauseButtonColorStateList
-                                favoriteButton.iconTint = null
+                                favoriteButton.iconTint = android.content.res.ColorStateList.valueOf(android.graphics.Color.WHITE)
                             } else {
                                 // Not saved: transparent background with colored icon
                                 favoriteButton.backgroundTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.TRANSPARENT)
@@ -1684,7 +1692,7 @@ class NowPlayingActivity : AppCompatActivity() {
                             if (isFavorited) {
                                 // Favorited: use same filled circle style as play/pause button
                                 favoriteButton.backgroundTintList = playPauseButtonColorStateList
-                                favoriteButton.iconTint = null
+                                favoriteButton.iconTint = android.content.res.ColorStateList.valueOf(android.graphics.Color.WHITE)
                             } else {
                                 // Not favorited: transparent background with colored icon
                                 favoriteButton.backgroundTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.TRANSPARENT)
@@ -1694,7 +1702,7 @@ class NowPlayingActivity : AppCompatActivity() {
                         
                         // Play/pause button uses a slightly different fill color for subtle distinction
                         playPauseButton.backgroundTintList = playPauseButtonColorStateList
-                        playPauseButton.iconTint = null
+                        playPauseButton.iconTint = android.content.res.ColorStateList.valueOf(android.graphics.Color.WHITE)
                         
                         // Apply dynamic colors to slider
                         seekBar.trackActiveTintList = iconColorStateList

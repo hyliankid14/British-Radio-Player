@@ -43,10 +43,12 @@
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         
-        <!-- ActionBar styling - use darker purple in light mode with light text -->
+        <!-- Action and menu styling for light mode: keep dark content on light surfaces -->
         <item name="actionBarStyle">@style/Widget.AppCompat.ActionBar.Solid</item>
-        <item name="android:textColorPrimary">@android:color/white</item>
-        <item name="android:textColorSecondary">@android:color/white</item>
+        <item name="android:textColorPrimary">@color/md_theme_onSurface</item>
+        <item name="android:textColorSecondary">@color/md_theme_onSurfaceVariant</item>
+        <item name="colorControlNormal">@color/md_theme_onSurface</item>
+        <item name="actionMenuTextColor">@color/md_theme_onSurface</item>
         
         <!-- Bottom Navigation View - purple selection color -->
         <item name="colorSecondaryContainer">#E8DEF8</item>

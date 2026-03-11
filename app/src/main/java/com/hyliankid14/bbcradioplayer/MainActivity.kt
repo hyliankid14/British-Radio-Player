@@ -2483,63 +2483,63 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupSettings() {
         // Set up click listeners for each settings card
-        findViewById<com.google.android.material.card.MaterialCardView>(R.id.settings_theme_card)?.setOnClickListener {
+        findViewById<View>(R.id.settings_theme_card)?.setOnClickListener {
             val intent = Intent(this, SettingsDetailActivity::class.java).apply {
                 putExtra(SettingsDetailActivity.EXTRA_SECTION, SettingsDetailActivity.SECTION_THEME)
             }
             startActivity(intent)
         }
         
-        findViewById<com.google.android.material.card.MaterialCardView>(R.id.settings_playback_card)?.setOnClickListener {
+        findViewById<View>(R.id.settings_playback_card)?.setOnClickListener {
             val intent = Intent(this, SettingsDetailActivity::class.java).apply {
                 putExtra(SettingsDetailActivity.EXTRA_SECTION, SettingsDetailActivity.SECTION_PLAYBACK)
             }
             startActivity(intent)
         }
         
-        findViewById<com.google.android.material.card.MaterialCardView>(R.id.settings_android_auto_card)?.setOnClickListener {
+        findViewById<View>(R.id.settings_android_auto_card)?.setOnClickListener {
             val intent = Intent(this, SettingsDetailActivity::class.java).apply {
                 putExtra(SettingsDetailActivity.EXTRA_SECTION, SettingsDetailActivity.SECTION_ANDROID_AUTO)
             }
             startActivity(intent)
         }
         
-        findViewById<com.google.android.material.card.MaterialCardView>(R.id.settings_subscriptions_card)?.setOnClickListener {
+        findViewById<View>(R.id.settings_subscriptions_card)?.setOnClickListener {
             val intent = Intent(this, SettingsDetailActivity::class.java).apply {
                 putExtra(SettingsDetailActivity.EXTRA_SECTION, SettingsDetailActivity.SECTION_SUBSCRIPTIONS)
             }
             startActivity(intent)
         }
         
-        findViewById<com.google.android.material.card.MaterialCardView>(R.id.settings_indexing_card)?.setOnClickListener {
+        findViewById<View>(R.id.settings_indexing_card)?.setOnClickListener {
             val intent = Intent(this, SettingsDetailActivity::class.java).apply {
                 putExtra(SettingsDetailActivity.EXTRA_SECTION, SettingsDetailActivity.SECTION_INDEXING)
             }
             startActivity(intent)
         }
         
-        findViewById<com.google.android.material.card.MaterialCardView>(R.id.settings_alarm_card)?.setOnClickListener {
+        findViewById<View>(R.id.settings_alarm_card)?.setOnClickListener {
             val intent = Intent(this, SettingsDetailActivity::class.java).apply {
                 putExtra(SettingsDetailActivity.EXTRA_SECTION, SettingsDetailActivity.SECTION_ALARM)
             }
             startActivity(intent)
         }
         
-        findViewById<com.google.android.material.card.MaterialCardView>(R.id.settings_backup_card)?.setOnClickListener {
+        findViewById<View>(R.id.settings_backup_card)?.setOnClickListener {
             val intent = Intent(this, SettingsDetailActivity::class.java).apply {
                 putExtra(SettingsDetailActivity.EXTRA_SECTION, SettingsDetailActivity.SECTION_BACKUP)
             }
             startActivity(intent)
         }
         
-        findViewById<com.google.android.material.card.MaterialCardView>(R.id.settings_privacy_card)?.setOnClickListener {
+        findViewById<View>(R.id.settings_privacy_card)?.setOnClickListener {
             val intent = Intent(this, SettingsDetailActivity::class.java).apply {
                 putExtra(SettingsDetailActivity.EXTRA_SECTION, SettingsDetailActivity.SECTION_PRIVACY)
             }
             startActivity(intent)
         }
         
-        findViewById<com.google.android.material.card.MaterialCardView>(R.id.settings_about_card)?.setOnClickListener {
+        findViewById<View>(R.id.settings_about_card)?.setOnClickListener {
             val intent = Intent(this, SettingsDetailActivity::class.java).apply {
                 putExtra(SettingsDetailActivity.EXTRA_SECTION, SettingsDetailActivity.SECTION_ABOUT)
             }
