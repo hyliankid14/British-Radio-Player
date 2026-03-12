@@ -490,10 +490,21 @@ class RadioService : MediaBrowserServiceCompat() {
         mediaSession.setPlaybackState(pbBuilder.build())
     }
 
-    override fun onGetRoot(clientName: String, clientUid: Int, rootHints: Bundle?): BrowserRoot {
+    override fun onGetRoot(clientName: String, clientUid: Int, rootHints: Bundle?): BrowserRoot? {
         Log.d(TAG, "onGetRoot called for client: $clientName, uid: $clientUid")
         maybeHandleAndroidAutoReconnect(clientName, clientUid)
-        
+
+        // Opt out of Android 11+'s media resumption feature (and Samsung One UI 8's "Live
+        // notifications / recently played" card) when the user has explicitly stopped playback.
+        // The system sends EXTRA_RECENT = true to discover which apps have recently-played
+        // content.  Returning null here prevents it from connecting and building a "resume"
+        // notification in the shade.  Android Auto does NOT use this hint so returning null
+        // here does not affect Android Auto browsing or playback.
+        if (rootHints?.getBoolean(BrowserRoot.EXTRA_RECENT) == true && isStopped) {
+            Log.d(TAG, "onGetRoot: returning null for EXTRA_RECENT request (playback stopped)")
+            return null
+        }
+
         val extras = Bundle().apply {
             putBoolean("android.media.browse.CONTENT_STYLE_SUPPORTED", true)
             putInt("android.media.browse.CONTENT_STYLE_PLAYABLE_HINT", 1) // 1 = LIST
@@ -1190,6 +1201,13 @@ class RadioService : MediaBrowserServiceCompat() {
                                                 val next = candidates.minByOrNull { it.second }?.first
                                                 if (next != null) {
                                                     Log.d(TAG, "Autoplaying next episode chronologically: ${next.title} (id=${next.id})")
+                                                    // Check isStopped here: the user may have pressed Stop while we were
+                                                    // fetching episodes in the background. playPodcastEpisode() resets
+                                                    // isStopped = false, which would restart playback the user explicitly stopped.
+                                                    if (isStopped) {
+                                                        Log.d(TAG, "Autoplay aborted: user stopped playback while fetching next episode")
+                                                        return@launch
+                                                    }
                                                     val playIntent = Intent().apply {
                                                         putExtra(EXTRA_PODCAST_TITLE, podcast.title)
                                                         putExtra(EXTRA_PODCAST_IMAGE, podcast.imageUrl)
@@ -2325,6 +2343,15 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
         WidgetUpdateHelper.updateAllWidgets(this)
 
         Log.d(TAG, "Playback stopped")
+
+        // Stop the service itself so it doesn't continue running as a background service
+        // after playback ends. Samsung One UI 8 (and Android generally) may show a
+        // "recently active" or background-service notification for a stopped foreground
+        // service that is still running. stopSelf() terminates the service when no clients
+        // (e.g. Android Auto) are bound. If a client IS bound, Android keeps the service
+        // alive until the client unbinds, at which point it is destroyed automatically.
+        // When the user plays again, the service is re-started via startForegroundService().
+        stopSelf()
     }
 
     private fun startAlarmPlaybackVolumeRamp(targetVolume: Float = 1.0f) {
