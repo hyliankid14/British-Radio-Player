@@ -194,10 +194,30 @@ class RadioService : MediaBrowserServiceCompat() {
         mediaSession.setCallback(object : MediaSessionCompat.Callback() {
             override fun onPlay() {
                 Log.d(TAG, "onPlay called")
-                player?.play()
-                updatePlaybackState(PlaybackStateCompat.STATE_PLAYING)
-                PlaybackStateHelper.setIsPlaying(true)
-                scheduleShowInfoRefresh()
+                val playerState = player?.playbackState ?: Player.STATE_IDLE
+                val canResume = !isStopped &&
+                    (playerState == Player.STATE_READY || playerState == Player.STATE_BUFFERING)
+                if (canResume) {
+                    // Normal resume: player is paused but prepared
+                    player?.play()
+                    updatePlaybackState(PlaybackStateCompat.STATE_PLAYING)
+                    PlaybackStateHelper.setIsPlaying(true)
+                    if (!currentStationId.startsWith("podcast_")) scheduleShowInfoRefresh()
+                    startForegroundNotification()
+                } else {
+                    // Player is stopped or in error state — attempt to restart from last known media
+                    val lastMediaId = PlaybackPreference.getLastMediaId(this@RadioService)
+                    Log.d(TAG, "onPlay: player not resumable (isStopped=$isStopped, state=$playerState), restarting from lastMediaId=$lastMediaId")
+                    when {
+                        lastMediaId?.startsWith("podcast_episode_") == true ->
+                            replayEpisodeById(lastMediaId.removePrefix("podcast_episode_"))
+                        lastMediaId?.startsWith("station_") == true ->
+                            playStation(lastMediaId.removePrefix("station_"))
+                        currentStationId.isNotEmpty() && !currentStationId.startsWith("podcast_") ->
+                            playStation(currentStationId)
+                        else -> Log.w(TAG, "onPlay: no media to restart")
+                    }
+                }
             }
 
             override fun onSkipToNext() {
@@ -1031,6 +1051,133 @@ class RadioService : MediaBrowserServiceCompat() {
         podcastId = d.podcastId
     )
 
+    /**
+     * Re-play a podcast episode by its ID, using offline stores first (saved/downloaded/history)
+     * and falling back to a network fetch when needed. Used by onPlay() and onPlayerError()
+     * to reliably resume podcast playback after the player has been stopped or has errored.
+     */
+    private fun replayEpisodeById(episodeId: String) {
+        serviceScope.launch {
+            try {
+                // 1. Try saved episodes (no network required)
+                val saved = SavedEpisodes.getSavedEntries(this@RadioService)
+                val s = saved.find { it.id == episodeId }
+                if (s != null) {
+                    val ep = Episode(
+                        id = s.id,
+                        title = s.title,
+                        description = s.description,
+                        audioUrl = s.audioUrl,
+                        imageUrl = s.imageUrl,
+                        pubDate = s.pubDate,
+                        durationMins = s.durationMins,
+                        podcastId = s.podcastId
+                    )
+                    val playIntent = Intent().apply {
+                        putExtra(EXTRA_PODCAST_TITLE, s.podcastTitle)
+                        putExtra(EXTRA_PODCAST_IMAGE, s.imageUrl)
+                    }
+                    playPodcastEpisode(ep, playIntent)
+                    return@launch
+                }
+
+                // 2. Try downloaded episodes (supports offline playback)
+                val d = DownloadedEpisodes.getDownloadedEntry(this@RadioService, episodeId)
+                if (d != null) {
+                    val playIntent = Intent().apply {
+                        putExtra(EXTRA_PODCAST_TITLE, d.podcastTitle)
+                        putExtra(EXTRA_PODCAST_IMAGE, d.imageUrl)
+                    }
+                    playPodcastEpisode(downloadedEntryToEpisode(d), playIntent)
+                    return@launch
+                }
+
+                // 3. Try played history (covers episodes played from browse/search)
+                val history = PlayedHistoryPreference.getHistory(this@RadioService)
+                val h = history.find { it.id == episodeId }
+                if (h != null && h.audioUrl.isNotBlank()) {
+                    val ep = Episode(
+                        id = h.id,
+                        title = h.title,
+                        description = h.description,
+                        audioUrl = h.audioUrl,
+                        imageUrl = h.imageUrl,
+                        pubDate = h.pubDate,
+                        durationMins = h.durationMins,
+                        podcastId = h.podcastId
+                    )
+                    val playIntent = Intent().apply {
+                        putExtra(EXTRA_PODCAST_TITLE, h.podcastTitle)
+                        putExtra(EXTRA_PODCAST_IMAGE, h.imageUrl)
+                    }
+                    playPodcastEpisode(ep, playIntent)
+                    return@launch
+                }
+
+                // 4. Fall back to network lookup — first try the local FTS index to narrow the
+                //    search to a single podcast, then scan all subscribed podcasts as a last resort.
+                try {
+                    val repo = PodcastRepository(this@RadioService)
+                    var foundEp: Episode? = null
+                    var parentPodcast: Podcast? = null
+
+                    // Try local index first (no full subscription scan needed)
+                    val indexed = try {
+                        com.hyliankid14.bbcradioplayer.db.IndexStore
+                            .getInstance(this@RadioService).findEpisodeById(episodeId)
+                    } catch (_: Exception) { null }
+                    if (indexed != null) {
+                        val allPods = withContext(Dispatchers.IO) {
+                            withTimeoutOrNull(5000L) { repo.fetchPodcasts(false) }
+                        } ?: emptyList()
+                        val parent = allPods.find { it.id == indexed.podcastId }
+                        if (parent != null) {
+                            val eps = try { withContext(Dispatchers.IO) { repo.fetchEpisodes(parent) } } catch (_: Exception) { emptyList() }
+                            val ep = eps.find { it.id == episodeId }
+                            if (ep != null) {
+                                foundEp = ep
+                                parentPodcast = parent
+                            }
+                        }
+                    }
+
+                    // If index lookup didn't find it, scan all subscribed podcasts
+                    if (foundEp == null) {
+                        val all = withContext(Dispatchers.IO) { repo.fetchPodcasts(false) }
+                        val subscribed = PodcastSubscriptions.getSubscribedIds(this@RadioService)
+                        for (p in all) {
+                            if (!subscribed.contains(p.id)) continue
+                            try {
+                                val eps = withContext(Dispatchers.IO) { repo.fetchEpisodes(p) }
+                                val ep = eps.find { it.id == episodeId }
+                                if (ep != null) {
+                                    foundEp = ep
+                                    parentPodcast = p
+                                    break
+                                }
+                            } catch (e: Exception) {
+                                Log.d(TAG, "replayEpisodeById: skipping podcast ${p.id} due to error: ${e.message}")
+                            }
+                        }
+                    }
+
+                    if (foundEp != null) {
+                        val playIntent = Intent().apply {
+                            parentPodcast?.let { putExtra(EXTRA_PODCAST_TITLE, it.title); putExtra(EXTRA_PODCAST_IMAGE, it.imageUrl) }
+                        }
+                        playPodcastEpisode(foundEp, playIntent)
+                    } else {
+                        Log.w(TAG, "replayEpisodeById: episode not found for id: $episodeId")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "replayEpisodeById: network lookup failed for id: $episodeId", e)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "replayEpisodeById: unexpected error for id: $episodeId", e)
+            }
+        }
+    }
+
     private fun downloadedEntryToMediaItem(d: DownloadedEpisodes.Entry): MediaItem {
         val played = PlayedEpisodesPreference.isPlayed(this, d.id)
         val progress = PlayedEpisodesPreference.getProgress(this, d.id)
@@ -1206,7 +1353,14 @@ class RadioService : MediaBrowserServiceCompat() {
                         Log.e(TAG, "Playback error: ${error.message}", error)
                         // Auto-reconnect after a delay
                         handler.postDelayed({
-                            if (currentStationId.isNotEmpty()) {
+                            if (currentStationId.startsWith("podcast_")) {
+                                // For podcast episodes, re-play the current episode
+                                val episodeId = PlaybackStateHelper.getCurrentEpisodeId()
+                                if (!episodeId.isNullOrEmpty()) {
+                                    Log.d(TAG, "Attempting to reconnect to podcast episode: $episodeId")
+                                    replayEpisodeById(episodeId)
+                                }
+                            } else if (currentStationId.isNotEmpty()) {
                                 Log.d(TAG, "Attempting to reconnect to station: $currentStationId")
                                 playStation(currentStationId)
                             }
