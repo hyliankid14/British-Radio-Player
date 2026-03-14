@@ -78,11 +78,36 @@ android {
 
     signingConfigs {
         debug {
-            // Use a committed debug keystore so all CI-generated debug APKs share the
-            // same signing certificate.  This allows a device to update from one CI
-            // debug build to the next without a "package conflict" error.
-            // Credentials are intentionally public — this key is never used for release.
-            storeFile rootProject.file("keystore/debug.keystore")
+            // Auto-generate a debug keystore on first build so no key material is
+            // committed to source control.  The keystore is excluded from git via
+            // .gitignore.  Credentials use the well-known Android debug defaults and
+            // are never used for release builds.
+            def debugKeystoreDir  = rootProject.file("keystore")
+            def debugKeystoreFile = new File(debugKeystoreDir, "debug.keystore")
+            if (!debugKeystoreFile.exists()) {
+                debugKeystoreDir.mkdirs()
+                def result = exec {
+                    ignoreExitValue = true
+                    commandLine 'keytool',
+                        '-genkeypair',
+                        '-keystore', debugKeystoreFile.absolutePath,
+                        '-alias',    'androiddebugkey',
+                        '-keyalg',   'RSA',
+                        '-keysize',  '2048',
+                        '-validity', '10000',
+                        '-storepass','android',
+                        '-keypass',  'android',
+                        '-dname',    'CN=Android Debug,O=Android,C=US',
+                        '-storetype','pkcs12'
+                }
+                if (result.exitValue != 0) {
+                    throw new GradleException(
+                        "Failed to generate debug keystore (keytool exit ${result.exitValue}). " +
+                        "Ensure 'keytool' (part of the JDK) is available on your PATH."
+                    )
+                }
+            }
+            storeFile debugKeystoreFile
             storePassword "android"
             keyAlias "androiddebugkey"
             keyPassword "android"
