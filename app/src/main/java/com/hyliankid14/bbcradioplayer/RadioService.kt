@@ -418,6 +418,14 @@ class RadioService : MediaBrowserServiceCompat() {
     }
 
     private fun updatePlaybackState(state: Int) {
+        // Once stopPlayback() sets isStopped = true the MediaSession has already been
+        // deactivated and cleared. Samsung One UI 8's "Live notifications" system monitors
+        // setPlaybackState() calls on *any* MediaSession – active or not – and will rebuild
+        // its media-player widget whenever it sees one.  Returning here prevents both the
+        // ExoPlayer onPlaybackStateChanged(STATE_IDLE) callback (fired synchronously from
+        // player?.stop()) and any subsequent explicit calls from posting new state to the
+        // session after it has been cleared.
+        if (isStopped) return
         val isPodcast = currentStationId.startsWith("podcast_")
         val podcastId = currentPodcastId
         // For podcasts with an active episode, treat the star as saved-episode state. Otherwise treat as subscription state.
@@ -502,10 +510,21 @@ class RadioService : MediaBrowserServiceCompat() {
         mediaSession.setPlaybackState(pbBuilder.build())
     }
 
-    override fun onGetRoot(clientName: String, clientUid: Int, rootHints: Bundle?): BrowserRoot {
+    override fun onGetRoot(clientName: String, clientUid: Int, rootHints: Bundle?): BrowserRoot? {
         Log.d(TAG, "onGetRoot called for client: $clientName, uid: $clientUid")
         maybeHandleAndroidAutoReconnect(clientName, clientUid)
-        
+
+        // Opt out of Android 11+'s media resumption feature (and Samsung One UI 8's "Live
+        // notifications / recently played" card) when the user has explicitly stopped playback.
+        // The system sends EXTRA_RECENT = true to discover which apps have recently-played
+        // content.  Returning null here prevents it from connecting and building a "resume"
+        // notification in the shade.  Android Auto does NOT use this hint so returning null
+        // here does not affect Android Auto browsing or playback.
+        if (rootHints?.getBoolean(BrowserRoot.EXTRA_RECENT) == true && isStopped) {
+            Log.d(TAG, "onGetRoot: returning null for EXTRA_RECENT request (playback stopped)")
+            return null
+        }
+
         val extras = Bundle().apply {
             putBoolean("android.media.browse.CONTENT_STYLE_SUPPORTED", true)
             putInt("android.media.browse.CONTENT_STYLE_PLAYABLE_HINT", 1) // 1 = LIST
@@ -1329,6 +1348,13 @@ class RadioService : MediaBrowserServiceCompat() {
                                                 val next = candidates.minByOrNull { it.second }?.first
                                                 if (next != null) {
                                                     Log.d(TAG, "Autoplaying next episode chronologically: ${next.title} (id=${next.id})")
+                                                    // Check isStopped here: the user may have pressed Stop while we were
+                                                    // fetching episodes in the background. playPodcastEpisode() resets
+                                                    // isStopped = false, which would restart playback the user explicitly stopped.
+                                                    if (isStopped) {
+                                                        Log.d(TAG, "Autoplay aborted: user stopped playback while fetching next episode")
+                                                        return@launch
+                                                    }
                                                     val playIntent = Intent().apply {
                                                         putExtra(EXTRA_PODCAST_TITLE, podcast.title)
                                                         putExtra(EXTRA_PODCAST_IMAGE, podcast.imageUrl)
@@ -2386,6 +2412,39 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
     private fun stopPlayback() {
         isStopped = true
         stopAlarmPlaybackVolumeRamp()
+
+        // Shut down the MediaSession completely BEFORE player?.stop() so that neither
+        // the ExoPlayer onPlaybackStateChanged(STATE_IDLE) callback nor any subsequent
+        // updatePlaybackState() call can post new state to the session.
+        // updatePlaybackState() now returns immediately when isStopped == true (see guard
+        // at the top of that function), so the steps below are the last writes to the
+        // session.  Sequence matters for Samsung One UI 8:
+        //   1. Set STATE_NONE (no actions, position 0) — signals "no active playback" to
+        //      Samsung's Live-notifications system which monitors setPlaybackState() on
+        //      any MediaSession, active or not.
+        //   2. Clear metadata (empty builder) — removes the episode/station title and
+        //      artwork that Samsung's media-player card would otherwise cache.
+        //   3. Deactivate the session — final signal that the session is dormant.
+        try {
+            mediaSession.setPlaybackState(
+                PlaybackStateCompat.Builder()
+                    .setState(PlaybackStateCompat.STATE_NONE, 0L, 0f)
+                    .build()
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to clear MediaSession playback state on stop: ${e.message}")
+        }
+        try {
+            mediaSession.setMetadata(android.support.v4.media.MediaMetadataCompat.Builder().build())
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to clear MediaSession metadata on stop: ${e.message}")
+        }
+        try {
+            mediaSession.isActive = false
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to deactivate MediaSession on stop: ${e.message}")
+        }
+
         player?.stop()
         stopForeground(STOP_FOREGROUND_REMOVE)
         try {
@@ -2393,8 +2452,10 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
             nm.cancel(NOTIFICATION_ID)
         } catch (_: Exception) { }
         notificationHadProgress = false
-        updatePlaybackState(PlaybackStateCompat.STATE_STOPPED)
-        
+        // updatePlaybackState(STATE_STOPPED) removed: the isStopped guard added to
+        // updatePlaybackState() makes any call here a no-op, and the STATE_NONE already
+        // set above is the correct terminal state for Samsung Live notifications.
+
         // Cancel show refresh
         showInfoRefreshRunnable?.let { handler.removeCallbacks(it) }
         podcastProgressRunnable?.let { handler.removeCallbacks(it) }
@@ -2435,23 +2496,16 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
 
         WidgetUpdateHelper.updateAllWidgets(this)
 
-        // Deactivate the MediaSession and clear its metadata so that Samsung One UI's
-        // "Live notifications" media player widget is dismissed from the notification shade.
-        // Without this, Samsung rebuilds its own media-player card from the still-active session
-        // even after stopForeground() + NotificationManager.cancel() have removed the app's own
-        // notification, causing the podcast to keep appearing after the user presses Stop.
-        try {
-            mediaSession.setMetadata(android.support.v4.media.MediaMetadataCompat.Builder().build())
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to clear MediaSession metadata on stop: ${e.message}")
-        }
-        try {
-            mediaSession.isActive = false
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to deactivate MediaSession on stop: ${e.message}")
-        }
-        
         Log.d(TAG, "Playback stopped")
+
+        // Stop the service itself so it doesn't continue running as a background service
+        // after playback ends. Samsung One UI 8 (and Android generally) may show a
+        // "recently active" or background-service notification for a stopped foreground
+        // service that is still running. stopSelf() terminates the service when no clients
+        // (e.g. Android Auto) are bound. If a client IS bound, Android keeps the service
+        // alive until the client unbinds, at which point it is destroyed automatically.
+        // When the user plays again, the service is re-started via startForegroundService().
+        stopSelf()
     }
 
     private fun startAlarmPlaybackVolumeRamp(targetVolume: Float = 1.0f) {
