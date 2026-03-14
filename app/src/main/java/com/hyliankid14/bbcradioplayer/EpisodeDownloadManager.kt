@@ -185,9 +185,24 @@ object EpisodeDownloadManager {
             return false
         }
 
-        // Check if already downloaded
+        // Check if already downloaded (checks SharedPreferences and the filesystem)
         if (DownloadedEpisodes.isDownloaded(context, episode)) {
             Toast.makeText(context, "Episode already downloaded", Toast.LENGTH_SHORT).show()
+            return false
+        }
+
+        // Guard against reinstall-duplicates: the public file may already exist on disk even
+        // though SharedPreferences was wiped.  If so, register it and skip the download.
+        val publicFileName = buildDestinationFile(context, episode).name
+        val publicFile = File(
+            File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PODCASTS), "BBC Radio Player"),
+            publicFileName
+        )
+        if (publicFile.exists() && publicFile.length() > 0) {
+            DownloadedEpisodes.addDownloaded(
+                context, episode, publicFile.absolutePath, publicFile.length(), podcastTitle, isAutoDownload
+            )
+            if (!isAutoDownload) Toast.makeText(context, "Episode already downloaded", Toast.LENGTH_SHORT).show()
             return false
         }
 

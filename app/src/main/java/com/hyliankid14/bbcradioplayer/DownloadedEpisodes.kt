@@ -40,26 +40,42 @@ object DownloadedEpisodes {
 
     private fun findDownloadedFileForEpisode(context: Context, episode: Episode): File? {
         return try {
-            val baseDir = File(context.getExternalFilesDir(Environment.DIRECTORY_PODCASTS), "episodes")
-            if (!baseDir.exists() || !baseDir.isDirectory) return null
             val safeTitle = sanitizeFilename(episode.title).ifBlank { "episode" }
             val safeEpisodeId = sanitizeFilename(episode.id).ifBlank { episode.id.hashCode().toString() }
+            val currentName = "${safeTitle.take(70)}_${safeEpisodeId.take(40)}.mp3"
+            val legacyName = "${safeTitle.take(100)}_${episode.id}.mp3"
 
-            val directCurrentPattern = File(baseDir, "${safeTitle.take(70)}_${safeEpisodeId.take(40)}.mp3")
-            if (directCurrentPattern.exists()) return directCurrentPattern
-
-            val legacyPattern = File(baseDir, "${safeTitle.take(100)}_${episode.id}.mp3")
-            if (legacyPattern.exists()) return legacyPattern
-
-            // Fallback: match by episode id suffix used in our download filename format.
-            baseDir.listFiles()?.firstOrNull {
-                if (!it.isFile) return@firstOrNull false
-                val name = it.name
-                name.equals(directCurrentPattern.name, ignoreCase = true) ||
-                    name.equals(legacyPattern.name, ignoreCase = true) ||
-                    name.endsWith("_${safeEpisodeId.take(40)}.mp3", ignoreCase = true) ||
-                    name.endsWith("_${episode.id}.mp3", ignoreCase = true)
+            // Check all directories where the download could reside.
+            // DownloadManager always writes to the public Podcasts directory (survives uninstall),
+            // while the direct-download fallback path writes to the app-specific directory.
+            val candidateDirs = buildList<File> {
+                // Public directory — destination used by DownloadManager on all API levels
+                add(File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PODCASTS), "BBC Radio Player"))
+                // App-specific directory — used by the direct-download fallback path
+                add(File(context.getExternalFilesDir(Environment.DIRECTORY_PODCASTS), "episodes"))
             }
+
+            for (dir in candidateDirs) {
+                if (!dir.exists() || !dir.isDirectory) continue
+
+                val direct = File(dir, currentName)
+                if (direct.exists() && direct.length() > 0) return direct
+
+                val legacy = File(dir, legacyName)
+                if (legacy.exists() && legacy.length() > 0) return legacy
+
+                // Fallback: match by episode id suffix used in our download filename format.
+                dir.listFiles()?.firstOrNull {
+                    if (!it.isFile || it.length() == 0L) return@firstOrNull false
+                    val name = it.name
+                    name.equals(currentName, ignoreCase = true) ||
+                        name.equals(legacyName, ignoreCase = true) ||
+                        name.endsWith("_${safeEpisodeId.take(40)}.mp3", ignoreCase = true) ||
+                        name.endsWith("_${episode.id}.mp3", ignoreCase = true)
+                }?.let { return it }
+            }
+
+            null
         } catch (_: Exception) {
             null
         }
