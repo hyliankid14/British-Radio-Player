@@ -86,7 +86,7 @@ object UpdateDialog {
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
                 setMargins(0, 0, 0, 16)
-                height = 150
+                height = 350
             }
         })
         
