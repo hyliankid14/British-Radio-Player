@@ -104,6 +104,7 @@ class RadioService : MediaBrowserServiceCompat() {
 
     private var notificationHadProgress: Boolean = false
     @Volatile private var isStopped: Boolean = false
+    private var playerReconnectRunnable: Runnable? = null
     // Track last-saved progress per episode to avoid excessive writes
     private val lastSavedProgress = mutableMapOf<String, Long>()
     private val serviceScope = CoroutineScope(Dispatchers.Main)
@@ -256,19 +257,7 @@ class RadioService : MediaBrowserServiceCompat() {
             override fun onPlayFromMediaId(mediaId: String?, extras: Bundle?) {
                 Log.d(TAG, "onPlayFromMediaId called with mediaId: $mediaId")
                 mediaId?.let { id ->
-                    if (id.startsWith(MEDIA_ID_PODCAST_SORT_TOGGLE_PREFIX)) {
-                        val podcastId = id.removePrefix(MEDIA_ID_PODCAST_SORT_TOGGLE_PREFIX)
-                        val nextOrder = PodcastEpisodeSortPreference.toggleOrder(this@RadioService, podcastId)
-                        autoEpisodesCache.remove(podcastId)
-                        notifyChildrenChanged("podcast_$podcastId")
-                        handler.post {
-                            val messageRes = when (nextOrder) {
-                                PodcastEpisodeSortPreference.Order.NEWEST_FIRST -> R.string.podcast_episode_sort_changed_newest
-                                PodcastEpisodeSortPreference.Order.OLDEST_FIRST -> R.string.podcast_episode_sort_changed_oldest
-                            }
-                            android.widget.Toast.makeText(this@RadioService, getString(messageRes), android.widget.Toast.LENGTH_SHORT).show()
-                        }
-                    } else if (id.startsWith("podcast_episode_")) {
+                    if (id.startsWith("podcast_episode_")) {
                         val episodeId = id.removePrefix("podcast_episode_")
                         serviceScope.launch {
                             try {
@@ -876,7 +865,20 @@ class RadioService : MediaBrowserServiceCompat() {
                     result.sendResult(itemsPodcasts)
                 }
                 else -> {
-                    if (parentId == "podcasts_subscribed") {
+                    if (parentId.startsWith(MEDIA_ID_PODCAST_SORT_TOGGLE_PREFIX)) {
+                        val podcastId = parentId.removePrefix(MEDIA_ID_PODCAST_SORT_TOGGLE_PREFIX)
+                        val nextOrder = PodcastEpisodeSortPreference.toggleOrder(this@RadioService, podcastId)
+                        autoEpisodesCache.remove(podcastId)
+                        try { notifyChildrenChanged("podcast_$podcastId") } catch (_: Exception) { }
+                        handler.post {
+                            val messageRes = when (nextOrder) {
+                                PodcastEpisodeSortPreference.Order.NEWEST_FIRST -> R.string.podcast_episode_sort_changed_newest
+                                PodcastEpisodeSortPreference.Order.OLDEST_FIRST -> R.string.podcast_episode_sort_changed_oldest
+                            }
+                            android.widget.Toast.makeText(this@RadioService, getString(messageRes), android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                        result.sendResult(loadPodcastItemsForAuto(podcastId))
+                    } else if (parentId == "podcasts_subscribed") {
                         val subscribed = PodcastSubscriptions.getSubscribedIds(this@RadioService)
                         if (subscribed.isEmpty()) {
                             result.sendResult(emptyList())
@@ -996,57 +998,7 @@ class RadioService : MediaBrowserServiceCompat() {
                     } else if (parentId.startsWith("podcast_")) {
                         // Extract the plain podcast ID (strip any legacy ":start=<n>:count=<m>" suffix).
                         val podcastId = parentId.removePrefix("podcast_").substringBefore(':')
-
-                        try {
-                            // Use the service-level cache when available so re-visiting a podcast
-                            // (e.g. after back-navigation in Android Auto) is instant.
-                            val eps = autoEpisodesCache[podcastId] ?: run {
-                                val repo = PodcastRepository(this@RadioService)
-                                val all = withContext(Dispatchers.IO) { repo.fetchPodcasts(false) }
-                                val podcast = all.find { it.id == podcastId }
-                                if (podcast != null) {
-                                    val fetched = withContext(Dispatchers.IO) {
-                                        repo.fetchEpisodesPaged(podcast, 0, AUTO_MAX_EPISODES)
-                                    }
-                                    if (fetched.isNotEmpty()) {
-                                        autoEpisodesCache[podcastId] = fetched
-                                    }
-                                    fetched
-                                } else emptyList<Episode>()
-                            }
-                            val itemsForPodcast = mutableListOf<MediaItem>()
-                            itemsForPodcast.add(buildPodcastSortToggleMediaItem(podcastId))
-                            if (eps.isNotEmpty()) {
-                                val downloadedIds = DownloadedEpisodes.getDownloadedEntries(this@RadioService)
-                                    .map { it.id }.toSet()
-                                itemsForPodcast.addAll(eps.map { ep -> episodeToMediaItem(ep, downloadedIds) })
-                                result.sendResult(itemsForPodcast)
-                            } else {
-                                // Podcast not found or has no online episodes – show downloaded fallback
-                                val downloadedEps = DownloadedEpisodes.getDownloadedEpisodesForPodcast(this@RadioService, podcastId)
-                                if (downloadedEps.isNotEmpty()) {
-                                    val sortedDownloaded = sortDownloadedEpisodesForPodcast(downloadedEps, podcastId)
-                                    itemsForPodcast.addAll(sortedDownloaded.map { d -> downloadedEntryToMediaItem(d) })
-                                    result.sendResult(itemsForPodcast)
-                                } else {
-                                    result.sendResult(itemsForPodcast)
-                                }
-                            }
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Error loading episodes for podcast $podcastId", e)
-                            // Offline fallback: show downloaded episodes for this podcast
-                            try {
-                                val downloadedEps = DownloadedEpisodes.getDownloadedEpisodesForPodcast(this@RadioService, podcastId)
-                                val itemsForPodcast = mutableListOf<MediaItem>()
-                                itemsForPodcast.add(buildPodcastSortToggleMediaItem(podcastId))
-                                val sortedDownloaded = sortDownloadedEpisodesForPodcast(downloadedEps, podcastId)
-                                itemsForPodcast.addAll(sortedDownloaded.map { d -> downloadedEntryToMediaItem(d) })
-                                result.sendResult(itemsForPodcast)
-                            } catch (ex: Exception) {
-                                Log.e(TAG, "Error loading offline fallback for podcast $podcastId", ex)
-                                result.sendResult(null)
-                            }
-                        }
+                        result.sendResult(loadPodcastItemsForAuto(podcastId))
                     } else {
                         Log.d(TAG, "Unknown parentId: $parentId")
                         result.sendResult(null)
@@ -1256,8 +1208,56 @@ class RadioService : MediaBrowserServiceCompat() {
                 .setMediaId(MEDIA_ID_PODCAST_SORT_TOGGLE_PREFIX + podcastId)
                 .setTitle(title)
                 .build(),
-            MediaItem.FLAG_PLAYABLE
+            MediaItem.FLAG_BROWSABLE
         )
+    }
+
+    private suspend fun loadPodcastItemsForAuto(podcastId: String): List<MediaItem> {
+        val itemsForPodcast = mutableListOf<MediaItem>()
+        itemsForPodcast.add(buildPodcastSortToggleMediaItem(podcastId))
+
+        return try {
+            // Use the service-level cache when available so re-visiting a podcast is instant.
+            val eps = autoEpisodesCache[podcastId] ?: run {
+                val repo = PodcastRepository(this@RadioService)
+                val all = withContext(Dispatchers.IO) { repo.fetchPodcasts(false) }
+                val podcast = all.find { it.id == podcastId }
+                if (podcast != null) {
+                    val fetched = withContext(Dispatchers.IO) {
+                        repo.fetchEpisodesPaged(podcast, 0, AUTO_MAX_EPISODES)
+                    }
+                    if (fetched.isNotEmpty()) {
+                        autoEpisodesCache[podcastId] = fetched
+                    }
+                    fetched
+                } else {
+                    emptyList()
+                }
+            }
+
+            if (eps.isNotEmpty()) {
+                val downloadedIds = DownloadedEpisodes.getDownloadedEntries(this@RadioService)
+                    .map { it.id }.toSet()
+                itemsForPodcast.addAll(eps.map { ep -> episodeToMediaItem(ep, downloadedIds) })
+            } else {
+                val downloadedEps = DownloadedEpisodes.getDownloadedEpisodesForPodcast(this@RadioService, podcastId)
+                if (downloadedEps.isNotEmpty()) {
+                    val sortedDownloaded = sortDownloadedEpisodesForPodcast(downloadedEps, podcastId)
+                    itemsForPodcast.addAll(sortedDownloaded.map { d -> downloadedEntryToMediaItem(d) })
+                }
+            }
+            itemsForPodcast
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading episodes for podcast $podcastId", e)
+            try {
+                val downloadedEps = DownloadedEpisodes.getDownloadedEpisodesForPodcast(this@RadioService, podcastId)
+                val sortedDownloaded = sortDownloadedEpisodesForPodcast(downloadedEps, podcastId)
+                itemsForPodcast.addAll(sortedDownloaded.map { d -> downloadedEntryToMediaItem(d) })
+            } catch (ex: Exception) {
+                Log.e(TAG, "Error loading offline fallback for podcast $podcastId", ex)
+            }
+            itemsForPodcast
+        }
     }
 
     private fun sortDownloadedEpisodesForPodcast(
@@ -1457,7 +1457,11 @@ class RadioService : MediaBrowserServiceCompat() {
                     override fun onPlayerError(error: PlaybackException) {
                         Log.e(TAG, "Playback error: ${error.message}", error)
                         // Auto-reconnect after a delay
-                        handler.postDelayed({
+                        playerReconnectRunnable?.let { handler.removeCallbacks(it) }
+                        playerReconnectRunnable = Runnable {
+                            if (isStopped || currentStationId.isBlank()) {
+                                return@Runnable
+                            }
                             if (currentStationId.startsWith("podcast_")) {
                                 // For podcast episodes, re-play the current episode
                                 val episodeId = PlaybackStateHelper.getCurrentEpisodeId()
@@ -1469,7 +1473,8 @@ class RadioService : MediaBrowserServiceCompat() {
                                 Log.d(TAG, "Attempting to reconnect to station: $currentStationId")
                                 playStation(currentStationId)
                             }
-                        }, 3000) // Wait 3 seconds before reconnecting
+                        }
+                        handler.postDelayed(playerReconnectRunnable!!, 3000) // Wait 3 seconds before reconnecting
                     }
                 })
             }
@@ -1926,6 +1931,7 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
 
     private fun playStation(stationId: String) {
         isStopped = false
+        playerReconnectRunnable?.let { handler.removeCallbacks(it); playerReconnectRunnable = null }
         if (!mediaSession.isActive) mediaSession.isActive = true
         val station = StationRepository.getStations().firstOrNull { it.id == stationId }
         if (station == null) {
@@ -2491,6 +2497,7 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
     private fun stopPlayback() {
         isStopped = true
         stopAlarmPlaybackVolumeRamp()
+        playerReconnectRunnable?.let { handler.removeCallbacks(it); playerReconnectRunnable = null }
 
         // Shut down the MediaSession completely BEFORE player?.stop() so that neither
         // the ExoPlayer onPlaybackStateChanged(STATE_IDLE) callback nor any subsequent
@@ -2684,6 +2691,12 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent == null && currentStationId.isBlank() && !PlaybackStateHelper.getIsPlaying()) {
+            Log.d(TAG, "onStartCommand - ignoring sticky restart with no active playback")
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
         Log.d(TAG, "onStartCommand - action: ${intent?.action}")
         intent?.let {
             when (it.action) {
@@ -2713,6 +2726,7 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                     episode?.let { ep -> playPodcastEpisode(ep, it) }
                 }
                 ACTION_PLAY -> {
+                    if (!mediaSession.isActive) mediaSession.isActive = true
                     player?.play()
                     PlaybackStateHelper.setIsPlaying(true)
                     updatePlaybackState(PlaybackStateCompat.STATE_PLAYING)
@@ -2767,12 +2781,17 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                 }
             }
         }
-        return START_STICKY
+        return if (currentStationId.isNotBlank() || PlaybackStateHelper.getIsPlaying()) {
+            START_STICKY
+        } else {
+            START_NOT_STICKY
+        }
     }
     
     private fun playPodcastEpisode(episode: Episode, intent: Intent?) {
         try {
             isStopped = false
+            playerReconnectRunnable?.let { handler.removeCallbacks(it); playerReconnectRunnable = null }
             if (!mediaSession.isActive) mediaSession.isActive = true
 
             // Cancel any pending analytics from previous playback
@@ -3377,6 +3396,7 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
         // Cancel any pending analytics
         stationAnalyticsRunnable?.let { handler.removeCallbacks(it); stationAnalyticsRunnable = null }
         episodeAnalyticsRunnable?.let { handler.removeCallbacks(it); episodeAnalyticsRunnable = null }
+        playerReconnectRunnable?.let { handler.removeCallbacks(it); playerReconnectRunnable = null }
         stationAnalyticsPending = false
         stationAnalyticsScheduled = false
         episodeAnalyticsPending = false
