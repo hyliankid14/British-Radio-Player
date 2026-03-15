@@ -11,6 +11,8 @@ import com.hyliankid14.bbcradioplayer.R
 import com.hyliankid14.bbcradioplayer.SavedSearchManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.util.Calendar
+import java.util.concurrent.TimeUnit
 
 /**
  * Background worker that runs indexing as a foreground service with a notification.
@@ -32,6 +34,8 @@ class BackgroundIndexWorker(
         const val MODE_INCREMENTAL = "incremental"
         const val KEY_STATUS = "status"
         const val KEY_PERCENT = "percent"
+        private const val TARGET_HOUR_LOCAL = 5
+        private const val TARGET_MINUTE_LOCAL = 0
 
         /**
          * Enqueue a one-time indexing work request that runs in the background
@@ -82,12 +86,13 @@ class BackgroundIndexWorker(
             val wifiOnly = com.hyliankid14.bbcradioplayer.IndexPreference.getWifiOnly(context)
             val networkType = if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED
             val inputData = workDataOf(INPUT_MODE to MODE_INCREMENTAL)
+            val initialDelayMs = computeInitialDelayToNextTargetWindow()
             val workRequest = PeriodicWorkRequestBuilder<BackgroundIndexWorker>(
                 intervalDays.toLong(),
-                java.util.concurrent.TimeUnit.DAYS
+                TimeUnit.DAYS
             )
                 .setInputData(inputData)
-                .setInitialDelay(15, java.util.concurrent.TimeUnit.MINUTES)
+                .setInitialDelay(initialDelayMs, TimeUnit.MILLISECONDS)
                 .setConstraints(
                     Constraints.Builder()
                         .setRequiredNetworkType(networkType)
@@ -102,7 +107,26 @@ class BackgroundIndexWorker(
                 workRequest
             )
 
-            Log.d(TAG, "Scheduled periodic indexing every $intervalDays days")
+            Log.d(TAG, "Scheduled periodic indexing every $intervalDays days (next run in ${initialDelayMs / 60000} minutes)")
+        }
+
+        /**
+         * Align periodic indexing with the next local 05:00 run window.
+         * If current time is already past 05:00, schedule for tomorrow.
+         */
+        private fun computeInitialDelayToNextTargetWindow(nowMs: Long = System.currentTimeMillis()): Long {
+            val now = Calendar.getInstance().apply { timeInMillis = nowMs }
+            val target = Calendar.getInstance().apply {
+                timeInMillis = nowMs
+                set(Calendar.HOUR_OF_DAY, TARGET_HOUR_LOCAL)
+                set(Calendar.MINUTE, TARGET_MINUTE_LOCAL)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+                if (!after(now)) {
+                    add(Calendar.DAY_OF_YEAR, 1)
+                }
+            }
+            return (target.timeInMillis - nowMs).coerceAtLeast(0L)
         }
 
         /**
