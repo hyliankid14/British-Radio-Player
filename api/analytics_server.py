@@ -207,9 +207,10 @@ def init_db():
             episode_title TEXT,
             date TEXT NOT NULL,
             app_version TEXT,
+            platform TEXT,
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         )
-    ''')
+    '''
 
     # Backward-compatible migrations for existing databases
     existing_columns = {row[1] for row in c.execute("PRAGMA table_info(events)").fetchall()}
@@ -225,7 +226,12 @@ def init_db():
         c.execute("ALTER TABLE events ADD COLUMN podcast_title TEXT")
     if "episode_title" not in existing_columns:
         c.execute("ALTER TABLE events ADD COLUMN episode_title TEXT")
-    
+    if "platform" not in existing_columns:
+        c.execute("ALTER TABLE events ADD COLUMN platform TEXT")
+        # Back-fill existing rows: web versions get 'web', everything else gets 'android'
+        c.execute("UPDATE events SET platform = 'web' WHERE platform IS NULL AND app_version LIKE '%-web'")
+        c.execute("UPDATE events SET platform = 'android' WHERE platform IS NULL")
+
     conn.commit()
     conn.close()
 
@@ -287,9 +293,10 @@ def log_event():
                     podcast_title,
                     episode_title,
                     date,
-                    app_version
+                    app_version,
+                    platform
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 event_type,
                 data.get('station_id'),
@@ -299,7 +306,8 @@ def log_event():
                 data.get('podcast_title'),
                 data.get('episode_title'),
                 data['date'],
-                data.get('app_version', '1.0.0-web')
+                data.get('app_version', '1.0.0-web'),
+                data.get('platform', 'web')
             ))
             conn.commit()
             conn.close()
@@ -340,10 +348,11 @@ def log_event():
                 podcast_title,
                 episode_title,
                 date,
-                app_version
+                app_version,
+                platform
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (event_type, station_id, station_name, podcast_id, episode_id, podcast_title, episode_title, date, app_version))
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (event_type, station_id, station_name, podcast_id, episode_id, podcast_title, episode_title, date, app_version, data.get('platform', 'android')))
         conn.commit()
         conn.close()
 
@@ -495,7 +504,8 @@ def export_csv():
                 episode_id,
                 episode_title,
                 date,
-                app_version
+                app_version,
+                platform
             FROM events
             {date_filter}
             ORDER BY id DESC
@@ -513,7 +523,8 @@ def export_csv():
             'episode_title',
             'date_utc',
             'time_utc',
-            'app_version'
+            'app_version',
+            'platform'
         ])
         for row in c.fetchall():
             raw_date = row['date'] or ''
@@ -532,7 +543,8 @@ def export_csv():
                 row['episode_title'],
                 date_part,
                 time_part,
-                row['app_version']
+                row['app_version'],
+                row['platform']
             ])
 
         conn.close()

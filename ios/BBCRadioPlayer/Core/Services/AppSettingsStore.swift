@@ -121,7 +121,8 @@ final class PrivacyAnalyticsService: ObservableObject {
             "event": "station_play",
             "station_id": stationID,
             "date": utcISO8601Timestamp(),
-            "app_version": appVersionString()
+            "app_version": appVersionString(),
+            "platform": "ios"
         ]
         if let stationName, !stationName.isEmpty {
             event["station_name"] = stationName
@@ -143,7 +144,8 @@ final class PrivacyAnalyticsService: ObservableObject {
             "podcast_id": podcastID,
             "episode_id": episodeID,
             "date": utcISO8601Timestamp(),
-            "app_version": appVersionString()
+            "app_version": appVersionString(),
+            "platform": "ios"
         ]
         if let podcastTitle, !podcastTitle.isEmpty {
             event["podcast_title"] = podcastTitle

@@ -54,6 +54,12 @@ struct SettingsView: View {
 
             Section("About") {
                 Text("BBC Radio Player iOS port")
+                HStack {
+                    Text("Version")
+                    Spacer()
+                    Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown")
+                        .foregroundStyle(.secondary)
+                }
                 Text("Initial parity target: favourites, stations, podcasts, settings")
                     .font(.caption)
                     .foregroundStyle(.secondary)

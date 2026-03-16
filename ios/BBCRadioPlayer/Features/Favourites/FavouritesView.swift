@@ -99,7 +99,7 @@ struct FavouritesView: View {
                                         .foregroundStyle(Color.brandText)
                                     Text(viewModel.showSubtitle(for: station))
                                         .font(.caption)
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(.tertiary)
                                         .lineLimit(1)
                                 }
 
@@ -150,7 +150,7 @@ struct FavouritesView: View {
                                     if !snapshot.genres.isEmpty {
                                         Text(snapshot.genres.prefix(2).joined(separator: " • "))
                                             .font(.caption2)
-                                            .foregroundStyle(.secondary)
+                                            .foregroundStyle(.tertiary)
                                             .lineLimit(1)
                                     }
                                 }
@@ -198,12 +198,12 @@ struct FavouritesView: View {
                                     HStack(spacing: 8) {
                                         Text(container.podcastsViewModel.formattedDate(snapshot.pubDate))
                                             .font(.caption2)
-                                            .foregroundStyle(.secondary)
+                                            .foregroundStyle(.tertiary)
                                         
                                         if snapshot.durationMins > 0 {
                                             Text("\(snapshot.durationMins) min")
                                                 .font(.caption2)
-                                                .foregroundStyle(.secondary)
+                                                .foregroundStyle(.tertiary)
                                         }
                                     }
                                 }
