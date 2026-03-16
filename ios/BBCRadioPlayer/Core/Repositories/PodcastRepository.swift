@@ -45,91 +45,212 @@ struct DefaultPodcastRepository: PodcastRepository {
 
 enum OPMLPodcastParser {
     static func parse(data: Data) -> [Podcast] {
-        guard let content = String(data: data, encoding: .utf8) else {
-            return []
-        }
-
-        let pattern = #"xmlUrl=\"([^\"]+)\"[^>]*text=\"([^\"]+)\""#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
-            return []
-        }
-
-        let nsRange = NSRange(content.startIndex..<content.endIndex, in: content)
-        let matches = regex.matches(in: content, options: [], range: nsRange)
-
-        return matches.compactMap { match in
-            guard
-                let rssRange = Range(match.range(at: 1), in: content),
-                let titleRange = Range(match.range(at: 2), in: content),
-                let rssURL = URL(string: String(content[rssRange]))
-            else {
-                return nil
-            }
-
-            let title = String(content[titleRange])
-            return Podcast(
-                id: title.lowercased().replacingOccurrences(of: " ", with: "-"),
-                title: title,
-                description: "",
-                rssURL: rssURL,
-                htmlURL: nil,
-                imageURL: nil,
-                genres: [],
-                typicalDurationMins: 0
-            )
-        }
+        let parserDelegate = OPMLParserDelegate()
+        let parser = XMLParser(data: data)
+        parser.delegate = parserDelegate
+        parser.parse()
+        return parserDelegate.podcasts
     }
 }
 
 enum RSSPodcastParser {
     static func parseEpisodes(data: Data, podcastID: String) throws -> [Episode] {
-        guard let content = String(data: data, encoding: .utf8) else {
-            return []
+        let parserDelegate = RSSParserDelegate(podcastID: podcastID)
+        let parser = XMLParser(data: data)
+        parser.delegate = parserDelegate
+        parser.parse()
+        return parserDelegate.episodes
+    }
+}
+
+private final class OPMLParserDelegate: NSObject, XMLParserDelegate {
+    private(set) var podcasts: [Podcast] = []
+
+    func parser(
+        _ parser: XMLParser,
+        didStartElement elementName: String,
+        namespaceURI: String?,
+        qualifiedName qName: String?,
+        attributes attributeDict: [String: String] = [:]
+    ) {
+        guard elementName.lowercased() == "outline" else {
+            return
         }
 
-        let itemPattern = #"<item>([\s\S]*?)</item>"#
-        let titlePattern = #"<title><!\[CDATA\[(.*?)\]\]></title>|<title>(.*?)</title>"#
-        let enclosurePattern = #"<enclosure[^>]*url=\"([^\"]+)\""#
+        guard
+            let rssURLString = attributeDict["xmlUrl"],
+            let rssURL = URL(string: rssURLString)
+        else {
+            return
+        }
 
-        let itemRegex = try NSRegularExpression(pattern: itemPattern, options: [.caseInsensitive])
-        let titleRegex = try NSRegularExpression(pattern: titlePattern, options: [.caseInsensitive])
-        let enclosureRegex = try NSRegularExpression(pattern: enclosurePattern, options: [.caseInsensitive])
+        let title = attributeDict["text"] ?? attributeDict["title"] ?? "BBC Podcast"
+        let htmlURL = attributeDict["htmlUrl"].flatMap(URL.init(string:))
+        let id = slug(from: title)
 
-        let itemMatches = itemRegex.matches(in: content, options: [], range: NSRange(content.startIndex..<content.endIndex, in: content))
-
-        return itemMatches.compactMap { itemMatch in
-            guard let itemRange = Range(itemMatch.range(at: 1), in: content) else {
-                return nil
-            }
-            let itemContent = String(content[itemRange])
-            let itemNSRange = NSRange(itemContent.startIndex..<itemContent.endIndex, in: itemContent)
-
-            guard
-                let enclosureMatch = enclosureRegex.firstMatch(in: itemContent, options: [], range: itemNSRange),
-                let enclosureRange = Range(enclosureMatch.range(at: 1), in: itemContent),
-                let audioURL = URL(string: String(itemContent[enclosureRange]))
-            else {
-                return nil
-            }
-
-            var title = "Episode"
-            if let titleMatch = titleRegex.firstMatch(in: itemContent, options: [], range: itemNSRange) {
-                let titleCapture = titleMatch.range(at: 1).location != NSNotFound ? titleMatch.range(at: 1) : titleMatch.range(at: 2)
-                if let titleRange = Range(titleCapture, in: itemContent) {
-                    title = String(itemContent[titleRange]).trimmingCharacters(in: .whitespacesAndNewlines)
-                }
-            }
-
-            return Episode(
-                id: UUID().uuidString,
+        podcasts.append(
+            Podcast(
+                id: id,
                 title: title,
                 description: "",
-                audioURL: audioURL,
+                rssURL: rssURL,
+                htmlURL: htmlURL,
                 imageURL: nil,
-                pubDate: "",
-                durationMins: 0,
+                genres: [],
+                typicalDurationMins: 0
+            )
+        )
+    }
+
+    private func slug(from value: String) -> String {
+        value
+            .lowercased()
+            .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+    }
+}
+
+private final class RSSParserDelegate: NSObject, XMLParserDelegate {
+    private let podcastID: String
+
+    private(set) var episodes: [Episode] = []
+
+    private var inItem = false
+    private var currentElement = ""
+    private var currentTitle = ""
+    private var currentDescription = ""
+    private var currentPubDate = ""
+    private var currentDuration = ""
+    private var currentGUID = ""
+    private var currentAudioURL: URL?
+    private var currentImageURL: URL?
+
+    init(podcastID: String) {
+        self.podcastID = podcastID
+    }
+
+    func parser(
+        _ parser: XMLParser,
+        didStartElement elementName: String,
+        namespaceURI: String?,
+        qualifiedName qName: String?,
+        attributes attributeDict: [String: String] = [:]
+    ) {
+        let name = (qName ?? elementName).lowercased()
+        if name == "item" {
+            inItem = true
+            resetCurrentItem()
+        }
+
+        guard inItem else {
+            return
+        }
+
+        currentElement = name
+
+        if name == "enclosure", let url = attributeDict["url"].flatMap(URL.init(string:)) {
+            currentAudioURL = url
+        }
+
+        if (name == "itunes:image" || name == "image"),
+            let href = attributeDict["href"] ?? attributeDict["url"],
+            let url = URL(string: href) {
+            currentImageURL = url
+        }
+    }
+
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        guard inItem else {
+            return
+        }
+
+        switch currentElement {
+        case "title":
+            currentTitle += string
+        case "description", "content:encoded":
+            currentDescription += string
+        case "pubdate":
+            currentPubDate += string
+        case "itunes:duration", "duration":
+            currentDuration += string
+        case "guid":
+            currentGUID += string
+        default:
+            break
+        }
+    }
+
+    func parser(
+        _ parser: XMLParser,
+        didEndElement elementName: String,
+        namespaceURI: String?,
+        qualifiedName qName: String?
+    ) {
+        let name = (qName ?? elementName).lowercased()
+        if name == "item" {
+            inItem = false
+            flushCurrentItem()
+        }
+        currentElement = ""
+    }
+
+    private func flushCurrentItem() {
+        guard let audioURL = currentAudioURL else {
+            return
+        }
+
+        let title = currentTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let description = currentDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        let pubDate = currentPubDate.trimmingCharacters(in: .whitespacesAndNewlines)
+        let durationMins = parseDurationToMinutes(currentDuration)
+        let trimmedGUID = currentGUID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let episodeID = trimmedGUID.isEmpty ? audioURL.absoluteString : trimmedGUID
+
+        episodes.append(
+            Episode(
+                id: episodeID,
+                title: title.isEmpty ? "Episode" : title,
+                description: description,
+                audioURL: audioURL,
+                imageURL: currentImageURL,
+                pubDate: pubDate,
+                durationMins: durationMins,
                 podcastID: podcastID
             )
+        )
+    }
+
+    private func resetCurrentItem() {
+        currentElement = ""
+        currentTitle = ""
+        currentDescription = ""
+        currentPubDate = ""
+        currentDuration = ""
+        currentGUID = ""
+        currentAudioURL = nil
+        currentImageURL = nil
+    }
+
+    private func parseDurationToMinutes(_ value: String) -> Int {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return 0
         }
+
+        if let seconds = Int(trimmed) {
+            return max(1, seconds / 60)
+        }
+
+        let components = trimmed.split(separator: ":").compactMap { Int($0) }
+        if components.count == 3 {
+            let totalSeconds = (components[0] * 3600) + (components[1] * 60) + components[2]
+            return max(1, totalSeconds / 60)
+        }
+        if components.count == 2 {
+            let totalSeconds = (components[0] * 60) + components[1]
+            return max(1, totalSeconds / 60)
+        }
+
+        return 0
     }
 }

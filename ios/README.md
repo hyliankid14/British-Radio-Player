@@ -24,12 +24,19 @@ Not implemented yet (planned next):
 
 ## How to use this code in Xcode
 
-1. Create a new iOS App project in Xcode named `BBCRadioPlayer`.
-2. Set deployment target to iOS 16.0 (to include iPhone 8 support).
-3. Add all `.swift` files under `ios/BBCRadioPlayer/` to the app target.
-4. In Signing & Capabilities, enable:
+1. Ensure full Xcode is installed from the App Store (ADAM ID `497799835`) and opened once to accept the licence.
+2. Run the bootstrap script from repo root:
+   - `./scripts/setup-ios-build.sh`
+3. Open the generated project:
+   - `ios/BBCRadioPlayer.xcodeproj`
+4. In Signing & Capabilities, set your team and enable:
    - Background Modes -> Audio, AirPlay, and Picture in Picture
 5. Build and run on your iPhone 8.
+
+Notes:
+- The script installs `xcodegen` and `mas`, generates the project, and verifies whether full Xcode is active.
+- If `xcodebuild -version` fails, switch developer tools after installing Xcode:
+  - `sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer`
 
 ## Immediate next tasks
 
