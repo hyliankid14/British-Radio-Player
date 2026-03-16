@@ -763,9 +763,10 @@ class RadioService : MediaBrowserServiceCompat() {
                     items.add(buildPodcastSortToggleMediaItem(podcastId))
                 }
 
+                val sortedVisibleEpisodes = filterAndSortEpisodesForAuto(allEps, podcastId)
                 val startIndex = if (page == 0) 0 else (page * pageSize) - 1
                 val episodeCount = if (page == 0) (pageSize - 1).coerceAtLeast(0) else pageSize
-                val pageEps = allEps.drop(startIndex).take(episodeCount)
+                val pageEps = sortedVisibleEpisodes.drop(startIndex).take(episodeCount)
                 if (pageEps.isNotEmpty()) {
                     val downloadedIds = DownloadedEpisodes.getDownloadedEntries(this@RadioService)
                         .map { it.id }.toSet()
@@ -877,7 +878,7 @@ class RadioService : MediaBrowserServiceCompat() {
                             }
                             android.widget.Toast.makeText(this@RadioService, getString(messageRes), android.widget.Toast.LENGTH_SHORT).show()
                         }
-                        result.sendResult(loadPodcastItemsForAuto(podcastId))
+                        result.sendResult(loadPodcastItemsForAuto(podcastId, includeSortToggle = false))
                     } else if (parentId == "podcasts_subscribed") {
                         val subscribed = PodcastSubscriptions.getSubscribedIds(this@RadioService)
                         if (subscribed.isEmpty()) {
@@ -1212,9 +1213,14 @@ class RadioService : MediaBrowserServiceCompat() {
         )
     }
 
-    private suspend fun loadPodcastItemsForAuto(podcastId: String): List<MediaItem> {
+    private suspend fun loadPodcastItemsForAuto(
+        podcastId: String,
+        includeSortToggle: Boolean = true
+    ): List<MediaItem> {
         val itemsForPodcast = mutableListOf<MediaItem>()
-        itemsForPodcast.add(buildPodcastSortToggleMediaItem(podcastId))
+        if (includeSortToggle) {
+            itemsForPodcast.add(buildPodcastSortToggleMediaItem(podcastId))
+        }
 
         return try {
             // Use the service-level cache when available so re-visiting a podcast is instant.
@@ -1236,9 +1242,10 @@ class RadioService : MediaBrowserServiceCompat() {
             }
 
             if (eps.isNotEmpty()) {
+                val sortedVisibleEpisodes = filterAndSortEpisodesForAuto(eps, podcastId)
                 val downloadedIds = DownloadedEpisodes.getDownloadedEntries(this@RadioService)
                     .map { it.id }.toSet()
-                itemsForPodcast.addAll(eps.map { ep -> episodeToMediaItem(ep, downloadedIds) })
+                itemsForPodcast.addAll(sortedVisibleEpisodes.map { ep -> episodeToMediaItem(ep, downloadedIds) })
             } else {
                 val downloadedEps = DownloadedEpisodes.getDownloadedEpisodesForPodcast(this@RadioService, podcastId)
                 if (downloadedEps.isNotEmpty()) {
@@ -1264,7 +1271,14 @@ class RadioService : MediaBrowserServiceCompat() {
         entries: List<DownloadedEpisodes.Entry>,
         podcastId: String
     ): List<DownloadedEpisodes.Entry> {
-        val indexedEntries = entries.mapIndexed { index, entry ->
+        val hidePlayed = PlaybackPreference.isHidePlayedEpisodesInAndroidAutoEnabled(this)
+        val visibleEntries = if (hidePlayed) {
+            entries.filterNot { PlayedEpisodesPreference.isPlayed(this, it.id) }
+        } else {
+            entries
+        }
+
+        val indexedEntries = visibleEntries.mapIndexed { index, entry ->
             IndexedDownloadedEpisode(
                 entry = entry,
                 epochMs = EpisodeDateParser.parsePubDateToEpochOrNull(entry.pubDate),
@@ -1289,8 +1303,47 @@ class RadioService : MediaBrowserServiceCompat() {
         return sorted.map { it.entry }
     }
 
+    private fun filterAndSortEpisodesForAuto(entries: List<Episode>, podcastId: String): List<Episode> {
+        val hidePlayed = PlaybackPreference.isHidePlayedEpisodesInAndroidAutoEnabled(this)
+        val visibleEntries = if (hidePlayed) {
+            entries.filterNot { PlayedEpisodesPreference.isPlayed(this, it.id) }
+        } else {
+            entries
+        }
+
+        val indexedEntries = visibleEntries.mapIndexed { index, entry ->
+            IndexedEpisode(
+                episode = entry,
+                epochMs = EpisodeDateParser.parsePubDateToEpochOrNull(entry.pubDate),
+                originalIndex = index
+            )
+        }
+
+        val sorted = if (PodcastEpisodeSortPreference.isOldestFirst(this, podcastId)) {
+            indexedEntries.sortedWith(
+                compareByDescending<IndexedEpisode> { it.epochMs != null }
+                    .thenBy { it.epochMs ?: Long.MAX_VALUE }
+                    .thenBy { it.originalIndex }
+            )
+        } else {
+            indexedEntries.sortedWith(
+                compareByDescending<IndexedEpisode> { it.epochMs != null }
+                    .thenByDescending { it.epochMs ?: Long.MIN_VALUE }
+                    .thenBy { it.originalIndex }
+            )
+        }
+
+        return sorted.map { it.episode }
+    }
+
     private data class IndexedDownloadedEpisode(
         val entry: DownloadedEpisodes.Entry,
+        val epochMs: Long?,
+        val originalIndex: Int
+    )
+
+    private data class IndexedEpisode(
+        val episode: Episode,
         val epochMs: Long?,
         val originalIndex: Int
     )

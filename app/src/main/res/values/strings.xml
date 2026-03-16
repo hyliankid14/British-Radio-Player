@@ -87,6 +87,8 @@
     <string name="podcast_episode_sort_changed_newest">Episode order set to newest first</string>
     <string name="podcast_auto_sort_toggle_oldest">Sort: Oldest first (tap to change)</string>
     <string name="podcast_auto_sort_toggle_newest">Sort: Newest first (tap to change)</string>
+    <string name="android_auto_auto_resume_label">Auto-play last station or podcast when Android Auto connects</string>
+    <string name="android_auto_hide_played_label">Hide fully played episodes in Android Auto</string>
 
     <!-- Hour and Minute Arrays -->
     <string-array name="hour_options">

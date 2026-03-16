@@ -143,10 +143,16 @@ class SettingsDetailActivity : AppCompatActivity() {
 
     private fun setupAndroidAutoSettings() {
         val autoResumeAndroidAutoCheckbox: android.widget.CheckBox = findViewById(R.id.auto_resume_android_auto_checkbox)
+        val hidePlayedAndroidAutoCheckbox: android.widget.CheckBox = findViewById(R.id.hide_played_android_auto_checkbox)
 
         autoResumeAndroidAutoCheckbox.isChecked = PlaybackPreference.isAutoResumeAndroidAutoEnabled(this)
         autoResumeAndroidAutoCheckbox.setOnCheckedChangeListener { _, isChecked ->
             PlaybackPreference.setAutoResumeAndroidAuto(this, isChecked)
+        }
+
+        hidePlayedAndroidAutoCheckbox.isChecked = PlaybackPreference.isHidePlayedEpisodesInAndroidAutoEnabled(this)
+        hidePlayedAndroidAutoCheckbox.setOnCheckedChangeListener { _, isChecked ->
+            PlaybackPreference.setHidePlayedEpisodesInAndroidAuto(this, isChecked)
         }
     }
 
