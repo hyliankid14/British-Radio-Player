@@ -11,9 +11,15 @@ struct FavouritesView: View {
     @EnvironmentObject private var container: AppContainer
     @State private var selectedTab = FavouritesTab.stations
 
+    private var hasAnyFavourites: Bool {
+        !viewModel.favoriteStations.isEmpty ||
+        !container.favoritesStore.subscribedPodcastIDs.isEmpty ||
+        !container.favoritesStore.savedEpisodeIDs.isEmpty
+    }
+
     var body: some View {
         Group {
-            if viewModel.favoriteStations.isEmpty && container.favoritesStore.subscribedPodcastIDs.isEmpty && container.favoritesStore.savedEpisodeIDs.isEmpty {
+            if !hasAnyFavourites {
                 VStack(spacing: 16) {
                     Image(systemName: "star.fill")
                         .font(.system(size: 48))
@@ -30,14 +36,6 @@ struct FavouritesView: View {
                 .background(Color(.systemBackground))
             } else {
                 VStack(spacing: 0) {
-                    Picker("Favourites", selection: $selectedTab) {
-                        Text("Stations").tag(FavouritesTab.stations)
-                        Text("Podcasts").tag(FavouritesTab.podcasts)
-                        Text("Episodes").tag(FavouritesTab.episodes)
-                    }
-                    .pickerStyle(.segmented)
-                    .padding()
-
                     Group {
                         switch selectedTab {
                         case .stations:
@@ -53,6 +51,28 @@ struct FavouritesView: View {
         }
         .navigationTitle("Favourites")
         .navigationBarTitleDisplayMode(.inline)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if hasAnyFavourites {
+                favouritesHeader
+            }
+        }
+    }
+
+    private var favouritesHeader: some View {
+        VStack(spacing: 0) {
+            Picker("Favourites", selection: $selectedTab) {
+                Text("Stations").tag(FavouritesTab.stations)
+                Text("Podcasts").tag(FavouritesTab.podcasts)
+                Text("Episodes").tag(FavouritesTab.episodes)
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
+            .padding(.vertical, 10)
+        }
+        .background(Color(.systemBackground))
+        .overlay(alignment: .bottom) {
+            Divider()
+        }
     }
 
     private var stationsList: some View {
@@ -76,6 +96,7 @@ struct FavouritesView: View {
                                     Text(station.title)
                                         .font(container.appSettingsStore.compactRows ? .body : .headline)
                                         .lineLimit(2)
+                                        .foregroundStyle(Color.brandText)
                                     Text(viewModel.showSubtitle(for: station))
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
@@ -125,6 +146,7 @@ struct FavouritesView: View {
                                     Text(snapshot.title)
                                         .font(container.appSettingsStore.compactRows ? .body : .headline)
                                         .lineLimit(2)
+                                        .foregroundStyle(Color.brandText)
                                     if !snapshot.genres.isEmpty {
                                         Text(snapshot.genres.prefix(2).joined(separator: " • "))
                                             .font(.caption2)
@@ -171,6 +193,7 @@ struct FavouritesView: View {
                                     Text(snapshot.title)
                                         .font(container.appSettingsStore.compactRows ? .body : .headline)
                                         .lineLimit(2)
+                                        .foregroundStyle(Color.brandText)
                                     
                                     HStack(spacing: 8) {
                                         Text(container.podcastsViewModel.formattedDate(snapshot.pubDate))

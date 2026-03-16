@@ -18,9 +18,22 @@ final class AppContainer: ObservableObject {
     let audioPlayerService: AudioPlayerService
     let favoritesStore: FavoritesStore
     let appSettingsStore: AppSettingsStore
+    let privacyAnalytics: PrivacyAnalyticsService
     let radioViewModel: RadioViewModel
     let podcastsViewModel: PodcastsViewModel
     private var cancellables: Set<AnyCancellable> = []
+
+    var shouldShowAnalyticsOptInDialog: Bool {
+        privacyAnalytics.shouldShowOptInDialog
+    }
+
+    func setAnalyticsEnabled(_ enabled: Bool) {
+        privacyAnalytics.isEnabled = enabled
+    }
+
+    func markAnalyticsOptInDialogShown() {
+        privacyAnalytics.markOptInDialogShown()
+    }
 
     init(
         stationRepository: StationRepository = DefaultStationRepository(),
@@ -28,7 +41,8 @@ final class AppContainer: ObservableObject {
         remoteIndexClient: RemoteIndexClient = RemoteIndexClient(),
         audioPlayerService: AudioPlayerService? = nil,
         favoritesStore: FavoritesStore = FavoritesStore(),
-        appSettingsStore: AppSettingsStore = AppSettingsStore()
+        appSettingsStore: AppSettingsStore = AppSettingsStore(),
+        privacyAnalytics: PrivacyAnalyticsService = PrivacyAnalyticsService()
     ) {
         let resolvedAudioPlayerService = audioPlayerService ?? AudioPlayerService()
 
@@ -38,6 +52,7 @@ final class AppContainer: ObservableObject {
         self.audioPlayerService = resolvedAudioPlayerService
         self.favoritesStore = favoritesStore
         self.appSettingsStore = appSettingsStore
+        self.privacyAnalytics = privacyAnalytics
         self.radioViewModel = RadioViewModel(
             stationRepository: stationRepository,
             audioPlayerService: resolvedAudioPlayerService,
@@ -57,6 +72,7 @@ final class AppContainer: ObservableObject {
             self?.radioViewModel.playPreviousStation()
         }
         resolvedAudioPlayerService.updatePodcastArtworkMode(appSettingsStore.podcastArtworkMode)
+        resolvedAudioPlayerService.updateAnalyticsService(privacyAnalytics)
 
         // Forward nested updates so root environment object refreshes immediately.
         favoritesStore.objectWillChange

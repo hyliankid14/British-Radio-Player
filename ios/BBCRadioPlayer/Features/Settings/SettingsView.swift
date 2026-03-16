@@ -2,6 +2,8 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var settingsStore: AppSettingsStore
+    @ObservedObject var analytics: PrivacyAnalyticsService
+    @State private var showPrivacyPolicy = false
 
     var body: some View {
         Form {
@@ -39,6 +41,17 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Privacy") {
+                Toggle("Share anonymous analytics", isOn: Binding(
+                    get: { analytics.isEnabled },
+                    set: { analytics.isEnabled = $0 }
+                ))
+
+                Button("Privacy policy") {
+                    showPrivacyPolicy = true
+                }
+            }
+
             Section("About") {
                 Text("BBC Radio Player iOS port")
                 Text("Initial parity target: favourites, stations, podcasts, settings")
@@ -48,5 +61,35 @@ struct SettingsView: View {
         }
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showPrivacyPolicy) {
+            NavigationStack {
+                ScrollView {
+                    Text("""
+                    BBC Radio Player Analytics Privacy Policy
+
+                    When you enable analytics:
+                    • We collect station, podcast and episode play events
+                    • We collect the date/time (UTC timestamp) and app version
+                    • Data is sent over HTTPS to our private server
+                    • IP addresses are not stored in the analytics database
+                    • No user identifiers, device IDs or personal info are collected
+                    • Data is anonymous and used only for popularity trends
+
+                    When you disable analytics:
+                    • No data is collected or sent
+                    • You can disable it anytime in settings
+                    """)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+                }
+                .navigationTitle("Privacy Policy")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Done") { showPrivacyPolicy = false }
+                    }
+                }
+            }
+        }
     }
 }

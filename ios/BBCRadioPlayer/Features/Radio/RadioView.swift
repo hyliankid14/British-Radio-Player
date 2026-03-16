@@ -18,6 +18,7 @@ struct RadioView: View {
                                 Text(station.title)
                                     .lineLimit(2)
                                     .font(container.appSettingsStore.compactRows ? .body : .headline)
+                                    .foregroundStyle(Color.brandText)
                                 Text(viewModel.showSubtitle(for: station))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
@@ -63,7 +64,7 @@ struct RadioView: View {
             .padding(.horizontal)
             .padding(.vertical, 10)
         }
-        .background(.ultraThinMaterial)
+        .background(Color(.systemBackground))
         .overlay(alignment: .bottom) {
             Divider()
         }

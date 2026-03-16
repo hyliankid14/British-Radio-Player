@@ -3,6 +3,7 @@ import SwiftUI
 struct RootTabView: View {
     @EnvironmentObject private var container: AppContainer
     @State private var miniPlayerVisible = false
+    @State private var showAnalyticsPrompt = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -35,7 +36,7 @@ struct RootTabView: View {
                 .safeAreaInset(edge: .bottom, spacing: 0) { miniPlayerSpacer }
 
                 NavigationStack {
-                    SettingsView(settingsStore: container.appSettingsStore)
+                    SettingsView(settingsStore: container.appSettingsStore, analytics: container.privacyAnalytics)
                 }
                 .tabItem {
                     Label("Settings", systemImage: "gearshape")
@@ -52,9 +53,24 @@ struct RootTabView: View {
         }
         .onAppear {
             miniPlayerVisible = container.audioPlayerService.hasActiveItem
+            if container.shouldShowAnalyticsOptInDialog {
+                showAnalyticsPrompt = true
+            }
         }
         .onReceive(container.audioPlayerService.objectWillChange) { _ in
             miniPlayerVisible = container.audioPlayerService.hasActiveItem
+        }
+        .alert("Help Improve BBC Radio Player", isPresented: $showAnalyticsPrompt) {
+            Button("Approve") {
+                container.setAnalyticsEnabled(true)
+                container.markAnalyticsOptInDialogShown()
+            }
+            Button("Maybe Later", role: .cancel) {
+                container.setAnalyticsEnabled(false)
+                container.markAnalyticsOptInDialogShown()
+            }
+        } message: {
+            Text("Share anonymous playback events to help improve station and podcast recommendations.")
         }
     }
 

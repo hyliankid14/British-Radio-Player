@@ -60,6 +60,10 @@ final class AudioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
     private var nowPlayingArtworkImage: UIImage?
     private var podcastArtworkMode: PodcastArtworkMode = .episode
     private var currentEpisodePodcastArtworkURL: URL?
+    private var privacyAnalytics: PrivacyAnalyticsService?
+    private var analyticsDelayTask: Task<Void, Never>?
+    private var currentAnalyticsSignature: String?
+    private var currentAnalyticsSent = false
     var onNextRequested: (() -> Void)?
     var onPreviousRequested: (() -> Void)?
 
@@ -94,6 +98,7 @@ final class AudioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
         configureAudioSession()
         startPlayback(url: url)
         configureNowPlaying(title: station.title, subtitle: "Live radio")
+        scheduleStationAnalytics(station)
         refreshRemoteCommandAvailability()
         Task { [weak self] in
             guard let self else { return }
@@ -122,11 +127,14 @@ final class AudioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
         configureAudioSession()
         startPlayback(url: episode.audioURL)
         configureNowPlaying(title: podcastTitle ?? "Podcast", subtitle: episode.title)
+        scheduleEpisodeAnalytics(episode, podcastTitle: podcastTitle)
         refreshRemoteCommandAvailability()
     }
 
     func pause() {
         player?.pause()
+        analyticsDelayTask?.cancel()
+        analyticsDelayTask = nil
         isPlaying = false
         refreshNowPlayingInfo()
     }
@@ -134,6 +142,7 @@ final class AudioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
     func resume() {
         player?.play()
         isPlaying = true
+        scheduleAnalyticsIfNeededForCurrentItem()
         refreshNowPlayingInfo()
     }
 
@@ -159,6 +168,10 @@ final class AudioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
         currentStationShowTitle = ""
         nowPlayingArtworkURL = nil
         nowPlayingArtworkImage = nil
+        analyticsDelayTask?.cancel()
+        analyticsDelayTask = nil
+        currentAnalyticsSignature = nil
+        currentAnalyticsSent = false
         nowPlayingTitleText = ""
         nowPlayingSubtitleText = ""
         currentTime = 0
@@ -185,6 +198,10 @@ final class AudioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
             podcastArtworkURL: currentEpisodePodcastArtworkURL
         )
         loadNowPlayingArtworkIfNeeded()
+    }
+
+    func updateAnalyticsService(_ analytics: PrivacyAnalyticsService) {
+        privacyAnalytics = analytics
     }
 
     func seekBackward(seconds: Double = 15) {
@@ -588,6 +605,56 @@ final class AudioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
             return episodeArtworkURL ?? podcastArtworkURL
         case .podcast:
             return podcastArtworkURL ?? episodeArtworkURL
+        }
+    }
+
+    private func scheduleStationAnalytics(_ station: Station) {
+        analyticsDelayTask?.cancel()
+        currentAnalyticsSignature = "station:\(station.id)"
+        currentAnalyticsSent = false
+        analyticsDelayTask = Task { [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
+            guard !Task.isCancelled else { return }
+            guard self.isPlaying,
+                  self.currentStation?.id == station.id,
+                  self.currentAnalyticsSignature == "station:\(station.id)",
+                  !self.currentAnalyticsSent else { return }
+            self.currentAnalyticsSent = true
+            await self.privacyAnalytics?.trackStationPlay(stationID: station.id, stationName: station.title)
+        }
+    }
+
+    private func scheduleEpisodeAnalytics(_ episode: Episode, podcastTitle: String?) {
+        analyticsDelayTask?.cancel()
+        currentAnalyticsSignature = "episode:\(episode.id)"
+        currentAnalyticsSent = false
+        analyticsDelayTask = Task { [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
+            guard !Task.isCancelled else { return }
+            guard self.isPlaying,
+                  self.currentEpisode?.id == episode.id,
+                  self.currentAnalyticsSignature == "episode:\(episode.id)",
+                  !self.currentAnalyticsSent else { return }
+            self.currentAnalyticsSent = true
+            await self.privacyAnalytics?.trackEpisodePlay(
+                podcastID: episode.podcastID,
+                episodeID: episode.id,
+                episodeTitle: episode.title,
+                podcastTitle: podcastTitle
+            )
+        }
+    }
+
+    private func scheduleAnalyticsIfNeededForCurrentItem() {
+        guard !currentAnalyticsSent else { return }
+        if let station = currentStation {
+            scheduleStationAnalytics(station)
+            return
+        }
+        if let episode = currentEpisode {
+            scheduleEpisodeAnalytics(episode, podcastTitle: currentEpisodePodcastTitle)
         }
     }
 

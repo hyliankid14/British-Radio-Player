@@ -76,6 +76,7 @@ struct PodcastsView: View {
                             Text(podcast.title)
                                 .font(container.appSettingsStore.compactRows ? .body : .headline)
                                 .lineLimit(2)
+                                .foregroundStyle(Color.brandText)
                             if !podcast.description.isEmpty {
                                 Text(podcast.description.stripHTMLTags)
                                     .font(.caption)
@@ -153,6 +154,7 @@ struct PodcastsView: View {
                         Text(episode.title)
                             .font(container.appSettingsStore.compactRows ? .body : .headline)
                             .lineLimit(2)
+                            .foregroundStyle(Color.brandText)
                         
                         HStack(spacing: 8) {
                             Text(viewModel.formattedDate(episode.pubDate))
