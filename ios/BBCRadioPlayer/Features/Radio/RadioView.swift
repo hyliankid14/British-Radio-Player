@@ -2,46 +2,74 @@ import SwiftUI
 
 struct RadioView: View {
     @ObservedObject var viewModel: RadioViewModel
+    @EnvironmentObject private var container: AppContainer
 
     var body: some View {
         List {
             Section {
-                Picker("Quality", selection: $viewModel.selectedQuality) {
-                    Text("High").tag(PlaybackQuality.high)
-                    Text("Low").tag(PlaybackQuality.low)
+                Picker("Category", selection: $viewModel.selectedCategory) {
+                    ForEach(StationCategory.allCases, id: \.self) { category in
+                        Text(category.displayName).tag(category)
+                    }
                 }
                 .pickerStyle(.segmented)
-            }
 
-            ForEach(viewModel.stations) { station in
-                Button {
-                    viewModel.play(station)
-                } label: {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(station.title)
-                            Text(station.category.displayName)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
+                ForEach(viewModel.filteredStations) { station in
+                    Button {
+                        viewModel.play(station)
+                    } label: {
+                        HStack(spacing: 12) {
+                            stationArtwork(for: station)
 
-                        Spacer()
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(station.title)
+                                    .lineLimit(2)
+                                    .font(container.appSettingsStore.compactRows ? .body : .headline)
+                                Text(viewModel.showSubtitle(for: station))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
 
-                        if station.id == viewModel.currentStationID && viewModel.isPlaying {
-                            Image(systemName: "speaker.wave.2.fill")
-                                .foregroundStyle(.tint)
+                            Spacer(minLength: 8)
+
+                            Button {
+                                viewModel.toggleFavorite(station)
+                            } label: {
+                                Image(systemName: viewModel.isFavorite(station) ? "star.fill" : "star")
+                                    .foregroundStyle(viewModel.isFavorite(station) ? .yellow : .secondary)
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                 }
             }
         }
-        .navigationTitle("Radio")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button(viewModel.isPlaying ? "Pause" : "Play") {
-                    viewModel.togglePlayback()
-                }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Stations")
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            viewModel.refreshStationShowTitles()
+        }
+        .onChange(of: viewModel.selectedCategory) { _ in
+            viewModel.refreshStationShowTitles()
+        }
+    }
+
+    private func stationArtwork(for station: Station) -> some View {
+        AsyncImage(url: station.logoURL) { image in
+            image
+                .resizable()
+                .scaledToFill()
+        } placeholder: {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color(.secondarySystemGroupedBackground))
+                Image(systemName: "dot.radiowaves.left.and.right")
+                    .foregroundStyle(.secondary)
             }
         }
+        .frame(width: 44, height: 44)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }

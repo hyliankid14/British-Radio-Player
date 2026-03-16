@@ -13,26 +13,33 @@ struct DefaultPodcastRepository: PodcastRepository {
     }
 
     func fetchPodcasts(forceRefresh: Bool = false) async throws -> [Podcast] {
-        // Initial implementation: read OPML and produce seed podcast data.
-        // Full parity implementation will add disk caching, language filtering and FTS sync.
         guard let url = URL(string: "https://www.bbc.co.uk/radio/opml/bbc_podcast_opml.xml") else {
-            return []
+            throw URLError(.badURL)
         }
 
         var request = URLRequest(url: url)
         request.timeoutInterval = 20
+        request.setValue("BBC Radio Player/1.0 (iOS)", forHTTPHeaderField: "User-Agent")
+        request.setValue("application/xml,text/xml,application/rss+xml,*/*", forHTTPHeaderField: "Accept")
 
         let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse, (200..<300).contains(httpResponse.statusCode) else {
             throw URLError(.badServerResponse)
         }
 
-        return OPMLPodcastParser.parse(data: data)
+        let podcasts = OPMLPodcastParser.parse(data: data)
+        guard !podcasts.isEmpty else {
+            throw URLError(.cannotParseResponse)
+        }
+
+        return podcasts
     }
 
     func fetchEpisodes(for podcast: Podcast) async throws -> [Episode] {
         var request = URLRequest(url: podcast.rssURL)
         request.timeoutInterval = 20
+        request.setValue("BBC Radio Player/1.0 (iOS)", forHTTPHeaderField: "User-Agent")
+        request.setValue("application/xml,text/xml,application/rss+xml,*/*", forHTTPHeaderField: "Accept")
 
         let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse, (200..<300).contains(httpResponse.statusCode) else {
@@ -65,6 +72,7 @@ enum RSSPodcastParser {
 
 private final class OPMLParserDelegate: NSObject, XMLParserDelegate {
     private(set) var podcasts: [Podcast] = []
+    private var seenIDs: Set<String> = []
 
     func parser(
         _ parser: XMLParser,
@@ -77,36 +85,69 @@ private final class OPMLParserDelegate: NSObject, XMLParserDelegate {
             return
         }
 
+        let type = attributeDict["type"]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        let isRSSLikely = type.isEmpty || type == "rss"
+        guard isRSSLikely else {
+            return
+        }
+
         guard
-            let rssURLString = attributeDict["xmlUrl"],
-            let rssURL = URL(string: rssURLString)
+            let rssURLString = attributeDict["xmlUrl"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+            !rssURLString.isEmpty,
+            let rssURL = httpsURL(from: rssURLString)
         else {
             return
         }
 
-        let title = attributeDict["text"] ?? attributeDict["title"] ?? "BBC Podcast"
-        let htmlURL = attributeDict["htmlUrl"].flatMap(URL.init(string:))
-        let id = slug(from: title)
+        let title = (attributeDict["text"] ?? attributeDict["title"] ?? "BBC Podcast")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let description = (attributeDict["description"] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let id = extractPodcastID(from: rssURL.absoluteString)
+        guard !seenIDs.contains(id) else {
+            return
+        }
+        seenIDs.insert(id)
+
+        let htmlURL = attributeDict["htmlUrl"].flatMap(httpsURL(from:))
+        let imageURL = attributeDict["imageHref"].flatMap(httpsURL(from:))
+        let genres = (attributeDict["bbcgenres"] ?? "")
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let typicalDurationMins = Int(attributeDict["typicalDurationMins"] ?? "") ?? 0
 
         podcasts.append(
             Podcast(
                 id: id,
                 title: title,
-                description: "",
+                description: description,
                 rssURL: rssURL,
                 htmlURL: htmlURL,
-                imageURL: nil,
-                genres: [],
-                typicalDurationMins: 0
+                imageURL: imageURL,
+                genres: genres,
+                typicalDurationMins: typicalDurationMins
             )
         )
     }
 
-    private func slug(from value: String) -> String {
-        value
-            .lowercased()
-            .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+    private func httpsURL(from value: String) -> URL? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+        let httpsString = trimmed.replacingOccurrences(of: "http://", with: "https://")
+        return URL(string: httpsString)
+    }
+
+    private func extractPodcastID(from rssURL: String) -> String {
+        if let url = URL(string: rssURL) {
+            let fileName = url.lastPathComponent
+            if fileName.lowercased().hasSuffix(".rss") {
+                return String(fileName.dropLast(4))
+            }
+        }
+        return rssURL
     }
 }
 

@@ -7,7 +7,11 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+        2A9B4A7D5E664CB0A2F65311 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1F4A88CC2E0F4B3BA1A6CB90 /* Assets.xcassets */; };
+		0A64C532967AFFD56BE30DE7 /* MiniPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 898E59DE99796F7DCE8FD120 /* MiniPlayerView.swift */; };
+		0C8D0174A816AA40C630F578 /* FavouritesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C902AAE53A524DBE3F3DAF9 /* FavouritesView.swift */; };
 		237CFC969D4A435D90C06398 /* PlaybackQuality.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C499CDB671828E54CBB2FAF /* PlaybackQuality.swift */; };
+		3533076EA1AFE91EC79A0101 /* FullPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BD4293FDFF3FFC7DDB2658B /* FullPlayerView.swift */; };
 		49763020BEFDFD8C14BF8540 /* PodcastRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7036AACD3EFA24FC802E4EFD /* PodcastRepository.swift */; };
 		502E8AC45C0E005FE900E1AA /* AudioPlayerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C251DCEB1EDA717A3FFDBA7 /* AudioPlayerService.swift */; };
 		69BCB047ECD2919E9FDB8601 /* RadioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63376F114189FBF27C88CD29 /* RadioView.swift */; };
@@ -16,29 +20,40 @@
 		7023489425344FD828D414FC /* Station.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12ECEE66B2DC5CE43751AB0B /* Station.swift */; };
 		81822AF4F186CF276D1D2893 /* BBCRadioPlayerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1799FB1D4BE26E7D1225ED4F /* BBCRadioPlayerApp.swift */; };
 		8940B85EA4DC0BB4BA2E4F9E /* RadioViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECFF67327F1CBA629E948628 /* RadioViewModel.swift */; };
+		95DBE471AAC61DF43CBBB57F /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AFF8DDD6101063F2224204E /* SettingsView.swift */; };
 		9901F69C4381B35A4CBCC51C /* AppContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAB1803DB11076F8B9F5EA6C /* AppContainer.swift */; };
 		ABF2978A6C4BA1F4F7696AD7 /* Podcast.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B25E3B698D3946578A4F8F7 /* Podcast.swift */; };
 		AC3F8FF051EF791C3B14AC4A /* PodcastsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22599EF59F6E1CA14C05B555 /* PodcastsViewModel.swift */; };
+		B46BE15E4C8E7310E95FD9E4 /* FavoritesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2F13D496496DA0631C2EE67 /* FavoritesStore.swift */; };
 		C01FA617028CE987F75150A5 /* RootTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 976DD9B01FA9D49C42576EAA /* RootTabView.swift */; };
 		C56911F2DB33B66306CA4482 /* PodcastsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44F3C37E7A98D0F031142F45 /* PodcastsView.swift */; };
 		D53A140002C390CC16C3B7E3 /* StationRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 891C07BF0A6A5774522ED075 /* StationRepository.swift */; };
+		F9360E24A063E410A34A6221 /* AppSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E6BB8D76FA361B539928148 /* AppSettingsStore.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		1F4A88CC2E0F4B3BA1A6CB90 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets/Assets.xcassets; sourceTree = "<group>"; };
+		0AFF8DDD6101063F2224204E /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		0C499CDB671828E54CBB2FAF /* PlaybackQuality.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackQuality.swift; sourceTree = "<group>"; };
 		12ECEE66B2DC5CE43751AB0B /* Station.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Station.swift; sourceTree = "<group>"; };
 		13F7142D4F13F39B3FD7B663 /* RemoteIndexClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteIndexClient.swift; sourceTree = "<group>"; };
 		1799FB1D4BE26E7D1225ED4F /* BBCRadioPlayerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BBCRadioPlayerApp.swift; sourceTree = "<group>"; };
 		22599EF59F6E1CA14C05B555 /* PodcastsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PodcastsViewModel.swift; sourceTree = "<group>"; };
+		2BD4293FDFF3FFC7DDB2658B /* FullPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullPlayerView.swift; sourceTree = "<group>"; };
 		3C251DCEB1EDA717A3FFDBA7 /* AudioPlayerService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayerService.swift; sourceTree = "<group>"; };
 		44F3C37E7A98D0F031142F45 /* PodcastsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PodcastsView.swift; sourceTree = "<group>"; };
+		4C902AAE53A524DBE3F3DAF9 /* FavouritesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FavouritesView.swift; sourceTree = "<group>"; };
+		4E6BB8D76FA361B539928148 /* AppSettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettingsStore.swift; sourceTree = "<group>"; };
 		5637885A7C0BA19B31E02E1B /* BBCRadioPlayer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BBCRadioPlayer.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		63376F114189FBF27C88CD29 /* RadioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioView.swift; sourceTree = "<group>"; };
 		7036AACD3EFA24FC802E4EFD /* PodcastRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PodcastRepository.swift; sourceTree = "<group>"; };
+		7181D20C8260740FC0A2C9AC /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		891C07BF0A6A5774522ED075 /* StationRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StationRepository.swift; sourceTree = "<group>"; };
+		898E59DE99796F7DCE8FD120 /* MiniPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiniPlayerView.swift; sourceTree = "<group>"; };
 		976DD9B01FA9D49C42576EAA /* RootTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootTabView.swift; sourceTree = "<group>"; };
 		9B25E3B698D3946578A4F8F7 /* Podcast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Podcast.swift; sourceTree = "<group>"; };
 		BB200CA567BE62B67918656C /* PodcastSearchState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PodcastSearchState.swift; sourceTree = "<group>"; };
+		C2F13D496496DA0631C2EE67 /* FavoritesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FavoritesStore.swift; sourceTree = "<group>"; };
 		DAB1803DB11076F8B9F5EA6C /* AppContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppContainer.swift; sourceTree = "<group>"; };
 		ECFF67327F1CBA629E948628 /* RadioViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadioViewModel.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -71,6 +86,14 @@
 			);
 			sourceTree = "<group>";
 		};
+		20842CC24E110DDDE498BBDD /* Favourites */ = {
+			isa = PBXGroup;
+			children = (
+				4C902AAE53A524DBE3F3DAF9 /* FavouritesView.swift */,
+			);
+			path = Favourites;
+			sourceTree = "<group>";
+		};
 		2AD5959F853EDBCCE4C07652 /* Repositories */ = {
 			isa = PBXGroup;
 			children = (
@@ -84,9 +107,20 @@
 		2CF0D45EB274ACD4A6706DEB /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				4E6BB8D76FA361B539928148 /* AppSettingsStore.swift */,
 				3C251DCEB1EDA717A3FFDBA7 /* AudioPlayerService.swift */,
+				C2F13D496496DA0631C2EE67 /* FavoritesStore.swift */,
 			);
 			path = Services;
+			sourceTree = "<group>";
+		};
+		50F931C1DEAF57CE1E588DA0 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				2BD4293FDFF3FFC7DDB2658B /* FullPlayerView.swift */,
+				898E59DE99796F7DCE8FD120 /* MiniPlayerView.swift */,
+			);
+			path = Views;
 			sourceTree = "<group>";
 		};
 		51A2AF397401376C4AF0DC18 /* Models */ = {
@@ -109,12 +143,23 @@
 			path = App;
 			sourceTree = "<group>";
 		};
+		A4B334056CF540FCA02468F4 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				0AFF8DDD6101063F2224204E /* SettingsView.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
 		BC5A302ECAE824DD82CB7E82 /* BBCRadioPlayer */ = {
 			isa = PBXGroup;
 			children = (
+				7181D20C8260740FC0A2C9AC /* Info.plist */,
+				1F4A88CC2E0F4B3BA1A6CB90 /* Assets.xcassets */,
 				9FA3357656E95A2190170989 /* App */,
 				180342F6439E18414D44D372 /* Core */,
 				D0D59E44612E4B2B0873F909 /* Features */,
+				50F931C1DEAF57CE1E588DA0 /* Views */,
 			);
 			path = BBCRadioPlayer;
 			sourceTree = "<group>";
@@ -132,8 +177,10 @@
 		D0D59E44612E4B2B0873F909 /* Features */ = {
 			isa = PBXGroup;
 			children = (
+				20842CC24E110DDDE498BBDD /* Favourites */,
 				C2F7E73CE9E97AC24B0F6FE6 /* Podcasts */,
 				09BCAE1986C24CBF527F7803 /* Radio */,
+				A4B334056CF540FCA02468F4 /* Settings */,
 			);
 			path = Features;
 			sourceTree = "<group>";
@@ -153,6 +200,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 5DC2104FE03316759CD509A5 /* Build configuration list for PBXNativeTarget "BBCRadioPlayer" */;
 			buildPhases = (
+				A3E93AA58A6A4D8C8B8E920C /* Resources */,
 				427CEF620C02A2CE3FE4FE9B /* Sources */,
 			);
 			buildRules = (
@@ -173,7 +221,7 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
-				LastUpgradeCheck = 1430;
+				LastUpgradeCheck = 2630;
 			};
 			buildConfigurationList = 70A3ACADAD86C46531F863E5 /* Build configuration list for PBXProject "BBCRadioPlayer" */;
 			developmentRegion = en;
@@ -194,14 +242,30 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		A3E93AA58A6A4D8C8B8E920C /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2A9B4A7D5E664CB0A2F65311 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		427CEF620C02A2CE3FE4FE9B /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 				9901F69C4381B35A4CBCC51C /* AppContainer.swift in Sources */,
+				F9360E24A063E410A34A6221 /* AppSettingsStore.swift in Sources */,
 				502E8AC45C0E005FE900E1AA /* AudioPlayerService.swift in Sources */,
 				81822AF4F186CF276D1D2893 /* BBCRadioPlayerApp.swift in Sources */,
+				B46BE15E4C8E7310E95FD9E4 /* FavoritesStore.swift in Sources */,
+				0C8D0174A816AA40C630F578 /* FavouritesView.swift in Sources */,
+				3533076EA1AFE91EC79A0101 /* FullPlayerView.swift in Sources */,
+				0A64C532967AFFD56BE30DE7 /* MiniPlayerView.swift in Sources */,
 				237CFC969D4A435D90C06398 /* PlaybackQuality.swift in Sources */,
 				ABF2978A6C4BA1F4F7696AD7 /* Podcast.swift in Sources */,
 				49763020BEFDFD8C14BF8540 /* PodcastRepository.swift in Sources */,
@@ -212,6 +276,7 @@
 				8940B85EA4DC0BB4BA2E4F9E /* RadioViewModel.swift in Sources */,
 				6E74FE41CE6FB9A8D7925816 /* RemoteIndexClient.swift in Sources */,
 				C01FA617028CE987F75150A5 /* RootTabView.swift in Sources */,
+				95DBE471AAC61DF43CBBB57F /* SettingsView.swift in Sources */,
 				7023489425344FD828D414FC /* Station.swift in Sources */,
 				D53A140002C390CC16C3B7E3 /* StationRepository.swift in Sources */,
 			);
@@ -225,12 +290,8 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = 8ZAZCKQ9LV;
-				INFOPLIST_KEY_CFBundleDisplayName = "BBC Radio Player";
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIBackgroundModes = audio;
-				INFOPLIST_KEY_UIRequiresFullScreen = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = BBCRadioPlayer/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -245,12 +306,8 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = 8ZAZCKQ9LV;
-				INFOPLIST_KEY_CFBundleDisplayName = "BBC Radio Player";
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIBackgroundModes = audio;
-				INFOPLIST_KEY_UIRequiresFullScreen = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = BBCRadioPlayer/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -296,9 +353,10 @@
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 8ZAZCKQ9LV;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -321,6 +379,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.hyliankid14.bbcradioplayer.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.1;
@@ -363,9 +422,10 @@
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 8ZAZCKQ9LV;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -381,6 +441,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.hyliankid14.bbcradioplayer.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.1;
