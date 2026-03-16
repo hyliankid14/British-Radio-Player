@@ -158,7 +158,7 @@ struct FullPlayerView: View {
 
     @ViewBuilder
     private var artworkView: some View {
-        if let url = audio.currentEpisode?.imageURL ?? audio.nowPlayingArtworkURL {
+        if let url = audio.nowPlayingArtworkURL {
             AsyncImage(url: url) { img in img.resizable().scaledToFill() }
                 placeholder: {
                     ZStack {

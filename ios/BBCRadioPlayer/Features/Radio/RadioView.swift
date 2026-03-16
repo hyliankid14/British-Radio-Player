@@ -7,13 +7,6 @@ struct RadioView: View {
     var body: some View {
         List {
             Section {
-                Picker("Category", selection: $viewModel.selectedCategory) {
-                    ForEach(StationCategory.allCases, id: \.self) { category in
-                        Text(category.displayName).tag(category)
-                    }
-                }
-                .pickerStyle(.segmented)
-
                 ForEach(viewModel.filteredStations) { station in
                     Button {
                         viewModel.play(station)
@@ -46,6 +39,9 @@ struct RadioView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            categoryHeader
+        }
         .navigationTitle("Stations")
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -53,6 +49,23 @@ struct RadioView: View {
         }
         .onChange(of: viewModel.selectedCategory) { _ in
             viewModel.refreshStationShowTitles()
+        }
+    }
+
+    private var categoryHeader: some View {
+        VStack(spacing: 0) {
+            Picker("Category", selection: $viewModel.selectedCategory) {
+                ForEach(StationCategory.allCases, id: \.self) { category in
+                    Text(category.displayName).tag(category)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
+            .padding(.vertical, 10)
+        }
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .bottom) {
+            Divider()
         }
     }
 

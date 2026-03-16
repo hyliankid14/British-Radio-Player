@@ -58,6 +58,8 @@ final class AudioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
     private var nowPlayingTitleText: String = ""
     private var nowPlayingSubtitleText: String = ""
     private var nowPlayingArtworkImage: UIImage?
+    private var podcastArtworkMode: PodcastArtworkMode = .episode
+    private var currentEpisodePodcastArtworkURL: URL?
     var onNextRequested: (() -> Void)?
     var onPreviousRequested: (() -> Void)?
 
@@ -85,6 +87,7 @@ final class AudioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
 
         currentStation = station
         currentEpisode = nil
+        currentEpisodePodcastArtworkURL = nil
         nowPlayingDetail = ""
         currentStationShowTitle = ""
         nowPlayingArtworkURL = station.logoURL
@@ -104,14 +107,18 @@ final class AudioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
         startRMSPolling(for: station)
     }
 
-    func play(episode: Episode, podcastTitle: String? = nil) {
+    func play(episode: Episode, podcastTitle: String? = nil, podcastArtworkURL: URL? = nil) {
         rmsPollingTask?.cancel()
         currentEpisode = episode
         currentEpisodePodcastTitle = podcastTitle
+        currentEpisodePodcastArtworkURL = podcastArtworkURL
         currentStation = nil
         currentStationShowTitle = ""
         nowPlayingDetail = ""
-        nowPlayingArtworkURL = episode.imageURL
+        nowPlayingArtworkURL = preferredPodcastArtworkURL(
+            episodeArtworkURL: episode.imageURL,
+            podcastArtworkURL: podcastArtworkURL
+        )
         configureAudioSession()
         startPlayback(url: episode.audioURL)
         configureNowPlaying(title: podcastTitle ?? "Podcast", subtitle: episode.title)
@@ -147,6 +154,7 @@ final class AudioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
         currentStation = nil
         currentEpisode = nil
         currentEpisodePodcastTitle = nil
+        currentEpisodePodcastArtworkURL = nil
         nowPlayingDetail = ""
         currentStationShowTitle = ""
         nowPlayingArtworkURL = nil
@@ -161,7 +169,21 @@ final class AudioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
 
     func updateCurrentEpisodeArtwork(_ url: URL?) {
         guard currentEpisode != nil else { return }
-        nowPlayingArtworkURL = url
+        currentEpisodePodcastArtworkURL = url
+        nowPlayingArtworkURL = preferredPodcastArtworkURL(
+            episodeArtworkURL: currentEpisode?.imageURL,
+            podcastArtworkURL: currentEpisodePodcastArtworkURL
+        )
+        loadNowPlayingArtworkIfNeeded()
+    }
+
+    func updatePodcastArtworkMode(_ mode: PodcastArtworkMode) {
+        podcastArtworkMode = mode
+        guard currentEpisode != nil else { return }
+        nowPlayingArtworkURL = preferredPodcastArtworkURL(
+            episodeArtworkURL: currentEpisode?.imageURL,
+            podcastArtworkURL: currentEpisodePodcastArtworkURL
+        )
         loadNowPlayingArtworkIfNeeded()
     }
 
@@ -539,8 +561,12 @@ final class AudioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
     }
 
     private func loadNowPlayingArtworkIfNeeded() {
-        guard let url = nowPlayingArtworkURL else { return }
         artworkLoadTask?.cancel()
+        guard let url = nowPlayingArtworkURL else {
+            nowPlayingArtworkImage = nil
+            refreshNowPlayingInfo()
+            return
+        }
         artworkLoadTask = Task { [weak self] in
             guard let self else { return }
             do {
@@ -553,6 +579,15 @@ final class AudioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
             } catch {
                 // Ignore artwork fetch failure.
             }
+        }
+    }
+
+    private func preferredPodcastArtworkURL(episodeArtworkURL: URL?, podcastArtworkURL: URL?) -> URL? {
+        switch podcastArtworkMode {
+        case .episode:
+            return episodeArtworkURL ?? podcastArtworkURL
+        case .podcast:
+            return podcastArtworkURL ?? episodeArtworkURL
         }
     }
 

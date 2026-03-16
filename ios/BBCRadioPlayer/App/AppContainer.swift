@@ -56,6 +56,7 @@ final class AppContainer: ObservableObject {
         resolvedAudioPlayerService.onPreviousRequested = { [weak self] in
             self?.radioViewModel.playPreviousStation()
         }
+        resolvedAudioPlayerService.updatePodcastArtworkMode(appSettingsStore.podcastArtworkMode)
 
         // Forward nested updates so root environment object refreshes immediately.
         favoritesStore.objectWillChange
@@ -64,6 +65,13 @@ final class AppContainer: ObservableObject {
 
         appSettingsStore.objectWillChange
             .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+
+        appSettingsStore.$podcastArtworkMode
+            .removeDuplicates()
+            .sink { [resolvedAudioPlayerService] mode in
+                resolvedAudioPlayerService.updatePodcastArtworkMode(mode)
+            }
             .store(in: &cancellables)
 
         resolvedAudioPlayerService.objectWillChange

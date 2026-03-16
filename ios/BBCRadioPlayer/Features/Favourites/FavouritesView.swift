@@ -76,9 +76,10 @@ struct FavouritesView: View {
                                     Text(station.title)
                                         .font(container.appSettingsStore.compactRows ? .body : .headline)
                                         .lineLimit(2)
-                                    Text(station.category.displayName)
+                                    Text(viewModel.showSubtitle(for: station))
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
+                                        .lineLimit(1)
                                 }
 
                                 Spacer(minLength: 8)

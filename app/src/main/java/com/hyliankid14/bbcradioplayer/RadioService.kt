@@ -81,6 +81,8 @@ class RadioService : MediaBrowserServiceCompat() {
     private var alarmVolumeRampRunnable: Runnable? = null
     private var currentArtworkBitmap: android.graphics.Bitmap? = null
     private var currentArtworkUri: String? = null
+    private var currentEpisodeArtworkUrl: String? = null
+    private var currentPodcastArtworkUrl: String? = null
     private var showInfoRefreshRunnable: Runnable? = null
     // Pending show info scheduled to be applied after a short delay (to account for stream latency)
     private var pendingShowInfo: CurrentShow? = null
@@ -133,6 +135,7 @@ class RadioService : MediaBrowserServiceCompat() {
         const val ACTION_SKIP_TO_PREVIOUS = "com.hyliankid14.bbcradioplayer.ACTION_SKIP_TO_PREVIOUS"
         const val ACTION_TOGGLE_FAVORITE = "com.hyliankid14.bbcradioplayer.ACTION_TOGGLE_FAVORITE"
         const val ACTION_PLAY_PODCAST_EPISODE = "com.hyliankid14.bbcradioplayer.ACTION_PLAY_PODCAST_EPISODE"
+        const val ACTION_REFRESH_PODCAST_ARTWORK = "com.hyliankid14.bbcradioplayer.ACTION_REFRESH_PODCAST_ARTWORK"
         const val ACTION_SEEK_TO = "com.hyliankid14.bbcradioplayer.ACTION_SEEK_TO"
         const val ACTION_SEEK_DELTA = "com.hyliankid14.bbcradioplayer.ACTION_SEEK_DELTA"
         const val EXTRA_STATION_ID = "com.hyliankid14.bbcradioplayer.EXTRA_STATION_ID"
@@ -2032,6 +2035,8 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
         currentShowName = ""
         currentShowTitle = ""
         currentEpisodeTitle = ""
+        currentEpisodeArtworkUrl = null
+        currentPodcastArtworkUrl = null
         currentArtworkBitmap = null
         currentArtworkUri = currentStationLogo
         lastSongSignature = null // Reset last song signature for new station
@@ -2352,13 +2357,6 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
             return
         }
 
-        // Keep artwork sticky across metadata refreshes. Some OEM media UIs only show art
-        // if a bitmap is present in the MediaSession metadata.
-        // Prefer the latest now-playing artwork URL (RMS) when available.
-        val displayUri: String = (artworkUri ?: currentShowInfo.imageUrl ?: currentArtworkUri ?: currentStationLogo).orEmpty()
-
-        val displayBitmap = artworkBitmap ?: currentArtworkBitmap
-
         val hasSongData = !currentShowInfo.secondary.isNullOrEmpty() || !currentShowInfo.tertiary.isNullOrEmpty()
         val artistStr = if (!currentShowInfo.secondary.isNullOrEmpty()) currentShowInfo.secondary ?: "" else currentShowName
         val trackStr = if (!currentShowInfo.tertiary.isNullOrEmpty()) currentShowInfo.tertiary ?: "" else currentShowTitle
@@ -2369,6 +2367,17 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
         // Defensive null-safety: treat station id/title fields as possibly-empty and avoid calling
         // String methods on nullable receivers in case older branches declare them nullable.
         val isPodcast = currentStationId.startsWith("podcast_")
+
+        // Keep artwork sticky across metadata refreshes. Some OEM media UIs only show art
+        // if a bitmap is present in the MediaSession metadata.
+        val preferredPodcastArtwork = resolvePreferredPodcastArtworkUrl(currentEpisodeArtworkUrl, currentPodcastArtworkUrl)
+        val displayUri: String = if (isPodcast) {
+            (artworkUri ?: preferredPodcastArtwork.takeIf { it.isNotBlank() } ?: currentArtworkUri ?: currentStationLogo).orEmpty()
+        } else {
+            (artworkUri ?: currentShowInfo.imageUrl ?: currentArtworkUri ?: currentStationLogo).orEmpty()
+        }
+
+        val displayBitmap = artworkBitmap ?: currentArtworkBitmap
 
         val mediaIdVal: String = if (isPodcast) {
             // Prefer currently-playing episode id; fall back to station id (never null at runtime, but coerce defensively)
@@ -2778,6 +2787,9 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                     android.util.Log.d(TAG, "onStartCommand: ACTION_PLAY_PODCAST_EPISODE received, episode=$episode")
                     episode?.let { ep -> playPodcastEpisode(ep, it) }
                 }
+                ACTION_REFRESH_PODCAST_ARTWORK -> {
+                    refreshPodcastArtworkPreference()
+                }
                 ACTION_PLAY -> {
                     if (!mediaSession.isActive) mediaSession.isActive = true
                     player?.play()
@@ -2840,6 +2852,41 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
             START_NOT_STICKY
         }
     }
+
+    private fun sanitiseArtworkUrl(url: String?): String? {
+        val value = url?.trim()
+        return if (value.isNullOrEmpty()) null else value
+    }
+
+    private fun resolvePreferredPodcastArtworkUrl(episodeImage: String?, podcastImage: String?): String {
+        val episode = sanitiseArtworkUrl(episodeImage)
+        val podcast = sanitiseArtworkUrl(podcastImage)
+        return when (PlaybackPreference.getPodcastArtworkSource(this)) {
+            PlaybackPreference.ARTWORK_SOURCE_PODCAST -> podcast ?: episode ?: ""
+            else -> episode ?: podcast ?: ""
+        }
+    }
+
+    private fun refreshPodcastArtworkPreference() {
+        if (!currentStationId.startsWith("podcast_")) return
+
+        val preferredArtwork = resolvePreferredPodcastArtworkUrl(currentEpisodeArtworkUrl, currentPodcastArtworkUrl)
+        if (preferredArtwork == currentStationLogo && preferredArtwork == currentArtworkUri) return
+
+        currentStationLogo = preferredArtwork
+        currentArtworkBitmap = null
+        currentArtworkUri = preferredArtwork
+        currentShowInfo = currentShowInfo.copy(imageUrl = preferredArtwork)
+
+        val currentStation = PlaybackStateHelper.getCurrentStation()
+        if (currentStation != null) {
+            PlaybackStateHelper.setCurrentStation(currentStation.copy(logoUrl = preferredArtwork))
+        }
+        PlaybackStateHelper.setCurrentShow(currentShowInfo)
+
+        updateMediaMetadata(artworkBitmap = null, artworkUri = preferredArtwork)
+        startForegroundNotification()
+    }
     
     private fun playPodcastEpisode(episode: Episode, intent: Intent?) {
         try {
@@ -2858,11 +2905,14 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
             // Create a synthetic station to drive the existing mini/full player UI
             val podcastTitle = intent?.getStringExtra(EXTRA_PODCAST_TITLE) ?: "Podcast"
             val podcastImage = intent?.getStringExtra(EXTRA_PODCAST_IMAGE) ?: episode.imageUrl
+            currentEpisodeArtworkUrl = sanitiseArtworkUrl(episode.imageUrl)
+            currentPodcastArtworkUrl = sanitiseArtworkUrl(podcastImage)
+            val preferredArtwork = resolvePreferredPodcastArtworkUrl(currentEpisodeArtworkUrl, currentPodcastArtworkUrl)
             val syntheticStation = Station(
                 id = "podcast_${episode.podcastId}",
                 title = podcastTitle,
                 serviceId = "podcast",
-                logoUrl = podcastImage
+                logoUrl = preferredArtwork
             )
 
             // Update playback helper & state
@@ -2884,7 +2934,7 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                 title = syntheticStation.title,
                 episodeTitle = episode.title,
                 description = episode.description,
-                imageUrl = syntheticStation.logoUrl,
+                imageUrl = preferredArtwork,
                 segmentStartMs = 0L,
                 segmentDurationMs = null
             )
@@ -3035,7 +3085,7 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
             }
             // Ensure MediaSession metadata contains the podcast artwork URI immediately so UI/mini-player
             // can show the image before the progress runnable (which clears show.imageUrl) runs.
-            updateMediaMetadata(artworkBitmap = null, artworkUri = syntheticStation.logoUrl)
+            updateMediaMetadata(artworkBitmap = null, artworkUri = preferredArtwork)
 
             // If we don't have a proper podcast image yet (saved episodes often lack it), or we only
             // have an unlabeled "Podcast" title, attempt to resolve the podcast's series metadata
@@ -3048,13 +3098,17 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                         val found = all.firstOrNull { it.id == episode.podcastId }
                         val seriesImage = found?.imageUrl
                         if (found != null) {
+                            if (!seriesImage.isNullOrEmpty()) {
+                                currentPodcastArtworkUrl = seriesImage
+                            }
+                            val resolvedArtwork = resolvePreferredPodcastArtworkUrl(currentEpisodeArtworkUrl, currentPodcastArtworkUrl)
                             // Prefer the resolved podcast title when available (fixes cases where we defaulted to "Podcast")
                             val resolvedTitle = if (!found.title.isNullOrEmpty()) found.title else syntheticStation.title
                             val updatedStation = Station(
                                 id = syntheticStation.id,
                                 title = resolvedTitle,
                                 serviceId = syntheticStation.serviceId,
-                                logoUrl = if (!seriesImage.isNullOrEmpty()) seriesImage else syntheticStation.logoUrl,
+                                logoUrl = resolvedArtwork,
                                 category = syntheticStation.category
                             )
 
@@ -3062,10 +3116,9 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
 
                             // Update cached station/title/artwork and notify UI
                             currentStationTitle = updatedStation.title
-                            if (!seriesImage.isNullOrEmpty()) {
-                                currentStationLogo = seriesImage
-                                currentArtworkUri = seriesImage
-                            }
+                            currentStationLogo = updatedStation.logoUrl
+                            currentArtworkUri = updatedStation.logoUrl
+                            currentShowInfo = currentShowInfo.copy(imageUrl = updatedStation.logoUrl)
                             PlaybackStateHelper.setCurrentStation(updatedStation)
                             updateMediaMetadata(artworkBitmap = null, artworkUri = updatedStation.logoUrl)
                             // Update notification on main thread

@@ -151,7 +151,7 @@ struct MiniPlayerView: View {
 
     @ViewBuilder
     private var artwork: some View {
-        if let url = audio.currentEpisode?.imageURL ?? audio.nowPlayingArtworkURL {
+        if let url = audio.nowPlayingArtworkURL {
             AsyncImage(url: url) { img in img.resizable().scaledToFill() }
                 placeholder: { placeholder("mic.circle.fill") }
         } else if let url = audio.currentStation?.logoURL {

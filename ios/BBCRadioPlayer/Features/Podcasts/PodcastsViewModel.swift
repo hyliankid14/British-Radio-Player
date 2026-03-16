@@ -69,18 +69,20 @@ final class PodcastsViewModel: ObservableObject {
 
     func play(_ episode: Episode) {
         markEpisodeAsPlayed(episode)
-        audioPlayerService.play(episode: episode, podcastTitle: selectedPodcast?.title)
-        if episode.imageURL == nil {
-            audioPlayerService.updateCurrentEpisodeArtwork(selectedPodcast?.imageURL)
-        }
+        audioPlayerService.play(
+            episode: episode,
+            podcastTitle: selectedPodcast?.title,
+            podcastArtworkURL: selectedPodcast?.imageURL
+        )
     }
 
     func play(_ episode: Episode, podcastTitle: String?) {
         markEpisodeAsPlayed(episode)
-        audioPlayerService.play(episode: episode, podcastTitle: podcastTitle)
-        if episode.imageURL == nil {
-            audioPlayerService.updateCurrentEpisodeArtwork(selectedPodcast?.imageURL)
-        }
+        audioPlayerService.play(
+            episode: episode,
+            podcastTitle: podcastTitle,
+            podcastArtworkURL: selectedPodcast?.imageURL
+        )
     }
 
     func clearSelection() {

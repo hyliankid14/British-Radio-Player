@@ -82,6 +82,37 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:text="Podcast Artwork"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="8dp" />
+
+        <RadioGroup
+            android:id="@+id/podcast_artwork_radio_group"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginBottom="24dp">
+
+            <RadioButton
+                android:id="@+id/radio_artwork_episode"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Episode artwork"
+                android:padding="12dp" />
+
+            <RadioButton
+                android:id="@+id/radio_artwork_podcast"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Podcast artwork"
+                android:padding="12dp" />
+
+        </RadioGroup>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
             android:text="Next/Previous Behaviour"
             android:textSize="16sp"
             android:textStyle="bold"

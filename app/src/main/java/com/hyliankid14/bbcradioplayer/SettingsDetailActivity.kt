@@ -210,6 +210,25 @@ class SettingsDetailActivity : AppCompatActivity() {
                 }
             }
         }
+
+        val podcastArtworkGroup: RadioGroup = findViewById(R.id.podcast_artwork_radio_group)
+        when (PlaybackPreference.getPodcastArtworkSource(this)) {
+            PlaybackPreference.ARTWORK_SOURCE_PODCAST -> podcastArtworkGroup.check(R.id.radio_artwork_podcast)
+            else -> podcastArtworkGroup.check(R.id.radio_artwork_episode)
+        }
+        podcastArtworkGroup.setOnCheckedChangeListener { _, checkedId ->
+            val source = if (checkedId == R.id.radio_artwork_podcast) {
+                PlaybackPreference.ARTWORK_SOURCE_PODCAST
+            } else {
+                PlaybackPreference.ARTWORK_SOURCE_EPISODE
+            }
+            PlaybackPreference.setPodcastArtworkSource(this, source)
+
+            val refreshIntent = Intent(this, RadioService::class.java).apply {
+                action = RadioService.ACTION_REFRESH_PODCAST_ARTWORK
+            }
+            startService(refreshIntent)
+        }
         
         // Setup Playback Mode settings
         val scrollingModeGroup: RadioGroup = findViewById(R.id.scrolling_mode_radio_group)

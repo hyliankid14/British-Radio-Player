@@ -31,6 +31,20 @@ enum StationSkipMode: String, CaseIterable {
     }
 }
 
+enum PodcastArtworkMode: String, CaseIterable {
+    case episode
+    case podcast
+
+    var displayName: String {
+        switch self {
+        case .episode:
+            return "Episode artwork"
+        case .podcast:
+            return "Podcast artwork"
+        }
+    }
+}
+
 final class AppSettingsStore: ObservableObject {
     @Published var playbackQuality: PlaybackQuality {
         didSet { defaults.set(playbackQuality.rawValue, forKey: playbackQualityKey) }
@@ -48,11 +62,16 @@ final class AppSettingsStore: ObservableObject {
         didSet { defaults.set(stationSkipMode.rawValue, forKey: stationSkipModeKey) }
     }
 
+    @Published var podcastArtworkMode: PodcastArtworkMode {
+        didSet { defaults.set(podcastArtworkMode.rawValue, forKey: podcastArtworkModeKey) }
+    }
+
     private let defaults: UserDefaults
     private let playbackQualityKey = "playback_quality"
     private let appThemeKey = "app_theme"
     private let compactRowsKey = "compact_rows"
     private let stationSkipModeKey = "station_skip_mode"
+    private let podcastArtworkModeKey = "podcast_artwork_mode"
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -60,5 +79,6 @@ final class AppSettingsStore: ObservableObject {
         self.appTheme = AppTheme(rawValue: defaults.string(forKey: appThemeKey) ?? "system") ?? .system
         self.compactRows = defaults.object(forKey: compactRowsKey) as? Bool ?? true
         self.stationSkipMode = StationSkipMode(rawValue: defaults.string(forKey: stationSkipModeKey) ?? "allStations") ?? .allStations
+        self.podcastArtworkMode = PodcastArtworkMode(rawValue: defaults.string(forKey: podcastArtworkModeKey) ?? "episode") ?? .episode
     }
 }
