@@ -339,7 +339,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="2dp"
-                    android:text="On-device search indexing schedule"
+                    android:text="Google Cloud search index status"
                     android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
                     android:textColor="?attr/colorOnSurfaceVariant" />
             </LinearLayout>

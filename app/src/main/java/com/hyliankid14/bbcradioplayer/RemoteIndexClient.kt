@@ -45,9 +45,9 @@ import java.util.zip.GZIPInputStream
  *
  *   See api/GOOGLE_CLOUD_SETUP.md for deployment instructions.
  *
- * Fallback — GitHub Pages static index (legacy):
- *   If neither GCS nor Cloud Function URLs are configured, the app falls back
- *   to the original GitHub Pages URL.
+ * Default routing:
+ *   If build-time overrides are not provided, the app uses the default
+ *   production cloud endpoints bundled in this class.
  *
  * All network calls are synchronous — callers must dispatch to IO threads.
  */
@@ -60,33 +60,32 @@ class RemoteIndexClient(private val context: Context) {
 
         // Google Cloud Storage public URLs (set via GCS_INDEX_URL / GCS_META_URL
         // in local.properties or environment variables at build time).
-        // These are blank when not configured; the app falls back to GitHub Pages.
+        // These are optional overrides; defaults below point to production cloud index.
         private val GCS_INDEX_URL: String get() = BuildConfig.GCS_INDEX_URL
         private val GCS_META_URL: String  get() = BuildConfig.GCS_META_URL
 
-        // Legacy GitHub Pages fallback (used when GCS URLs are not configured).
-        private const val GITHUB_PAGES_INDEX_URL =
-            "https://hyliankid14.github.io/BBC-Radio-Player/podcast-index.json.gz"
-        private const val GITHUB_PAGES_META_URL =
-            "https://hyliankid14.github.io/BBC-Radio-Player/podcast-index-meta.json"
+        // Default cloud-hosted index URLs.
+        private const val DEFAULT_CLOUD_INDEX_URL =
+            "https://storage.googleapis.com/bbc-radio-player-index-20260317-bc149e38/podcast-index.json.gz"
+        private const val DEFAULT_CLOUD_META_URL =
+            "https://storage.googleapis.com/bbc-radio-player-index-20260317-bc149e38/podcast-index-meta.json"
 
-        // Resolved index URL: prefer GCS, fall back to GitHub Pages.
+        // Resolved index URL: prefer explicit build-time overrides, otherwise cloud defaults.
         internal val INDEX_URL: String
-            get() = GCS_INDEX_URL.takeIf { it.isNotBlank() } ?: GITHUB_PAGES_INDEX_URL
+            get() = GCS_INDEX_URL.takeIf { it.isNotBlank() } ?: DEFAULT_CLOUD_INDEX_URL
         internal val META_URL: String
-            get() = GCS_META_URL.takeIf { it.isNotBlank() } ?: GITHUB_PAGES_META_URL
+            get() = GCS_META_URL.takeIf { it.isNotBlank() } ?: DEFAULT_CLOUD_META_URL
 
         // ── Live search URL ───────────────────────────────────────────────────
 
         // Cloud Function base URL (set via CLOUD_FUNCTION_URL in local.properties).
-        // Falls back to the legacy home-server URL when not configured.
+        // Uses the default production endpoint when not configured.
         private val CLOUD_FUNCTION_URL: String get() = BuildConfig.CLOUD_FUNCTION_URL
 
-        // Legacy home-server fallback.  Replace with your Cloud Function URL via
-        // CLOUD_FUNCTION_URL in local.properties once deployed.
-        internal const val SERVER_BASE_URL = "https://raspberrypi.tailc23afa.ts.net:8443"
+        // Default cloud-hosted live search endpoint.
+        internal const val SERVER_BASE_URL = "https://podcast-search-tcy4hnuh2q-nw.a.run.app"
 
-        // Resolved live-search base URL: prefer Cloud Function, fall back to home server.
+        // Resolved live-search base URL: prefer explicit build-time override, else default.
         internal val LIVE_SEARCH_URL: String
             get() = CLOUD_FUNCTION_URL.takeIf { it.isNotBlank() } ?: SERVER_BASE_URL
 
@@ -111,7 +110,7 @@ class RemoteIndexClient(private val context: Context) {
     // ── Static index: download & cache ────────────────────────────────────────
 
     /**
-     * Parsed result of the pre-built GitHub Pages index.
+    * Parsed result of the pre-built cloud-hosted index.
      * [episodes] may be empty on failure — callers should tolerate that.
      */
     data class RemoteIndex(
@@ -132,7 +131,7 @@ class RemoteIndexClient(private val context: Context) {
     )
 
     /**
-     * Fetch the tiny companion metadata file from GCS (or GitHub Pages fallback).
+    * Fetch the tiny companion metadata file from cloud storage.
      * Returns null on any network or parse error.
      */
     fun fetchRemoteIndexMeta(): RemoteIndexMeta? {
@@ -186,7 +185,7 @@ class RemoteIndexClient(private val context: Context) {
     }
 
     /**
-     * Download the pre-built podcast index from GCS (or GitHub Pages fallback),
+    * Download the pre-built podcast index from cloud storage,
      * cache it on disk, and return the parsed [RemoteIndex].  Returns null on
      * failure.
      *
@@ -213,7 +212,7 @@ class RemoteIndexClient(private val context: Context) {
 
         // Download fresh copy.
         return try {
-            val sourceLabel = if (GCS_INDEX_URL.isNotBlank()) "GCS" else "GitHub Pages"
+            val sourceLabel = "Cloud index"
             onProgress?.invoke("Connecting to $sourceLabel...", 5)
             Log.d(TAG, "Downloading podcast index from $INDEX_URL")
             val conn = openConnection(INDEX_URL)

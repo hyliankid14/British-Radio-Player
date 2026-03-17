@@ -97,7 +97,6 @@ class MainActivity : AppCompatActivity() {
     private var currentMode = "list" // "favorites", "list", or "settings"
     // When true, programmatic bottom-navigation selections should not trigger the usual listener actions
     private var suppressBottomNavSelection = false
-    private var suppressIndexSpinnerSelection = false
     private var miniPlayerUpdateTimer: Thread? = null
     private var lastArtworkUrl: String? = null
     // When opening a podcast from Favorites, return back to Favorites instead of Podcasts list
@@ -3306,23 +3305,6 @@ class MainActivity : AppCompatActivity() {
                         IndexPreference.setIntervalDays(this, days)
                         // Apply scheduling immediately to match imported state
                         if (days > 0) IndexScheduler.scheduleIndexing(this) else IndexScheduler.cancel(this)
-
-                        // Update UI spinner selection if present
-                        runOnUiThread {
-                            try {
-                                val spinner: com.google.android.material.textfield.MaterialAutoCompleteTextView? = findViewById(R.id.index_schedule_spinner)
-                                val pos = when (days) {
-                                    1 -> 1
-                                    3 -> 2
-                                    7 -> 3
-                                    else -> 0
-                                }
-                                val options = resources.getStringArray(R.array.index_schedule_options)
-                                // Prevent the selection change from triggering a toast/callback
-                                suppressIndexSpinnerSelection = true
-                                spinner?.setText(options[pos], false)
-                            } catch (_: Exception) {}
-                        }
                     }
                 }
             } catch (e: Exception) { /* Ignore */ }

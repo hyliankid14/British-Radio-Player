@@ -87,6 +87,22 @@ Then build and install a debug APK to a USB-connected Android device:
 ./scripts/local-deploy.sh
 ```
 
+## Google Cloud Index Migration
+
+To migrate podcast index hosting/search from GitHub Pages to Google Cloud
+(GCS + Cloud Function + Cloud Run Scheduler), run:
+
+```bash
+./scripts/setup-google-cloud-index.sh \
+  --project bbc-radio-player \
+  --bucket YOUR_GLOBALLY_UNIQUE_BUCKET \
+  --region europe-west2 \
+  --mode cloud-run \
+  --write-local-properties
+```
+
+Full manual and troubleshooting steps are in `api/GOOGLE_CLOUD_SETUP.md`.
+
 Notes:
 - On macOS, the script uses Homebrew and the default SDK path `~/Library/Android/sdk`.
 - If the device is visible in `adb devices`, the script installs in place with `adb install -r -d`.

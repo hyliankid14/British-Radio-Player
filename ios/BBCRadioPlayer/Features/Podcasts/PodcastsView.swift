@@ -96,7 +96,7 @@ struct PodcastsView: View {
 
             if !viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Section("Episode Results") {
-                    if viewModel.isEpisodeSearchLoading {
+                    if viewModel.showEpisodeSearchSpinner {
                         ProgressView("Searching episodes...")
                     } else if viewModel.episodeSearchResults.isEmpty {
                         Text("No episodes found")

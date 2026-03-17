@@ -22,7 +22,8 @@ Thumbs.db
 /main
 
 # Scripts folder (contains deployment scripts, not needed in version control)
-/scripts/
+/scripts/*
+!/scripts/setup-google-cloud-index.sh
 test.db
 ANALYTICS_IMPLEMENTATION_GUIDE.md
 FDROID_SUBMISSION_ANALYSIS.md
@@ -48,3 +49,4 @@ FDROID_NEXT_STEPS.md
 FDROID_SUBMISSION_GUIDE.md
 FDROID_NEXT_STEPS.md
 GITLAB_SUBMISSION_STEPS.md
+api/GOOGLE_CLOUD_SETUP.md

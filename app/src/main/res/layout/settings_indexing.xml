@@ -31,43 +31,8 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:gravity="center_vertical">
-
-            <Button
-                android:id="@+id/index_now_button"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Retrieve Index Now" />
-
-        </LinearLayout>
-
-        <com.google.android.material.textfield.TextInputLayout
-            android:id="@+id/index_schedule_layout"
-            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            app:boxStrokeColor="?attr/colorOutline"
-            app:endIconMode="dropdown_menu"
-            app:boxBackgroundColor="?attr/colorSurface"
-            android:hint="@string/index_schedule_label">
-
-            <com.google.android.material.textfield.MaterialAutoCompleteTextView
-                android:id="@+id/index_schedule_spinner"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:inputType="none"
-                android:textColor="?attr/colorOnSurface"
-                android:padding="8dp" />
-
-        </com.google.android.material.textfield.TextInputLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:layout_marginTop="8dp">
+            android:layout_marginTop="4dp">
 
             <CheckBox
                 android:id="@+id/exclude_non_english_checkbox"
@@ -77,28 +42,33 @@
 
         </LinearLayout>
 
-        <LinearLayout
+        <TextView
+            android:id="@+id/index_source"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginTop="4dp">
-
-            <CheckBox
-                android:id="@+id/index_wifi_only_checkbox"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/index_wifi_only_label" />
-
-        </LinearLayout>
+            android:text="Source: Google Cloud index"
+            android:textSize="12sp"
+            android:layout_marginTop="8dp"
+            android:ellipsize="end"
+            android:maxLines="1" />
 
         <TextView
             android:id="@+id/index_last_rebuilt"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Last retrieved: —"
+            android:text="Last updated: —"
             android:textSize="12sp"
             android:layout_marginTop="4dp"
+            android:ellipsize="end"
+            android:maxLines="1" />
+
+        <TextView
+            android:id="@+id/index_podcast_count"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="— podcasts indexed"
+            android:textSize="12sp"
+            android:layout_marginTop="2dp"
             android:ellipsize="end"
             android:maxLines="1" />
 
@@ -111,29 +81,6 @@
             android:layout_marginTop="2dp"
             android:ellipsize="end"
             android:maxLines="1" />
-
-        <!-- Visual progress bar for episode indexing (shows only during episode indexing) -->
-        <ProgressBar
-            android:id="@+id/index_episodes_progress"
-            style="?android:attr/progressBarStyleHorizontal"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:indeterminate="false"
-            android:max="100"
-            android:progress="0"
-            android:visibility="gone"
-            android:layout_marginTop="8dp" />
-
-        <!-- Status message shown during indexing -->
-        <TextView
-            android:id="@+id/index_status_text"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textSize="12sp"
-            android:layout_marginTop="4dp"
-            android:visibility="gone"
-            android:ellipsize="end"
-            android:maxLines="2" />
 
     </LinearLayout>
 

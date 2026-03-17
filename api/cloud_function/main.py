@@ -62,6 +62,8 @@ logger = logging.getLogger(__name__)
 
 _podcasts: list[dict] = []
 _episodes: list[dict] = []
+_podcast_search: list[str] = []
+_episode_search: list[str] = []
 _meta: dict = {}
 _loaded_at: float = 0.0
 INDEX_CACHE_TTL_S = 6 * 3600  # 6 hours — matches Android app TTL
@@ -78,7 +80,7 @@ def _load_index(force: bool = False) -> None:
     A 6-hour TTL ensures the nightly rebuild is picked up within the same
     window used by the Android app.
     """
-    global _podcasts, _episodes, _meta, _loaded_at
+    global _podcasts, _episodes, _podcast_search, _episode_search, _meta, _loaded_at
 
     now = time.monotonic()
     if not force and _loaded_at > 0 and (now - _loaded_at) < INDEX_CACHE_TTL_S:
@@ -102,6 +104,16 @@ def _load_index(force: bool = False) -> None:
 
     _podcasts = index.get("podcasts", [])
     _episodes = index.get("episodes", [])
+    # Precompute lightweight lowercase searchable blobs once per index refresh
+    # so queries avoid expensive per-item Unicode normalization work.
+    _podcast_search = [
+        f"{p.get('title', '')} {p.get('description', '')}".lower()
+        for p in _podcasts
+    ]
+    _episode_search = [
+        f"{ep.get('title', '')} {ep.get('description', '')}".lower()
+        for ep in _episodes
+    ]
     _meta = {
         "generated_at": index.get("generated_at", ""),
         "podcast_count": index.get("podcast_count", len(_podcasts)),
@@ -141,6 +153,70 @@ def _matches(text: str, tokens: list[str]) -> bool:
 def _tokenise(query: str) -> list[str]:
     """Split a query into lowercase tokens, filtering empty strings."""
     return [t for t in _normalise(query).split() if t]
+
+def _split_or_clauses(query: str) -> list[str]:
+    """Split query by OR operators (case-insensitive), preserving quoted text."""
+    parts: list[str] = []
+    buf: list[str] = []
+    in_quote = False
+    i = 0
+    q = query.strip()
+
+    while i < len(q):
+        ch = q[i]
+        if ch == '"':
+            in_quote = not in_quote
+            buf.append(ch)
+            i += 1
+            continue
+
+        if not in_quote:
+            # Detect standalone OR token with word boundaries.
+            if i + 2 <= len(q) and q[i:i + 2].lower() == "or":
+                prev_ok = i == 0 or q[i - 1].isspace()
+                next_ok = i + 2 == len(q) or q[i + 2].isspace()
+                if prev_ok and next_ok:
+                    part = "".join(buf).strip()
+                    if part:
+                        parts.append(part)
+                    buf = []
+                    i += 2
+                    continue
+
+        buf.append(ch)
+        i += 1
+
+    tail = "".join(buf).strip()
+    if tail:
+        parts.append(tail)
+
+    return parts if parts else [q]
+
+def _compile_query(query: str) -> list[list[str]]:
+    """
+    Compile query to OR clauses where each clause is a list of AND terms.
+
+    Example:
+      barbershop OR "close harmony" or acapella
+      -> [["barbershop"], ["close harmony"], ["acapella"]]
+    """
+    clauses: list[list[str]] = []
+    for raw_clause in _split_or_clauses(query):
+        terms: list[str] = []
+        for m in re.finditer(r'"([^"]+)"|(\S+)', raw_clause):
+            raw = m.group(1) or m.group(2) or ""
+            term = _normalise(raw)
+            if term:
+                terms.append(term)
+        if terms:
+            clauses.append(terms)
+    return clauses
+
+def _matches_query(searchable: str, clauses: list[list[str]]) -> bool:
+    """Return True when searchable text matches any OR clause."""
+    if not clauses:
+        return False
+    return any(all(term in searchable for term in clause) for clause in clauses)
 
 
 # ── CORS helper ────────────────────────────────────────────────────────────────
@@ -201,15 +277,14 @@ def _handle_search_podcasts(request: Request):
     except ValueError:
         limit = 50
 
-    tokens = _tokenise(query)
-    if not tokens:
+    clauses = _compile_query(query)
+    if not clauses:
         return _cors_response([])
 
     results = []
-    for p in _podcasts:
-        if _matches(p.get("title", ""), tokens) or _matches(
-            p.get("description", ""), tokens
-        ):
+    for i, p in enumerate(_podcasts):
+        searchable = _podcast_search[i] if i < len(_podcast_search) else ""
+        if _matches_query(searchable, clauses):
             results.append(
                 {
                     "podcastId": p.get("id", ""),
@@ -238,16 +313,23 @@ def _handle_search_episodes(request: Request):
     except ValueError:
         offset = 0
 
-    tokens = _tokenise(query)
-    if not tokens:
+    clauses = _compile_query(query)
+    if not clauses:
         return _cors_response([])
 
-    matched = []
-    for ep in _episodes:
-        if _matches(ep.get("title", ""), tokens) or _matches(
-            ep.get("description", ""), tokens
-        ):
-            matched.append(
+    # Stream matches and stop as soon as the requested page is complete.
+    # This avoids building a huge intermediate list for common queries.
+    needed = offset + limit
+    seen = 0
+    page = []
+
+    for i, ep in enumerate(_episodes):
+        searchable = _episode_search[i] if i < len(_episode_search) else ""
+        if not _matches_query(searchable, clauses):
+            continue
+
+        if seen >= offset and len(page) < limit:
+            page.append(
                 {
                     "episodeId": ep.get("id", ""),
                     "podcastId": ep.get("podcastId", ""),
@@ -257,5 +339,8 @@ def _handle_search_episodes(request: Request):
                 }
             )
 
-    page = matched[offset : offset + limit]
+        seen += 1
+        if seen >= needed:
+            break
+
     return _cors_response(page)

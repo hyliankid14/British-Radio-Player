@@ -83,7 +83,7 @@ private struct EpisodeIndexSettingsSubView: View {
             HStack {
                 Text("Last updated")
                 Spacer()
-                Text(settingsStore.episodeIndexLastUpdated.map(relativeDateString) ?? "Never")
+                Text((podcastsViewModel.cloudIndexLastUpdated ?? settingsStore.episodeIndexLastUpdated).map(relativeDateString) ?? "Never")
                     .foregroundStyle(.secondary)
             }
 

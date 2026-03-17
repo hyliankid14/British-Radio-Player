@@ -91,6 +91,8 @@ class PodcastsFragment : Fragment() {
 
     // Small delay to let IMEs commit composition before we read the EditText text
     private val IME_COMMIT_DELAY_MS = 50L
+    private val BROWSE_SPINNER_DELAY_MS = 120L
+    private val SEARCH_SPINNER_DELAY_MS = 60L
 
     // Snapshot of what's currently displayed to avoid redundant adapter/visibility swaps
     private data class DisplaySnapshot(val queryNorm: String, val filterHash: Int, val isSearchAdapter: Boolean)
@@ -1516,12 +1518,13 @@ class PodcastsFragment : Fragment() {
             val q = (viewModel.activeSearchQuery.value ?: searchQuery).trim()
             searchQuery = q
             
-            // Delay showing the spinner slightly to avoid a flicker on very-fast searches
-            // But only delay if we have podcasts to process - don't delay the empty case
-            // Don't show the large spinner when searching (q is not empty) since results appear near instantly
-            val showSpinnerJob = if (allPodcasts.isNotEmpty() && q.isEmpty()) {
+            // Delay showing the spinner slightly to avoid flicker on very-fast updates.
+            // For typed searches, use a shorter delay so users see immediate feedback during
+            // the brief pause before results are rendered.
+            val showSpinnerJob = if (allPodcasts.isNotEmpty()) {
+                val spinnerDelayMs = if (q.isEmpty()) BROWSE_SPINNER_DELAY_MS else SEARCH_SPINNER_DELAY_MS
                 launch spinner@{
-                    kotlinx.coroutines.delay(120)
+                    kotlinx.coroutines.delay(spinnerDelayMs)
                     if (!isActive) return@spinner
                     loadingView?.visibility = View.VISIBLE
                 }
@@ -1540,9 +1543,10 @@ class PodcastsFragment : Fragment() {
                     return@launch
                 }
 
-                // If no podcasts loaded yet, show empty state and return
-                if (allPodcasts.isEmpty()) {
-                    android.util.Log.d("PodcastsFragment", "simplifiedApplyFilters: allPodcasts is empty, showing empty state")
+                // If no podcasts are loaded yet, still allow non-empty queries to use
+                // cloud/live-search results. Only short-circuit the blank-query state.
+                if (allPodcasts.isEmpty() && q.isEmpty()) {
+                    android.util.Log.d("PodcastsFragment", "simplifiedApplyFilters: allPodcasts is empty and query is blank, showing empty state")
                     showResultsSafely(recyclerView, podcastAdapter, isSearchAdapter = false, hasContent = false, emptyState)
                     showSpinnerJob?.cancel()
                     loadingView?.visibility = View.GONE
@@ -1589,22 +1593,40 @@ class PodcastsFragment : Fragment() {
                 displayedEpisodeCount = 0
                 val qLower = q.lowercase(Locale.getDefault())
                 
-                // Check if episodes have been indexed
-                val hasIndexedEpisodes = withContext(Dispatchers.IO) {
+                val remoteIndexClient = com.hyliankid14.bbcradioplayer.RemoteIndexClient(requireContext())
+
+                // Check local index availability and whether cloud search is reachable.
+                val hasIndexedEpisodesLocal = withContext(Dispatchers.IO) {
                     try {
                         com.hyliankid14.bbcradioplayer.db.IndexStore.getInstance(requireContext()).hasAnyEpisodes()
                     } catch (e: Exception) {
                         false
                     }
                 }
+                // Skip explicit availability probing here to avoid an extra
+                // request/latency hit before each search. We optimistically try
+                // cloud queries directly and fall back on exceptions.
+                val cloudSearchAvailable = true
+                val hasIndexedEpisodes = hasIndexedEpisodesLocal || cloudSearchAvailable
 
                 // PHASE 1: Quick podcast title/description matches from FTS index
                 val indexPodcastResults = withContext(Dispatchers.IO) {
-                    try {
+                    val localResults = try {
                         com.hyliankid14.bbcradioplayer.db.IndexStore.getInstance(requireContext()).searchPodcasts(q, 100)
                     } catch (e: Exception) {
                         android.util.Log.w("PodcastsFragment", "FTS podcast search failed: ${e.message}")
                         emptyList()
+                    }
+
+                    if (localResults.isNotEmpty() || !cloudSearchAvailable) {
+                        localResults
+                    } else {
+                        try {
+                            remoteIndexClient.searchPodcasts(q, 100)
+                        } catch (e: Exception) {
+                            android.util.Log.w("PodcastsFragment", "Remote podcast search failed: ${e.message}")
+                            emptyList()
+                        }
                     }
                 }
 
@@ -1794,18 +1816,19 @@ class PodcastsFragment : Fragment() {
                         withContext(Dispatchers.IO) {
                             val eps = mutableListOf<Pair<Episode, Podcast>>()
                             try {
-                                // Try remote server index first; fall back to local SQLite FTS
+                                // Prefer cloud search. Only fall back to local SQLite FTS if cloud
+                                // is unavailable or errors; do not fall back merely because cloud
+                                // returned zero matches.
                                 val ftsResults: List<com.hyliankid14.bbcradioplayer.db.EpisodeFts> = run {
                                     val remote = com.hyliankid14.bbcradioplayer.RemoteIndexClient(requireContext())
-                                    if (remote.isServerAvailable()) {
+                                    if (cloudSearchAvailable) {
                                         try {
-                                            val r = remote.searchEpisodes(q, 30)
-                                            if (r.isNotEmpty()) return@run r
+                                            return@run remote.searchEpisodes(q, 30)
                                         } catch (e: Exception) {
                                             android.util.Log.w("PodcastsFragment", "Remote episode search (quick) failed: ${e.message}")
                                         }
                                     }
-                                    // Local fallback
+                                    // Local fallback for offline/error mode.
                                     try {
                                         com.hyliankid14.bbcradioplayer.db.IndexStore.getInstance(requireContext())
                                             .searchEpisodes(q, 30)
@@ -1896,13 +1919,14 @@ class PodcastsFragment : Fragment() {
 
                         if (q.length >= 3) {
                             try {
-                                // Try remote server index first; fall back to local SQLite FTS
+                                // Prefer cloud search. Only fall back to local SQLite FTS if cloud
+                                // is unavailable or errors; do not treat "0 cloud matches" as a
+                                // fallback condition.
                                 val ftsResults: List<com.hyliankid14.bbcradioplayer.db.EpisodeFts> = run {
                                     val remote = com.hyliankid14.bbcradioplayer.RemoteIndexClient(requireContext())
-                                    if (remote.isServerAvailable()) {
+                                    if (cloudSearchAvailable) {
                                         try {
-                                            val r = remote.searchEpisodes(q, 500, 0)
-                                            if (r.isNotEmpty()) return@run r
+                                            return@run remote.searchEpisodes(q, 500, 0)
                                         } catch (e: Exception) {
                                             android.util.Log.w("PodcastsFragment", "Remote episode search (full) failed: ${e.message}")
                                         }

@@ -88,6 +88,7 @@ final class PodcastsViewModel: ObservableObject {
     @Published private(set) var playedEpisodeIDs: Set<String> = []
     @Published private(set) var episodeSearchResults: [EpisodeSearchResult] = []
     @Published private(set) var isEpisodeSearchLoading = false
+    @Published private(set) var showEpisodeSearchSpinner = false
     @Published private(set) var isRefreshingEpisodeIndex = false
     @Published private(set) var savedSearches: [String] = []
     @Published private(set) var playedHistory: [PlayedEpisodeHistoryEntry] = []
@@ -96,6 +97,7 @@ final class PodcastsViewModel: ObservableObject {
     @Published private(set) var filteredPodcastResults: [Podcast] = []
     @Published private(set) var sortedEpisodeResults: [Episode] = []
     @Published private(set) var availableGenres: [String] = ["All Genres"]
+    @Published private(set) var cloudIndexLastUpdated: Date?
 
     private let podcastRepository: PodcastRepository
     private let remoteIndexClient: RemoteIndexClient
@@ -117,6 +119,8 @@ final class PodcastsViewModel: ObservableObject {
     private static let cachedPodcastsKey = "cached_podcast_list"
     private static let maxPlayedHistoryEntries = 20
     private static let indexRefreshInterval: TimeInterval = 60 * 60 * 24
+    private static let searchSpinnerDelayNs: UInt64 = 60_000_000
+    private var currentSearchRequestID = UUID()
 
     init(
         podcastRepository: PodcastRepository,
@@ -281,13 +285,32 @@ final class PodcastsViewModel: ObservableObject {
 
     func searchEpisodesFromIndex(limit: Int = 60) async {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let requestID = UUID()
+        currentSearchRequestID = requestID
+
         guard !query.isEmpty else {
             episodeSearchResults = []
+            showEpisodeSearchSpinner = false
+            isEpisodeSearchLoading = false
             return
         }
 
         isEpisodeSearchLoading = true
-        defer { isEpisodeSearchLoading = false }
+        showEpisodeSearchSpinner = false
+
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: Self.searchSpinnerDelayNs)
+            await MainActor.run {
+                guard let self else { return }
+                guard self.currentSearchRequestID == requestID, self.isEpisodeSearchLoading else { return }
+                self.showEpisodeSearchSpinner = true
+            }
+        }
+
+        defer {
+            isEpisodeSearchLoading = false
+            showEpisodeSearchSpinner = false
+        }
 
         do {
             try await ensureRemoteIndexLoaded()
@@ -376,6 +399,12 @@ final class PodcastsViewModel: ObservableObject {
         defer { isRefreshingEpisodeIndex = false }
 
         do {
+            if let meta = try? await remoteIndexClient.fetchMeta() {
+                cloudIndexLastUpdated = parseCloudGeneratedAt(meta.generatedAt)
+                indexPodcastCount = meta.podcastCount
+                indexEpisodeCount = meta.episodeCount
+            }
+
             let index = try await remoteIndexClient.fetchIndex()
             indexedPodcastsByID = Dictionary(uniqueKeysWithValues: index.podcasts.map { ($0.id, $0) })
             indexedEpisodes = index.episodes
@@ -521,9 +550,15 @@ final class PodcastsViewModel: ObservableObject {
             let meta = try await remoteIndexClient.fetchMeta()
             indexPodcastCount = meta.podcastCount
             indexEpisodeCount = meta.episodeCount
+            cloudIndexLastUpdated = parseCloudGeneratedAt(meta.generatedAt)
         } catch {
             // Leave defaults if metadata endpoint is unavailable.
         }
+    }
+
+    private func parseCloudGeneratedAt(_ raw: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        return formatter.date(from: raw)
     }
 
     private func resolvedEpisodeForPlayback(_ episode: Episode) -> Episode {

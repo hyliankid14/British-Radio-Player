@@ -4,8 +4,18 @@ import android.content.Context
 import com.hyliankid14.bbcradioplayer.db.IndexStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.time.Instant
 
 object SavedSearchManager {
+    private fun parseCloudGeneratedEpoch(raw: String?): Long {
+        if (raw.isNullOrBlank()) return 0L
+        return try {
+            Instant.parse(raw).toEpochMilli()
+        } catch (_: Exception) {
+            0L
+        }
+    }
+
     suspend fun checkForUpdates(context: Context) {
         withContext(Dispatchers.IO) {
             try {
@@ -19,6 +29,12 @@ object SavedSearchManager {
                 val repo = PodcastRepository(context)
                 val allPodcasts = try { repo.fetchPodcasts(forceRefresh = true) } catch (_: Exception) { emptyList() }
                 if (allPodcasts.isEmpty()) return@withContext
+
+                val cloudLatestEpoch = try {
+                    parseCloudGeneratedEpoch(RemoteIndexClient(context).fetchRemoteIndexMeta()?.generatedAt)
+                } catch (_: Exception) {
+                    0L
+                }
 
                 for (search in searches) {
                     val filter = PodcastFilter(
@@ -52,7 +68,11 @@ object SavedSearchManager {
                         continue
                     }
 
-                    val latestEpoch = try { index.getLatestEpisodePubDateEpoch(ids) } catch (_: Exception) { 0L }
+                    val latestEpoch = if (cloudLatestEpoch > 0L) {
+                        cloudLatestEpoch
+                    } else {
+                        try { index.getLatestEpisodePubDateEpoch(ids) } catch (_: Exception) { 0L }
+                    }
 
                     if (search.notificationsEnabled) {
                         val lastSeen = search.lastSeenEpisodeIds.toSet()
@@ -90,6 +110,12 @@ object SavedSearchManager {
                 }
                 if (allPodcasts.isEmpty()) return@withContext
 
+                val cloudLatestEpoch = try {
+                    parseCloudGeneratedEpoch(RemoteIndexClient(context).fetchRemoteIndexMeta()?.generatedAt)
+                } catch (_: Exception) {
+                    0L
+                }
+
                 fun parseEpoch(raw: String?): Long = IndexStore.parsePubEpoch(raw)
 
                 for (search in searches) {
@@ -111,8 +137,12 @@ object SavedSearchManager {
                     val ids = filtered.map { it.episodeId }.distinct().take(50)
                     if (ids.isEmpty()) continue
 
-                    var latestEpoch = try { index.getLatestEpisodePubDateEpoch(ids) } catch (_: Exception) {
-                        0L
+                    var latestEpoch = if (cloudLatestEpoch > 0L) {
+                        cloudLatestEpoch
+                    } else {
+                        try { index.getLatestEpisodePubDateEpoch(ids) } catch (_: Exception) {
+                            0L
+                        }
                     }
                     if (latestEpoch == 0L) {
                         for (hit in filtered) {

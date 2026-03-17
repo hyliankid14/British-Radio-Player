@@ -204,7 +204,7 @@ def fetch_podcast(pid, title, rss_url, max_episodes):
 
 def upload_to_gcs(bucket_name: str, local_index_path: Path, local_meta_path: Path) -> None:
     """
-    Upload both output files to a Google Cloud Storage bucket as public objects.
+    Upload both output files to a Google Cloud Storage bucket.
 
     Requires the ``google-cloud-storage`` package and Application Default
     Credentials (ADC).  On Cloud Run / Cloud Functions ADC is provided
@@ -214,6 +214,10 @@ def upload_to_gcs(bucket_name: str, local_index_path: Path, local_meta_path: Pat
 
     The objects are given ``Cache-Control: public, max-age=21600`` so CDN
     and browser caches respect the 6-hour TTL used by the Android app.
+
+    Public access should be granted at the bucket level (recommended with
+    uniform bucket-level access enabled). We intentionally avoid per-object ACL
+    calls like ``blob.make_public()`` because they fail when UBLA is enabled.
     """
     try:
         from google.cloud import storage as gcs  # type: ignore[import-untyped]
@@ -232,10 +236,11 @@ def upload_to_gcs(bucket_name: str, local_index_path: Path, local_meta_path: Pat
 
     index_blob = bucket.blob("podcast-index.json.gz")
     index_blob.cache_control = cache_control
-    index_blob.content_encoding = "gzip"
-    index_blob.content_type = "application/json"
+    # Store as an opaque gzip blob. Avoid Content-Encoding metadata because
+    # GCS may transparently decompress on download, which breaks consumers
+    # expecting raw gzip bytes (the Cloud Function explicitly decompresses).
+    index_blob.content_type = "application/octet-stream"
     index_blob.upload_from_filename(str(local_index_path))
-    index_blob.make_public()
     print(f"Uploaded {local_index_path.name} → gs://{bucket_name}/podcast-index.json.gz")
     print(f"  Public URL: https://storage.googleapis.com/{bucket_name}/podcast-index.json.gz")
 
@@ -243,7 +248,6 @@ def upload_to_gcs(bucket_name: str, local_index_path: Path, local_meta_path: Pat
     meta_blob.cache_control = cache_control
     meta_blob.content_type = "application/json"
     meta_blob.upload_from_filename(str(local_meta_path))
-    meta_blob.make_public()
     print(f"Uploaded {local_meta_path.name} → gs://{bucket_name}/podcast-index-meta.json")
     print(f"  Public URL: https://storage.googleapis.com/{bucket_name}/podcast-index-meta.json")
 

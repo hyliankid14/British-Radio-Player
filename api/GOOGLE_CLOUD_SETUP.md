@@ -35,6 +35,31 @@ gcloud services enable \
   cloudbuild.googleapis.com
 ```
 
+### Fast path (recommended)
+
+Use the repository setup script to run the full migration with sensible
+defaults:
+
+```bash
+./scripts/setup-google-cloud-index.sh \
+  --project bbc-radio-player \
+  --bucket YOUR_GLOBALLY_UNIQUE_BUCKET \
+  --region europe-west2 \
+  --mode cloud-run \
+  --write-local-properties
+```
+
+What this script does:
+- Enables required APIs
+- Creates/configures the GCS bucket and public-read policy
+- Builds and uploads the first index (`podcast-index.json.gz` + metadata)
+- Deploys the `podcast-search` Cloud Function
+- Creates/updates Cloud Run Job + Cloud Scheduler (Option B)
+- Writes `GCS_INDEX_URL`, `GCS_META_URL`, and `CLOUD_FUNCTION_URL` to
+  `local.properties`
+
+You can skip to **Step 3** after this completes.
+
 ---
 
 ## Step 1 — Create a GCS bucket
@@ -130,10 +155,11 @@ Choose **Option A** (simpler, reuses GitHub Actions infrastructure) or
 
 1. Add two repository secrets:
    - `GCS_BUCKET` — your bucket name
-   - `GCP_SA_KEY` — base-64 service-account key JSON (see below)
+    - `GCP_SA_KEY` — raw service-account key JSON (see below)
 
 2. Create a service account with `Storage Object Admin` on the bucket:
    ```bash
+  PROJECT=YOUR_PROJECT_ID
    SA=bbc-index-builder
    gcloud iam service-accounts create $SA \
      --display-name "BBC Index Builder"
@@ -142,15 +168,16 @@ Choose **Option A** (simpler, reuses GitHub Actions infrastructure) or
      --member="serviceAccount:$SA@$PROJECT.iam.gserviceaccount.com" \
      --role=roles/storage.objectAdmin
 
-   # Generate key and base-64 encode it
+  # Generate key JSON for the GitHub secret
    gcloud iam service-accounts keys create /tmp/sa-key.json \
      --iam-account=$SA@$PROJECT.iam.gserviceaccount.com
-   base64 -w0 /tmp/sa-key.json   # paste output into GCP_SA_KEY secret
+   cat /tmp/sa-key.json   # paste full JSON into GCP_SA_KEY secret
    ```
 
 3. The workflow (`.github/workflows/build-podcast-index.yml`) will now
-   build the index nightly and upload it directly to GCS — **no commits
-   to the repository**.
+  build the index nightly and upload it directly to GCS.  It also mirrors
+  the latest files into `docs/` (GitHub Pages) as a temporary compatibility
+  path for legacy app versions.
 
 ### Option B — Cloud Scheduler + Cloud Run Job (fully on Google Cloud)
 

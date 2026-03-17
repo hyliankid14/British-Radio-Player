@@ -668,6 +668,22 @@ class IndexStore private constructor(private val context: Context) {
         return 0
     }
 
+    // Total number of indexed podcasts.
+    fun getIndexedPodcastCount(): Int {
+        val db = helper.readableDatabase
+        try {
+            val cursor = db.rawQuery("SELECT COUNT(*) FROM podcast_fts", emptyArray())
+            cursor.use {
+                if (it.moveToFirst()) {
+                    return it.getInt(0)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("IndexStore", "getIndexedPodcastCount failed: ${e.message}")
+        }
+        return 0
+    }
+
     // Upsert a podcast row into the podcast_fts table
     fun upsertPodcast(p: Podcast) {
         val db = helper.writableDatabase

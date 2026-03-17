@@ -426,192 +426,83 @@ class SettingsDetailActivity : AppCompatActivity() {
     }
 
     private fun setupIndexingSettings() {
-        val indexNowBtn: Button = findViewById(R.id.index_now_button)
         val indexLastRebuilt: TextView = findViewById(R.id.index_last_rebuilt)
+        val indexPodcastCount: TextView = findViewById(R.id.index_podcast_count)
         val indexEpisodeCount: TextView = findViewById(R.id.index_episode_count)
-        val indexEpisodesProgress: android.widget.ProgressBar = findViewById(R.id.index_episodes_progress)
-        val indexStatusText: TextView = findViewById(R.id.index_status_text)
         val indexStore = com.hyliankid14.bbcradioplayer.db.IndexStore.getInstance(this)
+        val remoteIndexClient = RemoteIndexClient(this)
 
         fun updateLastRebuilt(ts: Long?) {
             indexLastRebuilt.text = if (ts != null) {
                 val fmt = java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT)
-                "Last retrieved: ${fmt.format(java.util.Date(ts))}"
+                "Last updated: ${fmt.format(java.util.Date(ts))}"
             } else {
-                "Last retrieved: —"
+                "Last updated: —"
             }
         }
 
-        fun updateIndexedEpisodeCount() {
+        fun updateIndexedCounts() {
             lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                val count = try {
+                val episodeCount = try {
                     indexStore.getIndexedEpisodeCount()
                 } catch (_: Exception) {
                     0
                 }
+                val podcastCount = try {
+                    indexStore.getIndexedPodcastCount()
+                } catch (_: Exception) {
+                    0
+                }
                 runOnUiThread {
-                    indexEpisodeCount.text = "$count episodes indexed"
+                    indexPodcastCount.text = "$podcastCount podcasts indexed"
+                    indexEpisodeCount.text = "$episodeCount episodes indexed"
                 }
             }
         }
 
-        // Observe WorkManager progress for the one-time indexing work
-        WorkManager.getInstance(this)
-            .getWorkInfosForUniqueWorkLiveData(com.hyliankid14.bbcradioplayer.workers.BackgroundIndexWorker.WORK_NAME)
-            .observe(this) { workInfoList ->
-                val workInfo = workInfoList?.firstOrNull()
-                if (workInfo == null) {
-                    indexEpisodesProgress.visibility = android.view.View.GONE
-                    indexStatusText.visibility = android.view.View.GONE
-                    return@observe
+        fun updateCloudIndexInfo() {
+            lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                val meta = try {
+                    remoteIndexClient.fetchRemoteIndexMeta()
+                } catch (_: Exception) {
+                    null
                 }
-                when (workInfo.state) {
-                    WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED -> {
-                        indexEpisodesProgress.isIndeterminate = true
-                        indexEpisodesProgress.visibility = android.view.View.VISIBLE
-                        indexStatusText.text = "Waiting to start..."
-                        indexStatusText.visibility = android.view.View.VISIBLE
+
+                if (meta?.generatedAt.isNullOrBlank()) {
+                    return@launch
+                }
+
+                val generatedAtMillis = try {
+                    java.time.Instant.parse(meta?.generatedAt).toEpochMilli()
+                } catch (_: Exception) {
+                    null
+                }
+
+                runOnUiThread {
+                    if (generatedAtMillis != null) {
+                        val fmt = java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT)
+                        indexLastRebuilt.text = "Last updated (Google Cloud): ${fmt.format(java.util.Date(generatedAtMillis))}"
+                    } else {
+                        indexLastRebuilt.text = "Last updated (Google Cloud): ${meta?.generatedAt}"
                     }
-                    WorkInfo.State.RUNNING -> {
-                        val status = workInfo.progress.getString(com.hyliankid14.bbcradioplayer.workers.BackgroundIndexWorker.KEY_STATUS)
-                        val percent = workInfo.progress.getInt(com.hyliankid14.bbcradioplayer.workers.BackgroundIndexWorker.KEY_PERCENT, -1)
-                        if (percent >= 0) {
-                            val target = percent.coerceIn(0, 100)
-                            if (target > lastSeenIndexPercent) {
-                                indexEpisodesProgress.isIndeterminate = false
-                                indexEpisodesProgress.progress = target
-                                lastSeenIndexPercent = target
-                            }
-                        } else {
-                            indexEpisodesProgress.isIndeterminate = true
-                        }
-                        indexEpisodesProgress.visibility = android.view.View.VISIBLE
-                        if (!status.isNullOrBlank()) {
-                            indexStatusText.text = status
-                            indexStatusText.visibility = android.view.View.VISIBLE
-                        }
-                    }
-                    WorkInfo.State.SUCCEEDED -> {
-                        indexEpisodesProgress.visibility = android.view.View.GONE
-                        indexStatusText.visibility = android.view.View.GONE
-                        lastSeenIndexPercent = 0
-                        updateLastRebuilt(indexStore.getLastReindexTime())
-                        updateIndexedEpisodeCount()
-                    }
-                    WorkInfo.State.FAILED, WorkInfo.State.CANCELLED -> {
-                        indexEpisodesProgress.visibility = android.view.View.GONE
-                        val lastStatus = workInfo.progress.getString(com.hyliankid14.bbcradioplayer.workers.BackgroundIndexWorker.KEY_STATUS)
-                        if (!lastStatus.isNullOrBlank()) {
-                            indexStatusText.text = lastStatus
-                            indexStatusText.visibility = android.view.View.VISIBLE
-                        } else {
-                            indexStatusText.visibility = android.view.View.GONE
-                        }
-                        lastSeenIndexPercent = 0
-                    }
-                    else -> {}
                 }
             }
+        }
 
         // Initialize display from persisted value
         updateLastRebuilt(indexStore.getLastReindexTime())
-        updateIndexedEpisodeCount()
+        updateIndexedCounts()
+        updateCloudIndexInfo()
 
-        indexNowBtn.setOnClickListener {
-            try {
-                lastSeenIndexPercent = 0
-                indexEpisodesProgress.isIndeterminate = true
-                indexEpisodesProgress.visibility = android.view.View.VISIBLE
-                indexStatusText.text = "Starting index..."
-                indexStatusText.visibility = android.view.View.VISIBLE
-
-                // Enqueue as a background WorkManager job so indexing continues
-                // even if the user navigates away from this screen.
-                com.hyliankid14.bbcradioplayer.workers.BackgroundIndexWorker.enqueueIndexing(
-                    this@SettingsDetailActivity,
-                    fullReindex = true
-                )
-            } catch (e: Exception) {
-                android.util.Log.w("SettingsDetailActivity", "Failed to start indexing: ${e.message}")
-                indexEpisodesProgress.visibility = android.view.View.GONE
-                indexStatusText.visibility = android.view.View.GONE
-            }
-        }
-
-        // Initialize and wire up index schedule dropdown
+        // Keep only the user-facing language filter option.
         try {
-            val indexScheduleSpinner: com.google.android.material.textfield.MaterialAutoCompleteTextView = findViewById(R.id.index_schedule_spinner)
-            val adapter = android.widget.ArrayAdapter.createFromResource(this, R.array.index_schedule_options, R.layout.spinner_dropdown_item)
-            adapter.setDropDownViewResource(R.layout.spinner_dropdown_item)
-            indexScheduleSpinner.setAdapter(adapter)
-
-            // Map saved days to spinner position and set initial text
-            val savedDays = IndexPreference.getIntervalDays(this)
-            val pos = when (savedDays) {
-                1 -> 1
-                3 -> 2
-                7 -> 3
-                else -> 0
+            val excludeCb: android.widget.CheckBox = findViewById(R.id.exclude_non_english_checkbox)
+            val excluded = PodcastFilterPreference.excludeNonEnglish(this)
+            excludeCb.isChecked = excluded
+            excludeCb.setOnCheckedChangeListener { _, isChecked ->
+                PodcastFilterPreference.setExcludeNonEnglish(this, isChecked)
+                android.widget.Toast.makeText(this, if (isChecked) "Non-English podcasts will be hidden" else "All podcasts will be shown", android.widget.Toast.LENGTH_SHORT).show()
             }
-            val options = resources.getStringArray(R.array.index_schedule_options)
-            suppressIndexSpinnerSelection = true
-            indexScheduleSpinner.setText(options[pos], false)
-
-            // Ensure any previously-configured schedule is (re)activated at startup
-            if (savedDays > 0) {
-                IndexScheduler.scheduleIndexing(this)
-            }
-
-            indexScheduleSpinner.setOnItemClickListener { _, _, position, _ ->
-                if (suppressIndexSpinnerSelection) {
-                    suppressIndexSpinnerSelection = false
-                    return@setOnItemClickListener
-                }
-
-                val days = when (position) {
-                    1 -> 1
-                    2 -> 3
-                    3 -> 7
-                    else -> 0
-                }
-
-                val previous = IndexPreference.getIntervalDays(this@SettingsDetailActivity)
-                if (days != previous) {
-                    IndexPreference.setIntervalDays(this@SettingsDetailActivity, days)
-                    if (days > 0) {
-                        IndexScheduler.scheduleIndexing(this@SettingsDetailActivity)
-                        android.widget.Toast.makeText(this@SettingsDetailActivity, "Scheduled indexing every ${days} day(s)", android.widget.Toast.LENGTH_SHORT).show()
-                    } else {
-                        IndexScheduler.cancel(this@SettingsDetailActivity)
-                        android.widget.Toast.makeText(this@SettingsDetailActivity, "Periodic indexing disabled", android.widget.Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-
-            // Initialize 'exclude non-English' checkbox and bind preference
-            try {
-                val excludeCb: android.widget.CheckBox = findViewById(R.id.exclude_non_english_checkbox)
-                val excluded = PodcastFilterPreference.excludeNonEnglish(this)
-                excludeCb.isChecked = excluded
-                excludeCb.setOnCheckedChangeListener { _, isChecked ->
-                    PodcastFilterPreference.setExcludeNonEnglish(this, isChecked)
-                    android.widget.Toast.makeText(this, if (isChecked) "Non-English podcasts will be hidden and not indexed" else "All podcasts will be shown and indexed", android.widget.Toast.LENGTH_SHORT).show()
-                }
-            } catch (_: Exception) {}
-
-            // Initialize 'wifi only' checkbox and bind preference
-            try {
-                val wifiOnlyCb: android.widget.CheckBox = findViewById(R.id.index_wifi_only_checkbox)
-                wifiOnlyCb.isChecked = IndexPreference.getWifiOnly(this)
-                wifiOnlyCb.setOnCheckedChangeListener { _, isChecked ->
-                    IndexPreference.setWifiOnly(this, isChecked)
-                    // Re-schedule with updated network constraint if a schedule is active
-                    val currentDays = IndexPreference.getIntervalDays(this@SettingsDetailActivity)
-                    if (currentDays > 0) {
-                        IndexScheduler.scheduleIndexing(this@SettingsDetailActivity)
-                    }
-                }
-            } catch (_: Exception) {}
         } catch (_: Exception) {}
     }
 

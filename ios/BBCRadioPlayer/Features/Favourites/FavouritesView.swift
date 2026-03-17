@@ -266,11 +266,21 @@ struct FavouritesView: View {
                             container.podcastsViewModel.applySavedSearch(query)
                             container.selectedRootTab = .podcasts
                         } label: {
-                            HStack {
+                            HStack(alignment: .top, spacing: 10) {
                                 Image(systemName: "magnifyingglass")
                                     .foregroundStyle(.secondary)
-                                Text(query)
-                                    .foregroundStyle(Color.brandText)
+
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(query)
+                                        .foregroundStyle(Color.brandText)
+
+                                    if let cloudDate = container.podcastsViewModel.cloudIndexLastUpdated {
+                                        Text("Latest: \(savedSearchLatestDateString(cloudDate))")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+
                                 Spacer()
                             }
                         }
@@ -341,6 +351,13 @@ struct FavouritesView: View {
             }
         }
         .listStyle(.insetGrouped)
+    }
+
+    private func savedSearchLatestDateString(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter.string(from: date)
     }
 
     private func stationArtwork(for station: Station) -> some View {
