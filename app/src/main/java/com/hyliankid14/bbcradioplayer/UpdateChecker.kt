@@ -59,6 +59,7 @@ class UpdateChecker(private val context: Context) {
         try {
             val fullVersionString = try {
                 context.packageManager.getPackageInfo(context.packageName, 0).versionName
+                    ?: return@withContext null
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to get app version", e)
                 return@withContext null

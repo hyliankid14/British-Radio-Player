@@ -93,10 +93,7 @@ class SecureHttpDataSource : DataSource.Factory {
                 val accepted = responseCode == HttpURLConnection.HTTP_OK || responseCode == HttpURLConnection.HTTP_PARTIAL
                 if (!accepted) {
                     connection!!.disconnect()
-                    throw HttpDataSource.HttpDataSourceException(
-                        dataSpec,
-                        HttpDataSource.HttpDataSourceException.TYPE_OPEN
-                    )
+                    throw IOException("Unexpected HTTP response code: $responseCode")
                 }
 
                 // Success - save the final URI and open stream

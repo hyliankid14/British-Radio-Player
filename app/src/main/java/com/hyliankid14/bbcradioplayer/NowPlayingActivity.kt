@@ -26,6 +26,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
 import android.view.View
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
 
 class NowPlayingActivity : AppCompatActivity() {
     private lateinit var stationArtwork: ImageView
@@ -166,6 +169,13 @@ class NowPlayingActivity : AppCompatActivity() {
 
         // Initialize views
         rootLayout = findViewById(R.id.root)
+
+        ViewCompat.setOnApplyWindowInsetsListener(rootLayout) { _, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            rootLayout.updatePadding(top = bars.top)
+            insets
+        }
+        ViewCompat.requestApplyInsets(rootLayout)
         stationArtwork = findViewById(R.id.now_playing_artwork)
         showName = findViewById(R.id.now_playing_show_name)
         nextShowView = findViewById(R.id.now_playing_next_show)
@@ -1651,7 +1661,12 @@ class NowPlayingActivity : AppCompatActivity() {
                     runOnUiThread {
                         rootLayout.setBackgroundColor(subtleColor)
                         toolbar.setBackgroundColor(subtleColor)
-                        window.statusBarColor = subtleColor
+                        if (android.os.Build.VERSION.SDK_INT < 35) {
+                            @Suppress("DEPRECATION")
+                            run {
+                                window.statusBarColor = subtleColor
+                            }
+                        }
                         
                         // Apply dynamic colors to icon buttons (outline style)
                         val outlineButtonColorStateList = android.content.res.ColorStateList.valueOf(buttonOutlineColor)

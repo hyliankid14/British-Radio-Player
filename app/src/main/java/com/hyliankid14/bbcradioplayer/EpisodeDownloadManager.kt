@@ -722,7 +722,6 @@ object EpisodeDownloadManager {
         var currentUrl = startUrl
         var redirects = 0
         var lastCode: Int? = null
-        var lastError: String? = null
 
         while (redirects <= 8) {
             val connection = (URL(currentUrl).openConnection() as HttpURLConnection).apply {
@@ -757,8 +756,11 @@ object EpisodeDownloadManager {
 
                 return DirectDownloadResult(success = false, httpCode = code, errorMessage = "HTTP $code")
             } catch (e: Exception) {
-                lastError = "${e.javaClass.simpleName}: ${e.message ?: "connection failure"}"
-                return DirectDownloadResult(success = false, httpCode = lastCode, errorMessage = lastError)
+                return DirectDownloadResult(
+                    success = false,
+                    httpCode = lastCode,
+                    errorMessage = "${e.javaClass.simpleName}: ${e.message ?: "connection failure"}"
+                )
             } finally {
                 connection.disconnect()
             }

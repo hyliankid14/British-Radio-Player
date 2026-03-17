@@ -103,7 +103,6 @@ object OPMLParser {
         val xmlUrl = parser.getAttributeValue(null, "xmlUrl") ?: ""
         val htmlUrl = parser.getAttributeValue(null, "htmlUrl") ?: ""
         val imageUrl = parser.getAttributeValue(null, "imageHref") ?: ""
-        val keyName = parser.getAttributeValue(null, "keyname") ?: text
         val durationStr = parser.getAttributeValue(null, "typicalDurationMins") ?: "0"
         val genresStr = parser.getAttributeValue(null, "bbcgenres") ?: ""
 

@@ -66,13 +66,13 @@ def hasReleaseSigning = releaseStoreFile && releaseStorePassword && releaseKeyAl
 
 android {
     namespace "com.hyliankid14.bbcradioplayer"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.hyliankid14.bbcradioplayer"
         minSdk = 21
-        targetSdk = 34
-        versionCode = 33
+        targetSdk = 35
+        versionCode = 34
         versionName = computeNextVersion()
 
         // Configurable backend URLs.  Set these in local.properties or as
@@ -158,7 +158,8 @@ android {
             if (hasReleaseSigning) {
                 signingConfig signingConfigs.release
             }
-            minifyEnabled false
+            minifyEnabled true
+            shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }

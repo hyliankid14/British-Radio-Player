@@ -4,18 +4,8 @@ import android.content.Context
 import com.hyliankid14.bbcradioplayer.db.IndexStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.time.Instant
 
 object SavedSearchManager {
-    private fun parseCloudGeneratedEpoch(raw: String?): Long {
-        if (raw.isNullOrBlank()) return 0L
-        return try {
-            Instant.parse(raw).toEpochMilli()
-        } catch (_: Exception) {
-            0L
-        }
-    }
-
     suspend fun checkForUpdates(context: Context) {
         withContext(Dispatchers.IO) {
             try {
@@ -30,11 +20,8 @@ object SavedSearchManager {
                 val allPodcasts = try { repo.fetchPodcasts(forceRefresh = true) } catch (_: Exception) { emptyList() }
                 if (allPodcasts.isEmpty()) return@withContext
 
-                val cloudLatestEpoch = try {
-                    parseCloudGeneratedEpoch(RemoteIndexClient(context).fetchRemoteIndexMeta()?.generatedAt)
-                } catch (_: Exception) {
-                    0L
-                }
+                fun parseEpoch(raw: String?): Long = IndexStore.parsePubEpoch(raw)
+                val remote = RemoteIndexClient(context)
 
                 for (search in searches) {
                     val filter = PodcastFilter(
@@ -46,7 +33,12 @@ object SavedSearchManager {
                     val allowed = repo.filterPodcasts(allPodcasts, filter).map { it.id }.toSet()
                     if (allowed.isEmpty()) continue
 
-                    val matches = try { index.searchEpisodes(search.query, 200) } catch (_: Exception) { emptyList() }
+                    val matches = try {
+                        val remoteMatches = remote.searchEpisodes(search.query, 500, 0)
+                        if (remoteMatches.isNotEmpty()) remoteMatches else index.searchEpisodes(search.query, 500)
+                    } catch (_: Exception) {
+                        try { index.searchEpisodes(search.query, 500) } catch (_: Exception) { emptyList() }
+                    }
                     if (matches.isEmpty()) {
                         if (search.notificationsEnabled) {
                             SavedSearchesPreference.updateLastSeenEpisodeIds(context, search.id, emptyList(), 0L)
@@ -68,10 +60,12 @@ object SavedSearchManager {
                         continue
                     }
 
-                    val latestEpoch = if (cloudLatestEpoch > 0L) {
-                        cloudLatestEpoch
-                    } else {
-                        try { index.getLatestEpisodePubDateEpoch(ids) } catch (_: Exception) { 0L }
+                    var latestEpoch = filtered.maxOfOrNull { parseEpoch(it.pubDate) } ?: 0L
+                    if (latestEpoch == 0L) {
+                        for (hit in filtered) {
+                            val epoch = parseEpoch(hit.pubDate)
+                            if (epoch > latestEpoch) latestEpoch = epoch
+                        }
                     }
 
                     if (search.notificationsEnabled) {
@@ -110,13 +104,8 @@ object SavedSearchManager {
                 }
                 if (allPodcasts.isEmpty()) return@withContext
 
-                val cloudLatestEpoch = try {
-                    parseCloudGeneratedEpoch(RemoteIndexClient(context).fetchRemoteIndexMeta()?.generatedAt)
-                } catch (_: Exception) {
-                    0L
-                }
-
                 fun parseEpoch(raw: String?): Long = IndexStore.parsePubEpoch(raw)
+                val remote = RemoteIndexClient(context)
 
                 for (search in searches) {
                     val filter = PodcastFilter(
@@ -128,22 +117,18 @@ object SavedSearchManager {
                     val allowed = repo.filterPodcasts(allPodcasts, filter).map { it.id }.toSet()
                     if (allowed.isEmpty()) continue
 
-                    val matches = try { index.searchEpisodes(search.query, 200) } catch (_: Exception) {
-                        continue
+                    val matches = try {
+                        val remoteMatches = remote.searchEpisodes(search.query, 500, 0)
+                        if (remoteMatches.isNotEmpty()) remoteMatches else index.searchEpisodes(search.query, 500)
+                    } catch (_: Exception) {
+                        try { index.searchEpisodes(search.query, 500) } catch (_: Exception) { continue }
                     }
                     if (matches.isEmpty()) continue
 
                     val filtered = matches.filter { allowed.contains(it.podcastId) }
-                    val ids = filtered.map { it.episodeId }.distinct().take(50)
-                    if (ids.isEmpty()) continue
+                    if (filtered.isEmpty()) continue
 
-                    var latestEpoch = if (cloudLatestEpoch > 0L) {
-                        cloudLatestEpoch
-                    } else {
-                        try { index.getLatestEpisodePubDateEpoch(ids) } catch (_: Exception) {
-                            0L
-                        }
-                    }
+                    var latestEpoch = filtered.maxOfOrNull { parseEpoch(it.pubDate) } ?: 0L
                     if (latestEpoch == 0L) {
                         for (hit in filtered) {
                             val cached = repo.getEpisodesFromCache(hit.podcastId) ?: continue

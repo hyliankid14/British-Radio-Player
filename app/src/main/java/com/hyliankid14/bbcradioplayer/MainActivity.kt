@@ -54,6 +54,9 @@ import kotlinx.coroutines.withContext
 import com.google.android.material.tabs.TabLayout
 import com.google.android.material.button.MaterialButtonToggleGroup
 import com.hyliankid14.bbcradioplayer.PodcastSubscriptions
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
 
 class MainActivity : AppCompatActivity() {
     private lateinit var stationsList: RecyclerView
@@ -207,6 +210,17 @@ class MainActivity : AppCompatActivity() {
         } catch (e: IllegalStateException) {
             android.util.Log.w("MainActivity", "Could not set support action bar: ${e.message}")
         }
+
+        val mainRoot = findViewById<View>(R.id.main_root)
+        ViewCompat.setOnApplyWindowInsetsListener(mainRoot) { _, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            mainRoot.updatePadding(top = bars.top)
+            if (::bottomNavigation.isInitialized) {
+                bottomNavigation.updatePadding(bottom = bars.bottom)
+            }
+            insets
+        }
+        ViewCompat.requestApplyInsets(mainRoot)
 
         stationsList = findViewById(R.id.stations_list)
         stationsList.layoutManager = LinearLayoutManager(this)

@@ -9,6 +9,9 @@ import android.widget.TextView
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
 import androidx.lifecycle.lifecycleScope
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
@@ -90,6 +93,17 @@ class SettingsDetailActivity : AppCompatActivity() {
             setSupportActionBar(toolbar)
         } catch (e: IllegalStateException) {
             android.util.Log.w("SettingsDetailActivity", "Could not set support action bar: ${e.message}")
+        }
+
+        val rootContent = findViewById<android.view.View>(android.R.id.content)
+        val settingsRoot = (rootContent as? android.view.ViewGroup)?.getChildAt(0)
+        if (settingsRoot != null) {
+            ViewCompat.setOnApplyWindowInsetsListener(settingsRoot) { _, insets ->
+                val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+                settingsRoot.updatePadding(top = bars.top)
+                insets
+            }
+            ViewCompat.requestApplyInsets(settingsRoot)
         }
         
         // Configure action bar with section title and back button

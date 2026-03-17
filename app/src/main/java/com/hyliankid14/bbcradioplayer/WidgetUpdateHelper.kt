@@ -138,7 +138,11 @@ object WidgetUpdateHelper {
                 scaledBitmap
             } else {
                 // Use RenderScript for older versions
-                val output = android.graphics.Bitmap.createBitmap(bitmap.width, bitmap.height, bitmap.config)
+                val output = android.graphics.Bitmap.createBitmap(
+                    bitmap.width,
+                    bitmap.height,
+                    bitmap.config ?: android.graphics.Bitmap.Config.ARGB_8888
+                )
                 val rs = android.renderscript.RenderScript.create(context)
                 val script = android.renderscript.ScriptIntrinsicBlur.create(rs, android.renderscript.Element.U8_4(rs))
                 val input = android.renderscript.Allocation.createFromBitmap(rs, bitmap)
