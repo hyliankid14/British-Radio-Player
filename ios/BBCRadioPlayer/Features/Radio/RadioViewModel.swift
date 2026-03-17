@@ -73,7 +73,11 @@ final class RadioViewModel: ObservableObject {
     }
 
     var filteredStations: [Station] {
-        let categoryStations = stationRepository.stations(for: selectedCategory)
+        filteredStations(for: selectedCategory)
+    }
+
+    func filteredStations(for category: StationCategory) -> [Station] {
+        let categoryStations = stationRepository.stations(for: category)
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !query.isEmpty else {
             return categoryStations

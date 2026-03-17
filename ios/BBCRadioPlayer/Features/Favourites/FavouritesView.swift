@@ -4,6 +4,7 @@ enum FavouritesTab {
     case stations
     case podcasts
     case episodes
+    case history
     case searches
 }
 
@@ -18,6 +19,7 @@ struct FavouritesView: View {
         !viewModel.favoriteStations.isEmpty ||
         !container.favoritesStore.subscribedPodcastIDs.isEmpty ||
         !container.favoritesStore.savedEpisodeIDs.isEmpty ||
+        !container.podcastsViewModel.playedHistory.isEmpty ||
         !container.podcastsViewModel.savedSearches.isEmpty
     }
 
@@ -48,6 +50,8 @@ struct FavouritesView: View {
                             podcastsList
                         case .episodes:
                             episodesList
+                        case .history:
+                            historyList
                         case .searches:
                             savedSearchesList
                         }
@@ -82,6 +86,7 @@ struct FavouritesView: View {
                 Text("Stations").tag(FavouritesTab.stations)
                 Text("Podcasts").tag(FavouritesTab.podcasts)
                 Text("Episodes").tag(FavouritesTab.episodes)
+                Text("History").tag(FavouritesTab.history)
                 Text("Searches").tag(FavouritesTab.searches)
             }
             .pickerStyle(.segmented)
@@ -277,6 +282,60 @@ struct FavouritesView: View {
                     }
                     .onDelete { offsets in
                         container.podcastsViewModel.removeSavedSearch(at: offsets)
+                    }
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+    }
+
+    private var historyList: some View {
+        List {
+            if container.podcastsViewModel.playedHistory.isEmpty {
+                Section {
+                    Text("No play history yet. Played podcast episodes will appear here.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                Section("Recently Played") {
+                    ForEach(Array(container.podcastsViewModel.playedHistory.enumerated()), id: \.offset) { index, entry in
+                        Button {
+                            guard let episode = entry.asEpisode else { return }
+                            container.podcastsViewModel.play(episode, podcastTitle: entry.podcastTitle)
+                        } label: {
+                            HStack(spacing: 12) {
+                                podcastArtwork(url: entry.imageURLString.flatMap(URL.init(string:)))
+
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(entry.title)
+                                        .font(container.appSettingsStore.compactRows ? .body : .headline)
+                                        .lineLimit(2)
+                                        .foregroundStyle(Color.brandText)
+
+                                    if let podcastTitle = entry.podcastTitle, !podcastTitle.isEmpty {
+                                        Text(podcastTitle)
+                                            .font(.caption)
+                                            .foregroundStyle(Color.subtitleText)
+                                            .lineLimit(1)
+                                    }
+
+                                    Text(container.podcastsViewModel.formattedDate(entry.pubDate))
+                                        .font(.caption2)
+                                        .foregroundStyle(Color.subtitleText)
+                                }
+
+                                Spacer(minLength: 8)
+                            }
+                        }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            Button("Remove", role: .destructive) {
+                                container.podcastsViewModel.removePlayedHistory(at: IndexSet(integer: index))
+                            }
+                        }
+                    }
+                    .onDelete { offsets in
+                        container.podcastsViewModel.removePlayedHistory(at: offsets)
                     }
                 }
             }

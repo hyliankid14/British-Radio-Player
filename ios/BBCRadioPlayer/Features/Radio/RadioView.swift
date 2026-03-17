@@ -5,9 +5,30 @@ struct RadioView: View {
     @EnvironmentObject private var container: AppContainer
 
     var body: some View {
+        TabView(selection: $viewModel.selectedCategory) {
+            ForEach(StationCategory.allCases, id: \.self) { category in
+                stationsList(for: category)
+                    .tag(category)
+            }
+        }
+        .tabViewStyle(.page(indexDisplayMode: .never))
+        .safeAreaInset(edge: .top, spacing: 0) {
+            categoryHeader
+        }
+        .navigationTitle("Stations")
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            viewModel.refreshStationShowTitles()
+        }
+        .onChange(of: viewModel.selectedCategory) { _ in
+            viewModel.refreshStationShowTitles()
+        }
+    }
+
+    private func stationsList(for category: StationCategory) -> some View {
         List {
             Section {
-                ForEach(viewModel.filteredStations) { station in
+                ForEach(viewModel.filteredStations(for: category)) { station in
                     Button {
                         viewModel.play(station)
                     } label: {
@@ -40,17 +61,6 @@ struct RadioView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .safeAreaInset(edge: .top, spacing: 0) {
-            categoryHeader
-        }
-        .navigationTitle("Stations")
-        .navigationBarTitleDisplayMode(.inline)
-        .task {
-            viewModel.refreshStationShowTitles()
-        }
-        .onChange(of: viewModel.selectedCategory) { _ in
-            viewModel.refreshStationShowTitles()
-        }
     }
 
     private var categoryHeader: some View {

@@ -10,6 +10,46 @@ struct EpisodeSearchResult: Identifiable, Equatable {
     let pubEpoch: Int?
 }
 
+struct PlayedEpisodeHistoryEntry: Identifiable, Codable, Equatable {
+    let id: String
+    let title: String
+    let description: String
+    let audioURLString: String
+    let imageURLString: String?
+    let pubDate: String
+    let durationMins: Int
+    let podcastID: String
+    let podcastTitle: String?
+    let playedAt: Date
+
+    init(episode: Episode, podcastTitle: String?, playedAt: Date = Date()) {
+        self.id = episode.id
+        self.title = episode.title
+        self.description = episode.description
+        self.audioURLString = episode.audioURL.absoluteString
+        self.imageURLString = episode.imageURL?.absoluteString
+        self.pubDate = episode.pubDate
+        self.durationMins = episode.durationMins
+        self.podcastID = episode.podcastID
+        self.podcastTitle = podcastTitle
+        self.playedAt = playedAt
+    }
+
+    var asEpisode: Episode? {
+        guard let audioURL = URL(string: audioURLString) else { return nil }
+        return Episode(
+            id: id,
+            title: title,
+            description: description,
+            audioURL: audioURL,
+            imageURL: imageURLString.flatMap(URL.init(string:)),
+            pubDate: pubDate,
+            durationMins: durationMins,
+            podcastID: podcastID
+        )
+    }
+}
+
 enum PodcastSortOption: String, CaseIterable, Identifiable {
     case mostPopular = "Most Popular"
     case mostRecent = "Most Recent"
@@ -41,6 +81,7 @@ final class PodcastsViewModel: ObservableObject {
     @Published private(set) var isEpisodeSearchLoading = false
     @Published private(set) var isRefreshingEpisodeIndex = false
     @Published private(set) var savedSearches: [String] = []
+    @Published private(set) var playedHistory: [PlayedEpisodeHistoryEntry] = []
     @Published private(set) var indexPodcastCount: Int = 0
     @Published private(set) var indexEpisodeCount: Int = 0
 
@@ -58,6 +99,8 @@ final class PodcastsViewModel: ObservableObject {
     private var hasLoadedRemoteIndex = false
 
     private static let savedSearchesKey = "saved_podcast_episode_searches"
+    private static let playedHistoryKey = "played_podcast_episode_history"
+    private static let maxPlayedHistoryEntries = 20
     private static let indexRefreshInterval: TimeInterval = 60 * 60 * 24
 
     init(
@@ -78,6 +121,7 @@ final class PodcastsViewModel: ObservableObject {
         self.defaults = defaults
         loadPlayedEpisodes()
         loadSavedSearches()
+        loadPlayedHistory()
     }
 
     func loadPodcasts() async {
@@ -110,7 +154,7 @@ final class PodcastsViewModel: ObservableObject {
 
     func play(_ episode: Episode) {
         let playableEpisode = resolvedEpisodeForPlayback(episode)
-        markEpisodeAsPlayed(playableEpisode)
+        markEpisodeAsPlayed(playableEpisode, podcastTitle: selectedPodcast?.title)
         audioPlayerService.play(
             episode: playableEpisode,
             podcastTitle: selectedPodcast?.title,
@@ -120,7 +164,7 @@ final class PodcastsViewModel: ObservableObject {
 
     func play(_ episode: Episode, podcastTitle: String?) {
         let playableEpisode = resolvedEpisodeForPlayback(episode)
-        markEpisodeAsPlayed(playableEpisode)
+        markEpisodeAsPlayed(playableEpisode, podcastTitle: podcastTitle)
         audioPlayerService.play(
             episode: playableEpisode,
             podcastTitle: podcastTitle,
@@ -133,9 +177,10 @@ final class PodcastsViewModel: ObservableObject {
         episodes = []
     }
 
-    func markEpisodeAsPlayed(_ episode: Episode) {
+    func markEpisodeAsPlayed(_ episode: Episode, podcastTitle: String? = nil) {
         playedEpisodeIDs.insert(episode.id)
         savePlayedEpisodes()
+        appendPlayedHistory(episode, podcastTitle: podcastTitle)
     }
 
     func isEpisodePlayed(_ episode: Episode) -> Bool {
@@ -217,6 +262,11 @@ final class PodcastsViewModel: ObservableObject {
     func removeSavedSearch(at offsets: IndexSet) {
         savedSearches.remove(atOffsets: offsets)
         defaults.set(savedSearches, forKey: Self.savedSearchesKey)
+    }
+
+    func removePlayedHistory(at offsets: IndexSet) {
+        playedHistory.remove(atOffsets: offsets)
+        persistPlayedHistory()
     }
 
     func applySavedSearch(_ query: String) {
@@ -304,7 +354,7 @@ final class PodcastsViewModel: ObservableObject {
             podcastID: result.podcastID
         )
         let playableEpisode = resolvedEpisodeForPlayback(episode)
-        markEpisodeAsPlayed(playableEpisode)
+        markEpisodeAsPlayed(playableEpisode, podcastTitle: result.podcastTitle)
         audioPlayerService.play(
             episode: playableEpisode,
             podcastTitle: result.podcastTitle,
@@ -340,6 +390,29 @@ final class PodcastsViewModel: ObservableObject {
 
     private func loadSavedSearches() {
         savedSearches = defaults.stringArray(forKey: Self.savedSearchesKey) ?? []
+    }
+
+    private func loadPlayedHistory() {
+        guard let data = defaults.data(forKey: Self.playedHistoryKey),
+              let decoded = try? JSONDecoder().decode([PlayedEpisodeHistoryEntry].self, from: data) else {
+            playedHistory = []
+            return
+        }
+        playedHistory = Array(decoded.sorted(by: { $0.playedAt > $1.playedAt }).prefix(Self.maxPlayedHistoryEntries))
+    }
+
+    private func appendPlayedHistory(_ episode: Episode, podcastTitle: String?) {
+        let entry = PlayedEpisodeHistoryEntry(episode: episode, podcastTitle: podcastTitle)
+        var updated = playedHistory.filter { $0.id != entry.id }
+        updated.insert(entry, at: 0)
+        playedHistory = Array(updated.prefix(Self.maxPlayedHistoryEntries))
+        persistPlayedHistory()
+    }
+
+    private func persistPlayedHistory() {
+        if let data = try? JSONEncoder().encode(playedHistory) {
+            defaults.set(data, forKey: Self.playedHistoryKey)
+        }
     }
 
     private func ensureRemoteIndexLoaded() async throws {

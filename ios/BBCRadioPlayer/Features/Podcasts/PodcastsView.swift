@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreMotion
 
 struct PodcastsView: View {
     @ObservedObject var viewModel: PodcastsViewModel
@@ -9,6 +10,7 @@ struct PodcastsView: View {
     @State private var infoDescription: String = ""
     @State private var showInfoSheet = false
     @State private var showFullPlayer = false
+    @StateObject private var shakeDetector = ShakeToShuffleDetector()
 
     var body: some View {
         content
@@ -42,6 +44,16 @@ struct PodcastsView: View {
                 FullPlayerView()
                     .environmentObject(container)
             }
+            .onAppear {
+                shakeDetector.onShake = { [weak viewModel] in
+                    guard let viewModel, viewModel.selectedPodcast == nil else { return }
+                    selectRandomPodcast()
+                }
+                shakeDetector.start()
+            }
+            .onDisappear {
+                shakeDetector.stop()
+            }
     }
 
     @ViewBuilder
@@ -50,10 +62,8 @@ struct PodcastsView: View {
             episodeList(for: selectedPodcast)
         } else if let error = viewModel.errorMessage {
             landingErrorView(error: error)
-                .searchable(text: $viewModel.searchText, prompt: "Search (AND / OR / NOT)")
         } else {
             podcastList
-                .searchable(text: $viewModel.searchText, prompt: "Search (AND / OR / NOT)")
         }
     }
 
@@ -94,7 +104,7 @@ struct PodcastsView: View {
     private var podcastList: some View {
         List {
             Section {
-                filterBar
+                searchAndFilterPanel
             }
 
             if viewModel.indexPodcastCount > 0 || viewModel.indexEpisodeCount > 0 {
@@ -179,36 +189,37 @@ struct PodcastsView: View {
 
             Section("Podcasts") {
                 ForEach(viewModel.filteredPodcasts) { podcast in
-                    HStack(spacing: 12) {
-                        artwork(url: podcast.imageURL, placeholder: "mic.circle.fill")
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(podcast.title)
-                                .font(container.appSettingsStore.compactRows ? .body : .headline)
-                                .lineLimit(2)
-                                .foregroundStyle(Color.brandText)
-                            if !podcast.description.isEmpty {
-                                Text(podcast.description.stripHTMLTags)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(2)
-                            }
-                            if !podcast.genres.isEmpty {
-                                Text(podcast.genres.prefix(2).joined(separator: " • "))
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
-                        }
-
-                        Spacer(minLength: 8)
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture {
+                    Button {
                         Task {
                             await viewModel.selectPodcast(podcast)
                         }
+                    } label: {
+                        HStack(spacing: 12) {
+                            artwork(url: podcast.imageURL, placeholder: "mic.circle.fill")
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(podcast.title)
+                                    .font(container.appSettingsStore.compactRows ? .body : .headline)
+                                    .lineLimit(2)
+                                    .foregroundStyle(Color.brandText)
+                                if !podcast.description.isEmpty {
+                                    Text(podcast.description.stripHTMLTags)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(2)
+                                }
+                                if !podcast.genres.isEmpty {
+                                    Text(podcast.genres.prefix(2).joined(separator: ", "))
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                            }
+
+                            Spacer(minLength: 8)
+                        }
                     }
+                    .buttonStyle(.plain)
                 }
             }
         }
@@ -395,8 +406,40 @@ struct PodcastsView: View {
         }
     }
 
-    private var filterBar: some View {
-        HStack(spacing: 12) {
+    private var searchAndFilterPanel: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+
+                TextField("Search podcasts...", text: $viewModel.searchText)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled(true)
+
+                if !viewModel.searchText.isEmpty {
+                    Button {
+                        viewModel.searchText = ""
+                    } label: {
+                        Image(systemName: "xmark")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Button {
+                    selectRandomPodcast()
+                } label: {
+                    Image(systemName: "shuffle")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Random podcast")
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 12)
+            .background(Color(.secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
             Menu {
                 Picker("Genre", selection: $viewModel.selectedGenre) {
                     ForEach(viewModel.availableGenres, id: \.self) { genre in
@@ -404,7 +447,7 @@ struct PodcastsView: View {
                     }
                 }
             } label: {
-                filterChip(title: "Genre", value: viewModel.selectedGenre)
+                filterRow(title: "Genre", value: viewModel.selectedGenre)
             }
 
             Menu {
@@ -414,50 +457,66 @@ struct PodcastsView: View {
                     }
                 }
             } label: {
-                filterChip(title: "Sort", value: viewModel.selectedSort.rawValue)
-            }
-
-            if !viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Button {
-                    saveSearchFromInput()
-                } label: {
-                    Image(systemName: "bookmark.badge.plus")
-                        .font(.body)
-                        .frame(width: 34, height: 34)
-                }
-                .buttonStyle(.borderless)
-                .accessibilityLabel("Save current search")
+                filterRow(title: "Sort", value: viewModel.selectedSort.rawValue)
             }
 
             if viewModel.hasActiveFilters {
                 Button {
                     viewModel.resetFilters()
                 } label: {
-                    Image(systemName: "arrow.counterclockwise")
-                        .font(.body)
-                        .frame(width: 34, height: 34)
+                    Text("Reset Filters")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
                 }
-                .buttonStyle(.borderless)
-                .accessibilityLabel("Reset filters")
+                .buttonStyle(.plain)
+                .background(Color.accentColor.opacity(0.35))
+                .clipShape(Capsule())
             }
 
-            Spacer()
+            if !viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Button {
+                    saveSearchFromInput()
+                } label: {
+                    Text("Save Search")
+                        .font(.subheadline.weight(.semibold))
+                }
+            }
         }
     }
 
-    private func filterChip(title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+    private func filterRow(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
             Text(title)
-                .font(.caption2)
+                .font(.headline)
                 .foregroundStyle(.secondary)
-            Text(value)
-                .font(.caption)
-                .lineLimit(1)
+            HStack {
+                Text(value)
+                    .font(.title3.weight(.semibold))
+                    .lineLimit(1)
+                Spacer()
+                Image(systemName: "chevron.down")
+                    .foregroundStyle(.secondary)
+            }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
         .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private func selectRandomPodcast() {
+        guard viewModel.selectedPodcast == nil else { return }
+        guard !viewModel.filteredPodcasts.isEmpty else {
+            showToast("No podcast available for random pick")
+            return
+        }
+
+        guard let randomPodcast = viewModel.filteredPodcasts.randomElement() else { return }
+        Task {
+            await viewModel.selectPodcast(randomPodcast)
+        }
+        showToast("Random: \(randomPodcast.title)")
     }
 
     private func artwork(url: URL?, placeholder: String) -> some View {
@@ -542,6 +601,39 @@ struct PodcastsView: View {
             }
             .buttonStyle(.plain)
         }
+    }
+}
+
+private final class ShakeToShuffleDetector: ObservableObject {
+    var onShake: (() -> Void)?
+
+    private let motionManager = CMMotionManager()
+    private var lastShakeAt: Date = .distantPast
+    private let threshold: Double = 2.35
+    private let cooldown: TimeInterval = 1.2
+
+    func start() {
+        guard motionManager.isAccelerometerAvailable else { return }
+        guard !motionManager.isAccelerometerActive else { return }
+
+        motionManager.accelerometerUpdateInterval = 0.12
+        motionManager.startAccelerometerUpdates(to: .main) { [weak self] data, _ in
+            guard let self, let data else { return }
+            let magnitude = sqrt(
+                (data.acceleration.x * data.acceleration.x) +
+                (data.acceleration.y * data.acceleration.y) +
+                (data.acceleration.z * data.acceleration.z)
+            )
+            guard magnitude > self.threshold else { return }
+            guard Date().timeIntervalSince(self.lastShakeAt) > self.cooldown else { return }
+            self.lastShakeAt = Date()
+            self.onShake?()
+        }
+    }
+
+    func stop() {
+        guard motionManager.isAccelerometerActive else { return }
+        motionManager.stopAccelerometerUpdates()
     }
 }
 
