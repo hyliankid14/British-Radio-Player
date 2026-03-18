@@ -136,7 +136,7 @@ class RemoteIndexClient(private val context: Context) {
      */
     fun fetchRemoteIndexMeta(): RemoteIndexMeta? {
         return try {
-            val conn = openConnection(META_URL)
+            val conn = openConnection(META_URL, bypassCaches = true)
             conn.requestMethod = "GET"
             if (conn.responseCode != HttpURLConnection.HTTP_OK) {
                 conn.disconnect()
@@ -527,10 +527,15 @@ class RemoteIndexClient(private val context: Context) {
         return null
     }
 
-    private fun openConnection(urlStr: String): HttpURLConnection {
+    private fun openConnection(urlStr: String, bypassCaches: Boolean = false): HttpURLConnection {
         val conn = URL(urlStr).openConnection() as HttpURLConnection
         conn.connectTimeout = CONNECT_TIMEOUT_MS
         conn.readTimeout = READ_TIMEOUT_MS
+        if (bypassCaches) {
+            conn.useCaches = false
+            conn.setRequestProperty("Cache-Control", "no-cache")
+            conn.setRequestProperty("Pragma", "no-cache")
+        }
         return conn
     }
 

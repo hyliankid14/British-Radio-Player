@@ -143,7 +143,8 @@ class PrivacyAnalytics(private val context: Context) {
             // The versionName already encodes the build type:
             //   release: "1.3.0"  (auto-computed from conventional commits since last tag)
             //   debug:   "1.3.0-debug"
-            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown"
+            val versionName = context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown"
+            if (BuildConfig.DEBUG && !versionName.endsWith("-debug")) "$versionName-debug" else versionName
         } catch (e: Exception) {
             "unknown"
         }

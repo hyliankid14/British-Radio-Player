@@ -499,6 +499,10 @@ class SettingsDetailActivity : AppCompatActivity() {
                     } else {
                         indexLastRebuilt.text = "Last updated (Google Cloud): ${meta?.generatedAt}"
                     }
+                    if ((meta?.podcastCount ?: 0) > 0) {
+                        indexPodcastCount.text = "${meta!!.podcastCount} podcasts indexed"
+                        indexEpisodeCount.text = "${meta.episodeCount} episodes indexed"
+                    }
                 }
             }
         }

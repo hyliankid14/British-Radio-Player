@@ -200,6 +200,9 @@ cloud_function_url() {
 configure_cloud_run_scheduler() {
     local builder_email="$1"
     local scheduler_email="$2"
+    local proj_num
+
+    proj_num="$(project_number)"
 
     (
         cd "$PROJECT_ROOT"
@@ -230,7 +233,7 @@ configure_cloud_run_scheduler() {
 
     gcloud run jobs execute "$JOB_NAME" --region "$REGION" --wait --project "$PROJECT_ID"
 
-    local scheduler_uri="https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${PROJECT_ID}/jobs/${JOB_NAME}:run"
+    local scheduler_uri="https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${proj_num}/jobs/${JOB_NAME}:run"
     if gcloud scheduler jobs describe "$SCHEDULER_JOB_NAME" --location "$REGION" --project "$PROJECT_ID" >/dev/null 2>&1; then
         gcloud scheduler jobs update http "$SCHEDULER_JOB_NAME" \
             --schedule "$SCHEDULE" \

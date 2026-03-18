@@ -212,8 +212,9 @@ def upload_to_gcs(bucket_name: str, local_index_path: Path, local_meta_path: Pat
     When running locally, authenticate first with:
         gcloud auth application-default login
 
-    The objects are given ``Cache-Control: public, max-age=21600`` so CDN
-    and browser caches respect the 6-hour TTL used by the Android app.
+    The large gzip index keeps a longer public cache TTL, but the tiny
+    metadata file should be revalidated on each request so status displays do
+    not lag behind successful uploads.
 
     Public access should be granted at the bucket level (recommended with
     uniform bucket-level access enabled). We intentionally avoid per-object ACL
@@ -232,10 +233,11 @@ def upload_to_gcs(bucket_name: str, local_index_path: Path, local_meta_path: Pat
     client = gcs.Client()
     bucket = client.bucket(bucket_name)
 
-    cache_control = "public, max-age=21600"
+    index_cache_control = "public, max-age=21600"
+    meta_cache_control = "no-cache, max-age=0"
 
     index_blob = bucket.blob("podcast-index.json.gz")
-    index_blob.cache_control = cache_control
+    index_blob.cache_control = index_cache_control
     # Store as an opaque gzip blob. Avoid Content-Encoding metadata because
     # GCS may transparently decompress on download, which breaks consumers
     # expecting raw gzip bytes (the Cloud Function explicitly decompresses).
@@ -245,7 +247,7 @@ def upload_to_gcs(bucket_name: str, local_index_path: Path, local_meta_path: Pat
     print(f"  Public URL: https://storage.googleapis.com/{bucket_name}/podcast-index.json.gz")
 
     meta_blob = bucket.blob("podcast-index-meta.json")
-    meta_blob.cache_control = cache_control
+    meta_blob.cache_control = meta_cache_control
     meta_blob.content_type = "application/json"
     meta_blob.upload_from_filename(str(local_meta_path))
     print(f"Uploaded {local_meta_path.name} → gs://{bucket_name}/podcast-index-meta.json")
