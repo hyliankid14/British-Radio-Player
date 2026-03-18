@@ -114,7 +114,6 @@ android {
             // installed alongside a release build (GitHub / Play Store) without a
             // "package conflict" error caused by mismatched signing certificates.
             applicationIdSuffix ".debug"
-            versionNameSuffix "-debug"
         }
         release {
             if (hasReleaseSigning) {
@@ -143,6 +142,25 @@ android {
 
     buildFeatures {
         buildConfig = true
+    }
+}
+
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        def suffix
+        if (variant.buildType == "debug") {
+            suffix = "-debug"
+        } else if (variant.flavorName == "play") {
+            suffix = "-play"
+        } else if (variant.flavorName == "github") {
+            suffix = "-github"
+        } else {
+            suffix = ""
+        }
+
+        variant.outputs.each { output ->
+            output.versionName.set("${appVersionName}${suffix}")
+        }
     }
 }
 

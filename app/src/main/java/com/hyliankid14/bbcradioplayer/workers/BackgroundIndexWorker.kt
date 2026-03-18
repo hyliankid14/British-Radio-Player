@@ -1,13 +1,8 @@
 package com.hyliankid14.bbcradioplayer.workers
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.content.Context
-import android.os.Build
 import android.util.Log
-import androidx.core.app.NotificationCompat
 import androidx.work.*
-import com.hyliankid14.bbcradioplayer.R
 import com.hyliankid14.bbcradioplayer.SavedSearchManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -15,8 +10,7 @@ import java.util.Calendar
 import java.util.concurrent.TimeUnit
 
 /**
- * Background worker that runs indexing as a foreground service with a notification.
- * This allows indexing to continue even when the app is not in the foreground or is closed.
+ * Background worker that runs indexing tasks via WorkManager.
  */
 class BackgroundIndexWorker(
     context: Context,
@@ -25,8 +19,6 @@ class BackgroundIndexWorker(
 
     companion object {
         private const val TAG = "BackgroundIndexWorker"
-        private const val NOTIFICATION_CHANNEL_ID = "indexing_channel"
-        private const val NOTIFICATION_ID = 1001
         const val WORK_NAME = "podcast_indexing"
         const val WORK_NAME_SCHEDULED = "podcast_indexing_scheduled"
         const val INPUT_MODE = "mode"
@@ -159,25 +151,12 @@ class BackgroundIndexWorker(
         Log.d(TAG, "Starting background indexing work")
 
         try {
-            // Create notification channel if needed
-            createNotificationChannel()
-
-            // Set foreground with notification
-            setForeground(createForegroundInfo("Initializing indexing..."))
-
             val mode = inputData.getString(INPUT_MODE) ?: MODE_FULL
             val isFullReindex = mode == MODE_FULL
 
             Log.d(TAG, "Running indexing (mode=$mode)")
 
             val onProgress: (String, Int, Boolean) -> Unit = { status, percent, _ ->
-                // Update notification with progress
-                val notification = createForegroundInfo(status, percent)
-                try {
-                    setForegroundAsync(notification)
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to update foreground notification: ${e.message}")
-                }
                 // Emit progress data so UI observers can show live status
                 setProgressAsync(workDataOf(KEY_STATUS to status, KEY_PERCENT to percent))
             }
@@ -204,43 +183,6 @@ class BackgroundIndexWorker(
         } catch (e: Exception) {
             Log.e(TAG, "Indexing failed: ${e.message}", e)
             Result.failure()
-        }
-    }
-
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                NOTIFICATION_CHANNEL_ID,
-                "Podcast Indexing",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "Shows progress of podcast indexing"
-            }
-
-            val notificationManager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.createNotificationChannel(channel)
-        }
-    }
-
-    private fun createForegroundInfo(status: String, percent: Int = -1): ForegroundInfo {
-        val notification = NotificationCompat.Builder(applicationContext, NOTIFICATION_CHANNEL_ID)
-            .setContentTitle("Indexing Podcasts")
-            .setContentText(status)
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setOngoing(true)
-            .apply {
-                if (percent >= 0) {
-                    setProgress(100, percent, false)
-                } else {
-                    setProgress(100, 0, true)
-                }
-            }
-            .build()
-
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            ForegroundInfo(NOTIFICATION_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-        } else {
-            ForegroundInfo(NOTIFICATION_ID, notification)
         }
     }
 }

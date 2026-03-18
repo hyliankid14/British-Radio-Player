@@ -183,15 +183,15 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // Cancel orphaned one-time background indexing work from previous runs.
-        // Keep periodic scheduling intact.
+        // Local indexing is disabled in favour of cloud index search.
+        // Cancel any stale one-time/periodic local indexing work on startup.
         try {
-            com.hyliankid14.bbcradioplayer.workers.BackgroundIndexWorker.cancelOneTimeIndexing(this)
+            IndexScheduler.cancel(this)
         } catch (e: Exception) {
             android.util.Log.w("MainActivity", "Failed to cancel background work: ${e.message}")
         }
 
-        // Activate periodic background indexing only if the user has configured a schedule.
+        // Keep legacy schedule preferences in sync (forced to disabled).
         try {
             val days = IndexPreference.getIntervalDays(this)
             if (days > 0) {

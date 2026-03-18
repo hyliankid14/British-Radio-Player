@@ -23,6 +23,9 @@ import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import com.google.android.exoplayer2.ExoPlayer
 import com.google.android.exoplayer2.Player
 import com.google.android.exoplayer2.PlaybackException
@@ -103,6 +106,7 @@ class RadioService : MediaBrowserServiceCompat() {
     private var episodeAnalyticsRunnable: Runnable? = null
     private var episodeAnalyticsPending: Boolean = false
     private var episodeAnalyticsScheduled: Boolean = false
+    private var lastTrackedEpisodeAnalyticsId: String? = null
 
     private var notificationHadProgress: Boolean = false
     @Volatile private var isStopped: Boolean = false
@@ -124,6 +128,9 @@ class RadioService : MediaBrowserServiceCompat() {
 
     private val placeholderBitmap by lazy {
         android.graphics.Bitmap.createBitmap(1, 1, android.graphics.Bitmap.Config.ARGB_8888)
+    }
+    private val autoEpisodeDateFormat = object : ThreadLocal<SimpleDateFormat>() {
+        override fun initialValue(): SimpleDateFormat = SimpleDateFormat("EEE, dd MMM yyyy", Locale.US)
     }
 
     companion object {
@@ -149,6 +156,7 @@ class RadioService : MediaBrowserServiceCompat() {
         const val EXTRA_SEEK_FRACTION = "com.hyliankid14.bbcradioplayer.EXTRA_SEEK_FRACTION"
         const val EXTRA_SEEK_DELTA = "com.hyliankid14.bbcradioplayer.EXTRA_SEEK_DELTA"
         private const val TAG = "RadioService"
+        private const val ANALYTICS_MIN_PLAY_MS = 10_001L // strictly more than 10s
         private const val CHANNEL_ID = "radio_playback"
         private const val NOTIFICATION_ID = 1
         private const val CUSTOM_ACTION_TOGGLE_FAVORITE = "TOGGLE_FAVORITE"
@@ -166,7 +174,7 @@ class RadioService : MediaBrowserServiceCompat() {
         private const val MEDIA_ID_ALL_STATIONS = "all_stations"
         private const val MEDIA_ID_PODCASTS = "podcasts"
         private const val MEDIA_ID_PODCASTS_DOWNLOADED = "podcasts_downloaded"
-        private const val MEDIA_ID_PODCAST_SORT_TOGGLE_PREFIX = "podcast_sort_toggle_"
+        private const val MEDIA_ID_PODCASTS_RANDOM = "podcasts_random"
         private const val ANDROID_AUTO_CLIENT_HINT = "gearhead"
         // Number of episodes returned per page when Android Auto requests paginated episode lists.
         private const val EPISODE_PAGE_SIZE = 20
@@ -260,7 +268,9 @@ class RadioService : MediaBrowserServiceCompat() {
             override fun onPlayFromMediaId(mediaId: String?, extras: Bundle?) {
                 Log.d(TAG, "onPlayFromMediaId called with mediaId: $mediaId")
                 mediaId?.let { id ->
-                    if (id.startsWith("podcast_episode_")) {
+                    if (id == MEDIA_ID_PODCASTS_RANDOM) {
+                        playRandomPodcastFromAuto()
+                    } else if (id.startsWith("podcast_episode_")) {
                         val episodeId = id.removePrefix("podcast_episode_")
                         serviceScope.launch {
                             try {
@@ -762,13 +772,9 @@ class RadioService : MediaBrowserServiceCompat() {
                 }
 
                 val items = mutableListOf<MediaItem>()
-                if (page == 0) {
-                    items.add(buildPodcastSortToggleMediaItem(podcastId))
-                }
-
                 val sortedVisibleEpisodes = filterAndSortEpisodesForAuto(allEps, podcastId)
-                val startIndex = if (page == 0) 0 else (page * pageSize) - 1
-                val episodeCount = if (page == 0) (pageSize - 1).coerceAtLeast(0) else pageSize
+                val startIndex = page * pageSize
+                val episodeCount = pageSize
                 val pageEps = sortedVisibleEpisodes.drop(startIndex).take(episodeCount)
                 if (pageEps.isNotEmpty()) {
                     val downloadedIds = DownloadedEpisodes.getDownloadedEntries(this@RadioService)
@@ -783,11 +789,8 @@ class RadioService : MediaBrowserServiceCompat() {
                         this@RadioService, podcastId)
                     val sortedDownloaded = sortDownloadedEpisodesForPodcast(downloadedEps, podcastId)
                     val items = mutableListOf<MediaItem>()
-                    if (page == 0) {
-                        items.add(buildPodcastSortToggleMediaItem(podcastId))
-                    }
-                    val startIndex = if (page == 0) 0 else (page * pageSize) - 1
-                    val episodeCount = if (page == 0) (pageSize - 1).coerceAtLeast(0) else pageSize
+                    val startIndex = page * pageSize
+                    val episodeCount = pageSize
                     items.addAll(
                         sortedDownloaded.drop(startIndex).take(episodeCount)
                             .map { d -> downloadedEntryToMediaItem(d) }
@@ -862,6 +865,17 @@ class RadioService : MediaBrowserServiceCompat() {
                 MEDIA_ID_PODCASTS -> {
                     // Present four folders: Subscribed Podcasts, Saved Episodes, Downloaded Episodes, and History
                     val itemsPodcasts = mutableListOf<MediaItem>()
+                    itemsPodcasts.add(
+                        MediaItem(
+                            MediaDescriptionCompat.Builder()
+                                .setMediaId(MEDIA_ID_PODCASTS_RANDOM)
+                                .setTitle(getString(R.string.random_podcast_title))
+                                .setSubtitle(getString(R.string.shuffle_podcast_desc))
+                                .setIconBitmap(loadDrawableAsBitmap(R.drawable.ic_shuffle))
+                                .build(),
+                            MediaItem.FLAG_PLAYABLE
+                        )
+                    )
                     itemsPodcasts.add(MediaItem(MediaDescriptionCompat.Builder().setMediaId("podcasts_subscribed").setTitle("Subscribed Podcasts").build(), MediaItem.FLAG_BROWSABLE))
                     itemsPodcasts.add(MediaItem(MediaDescriptionCompat.Builder().setMediaId("podcasts_saved_episodes").setTitle("Saved Episodes").build(), MediaItem.FLAG_BROWSABLE))
                     itemsPodcasts.add(MediaItem(MediaDescriptionCompat.Builder().setMediaId(MEDIA_ID_PODCASTS_DOWNLOADED).setTitle("Downloaded Episodes").build(), MediaItem.FLAG_BROWSABLE))
@@ -869,20 +883,7 @@ class RadioService : MediaBrowserServiceCompat() {
                     result.sendResult(itemsPodcasts)
                 }
                 else -> {
-                    if (parentId.startsWith(MEDIA_ID_PODCAST_SORT_TOGGLE_PREFIX)) {
-                        val podcastId = parentId.removePrefix(MEDIA_ID_PODCAST_SORT_TOGGLE_PREFIX)
-                        val nextOrder = PodcastEpisodeSortPreference.toggleOrder(this@RadioService, podcastId)
-                        autoEpisodesCache.remove(podcastId)
-                        try { notifyChildrenChanged("podcast_$podcastId") } catch (_: Exception) { }
-                        handler.post {
-                            val messageRes = when (nextOrder) {
-                                PodcastEpisodeSortPreference.Order.NEWEST_FIRST -> R.string.podcast_episode_sort_changed_newest
-                                PodcastEpisodeSortPreference.Order.OLDEST_FIRST -> R.string.podcast_episode_sort_changed_oldest
-                            }
-                            android.widget.Toast.makeText(this@RadioService, getString(messageRes), android.widget.Toast.LENGTH_SHORT).show()
-                        }
-                        result.sendResult(loadPodcastItemsForAuto(podcastId, includeSortToggle = false))
-                    } else if (parentId == "podcasts_subscribed") {
+                    if (parentId == "podcasts_subscribed") {
                         val subscribed = PodcastSubscriptions.getSubscribedIds(this@RadioService)
                         if (subscribed.isEmpty()) {
                             result.sendResult(emptyList())
@@ -1185,7 +1186,7 @@ class RadioService : MediaBrowserServiceCompat() {
     private fun downloadedEntryToMediaItem(d: DownloadedEpisodes.Entry): MediaItem {
         val played = PlayedEpisodesPreference.isPlayed(this, d.id)
         val progress = PlayedEpisodesPreference.getProgress(this, d.id)
-        val subtitle = when {
+        val status = when {
             played -> "Downloaded • Played"
             progress > 0L -> "Downloaded • In progress"
             else -> "Downloaded"
@@ -1194,36 +1195,96 @@ class RadioService : MediaBrowserServiceCompat() {
             MediaDescriptionCompat.Builder()
                 .setMediaId("podcast_episode_${d.id}")
                 .setTitle(d.title)
-                .setSubtitle(subtitle)
+                .setSubtitle(buildAutoEpisodeSubtitle(d.pubDate, status))
                 .setIconUri(android.net.Uri.parse(d.imageUrl))
                 .build(),
             MediaItem.FLAG_PLAYABLE
         )
     }
 
-    private fun buildPodcastSortToggleMediaItem(podcastId: String): MediaItem {
-        val title = if (PodcastEpisodeSortPreference.isOldestFirst(this, podcastId)) {
-            getString(R.string.podcast_auto_sort_toggle_oldest)
-        } else {
-            getString(R.string.podcast_auto_sort_toggle_newest)
+    private fun buildAutoEpisodeSubtitle(pubDate: String?, status: String): String {
+        val formattedDate = formatAutoEpisodeDate(pubDate)
+        return when {
+            formattedDate.isNotBlank() && status.isNotBlank() -> "$formattedDate • $status"
+            formattedDate.isNotBlank() -> formattedDate
+            else -> status
         }
-        return MediaItem(
-            MediaDescriptionCompat.Builder()
-                .setMediaId(MEDIA_ID_PODCAST_SORT_TOGGLE_PREFIX + podcastId)
-                .setTitle(title)
-                .build(),
-            MediaItem.FLAG_BROWSABLE
-        )
+    }
+
+    private fun formatAutoEpisodeDate(raw: String?): String {
+        val epoch = EpisodeDateParser.parsePubDateToEpoch(raw)
+        if (epoch <= 0L) return ""
+        return autoEpisodeDateFormat.get()?.format(Date(epoch)) ?: ""
+    }
+
+    private fun playRandomPodcastFromAuto() {
+        serviceScope.launch {
+            try {
+                val repo = PodcastRepository(this@RadioService)
+                val allPodcasts = withContext(Dispatchers.IO) { repo.fetchPodcasts(false) }
+                val subscribedIds = PodcastSubscriptions.getSubscribedIds(this@RadioService)
+                val candidatePodcasts = allPodcasts.filter { it.id in subscribedIds }.ifEmpty { allPodcasts }
+
+                for (podcast in candidatePodcasts.shuffled()) {
+                    val episodes = withContext(Dispatchers.IO) {
+                        repo.fetchEpisodesPaged(podcast, 0, AUTO_MAX_EPISODES)
+                    }
+                    if (episodes.isNotEmpty()) {
+                        autoEpisodesCache[podcast.id] = episodes
+                    }
+                    val pickedEpisode = filterAndSortEpisodesForAuto(episodes, podcast.id).firstOrNull()
+                    if (pickedEpisode != null) {
+                        playPodcastEpisode(
+                            pickedEpisode,
+                            Intent().apply {
+                                putExtra(EXTRA_PODCAST_ID, podcast.id)
+                                putExtra(EXTRA_PODCAST_TITLE, podcast.title)
+                                putExtra(EXTRA_PODCAST_IMAGE, podcast.imageUrl)
+                            }
+                        )
+                        return@launch
+                    }
+                }
+
+                val downloaded = DownloadedEpisodes.getDownloadedEntries(this@RadioService)
+                val downloadedByPodcast = downloaded.groupBy { it.podcastId }
+                for ((podcastId, entries) in downloadedByPodcast.entries.shuffled()) {
+                    val pickedEntry = sortDownloadedEpisodesForPodcast(entries, podcastId).firstOrNull() ?: continue
+                    playPodcastEpisode(
+                        downloadedEntryToEpisode(pickedEntry),
+                        Intent().apply {
+                            putExtra(EXTRA_PODCAST_ID, podcastId)
+                            putExtra(EXTRA_PODCAST_TITLE, pickedEntry.podcastTitle)
+                            putExtra(EXTRA_PODCAST_IMAGE, pickedEntry.imageUrl)
+                        }
+                    )
+                    return@launch
+                }
+
+                handler.post {
+                    android.widget.Toast.makeText(
+                        this@RadioService,
+                        getString(R.string.no_podcasts_shuffle),
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error starting random podcast for Android Auto", e)
+                handler.post {
+                    android.widget.Toast.makeText(
+                        this@RadioService,
+                        getString(R.string.no_podcasts_shuffle),
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        }
     }
 
     private suspend fun loadPodcastItemsForAuto(
-        podcastId: String,
-        includeSortToggle: Boolean = true
+        podcastId: String
     ): List<MediaItem> {
         val itemsForPodcast = mutableListOf<MediaItem>()
-        if (includeSortToggle) {
-            itemsForPodcast.add(buildPodcastSortToggleMediaItem(podcastId))
-        }
 
         return try {
             // Use the service-level cache when available so re-visiting a podcast is instant.
@@ -1439,11 +1500,11 @@ class RadioService : MediaBrowserServiceCompat() {
 
                         if (state == PlaybackStateCompat.STATE_PLAYING) {
                             if (stationAnalyticsPending && !stationAnalyticsScheduled && stationAnalyticsRunnable != null) {
-                                handler.postDelayed(stationAnalyticsRunnable!!, 10_000L)
+                                handler.postDelayed(stationAnalyticsRunnable!!, ANALYTICS_MIN_PLAY_MS)
                                 stationAnalyticsScheduled = true
                             }
                             if (episodeAnalyticsPending && !episodeAnalyticsScheduled && episodeAnalyticsRunnable != null) {
-                                handler.postDelayed(episodeAnalyticsRunnable!!, 10_000L)
+                                handler.postDelayed(episodeAnalyticsRunnable!!, ANALYTICS_MIN_PLAY_MS)
                                 episodeAnalyticsScheduled = true
                             }
                         } else if (state == PlaybackStateCompat.STATE_PAUSED || state == PlaybackStateCompat.STATE_STOPPED) {
@@ -3041,7 +3102,8 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                 // played, start playback from 0 but KEEP the "played" checkmark. Also reset the
                 // persisted progress to 0 so subsequent partial replays will persist new progress and
                 // resume from where the user stopped.
-                val resumePos = if (isMarkedPlayed || isCompletedByProgress) {
+                val restartFromBeginning = isMarkedPlayed || isCompletedByProgress
+                val resumePos = if (restartFromBeginning) {
                     Log.d(TAG, "Episode ${episode.id} considered completed (marked=$isMarkedPlayed, savedPos=${savedPosRaw}ms, dur=${episodeDurationMs}ms) — starting from 0 on replay (played flag kept)")
 
                     try {
@@ -3064,23 +3126,34 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                     // Ensure we seek to start explicitly when resumePos == 0 so playback origin is deterministic
                     seekTo(0L)
 
+                    // Allow replayed completed episodes to be counted as a new play.
+                    if (restartFromBeginning && lastTrackedEpisodeAnalyticsId == episode.id) {
+                        lastTrackedEpisodeAnalyticsId = null
+                    }
+
                     // Cancel any pending episode analytics before scheduling a new one
                     episodeAnalyticsRunnable?.let { handler.removeCallbacks(it); episodeAnalyticsRunnable = null }
                     episodeAnalyticsPending = false
                     episodeAnalyticsScheduled = false
 
-                    // Track episode play analytics only after 10s of playback from the start
-                    episodeAnalyticsRunnable = Runnable {
-                        serviceScope.launch(Dispatchers.IO) {
-                            val analytics = PrivacyAnalytics(this@RadioService)
-                            analytics.trackEpisodePlay(episode.podcastId, episode.id, episode.title, podcastTitle)
+                    // Track episode play analytics only once per episode start, and only after >10s.
+                    // Resuming the same episode should not emit duplicate play events.
+                    if (lastTrackedEpisodeAnalyticsId != episode.id) {
+                        episodeAnalyticsRunnable = Runnable {
+                            serviceScope.launch(Dispatchers.IO) {
+                                val analytics = PrivacyAnalytics(this@RadioService)
+                                if (analytics.isEnabled()) {
+                                    analytics.trackEpisodePlay(episode.podcastId, episode.id, episode.title, podcastTitle)
+                                    lastTrackedEpisodeAnalyticsId = episode.id
+                                }
+                            }
+                            episodeAnalyticsPending = false
+                            episodeAnalyticsScheduled = false
+                            episodeAnalyticsRunnable = null
                         }
-                        episodeAnalyticsPending = false
+                        episodeAnalyticsPending = true
                         episodeAnalyticsScheduled = false
-                        episodeAnalyticsRunnable = null
                     }
-                    episodeAnalyticsPending = true
-                    episodeAnalyticsScheduled = false
                 }
             }
             // Ensure MediaSession metadata contains the podcast artwork URI immediately so UI/mini-player
