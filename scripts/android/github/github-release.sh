@@ -33,6 +33,12 @@ read_prop() {
     ' "$PROPS_FILE" | tail -1
 }
 
+write_prop() {
+    local key="$1"
+    local value="$2"
+    sed -i '' "s/^${key}=.*/${key}=${value}/" "$PROPS_FILE"
+}
+
 require_cmd gh
 require_cmd git
 
@@ -52,6 +58,30 @@ if [[ -z "$VERSION_NAME" || -z "$VERSION_CODE" ]]; then
     echo "Error: APP_VERSION_NAME and APP_VERSION_CODE must be set in $PROPS_FILE"
     exit 1
 fi
+
+# ── Interactive version prompt ────────────────────────────────────────────────
+echo ""
+echo "Current version : ${VERSION_NAME}  (build ${VERSION_CODE})"
+NEXT_CODE=$(( VERSION_CODE + 1 ))
+
+read -rp "New version name [${VERSION_NAME}]: " INPUT_NAME
+NEW_VERSION_NAME="${INPUT_NAME:-$VERSION_NAME}"
+
+read -rp "New build code   [${NEXT_CODE}]: " INPUT_CODE
+NEW_VERSION_CODE="${INPUT_CODE:-$NEXT_CODE}"
+
+if [[ "$NEW_VERSION_NAME" != "$VERSION_NAME" || "$NEW_VERSION_CODE" != "$VERSION_CODE" ]]; then
+    write_prop APP_VERSION_NAME "$NEW_VERSION_NAME"
+    write_prop APP_VERSION_CODE "$NEW_VERSION_CODE"
+    git add "$PROPS_FILE"
+    git commit -m "chore: bump version to v${NEW_VERSION_NAME} (build ${NEW_VERSION_CODE})"
+    echo "gradle.properties updated and version bump committed."
+fi
+
+VERSION_NAME="$NEW_VERSION_NAME"
+VERSION_CODE="$NEW_VERSION_CODE"
+echo ""
+# ─────────────────────────────────────────────────────────────────────────────
 
 TAG="v${VERSION_NAME}"
 
