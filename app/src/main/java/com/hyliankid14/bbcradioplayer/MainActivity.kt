@@ -410,13 +410,6 @@ class MainActivity : AppCompatActivity() {
         // Start polling for playback state updates
         startPlaybackStateUpdates()
 
-        // Check for app updates on launch
-        lifecycleScope.launch {
-            // Small delay to avoid blocking startup
-            kotlinx.coroutines.delay(2000)
-            checkForAppUpdates()
-        }
-
         // Handle any incoming intents that request opening a specific podcast or mode
         handleDeepLinkIntent(intent)
         handleOpenPodcastIntent(intent)
@@ -3420,46 +3413,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
     
-    private suspend fun checkForAppUpdates() = withContext(Dispatchers.IO) {
-        try {
-            val updateChecker = UpdateChecker(this@MainActivity)
-            
-            // Check if enough time has passed since last check and if update checking should run
-            if (!updateChecker.shouldCheckForUpdate()) {
-                Log.d("MainActivity", "Skipping update check - checked recently")
-                return@withContext
-            }
-            
-            val releaseInfo = updateChecker.checkForUpdate()
-            
-            if (releaseInfo != null) {
-                // Show update dialog on main thread
-                withContext(Dispatchers.Main) {
-                    UpdateDialog.show(
-                        this@MainActivity,
-                        releaseInfo,
-                        onDownload = {
-                            com.hyliankid14.bbcradioplayer.workers.UpdateDownloadWorker.enqueueDownload(
-                                this@MainActivity,
-                                releaseInfo.downloadUrl,
-                                releaseInfo.versionName
-                            )
-                            Toast.makeText(
-                                this@MainActivity,
-                                "Downloading update in background...",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        }
-                    )
-                }
-            } else {
-                Log.d("MainActivity", "No update available or check failed")
-            }
-        } catch (e: Exception) {
-            Log.w("MainActivity", "Failed to check for updates", e)
-        }
-    }
-
     private fun createAlarmNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val notificationManager = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager

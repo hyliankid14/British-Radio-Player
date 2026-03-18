@@ -70,21 +70,6 @@
 
                 </LinearLayout>
 
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/never_checked"
-                    android:textColor="?attr/colorOnSurfaceVariant"
-                    android:textSize="12sp"
-                    android:id="@+id/last_checked_text"
-                    android:layout_marginBottom="12dp" />
-
-                <Button
-                    android:id="@+id/check_updates_button"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/check_for_updates" />
-
             </LinearLayout>
 
             <!-- About Information -->

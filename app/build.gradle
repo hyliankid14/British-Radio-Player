@@ -72,7 +72,8 @@ android {
         applicationId = "com.hyliankid14.bbcradioplayer"
         minSdk = 21
         targetSdk = 35
-        versionCode = 34
+        versionCode = 38
+
         versionName = computeNextVersion()
 
         // Configurable backend URLs.  Set these in local.properties or as
