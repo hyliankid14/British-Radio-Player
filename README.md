@@ -118,7 +118,7 @@ Notes:
 - **v1.4.0** (Mar 2026): podcast improvements, playback and station updates, and interface refinements.
 - **v1.3.0**: Improved indexing system, faster performance, Android Auto enhancements, Widget support and various fixes.
 - **v1.2.2**: podcast improvements, playback and station updates, and interface refinements.
-- **v1.2.0**: Added alarm feature, F-Droid fixes and various UI improvements
+- **v1.2.0**: Added alarm feature and various UI improvements
 - **v1.1.0**: Added alternative BBC Radio 5 Live and Sports Extra links (credit u/Cool-Bus2696), auto updater and various fixes
 - **v1.0.12** (Mar 2026): New icon (credit u/mrnedryerson), added BBC Radio 1 Anthems, Radio 3 Unwind, UI tweaks
 - **v1.0.7**: dual GitHub APK variants (Android Auto + No-Google), release automation, and metadata sync improvements
@@ -150,21 +150,4 @@ See [LICENSE](LICENSE).
 Unofficial third‑party app. BBC and station trademarks are owned by the British
 Broadcasting Corporation. Streams use public BBC APIs. No affiliation or
 endorsement intended.
-
-## F-Droid build notes
-
-- Android Auto works via the standard `MediaBrowserServiceCompat` (AndroidX/AOSP) API — no
-  Google GMS libraries or proprietary metadata are required.
-- The `com.google.android.gms.car.application` manifest metadata is **not** included.
-  Android Auto head units discover the app through the standard
-  `android.media.browse.MediaBrowserService` intent declared in the manifest, which is a
-  fully AOSP-based mechanism.
-- The app is built from a single unified build — there is no separate "Google" or
-  "No-Google" APK variant.
-- The app builds without proprietary language-detection dependencies.
-- Example build command:
-
-```bash
-./gradlew assembleRelease
-```
 

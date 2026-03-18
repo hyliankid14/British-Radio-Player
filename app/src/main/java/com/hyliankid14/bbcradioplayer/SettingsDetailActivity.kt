@@ -1,13 +1,22 @@
 package com.hyliankid14.bbcradioplayer
 
+import android.app.DownloadManager
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
+import android.view.View
 import android.widget.Button
 import android.widget.RadioGroup
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -39,6 +48,8 @@ class SettingsDetailActivity : AppCompatActivity() {
     private var backupLastDateView: TextView? = null
     private var suppressIndexSpinnerSelection = false
     private var lastSeenIndexPercent = 0
+    private var updateDownloadId: Long? = null
+    private var updateDownloadReceiver: BroadcastReceiver? = null
 
     private val githubReleasesUrl = "https://github.com/hyliankid14/BBC-Radio-Player/releases"
 
@@ -129,6 +140,11 @@ class SettingsDetailActivity : AppCompatActivity() {
     override fun onSupportNavigateUp(): Boolean {
         finish()
         return true
+    }
+
+    override fun onDestroy() {
+        unregisterUpdateReceiver()
+        super.onDestroy()
     }
 
     private fun setupThemeSettings() {
@@ -1101,7 +1117,9 @@ Source code: github.com/hyliankid14/BBC-Radio-Player""".trimIndent()
     private fun setupAboutSettings() {
         try {
             val currentVersionText: TextView = findViewById(R.id.current_version_text)
+            val distributionChannelText: TextView = findViewById(R.id.distribution_channel_text)
             val githubButton: Button = findViewById(R.id.github_button)
+            val checkUpdatesButton: Button = findViewById(R.id.check_updates_button)
             
             // Display current version
             // The versionName already encodes the build type at build time:
@@ -1113,14 +1131,126 @@ Source code: github.com/hyliankid14/BBC-Radio-Player""".trimIndent()
                 "Unknown"
             }
             currentVersionText.text = currentVersion
+
+            val distributionLabel = when (BuildConfig.DISTRIBUTION_CHANNEL) {
+                "github" -> getString(R.string.distribution_channel_github)
+                "play" -> getString(R.string.distribution_channel_play)
+                else -> BuildConfig.DISTRIBUTION_CHANNEL
+            }
+            distributionChannelText.text = getString(R.string.distribution_channel, distributionLabel)
             
             // GitHub button
             githubButton.setOnClickListener {
                 val intent = Intent(Intent.ACTION_VIEW, Uri.parse(githubReleasesUrl))
                 startActivity(intent)
             }
+
+            if (!BuildConfig.ENABLE_GITHUB_UPDATER) {
+                checkUpdatesButton.visibility = View.GONE
+                return
+            }
+
+            checkUpdatesButton.visibility = View.VISIBLE
+            checkUpdatesButton.text = getString(R.string.check_for_updates)
+            checkUpdatesButton.setOnClickListener {
+                lifecycleScope.launch {
+                    checkUpdatesButton.isEnabled = false
+                    checkUpdatesButton.text = getString(R.string.checking_for_updates)
+
+                    val latestRelease = GitHubAppUpdater.fetchLatestRelease()
+                    if (latestRelease == null) {
+                        Toast.makeText(this@SettingsDetailActivity, getString(R.string.update_check_failed), Toast.LENGTH_SHORT).show()
+                        checkUpdatesButton.isEnabled = true
+                        checkUpdatesButton.text = getString(R.string.check_for_updates)
+                        return@launch
+                    }
+
+                    if (!GitHubAppUpdater.isUpdateAvailable(currentVersion, latestRelease.version)) {
+                        Toast.makeText(this@SettingsDetailActivity, getString(R.string.up_to_date), Toast.LENGTH_SHORT).show()
+                        checkUpdatesButton.isEnabled = true
+                        checkUpdatesButton.text = getString(R.string.check_for_updates)
+                        return@launch
+                    }
+
+                    AlertDialog.Builder(this@SettingsDetailActivity)
+                        .setTitle("Update available")
+                        .setMessage("Version ${latestRelease.version} is available. Download and install now?")
+                        .setPositiveButton("Download") { _, _ ->
+                            try {
+                                val downloadId = GitHubAppUpdater.enqueueApkDownload(this@SettingsDetailActivity, latestRelease)
+                                updateDownloadId = downloadId
+                                registerUpdateReceiver()
+                                Toast.makeText(this@SettingsDetailActivity, getString(R.string.update_download_started), Toast.LENGTH_SHORT).show()
+                            } catch (_: Exception) {
+                                Toast.makeText(this@SettingsDetailActivity, getString(R.string.update_check_failed), Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                        .setNegativeButton("Later", null)
+                        .show()
+
+                    checkUpdatesButton.isEnabled = true
+                    checkUpdatesButton.text = getString(R.string.check_for_updates)
+                }
+            }
         } catch (e: Exception) {
             android.util.Log.e("SettingsDetailActivity", "Error setting up about settings", e)
+        }
+    }
+
+    private fun registerUpdateReceiver() {
+        if (updateDownloadReceiver != null) return
+
+        updateDownloadReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                if (intent.action != DownloadManager.ACTION_DOWNLOAD_COMPLETE) return
+
+                val completedId = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L)
+                if (completedId <= 0 || completedId != updateDownloadId) return
+
+                val apkUri = GitHubAppUpdater.getDownloadedApkUri(this@SettingsDetailActivity, completedId)
+                if (apkUri == null) {
+                    Toast.makeText(this@SettingsDetailActivity, getString(R.string.update_download_failed), Toast.LENGTH_SHORT).show()
+                    return
+                }
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
+                    val settingsIntent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                        data = Uri.parse("package:$packageName")
+                    }
+                    startActivity(settingsIntent)
+                    Toast.makeText(this@SettingsDetailActivity, "Allow installs from this app, then run update again.", Toast.LENGTH_LONG).show()
+                    return
+                }
+
+                val installIntent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(apkUri, "application/vnd.android.package-archive")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+
+                try {
+                    startActivity(installIntent)
+                } catch (_: Exception) {
+                    Toast.makeText(this@SettingsDetailActivity, getString(R.string.update_download_failed), Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(updateDownloadReceiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(updateDownloadReceiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE))
+        }
+    }
+
+    private fun unregisterUpdateReceiver() {
+        val receiver = updateDownloadReceiver ?: return
+        try {
+            unregisterReceiver(receiver)
+        } catch (_: Exception) {
+        } finally {
+            updateDownloadReceiver = null
+            updateDownloadId = null
         }
     }
 }

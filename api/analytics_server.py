@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Simple F-Droid compliant analytics server for BBC Radio Player.
+Simple privacy-first analytics server for BBC Radio Player.
 
 Self-hosted server for collecting anonymous, aggregated analytics data.
 It does NOT store IP addresses or any PII.
@@ -1177,7 +1177,7 @@ if __name__ == '__main__':
     ║     Privacy-Respecting ✓                                     ║
     ║     No IP Logging ✓                                          ║
     ║     No PII Storage ✓                                         ║
-    ║     F-Droid Compliant ✓                                      ║
+    ║     Privacy-first by design ✓                                ║
     ║                                                               ║
     ╚═══════════════════════════════════════════════════════════════╝
     """)

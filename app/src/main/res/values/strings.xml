@@ -18,6 +18,7 @@
     </string-array>
 
     <string name="shuffle_podcast_desc">Play a random podcast</string>
+    <string name="random_podcast_title">Random Podcast</string>
     <string name="no_podcasts_shuffle">No podcasts available to shuffle</string>
     <string name="no_podcasts_found">No podcasts found</string>
     <string name="no_episodes_found">No episodes found</string>
@@ -28,6 +29,15 @@
     <string name="about_title">About</string>
     <string name="current_version">Current Version</string>
     <string name="current_version_label">Current Version:</string>
+    <string name="distribution_channel">Distribution: %1$s</string>
+    <string name="distribution_channel_github">GitHub</string>
+    <string name="distribution_channel_play">Google Play</string>
+    <string name="checking_for_updates">Checking for updates...</string>
+    <string name="check_for_updates">Check for updates</string>
+    <string name="update_download_started">Update download started</string>
+    <string name="up_to_date">You are on the latest version</string>
+    <string name="update_check_failed">Could not check for updates right now</string>
+    <string name="update_download_failed">Update downloaded but installer could not be opened</string>
 
     <!-- Alarm Feature Strings -->
     <string name="alarm_enabled_label">Enable Alarm</string>

@@ -6,57 +6,8 @@ plugins {
 
 }
 
-/**
- * Derives the next semantic version by analysing conventional-commit messages
- * since the most recent git tag.  Rules (highest priority first):
- *   BREAKING CHANGE footer or any "!" type modifier → major bump  (e.g. 2.0.0)
- *   feat: / feat(...):                               → minor bump  (e.g. 1.3.0)
- *   anything else (fix:, chore:, …)                 → patch bump  (e.g. 1.2.1)
- * Falls back to a patch bump of the last tag when git is unavailable.
- */
-def computeNextVersion = {
-    // Default fallback used only if git is completely unavailable
-    def fallback = "1.2.1"
-    try {
-        def tagProc = ['git', 'describe', '--tags', '--abbrev=0'].execute()
-        def lastTag = tagProc.text.trim()
-        tagProc.waitFor()
-
-        // Guard: tag must exist and the command must have succeeded
-        if (tagProc.exitValue() != 0 || lastTag.isEmpty()) return fallback
-
-        def baseVersion = lastTag.replaceAll('^v', '').replaceAll('[^0-9.].*$', '')
-        def parts = baseVersion.tokenize('.').collect { it.toInteger() }
-
-        // Guard: need at least major.minor to compute a valid version
-        if (parts.size() < 2) return fallback
-
-        def major = parts[0]
-        def minor = parts[1]
-        def patch = parts.size() > 2 ? parts[2] : 0
-
-        // Refine fallback now that we know the last tag: patch bump of that tag
-        fallback = "${major}.${minor}.${patch + 1}"
-
-        def log = ['git', 'log', '--format=%B', "${lastTag}..HEAD"].execute().text
-
-        // If HEAD is exactly at the latest tag (no commits since), use the tag version as-is.
-        // This prevents accidental +1 bumps when building a tagged release commit.
-        if (log.trim().isEmpty()) return "${major}.${minor}.${patch}"
-
-        // Major: explicit "BREAKING CHANGE:" footer or any "!" type modifier
-        // (e.g. feat!:, fix!:, chore(scope)!: — per conventional commits spec)
-        def hasMajor = (log =~ /(?m)(^BREAKING CHANGE:|^[a-z]+(\([^)]+\))?!:)/).find()
-        // Minor: any feat: / feat(scope): commit (and no breaking change)
-        def hasMinor = !hasMajor && (log =~ /(?m)^feat(\([^)]+\))?:/).find()
-
-        if (hasMajor) return "${major + 1}.0.0"
-        if (hasMinor) return "${major}.${minor + 1}.0"
-        return "${major}.${minor}.${patch + 1}"
-    } catch (Exception ignored) {
-        return fallback
-    }
-}
+def appVersionName = (project.findProperty("APP_VERSION_NAME") ?: "1.5.0").toString()
+def appVersionCode = ((project.findProperty("APP_VERSION_CODE") ?: "42").toString()).toInteger()
 
 def releaseStoreFile = project.findProperty("RELEASE_STORE_FILE") ?: System.getenv("RELEASE_STORE_FILE")
 def releaseStorePassword = project.findProperty("RELEASE_STORE_PASSWORD") ?: System.getenv("RELEASE_STORE_PASSWORD")
@@ -67,14 +18,14 @@ def hasReleaseSigning = releaseStoreFile && releaseStorePassword && releaseKeyAl
 android {
     namespace "com.hyliankid14.bbcradioplayer"
     compileSdk = 35
+    flavorDimensions += ["distribution"]
 
     defaultConfig {
         applicationId = "com.hyliankid14.bbcradioplayer"
         minSdk = 21
         targetSdk = 35
-        versionCode = 38
-
-        versionName = computeNextVersion()
+        versionCode = appVersionCode
+        versionName = appVersionName
 
         // Configurable backend URLs.  Set these in local.properties or as
         // environment variables when building.  The app falls back to the
@@ -92,6 +43,22 @@ android {
         buildConfigField "String", "GCS_INDEX_URL",      "\"${gcsIndexUrl}\""
         buildConfigField "String", "GCS_META_URL",       "\"${gcsMetaUrl}\""
         buildConfigField "String", "CLOUD_FUNCTION_URL", "\"${cloudFunctionUrl}\""
+        buildConfigField "boolean", "ENABLE_GITHUB_UPDATER", "false"
+        buildConfigField "String", "DISTRIBUTION_CHANNEL", "\"unknown\""
+    }
+
+    productFlavors {
+        github {
+            dimension "distribution"
+            buildConfigField "boolean", "ENABLE_GITHUB_UPDATER", "true"
+            buildConfigField "String", "DISTRIBUTION_CHANNEL", "\"github\""
+        }
+
+        play {
+            dimension "distribution"
+            buildConfigField "boolean", "ENABLE_GITHUB_UPDATER", "false"
+            buildConfigField "String", "DISTRIBUTION_CHANNEL", "\"play\""
+        }
     }
 
     signingConfigs {
@@ -144,15 +111,9 @@ android {
         debug {
             signingConfig signingConfigs.debug
             // Use a unique package ID for debug builds so that a debug APK can be
-            // installed alongside a release build (F-Droid / Play Store) without a
+            // installed alongside a release build (GitHub / Play Store) without a
             // "package conflict" error caused by mismatched signing certificates.
             applicationIdSuffix ".debug"
-            // Append "-debug" to the auto-computed next version so debug builds are
-            // clearly identified (e.g. "1.3.0-debug").  The version is derived
-            // automatically from conventional-commit messages since the last tag:
-            //   any type with ! or BREAKING CHANGE  → major bump (e.g. 2.0.0-debug)
-            //   feat:                               → minor bump (e.g. 1.3.0-debug)
-            //   fix: / chore: / …                  → patch bump (e.g. 1.2.1-debug)
             versionNameSuffix "-debug"
         }
         release {

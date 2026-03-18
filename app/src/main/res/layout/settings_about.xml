@@ -70,6 +70,13 @@
 
                 </LinearLayout>
 
+                <TextView
+                    android:id="@+id/distribution_channel_text"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:textSize="13sp" />
+
             </LinearLayout>
 
             <!-- About Information -->
@@ -98,6 +105,14 @@
                 android:layout_height="wrap_content"
                 android:text="View on GitHub"
                 android:layout_marginBottom="8dp" />
+
+            <Button
+                android:id="@+id/check_updates_button"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Check for updates"
+                android:layout_marginBottom="8dp"
+                android:visibility="gone" />
 
         </LinearLayout>
 
