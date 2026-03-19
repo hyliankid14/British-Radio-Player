@@ -202,7 +202,12 @@ object EpisodeDownloadManager {
             DownloadedEpisodes.addDownloaded(
                 context, episode, publicFile.absolutePath, publicFile.length(), podcastTitle, isAutoDownload
             )
-            if (!isAutoDownload) Toast.makeText(context, "Episode already downloaded", Toast.LENGTH_SHORT).show()
+            if (isAutoDownload) {
+                val limit = DownloadPreferences.getAutoDownloadLimit(context).coerceAtLeast(1)
+                pruneDownloadsForPodcastToLimit(context, episode.podcastId, limit)
+            } else {
+                Toast.makeText(context, "Episode already downloaded", Toast.LENGTH_SHORT).show()
+            }
             return false
         }
 

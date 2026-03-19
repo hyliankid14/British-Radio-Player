@@ -36,13 +36,18 @@ class SubscriptionRefreshReceiver : BroadcastReceiver() {
                         }
 
                         if (autoDownloadEnabled) {
-                            EpisodeDownloadManager.pruneDownloadsForPodcastToLimit(context, podcast.id, autoDownloadLimit)
-                            // Skip already-played episodes to avoid re-downloading them after
-                            // they have been deleted via the "delete on played" setting.
-                            val candidates = sortedEpisodes
+                            // Determine the target set: the N newest unplayed episodes that
+                            // should be auto-downloaded according to the limit.
+                            val targetEpisodes = sortedEpisodes
                                 .filter { !PlayedEpisodesPreference.isPlayed(context, it.id) }
                                 .take(autoDownloadLimit)
-                            for (episode in candidates) {
+                            val targetIds = targetEpisodes.map { it.id }.toSet()
+                            // Delete auto-downloads that are no longer in the target set before
+                            // starting new downloads so the count never exceeds the limit.
+                            DownloadedEpisodes.getDownloadedEpisodesForPodcast(context, podcast.id)
+                                .filter { it.isAutoDownloaded && it.id !in targetIds }
+                                .forEach { EpisodeDownloadManager.deleteDownload(context, it.id, showToast = false) }
+                            for (episode in targetEpisodes) {
                                 if (!DownloadedEpisodes.isDownloaded(context, episode)) {
                                     try {
                                         EpisodeDownloadManager.downloadEpisode(context, episode, podcast.title, isAutoDownload = true)

@@ -62,17 +62,21 @@ object PodcastSubscriptions {
                 val episodes = try { repo.fetchEpisodesIfNeeded(podcast) } catch (_: Exception) { emptyList() }
                 if (episodes.isEmpty()) return@launch
                 
-                // Download the latest N unplayed episodes based on publish date.
-                // Skip episodes that have already been played to avoid re-downloading them.
+                // Determine the target set: the N newest unplayed episodes that should
+                // be auto-downloaded according to the limit.
                 val sortedEpisodes = episodes.sortedByDescending {
                     EpisodeDateParser.parsePubDateToEpoch(it.pubDate)
                 }
-                // Enforce the configured retention even when no new episode is downloaded.
-                EpisodeDownloadManager.pruneDownloadsForPodcastToLimit(context, podcast.id, autoDownloadLimit)
-                val candidates = sortedEpisodes
+                val targetEpisodes = sortedEpisodes
                     .filter { !PlayedEpisodesPreference.isPlayed(context, it.id) }
                     .take(autoDownloadLimit)
-                for (episode in candidates) {
+                val targetIds = targetEpisodes.map { it.id }.toSet()
+                // Delete auto-downloads that are no longer in the target set before
+                // starting new downloads so the count never exceeds the limit.
+                DownloadedEpisodes.getDownloadedEpisodesForPodcast(context, podcast.id)
+                    .filter { it.isAutoDownloaded && it.id !in targetIds }
+                    .forEach { EpisodeDownloadManager.deleteDownload(context, it.id, showToast = false) }
+                for (episode in targetEpisodes) {
                     if (!DownloadedEpisodes.isDownloaded(context, episode)) {
                         try {
                             EpisodeDownloadManager.downloadEpisode(context, episode, podcast.title, isAutoDownload = true)
