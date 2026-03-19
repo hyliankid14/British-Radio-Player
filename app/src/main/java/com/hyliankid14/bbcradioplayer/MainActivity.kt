@@ -394,9 +394,6 @@ class MainActivity : AppCompatActivity() {
         // Prevent navigation bar from resizing/moving when the keyboard appears
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
         
-        // Register listener for show changes
-        PlaybackStateHelper.onShowChange(showChangeListener)
-        
         // Restore previous section when recreating (e.g., theme change), otherwise default to list
         val restoredNavSelection = savedInstanceState?.getInt("selectedNavId")
         if (restoredNavSelection != null) {
@@ -2927,8 +2924,14 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
+        // Update station title immediately so podcast name doesn't persist after switching to a radio station
+        val currentStation = PlaybackStateHelper.getCurrentStation()
+        if (currentStation != null) {
+            miniPlayerTitle.text = currentStation.title
+        }
+
         // Update subtitle with compact "Show name - Show description" (consistent with notification)
-        val showName = show.title.ifEmpty { PlaybackStateHelper.getCurrentStation()?.title ?: "" }
+        val showName = show.title.ifEmpty { currentStation?.title ?: "" }
         val showDesc = PlaybackStateHelper.getCurrentShow().episodeTitle?.takeIf { it.isNotEmpty() }
             ?: show.secondary?.takeIf { it.isNotEmpty() }
             ?: show.getFormattedTitle().takeIf { it.isNotEmpty() }
