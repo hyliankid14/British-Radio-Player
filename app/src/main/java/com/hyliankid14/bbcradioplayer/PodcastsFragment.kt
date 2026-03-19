@@ -1321,16 +1321,12 @@ class PodcastsFragment : Fragment() {
         val queryInput = dialogView.findViewById<com.google.android.material.textfield.TextInputEditText>(R.id.saved_search_query_input)
         val queryInfo = dialogView.findViewById<View>(R.id.saved_search_query_info)
         val notifySwitch = dialogView.findViewById<com.google.android.material.switchmaterial.SwitchMaterial>(R.id.saved_search_notify_switch)
-        val warningText = dialogView.findViewById<TextView>(R.id.saved_search_index_warning)
 
         nameInput.setText(q)
         nameInput.setSelection(q.length)
         queryInput.setText(q)
         queryInput.setSelection(q.length)
         queryInfo.setOnClickListener { showSearchOperatorInfo() }
-
-        val indexingDisabled = IndexPreference.getIntervalDays(requireContext()) <= 0
-        warningText.visibility = if (indexingDisabled) View.VISIBLE else View.GONE
 
         val latestMatchEpoch = viewModel.getCachedSearch()?.episodeMatches
             ?.map { com.hyliankid14.bbcradioplayer.db.IndexStore.parsePubEpoch(it.first.pubDate) }
@@ -1361,11 +1357,6 @@ class PodcastsFragment : Fragment() {
                 SavedSearchesPreference.saveSearch(requireContext(), saved)
 
                 Toast.makeText(requireContext(), "Search saved", Toast.LENGTH_SHORT).show()
-                if (indexingDisabled) {
-                    com.google.android.material.snackbar.Snackbar
-                        .make(requireView(), "Indexing is set to Never. Saved searches will not receive new episode results.", com.google.android.material.snackbar.Snackbar.LENGTH_LONG)
-                        .show()
-                }
             }
             .setNegativeButton("Cancel", null)
             .create()

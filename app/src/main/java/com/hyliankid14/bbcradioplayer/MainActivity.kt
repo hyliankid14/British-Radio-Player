@@ -2669,7 +2669,6 @@ class MainActivity : AppCompatActivity() {
         val queryInput = dialogView.findViewById<com.google.android.material.textfield.TextInputEditText>(R.id.saved_search_query_input)
         val queryInfo = dialogView.findViewById<View>(R.id.saved_search_query_info)
         val notifySwitch = dialogView.findViewById<com.google.android.material.switchmaterial.SwitchMaterial>(R.id.saved_search_notify_switch)
-        val warningText = dialogView.findViewById<TextView>(R.id.saved_search_index_warning)
 
         nameInput.setText(search.name)
         nameInput.setSelection(search.name.length)
@@ -2678,9 +2677,6 @@ class MainActivity : AppCompatActivity() {
         notifySwitch.isChecked = search.notificationsEnabled
 
         queryInfo.setOnClickListener { showSearchOperatorInfo() }
-
-        val indexingDisabled = IndexPreference.getIntervalDays(this) <= 0
-        warningText.visibility = if (indexingDisabled) View.VISIBLE else View.GONE
 
         androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle("Edit Saved Search")
