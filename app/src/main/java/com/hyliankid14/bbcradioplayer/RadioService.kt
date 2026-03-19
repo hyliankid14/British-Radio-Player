@@ -2244,7 +2244,9 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
 
                 // Always update the playback helper's idea of current show so listeners get the new value immediately
                 // (but don't update UI/metadata for streams until the delay passes)
-                val isPodcast = currentStationId.startsWith("podcast_")
+                // Use the immutable fetch parameter (not the mutable service field) so classification
+                // is stable even if playStation() switches away while this thread was fetching.
+                val isPodcast = stationId.startsWith("podcast_")
 
                 if (isPodcast) {
                     // For podcasts, guard against overwriting authoritative podcast series metadata
@@ -2268,6 +2270,8 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
 
                     // Update PlaybackStateHelper with the merged, authoritative show so other consumers
                     // never see the placeholder value unexpectedly.
+                    // Guard: discard if the station changed while we were fetching (race condition).
+                    if (stationId != currentStationId) return@Thread
                     PlaybackStateHelper.setCurrentShow(mergedShow)
 
                     if (titleChanged || episodeChanged || imageChanged || songDataChanged) {
@@ -2298,6 +2302,12 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                     // For live streams, apply immediately if this is the first fetch after switching stations.
                     val isInitialApply = currentShowInfo.title.isNullOrEmpty() && currentShowName.isEmpty()
                     if (isInitialApply) {
+                        // Guard: discard if the station changed while we were fetching.
+                        // Without this, a podcast fetch that completes after playStation() has
+                        // already switched to a radio station would write podcast show data into
+                        // currentShowInfo/currentShowName and PlaybackStateHelper, causing the
+                        // mini player subtitle and artwork to show stale podcast details.
+                        if (stationId != currentStationId) return@Thread
                         // Apply immediately so the now playing field isn't blank on first play/switch
                         currentShowInfo = finalShow
                         currentShowName = finalShow.title
