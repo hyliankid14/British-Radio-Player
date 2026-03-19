@@ -1184,16 +1184,18 @@ class RadioService : MediaBrowserServiceCompat() {
     private fun downloadedEntryToMediaItem(d: DownloadedEpisodes.Entry): MediaItem {
         val played = PlayedEpisodesPreference.isPlayed(this, d.id)
         val progress = PlayedEpisodesPreference.getProgress(this, d.id)
-        val status = when {
-            played -> "Downloaded • Played"
-            progress > 0L -> "Downloaded • In progress"
-            else -> "Downloaded"
-        }
+        val isNew = !played && progress == 0L
+        val formattedDate = formatAutoEpisodeDate(d.pubDate)
+        val subtitle = buildString {
+            if (isNew) append("● ")
+            append("⬇ ") // always downloaded since this entry comes from DownloadedEpisodes
+            append(formattedDate)
+        }.trim()
         return MediaItem(
             MediaDescriptionCompat.Builder()
                 .setMediaId("podcast_episode_${d.id}")
                 .setTitle(d.title)
-                .setSubtitle(buildAutoEpisodeSubtitle(d.pubDate, status))
+                .setSubtitle(subtitle)
                 .setIconUri(android.net.Uri.parse(d.imageUrl))
                 .build(),
             MediaItem.FLAG_PLAYABLE
@@ -1409,19 +1411,18 @@ class RadioService : MediaBrowserServiceCompat() {
         val played = PlayedEpisodesPreference.isPlayed(this, ep.id)
         val progress = PlayedEpisodesPreference.getProgress(this, ep.id)
         val isDownloaded = ep.id in downloadedIds
-        val subtitle = when {
-            isDownloaded && played -> "Downloaded • Played"
-            isDownloaded && progress > 0L -> "Downloaded • In progress"
-            isDownloaded -> "Downloaded"
-            played -> "Played"
-            progress > 0L -> "In progress"
-            else -> ""
-        }
+        val isNew = !played && progress == 0L
+        val formattedDate = formatAutoEpisodeDate(ep.pubDate)
+        val subtitle = buildString {
+            if (isNew) append("● ")
+            if (isDownloaded) append("⬇ ")
+            append(formattedDate)
+        }.trim()
         return MediaItem(
             MediaDescriptionCompat.Builder()
                 .setMediaId("podcast_episode_${ep.id}")
                 .setTitle(ep.title)
-                .setSubtitle(buildAutoEpisodeSubtitle(ep.pubDate, subtitle))
+                .setSubtitle(subtitle)
                 .setIconUri(android.net.Uri.parse(ep.imageUrl))
                 .build(),
             MediaItem.FLAG_PLAYABLE
