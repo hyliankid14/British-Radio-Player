@@ -106,14 +106,49 @@ def _load_index(force: bool = False) -> None:
     client = gcs.Client()
     bucket = client.bucket(GCS_BUCKET)
     blob = bucket.blob(INDEX_OBJECT)
-    payload = blob.download_as_bytes()
+    
+    try:
+        payload = blob.download_as_bytes()
+    except Exception as exc:
+        logger.error(
+            "Failed to download blob from GCS. bucket=%s object=%s error=%s",
+            GCS_BUCKET, INDEX_OBJECT, exc
+        )
+        raise
+    
+    logger.debug(
+        "Downloaded %d bytes. First 2 bytes (hex): %s. Checking for gzip magic bytes...",
+        len(payload),
+        payload[:2].hex() if payload else "empty"
+    )
+    
     # Support both historical gzip objects and plain JSON uploads.
     # Some storage/proxy paths may return already-decoded bytes.
+    # IMPORTANT: Content-Encoding must NOT be set to 'gzip' on the GCS blob,
+    # as that causes transparent decompression, breaking gzip.decompress().
     if payload[:2] == b"\x1f\x8b":
-        raw = gzip.decompress(payload)
+        logger.info("Payload is gzip-compressed. Decompressing...")
+        try:
+            raw = gzip.decompress(payload)
+        except Exception as exc:
+            logger.error(
+                "Failed to decompress gzip payload. This usually means "
+                "Content-Encoding: gzip was set on the GCS object (which causes "
+                "transparent decompression). Check blob metadata. error=%s", exc
+            )
+            raise
     else:
+        logger.info("Payload is not gzip-compressed. Using as raw bytes.")
         raw = payload
-    index = json.loads(raw)
+    
+    try:
+        index = json.loads(raw)
+    except Exception as exc:
+        logger.error(
+            "Failed to parse index JSON. payload_size=%d first_100_bytes=%s error=%s",
+            len(raw), raw[:100], exc
+        )
+        raise
 
     _podcasts = index.get("podcasts", [])
     _episodes = index.get("episodes", [])

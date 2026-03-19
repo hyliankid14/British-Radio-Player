@@ -242,6 +242,7 @@ def upload_to_gcs(bucket_name: str, local_index_path: Path, local_meta_path: Pat
     # GCS may transparently decompress on download, which breaks consumers
     # expecting raw gzip bytes (the Cloud Function explicitly decompresses).
     index_blob.content_type = "application/octet-stream"
+    index_blob.content_encoding = ""  # Explicitly prevent Content-Encoding: gzip
     index_blob.upload_from_filename(str(local_index_path))
     print(f"Uploaded {local_index_path.name} → gs://{bucket_name}/podcast-index.json.gz")
     print(f"  Public URL: https://storage.googleapis.com/{bucket_name}/podcast-index.json.gz")
