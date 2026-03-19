@@ -1,15 +1,19 @@
 name: Build Debug APK
 
-# Builds a debug APK for sideloading on a device.  No signing keys are needed
-# for debug builds — the APK is signed with the shared debug keystore committed
-# at keystore/debug.keystore (same key used by the local-deploy script) so that
-# CI-built APKs can upgrade-in-place over locally installed debug builds.
+# Builds a debug APK for sideloading on a device.  The APK is signed with the
+# shared debug keystore (keystore/debug.keystore) so CI and local builds share
+# the same key and can upgrade-in-place without reinstalling.
+#
+# After a successful build the APK is published as a GitHub pre-release asset
+# under the rolling tag "debug-apk-latest".  Pre-release assets have a direct
+# browser_download_url (no zip, no GitHub login required) that works in any
+# browser — including the GitHub mobile app.
 
 on:
   workflow_dispatch:       # allow manual trigger from the Actions tab
 
 permissions:
-  contents: read           # read-only checkout; no write access needed
+  contents: write          # needed to create/update the rolling debug-apk-latest release
 
 jobs:
   build-debug:
@@ -34,27 +38,41 @@ jobs:
       - name: Build github debug APK
         run: ./gradlew assembleGithubDebug
 
-      - name: Upload debug APK
-        id: upload
-        uses: actions/upload-artifact@v4
-        with:
-          name: debug-apk
-          path: app/build/outputs/apk/github/debug/*.apk
-          retention-days: 14
-
-      - name: Print download instructions
+      - name: Publish debug APK as rolling pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          TAG="debug-apk-latest"
+          APK=$(find app/build/outputs/apk/github/debug -name "*.apk" | head -1)
+
+          # Rename the APK to a fixed filename so the download URL is stable.
+          DEST="app/build/outputs/apk/github/debug/british-radio-player-debug.apk"
+          mv "$APK" "$DEST"
+
+          # Replace any previous rolling release so only one exists at a time.
+          gh release delete "$TAG" --yes 2>/dev/null || true
+          git push origin ":refs/tags/$TAG" 2>/dev/null || true
+
+          NOTES="Rolling debug build — branch \`${{ github.ref_name }}\`, commit \`${{ github.sha }}\`.
+
+This is a pre-release used for sideloading only. It is not a production release."
+
+          # Create a fresh pre-release and attach the APK directly (not zipped).
+          gh release create "$TAG" "$DEST" \
+            --title "Debug APK (latest)" \
+            --notes "$NOTES" \
+            --prerelease
+
+          APK_URL=$(gh release view "$TAG" --json assets -q '.assets[0].browser_download_url')
+
           {
-            echo "## 📱 Debug APK"
+            echo "## 📱 Debug APK — direct download"
             echo ""
-            echo "The APK was uploaded as a workflow artifact named **debug-apk**."
+            echo "**[⬇️ Download APK]($APK_URL)**"
             echo ""
-            echo "**How to download:**"
-            echo "1. Go to the [Actions run summary](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
-            echo "2. Scroll to the **Artifacts** section at the bottom of the page"
-            echo "3. Click **debug-apk** to download the zip containing the APK"
+            echo "Tap the link above to download the APK directly (no zip, no login required)."
+            echo "This build is signed with the shared debug keystore — it will install"
+            echo "over an existing debug build without needing to uninstall first."
             echo ""
-            echo "This APK is signed with the shared \`keystore/debug.keystore\` — the same"
-            echo "key used by the local-deploy script — so it installs over an existing"
-            echo "debug build without needing to uninstall first."
+            echo "Branch: \`${{ github.ref_name }}\`  |  Commit: \`${{ github.sha }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
