@@ -3,8 +3,11 @@ package com.hyliankid14.bbcradioplayer.workers
 import android.content.Context
 import android.util.Log
 import com.hyliankid14.bbcradioplayer.Episode
+import com.hyliankid14.bbcradioplayer.EpisodeDateParser
 import com.hyliankid14.bbcradioplayer.IndexPreference
 import com.hyliankid14.bbcradioplayer.Podcast
+import com.hyliankid14.bbcradioplayer.PodcastEpisodeNotifier
+import com.hyliankid14.bbcradioplayer.PodcastSubscriptions
 import com.hyliankid14.bbcradioplayer.RemoteIndexClient
 import com.hyliankid14.bbcradioplayer.db.IndexStore
 import com.hyliankid14.bbcradioplayer.PodcastRepository
@@ -215,6 +218,11 @@ object IndexWorker {
                     try { Thread.yield() } catch (_: Throwable) {}
                 }
 
+                // Notify subscribers about genuinely new episodes (only those added since
+                // the previous index update). Also advances lastSeenId so that
+                // SubscriptionRefreshReceiver does not re-fire a duplicate notification.
+                notifyNewEpisodesForSubscriptions(context, podcasts, episodes, newEpisodes)
+
                 onProgress(
                     "Incremental index complete: newPodcasts=$newPodcasts, newEpisodes=$inserted",
                     100, false
@@ -231,6 +239,55 @@ object IndexWorker {
             } catch (e: Exception) {
                 Log.e(TAG, "Incremental reindex failed", e)
                 onProgress("Index failed: ${e.message}", -1, false)
+            }
+        }
+    }
+
+    /**
+     * Fire a notification for each subscribed + notifications-enabled podcast that has at least
+     * one episode in [newEpisodes] (i.e. episodes genuinely new since the last index update).
+     *
+     * To prevent [SubscriptionRefreshReceiver] from re-firing a duplicate notification on its
+     * next scheduled run, `lastSeenId` in `podcast_last_episode` SharedPreferences is advanced to
+     * the overall latest episode for each notified podcast (from the full GCS episode list).
+     */
+    private fun notifyNewEpisodesForSubscriptions(
+        context: Context,
+        podcasts: List<Podcast>,
+        allEpisodes: List<Episode>,
+        newEpisodes: List<Episode>
+    ) {
+        if (newEpisodes.isEmpty()) return
+        val notifEnabledIds = PodcastSubscriptions.getNotificationsEnabledIds(context)
+        if (notifEnabledIds.isEmpty()) return
+
+        val podcastById = podcasts.associateBy { it.id }
+        val newByPodcast = newEpisodes.groupBy { it.podcastId }
+        val allByPodcast = allEpisodes.groupBy { it.podcastId }
+        val lastEpPrefs = context.getSharedPreferences("podcast_last_episode", Context.MODE_PRIVATE)
+
+        for ((podcastId, podcastNewEps) in newByPodcast) {
+            if (!notifEnabledIds.contains(podcastId)) continue
+            val podcast = podcastById[podcastId] ?: continue
+
+            try {
+                // Pick the most recently published new episode to display in the notification.
+                val latestNew = podcastNewEps.maxByOrNull {
+                    EpisodeDateParser.parsePubDateToEpoch(it.pubDate)
+                } ?: continue
+
+                // Advance lastSeenId to the overall latest episode for this podcast so that
+                // SubscriptionRefreshReceiver does not re-fire a duplicate notification.
+                val overallLatest = allByPodcast[podcastId]
+                    ?.maxByOrNull { EpisodeDateParser.parsePubDateToEpoch(it.pubDate) }
+                if (overallLatest != null) {
+                    lastEpPrefs.edit().putString(podcastId, overallLatest.id).apply()
+                }
+
+                PodcastEpisodeNotifier.notifyNewEpisode(context, podcast, latestNew.title)
+                Log.d(TAG, "Notified new episode for podcast=$podcastId episodeId=${latestNew.id}")
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to notify new episode for podcast=$podcastId: ${e.message}")
             }
         }
     }
