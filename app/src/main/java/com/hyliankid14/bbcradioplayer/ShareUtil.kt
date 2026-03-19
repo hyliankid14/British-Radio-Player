@@ -243,7 +243,7 @@ object ShareUtil {
                 readTimeout = 3000
                 requestMethod = "POST"
                 setRequestProperty("Content-Type", "application/json")
-                setRequestProperty("User-Agent", "BBC-Radio-Player/1.0")
+                setRequestProperty("User-Agent", "British-Radio-Player/1.0")
                 doOutput = true
             }
             

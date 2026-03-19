@@ -12,7 +12,7 @@ This directory hosts the GitHub Pages web UI for sharing podcasts and episodes f
    - Branch: `main`
    - Folder: `/docs`
 4. Click **Save**
-5. GitHub will provide your URL: `https://yourusername.github.io/BBC-Radio-Player/`
+5. GitHub will provide your URL: `https://yourusername.github.io/British-Radio-Player/`
 
 ### 2. Update ShareUtil.kt
 
@@ -24,7 +24,7 @@ Update the web base URL in your app:
 private const val WEB_BASE_URL = "https://bbcradioplayer.app"
 
 // With your actual GitHub Pages URL:
-private const val WEB_BASE_URL = "https://yourusername.github.io/BBC-Radio-Player"
+private const val WEB_BASE_URL = "https://yourusername.github.io/British-Radio-Player"
 ```
 
 ### 3. Deploy
@@ -37,7 +37,7 @@ git commit -m "Add web player for sharing"
 git push origin main
 ```
 
-Your web player will be live at `https://yourusername.github.io/BBC-Radio-Player/` within 1-2 minutes!
+Your web player will be live at `https://yourusername.github.io/British-Radio-Player/` within 1-2 minutes!
 
 ## Testing
 
@@ -55,7 +55,7 @@ Notes:
 
 ### Test the Web Player
 
-Visit: `https://yourusername.github.io/BBC-Radio-Player/p/example-1`
+Visit: `https://yourusername.github.io/British-Radio-Player/p/example-1`
 
 You should see the podcast sharing page load.
 

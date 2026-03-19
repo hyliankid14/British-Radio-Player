@@ -1,7 +1,7 @@
 # Google Cloud Podcast Index — Platforms, Technologies & How It Works
 
 This document explains the Google Cloud services used to host, build and serve
-the BBC Radio Player podcast index, and walks through the end-to-end flow in
+the British Radio Player podcast index, and walks through the end-to-end flow in
 practical terms.
 
 ---

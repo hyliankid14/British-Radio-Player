@@ -51,7 +51,7 @@ class SettingsDetailActivity : AppCompatActivity() {
     private var updateDownloadId: Long? = null
     private var updateDownloadReceiver: BroadcastReceiver? = null
 
-    private val githubReleasesUrl = "https://github.com/hyliankid14/BBC-Radio-Player/releases"
+    private val githubReleasesUrl = "https://github.com/hyliankid14/British-Radio-Player/releases"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -813,7 +813,7 @@ When you disable analytics:
             
 We never sell or share your data with third parties.
             
-Source code: github.com/hyliankid14/BBC-Radio-Player""".trimIndent()
+Source code: github.com/hyliankid14/British-Radio-Player""".trimIndent()
         
         androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle("Privacy Policy")

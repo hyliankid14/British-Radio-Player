@@ -6,7 +6,7 @@ PROJECT_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || (c
 cd "$PROJECT_ROOT"
 
 PROPS_FILE="gradle.properties"
-RELEASE_ASSET_NAME="bbc-radio-player.apk"
+RELEASE_ASSET_NAME="british-radio-player.apk"
 APK_OUTPUT_DIR="app/build/outputs/apk/github/release"
 APK_OUTPUT_PATH="$APK_OUTPUT_DIR/$RELEASE_ASSET_NAME"
 
@@ -127,7 +127,7 @@ MAINT_ITEMS="$(collect_matches 'build|release|version|script|gradle|metadata|cho
 
 NOTES_FILE="$(mktemp)"
 {
-    echo "## BBC Radio Player ${TAG}"
+    echo "## British Radio Player ${TAG}"
     echo
     echo "### ✨ UI Redesign & Browsing"
     echo "$UI_ITEMS"

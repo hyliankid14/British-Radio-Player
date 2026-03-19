@@ -104,7 +104,7 @@ class PrivacyAnalytics(private val context: Context) {
                 requestMethod = "POST"
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json")
-                setRequestProperty("User-Agent", "BBC-Radio-Player/${getAppVersion()}")
+                setRequestProperty("User-Agent", "British-Radio-Player/${getAppVersion()}")
                 connectTimeout = 5000
                 readTimeout = 5000
             }

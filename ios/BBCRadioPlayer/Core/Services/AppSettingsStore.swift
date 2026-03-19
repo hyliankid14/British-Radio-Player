@@ -572,7 +572,7 @@ final class PrivacyAnalyticsService: ObservableObject {
             request.httpMethod = "POST"
             request.timeoutInterval = 5
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.setValue("BBC-Radio-Player-iOS/\(appVersionString())", forHTTPHeaderField: "User-Agent")
+            request.setValue("British-Radio-Player-iOS/\(appVersionString())", forHTTPHeaderField: "User-Agent")
             request.httpBody = try JSONSerialization.data(withJSONObject: event)
 
             _ = try await session.data(for: request)

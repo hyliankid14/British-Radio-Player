@@ -2,8 +2,8 @@
 set -euo pipefail
 
 KEYSTORE_DIR_DEFAULT="$HOME/.keystores"
-KEYSTORE_FILE_DEFAULT="bbc-radio-player-release.jks"
-KEY_ALIAS_DEFAULT="bbc-radio-player"
+KEYSTORE_FILE_DEFAULT="british-radio-player-release.jks"
+KEY_ALIAS_DEFAULT="british-radio-player"
 GRADLE_PROPS="$HOME/.gradle/gradle.properties"
 
 ensure_dir() {
@@ -99,9 +99,9 @@ else
 
     echo
     echo "Certificate identity (used for keystore metadata):"
-    CN=$(prompt_default "Common Name (CN)" "BBC Radio Player")
+    CN=$(prompt_default "Common Name (CN)" "British Radio Player")
     OU=$(prompt_default "Org Unit (OU)" "Development")
-    O=$(prompt_default "Organization (O)" "BBC Radio Player")
+    O=$(prompt_default "Organization (O)" "British Radio Player")
     L=$(prompt_default "City/Locality (L)" "Unknown")
     ST=$(prompt_default "State/Province (ST)" "Unknown")
     C=$(prompt_default "Country code (C, 2 letters)" "GB")

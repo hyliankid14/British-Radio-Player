@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-BBC Radio Player — Podcast Search Cloud Function
+British Radio Player — Podcast Search Cloud Function
 =================================================
 HTTP Cloud Function that loads the pre-built podcast index from Google Cloud
 Storage and serves lightweight search queries to the Android app.  This

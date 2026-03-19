@@ -5,7 +5,7 @@ reliable streaming on phones and Android Auto, offering a clean Material 3
 interface with useful features for listeners.
 ## 📥 Download
 
-**[Get the latest release](https://github.com/hyliankid14/bbc-radio-player/releases)** - Download APK for your device
+**[Get the latest release](https://github.com/hyliankid14/British-Radio-Player/releases)** - Download APK for your device
 
 ## 📸 Screenshots
 
@@ -63,8 +63,8 @@ interface with useful features for listeners.
 ## Quick start
 
 ```bash
-git clone https://github.com/yourname/bbc-radio-player.git
-cd bbc-radio-player
+git clone https://github.com/yourname/British-Radio-Player.git
+cd British-Radio-Player
 
 # build a debug APK
 ./gradlew assembleDebug
@@ -94,7 +94,7 @@ To migrate podcast index hosting/search from GitHub Pages to Google Cloud
 
 ```bash
 ./scripts/setup-google-cloud-index.sh \
-  --project bbc-radio-player \
+  --project british-radio-player \
   --bucket YOUR_GLOBALLY_UNIQUE_BUCKET \
   --region europe-west2 \
   --mode cloud-run \

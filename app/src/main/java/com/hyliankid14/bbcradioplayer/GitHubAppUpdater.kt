@@ -17,7 +17,7 @@ data class GitHubReleaseInfo(
 )
 
 object GitHubAppUpdater {
-    private const val LATEST_RELEASE_API = "https://api.github.com/repos/hyliankid14/BBC-Radio-Player/releases/latest"
+    private const val LATEST_RELEASE_API = "https://api.github.com/repos/hyliankid14/British-Radio-Player/releases/latest"
 
     suspend fun fetchLatestRelease(): GitHubReleaseInfo? = withContext(Dispatchers.IO) {
         val connection = (URL(LATEST_RELEASE_API).openConnection() as? HttpURLConnection) ?: return@withContext null
@@ -69,7 +69,7 @@ object GitHubAppUpdater {
 
     fun enqueueApkDownload(context: Context, info: GitHubReleaseInfo): Long {
         val request = DownloadManager.Request(Uri.parse(info.apkUrl))
-            .setTitle("BBC Radio Player ${info.version}")
+            .setTitle("British Radio Player ${info.version}")
             .setDescription("Downloading update")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             .setMimeType("application/vnd.android.package-archive")

@@ -1,2 +1,2 @@
-rootProject.name = 'BBC Radio Player'
+rootProject.name = 'British Radio Player'
 include ':app'

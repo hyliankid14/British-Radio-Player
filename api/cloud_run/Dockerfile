@@ -1,4 +1,4 @@
-# Dockerfile for the BBC Radio Player podcast-index builder.
+# Dockerfile for the British Radio Player podcast-index builder.
 # Run as a Cloud Run Job triggered by Cloud Scheduler to replace the GitHub
 # Actions workflow.  The job fetches the BBC OPML and RSS feeds, builds the
 # gzip-compressed podcast index, and uploads it to Google Cloud Storage.

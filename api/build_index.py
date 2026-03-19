@@ -46,8 +46,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 BBC_OPML_URL = "https://www.bbc.co.uk/radio/opml/bbc_podcast_opml.xml"
 USER_AGENT = (
-    "BBC-Radio-Player-IndexBuilder/1.0 "
-    "(github.com/hyliankid14/BBC-Radio-Player)"
+    "British-Radio-Player-IndexBuilder/1.0 "
+    "(github.com/hyliankid14/British-Radio-Player)"
 )
 MAX_EPISODES_PER_PODCAST = sys.maxsize  # Index all available episodes per podcast
 REQUEST_TIMEOUT = 20                    # seconds per HTTP request

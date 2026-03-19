@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
 PROJECT_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || (cd "$SCRIPT_DIR/../.." && pwd))"
 
-DEFAULT_PROJECT="bbc-radio-player"
+DEFAULT_PROJECT="british-radio-player"
 DEFAULT_BUCKET="podcast-index"
 DEFAULT_REGION="europe-west2"
 DEFAULT_MODE="cloud-run"
@@ -30,13 +30,13 @@ SCHEDULE="$DEFAULT_SCHEDULE"
 
 usage() {
     cat <<'EOF'
-Set up Google Cloud podcast index hosting and search APIs for BBC Radio Player.
+Set up Google Cloud podcast index hosting and search APIs for British Radio Player.
 
 Usage:
     ./scripts/setup-google-cloud-index.sh [options]
 
 Options:
-  --project ID                 GCP project ID (default: bbc-radio-player)
+  --project ID                 GCP project ID (default: british-radio-player)
   --bucket NAME               GCS bucket name (default: podcast-index)
   --region REGION             GCP region (default: europe-west2)
   --mode MODE                 One of: cloud-run, github-actions, both

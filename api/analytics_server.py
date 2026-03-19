@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Simple privacy-first analytics server for BBC Radio Player.
+Simple privacy-first analytics server for British Radio Player.
 
 Self-hosted server for collecting anonymous, aggregated analytics data.
 It does NOT store IP addresses or any PII.
@@ -53,7 +53,7 @@ def add_cors_headers(response):
 DB_PATH = Path(__file__).parent / 'analytics.db'
 PODCAST_INDEX_DB_PATH = Path(__file__).parent / 'podcast_index.db'
 GITHUB_PAGES_META_URL = (
-    'https://hyliankid14.github.io/BBC-Radio-Player/podcast-index-meta.json'
+    'https://hyliankid14.github.io/British-Radio-Player/podcast-index-meta.json'
 )
 
 
@@ -68,7 +68,7 @@ def _read_github_pages_index_meta():
     try:
         req = Request(
             GITHUB_PAGES_META_URL,
-            headers={'User-Agent': 'BBC-Radio-Player-Analytics/1.0'}
+            headers={'User-Agent': 'British-Radio-Player-Analytics/1.0'}
         )
         with urlopen(req, timeout=5) as resp:
             if resp.status != 200:
@@ -950,7 +950,7 @@ def index():
         <head>
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>BBC Radio Player Analytics Dashboard</title>
+            <title>British Radio Player Analytics Dashboard</title>
             <style>
                 * {{ box-sizing: border-box; }}
                 html, body {{ margin: 0; padding: 0; }}
@@ -1011,7 +1011,7 @@ def index():
             <div class="container">
                 <div class="header">
                     <div>
-                        <h1>BBC Radio Player Analytics</h1>
+                        <h1>British Radio Player Analytics</h1>
                         <p class="muted">Privacy-respecting, anonymous popularity analytics.</p>
                     </div>
                     <div class="badge">Total events: {total_events}</div>
@@ -1092,7 +1092,7 @@ def index():
 
                 <div class="footer">
                     Data is anonymous and aggregated. No IPs or identifiers are stored.<br />
-                    Source Code: <a href="https://github.com/hyliankid14/BBC-Radio-Player">github.com/hyliankid14/BBC-Radio-Player</a>
+                    Source Code: <a href="https://github.com/hyliankid14/British-Radio-Player">github.com/hyliankid14/British-Radio-Player</a>
                 </div>
             </div>
 
@@ -1170,7 +1170,7 @@ if __name__ == '__main__':
     
     print("""
     ╔═══════════════════════════════════════════════════════════════╗
-    ║     BBC Radio Player Analytics Server v1.0                   ║
+    ║     British Radio Player Analytics Server v1.0                ║
     ║                                                               ║
     ║     Starting on http://localhost:5000                        ║
     ║                                                               ║

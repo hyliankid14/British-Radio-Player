@@ -2874,7 +2874,7 @@
             /// Opens GitHub page where the app can be downloaded or viewed
             openGithub() {
                 // replace with your actual repo/releases URL if different
-                window.open('https://github.com/hyliankid14/bbc-radio-player/releases', '_blank');
+                window.open('https://github.com/hyliankid14/British-Radio-Player/releases', '_blank');
             }
 
             searchPodcast(title) {
@@ -2902,7 +2902,7 @@
                         signal: controller.signal,
                         headers: {
                             'Content-Type': 'application/json',
-                            'User-Agent': 'BBC-Radio-Player/1.0'
+                            'User-Agent': 'British-Radio-Player/1.0'
                         },
                         body: JSON.stringify({
                             text: plainText.substring(0, 2000)
@@ -3266,10 +3266,10 @@
                         </div>
 
                         <div class="button-group" style="flex-direction: column;">
-                            <a href="https://github.com/hyliankid14/bbc-radio-player/releases" class="button button-primary" target="_blank">
+                            <a href="https://github.com/hyliankid14/British-Radio-Player/releases" class="button button-primary" target="_blank">
                                 📥 Download Latest Release
                             </a>
-                            <a href="https://github.com/hyliankid14/bbc-radio-player" class="button button-secondary" target="_blank">
+                            <a href="https://github.com/hyliankid14/British-Radio-Player" class="button button-secondary" target="_blank">
                                 🔗 View on GitHub
                             </a>
                             <button class="button button-secondary" onclick="player.openWebApp()">
