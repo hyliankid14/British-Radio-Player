@@ -1184,10 +1184,15 @@ class RadioService : MediaBrowserServiceCompat() {
     private fun downloadedEntryToMediaItem(d: DownloadedEpisodes.Entry): MediaItem {
         val played = PlayedEpisodesPreference.isPlayed(this, d.id)
         val progress = PlayedEpisodesPreference.getProgress(this, d.id)
+        val inProgress = !played && progress > 0L
         val isNew = !played && progress == 0L
         val formattedDate = formatAutoEpisodeDate(d.pubDate)
         val subtitle = buildString {
-            if (isNew) append("● ")
+            when {
+                played -> append("✅ ")
+                inProgress -> append("~ ")
+                isNew -> append("● ")
+            }
             append("⬇ ") // always downloaded since this entry comes from DownloadedEpisodes
             append(formattedDate)
         }.trim()
@@ -1411,10 +1416,15 @@ class RadioService : MediaBrowserServiceCompat() {
         val played = PlayedEpisodesPreference.isPlayed(this, ep.id)
         val progress = PlayedEpisodesPreference.getProgress(this, ep.id)
         val isDownloaded = ep.id in downloadedIds
+        val inProgress = !played && progress > 0L
         val isNew = !played && progress == 0L
         val formattedDate = formatAutoEpisodeDate(ep.pubDate)
         val subtitle = buildString {
-            if (isNew) append("● ")
+            when {
+                played -> append("✅ ")
+                inProgress -> append("~ ")
+                isNew -> append("● ")
+            }
             if (isDownloaded) append("⬇ ")
             append(formattedDate)
         }.trim()
