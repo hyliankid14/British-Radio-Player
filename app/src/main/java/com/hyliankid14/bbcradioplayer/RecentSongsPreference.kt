@@ -93,7 +93,7 @@ object RecentSongsPreference {
             }
             prefs(context).edit().putString(KEY_SONGS, arr.toString()).commit()
             try {
-                context.sendBroadcast(android.content.Intent(ACTION_RECENT_SONGS_CHANGED))
+                context.sendBroadcast(android.content.Intent(ACTION_RECENT_SONGS_CHANGED).setPackage(context.packageName))
             } catch (_: Exception) { }
         } catch (_: Exception) { }
     }
@@ -101,7 +101,7 @@ object RecentSongsPreference {
     fun clearAll(context: Context) {
         prefs(context).edit().remove(KEY_SONGS).apply()
         try {
-            context.sendBroadcast(android.content.Intent(ACTION_RECENT_SONGS_CHANGED))
+            context.sendBroadcast(android.content.Intent(ACTION_RECENT_SONGS_CHANGED).setPackage(context.packageName))
         } catch (_: Exception) { }
     }
 }

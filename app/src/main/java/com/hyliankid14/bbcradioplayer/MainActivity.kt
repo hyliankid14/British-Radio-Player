@@ -1521,7 +1521,7 @@ class MainActivity : AppCompatActivity() {
         override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
             try {
                 runOnUiThread {
-                    if (currentMode == "list" && ::tabLayout.isInitialized && tabLayout.selectedTabPosition == 3) {
+                    if (currentMode == "list" && currentTabIndex == 3) {
                         showRecentSongs()
                     }
                 }
