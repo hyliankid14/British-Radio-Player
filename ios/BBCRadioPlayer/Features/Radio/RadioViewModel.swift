@@ -83,8 +83,9 @@ final class RadioViewModel: ObservableObject {
             return categoryStations
         }
 
+        let escapedQuery = NSRegularExpression.escapedPattern(for: query)
         return categoryStations.filter {
-            $0.title.lowercased().contains(query)
+            $0.title.lowercased().range(of: "\\b\(escapedQuery)", options: .regularExpression) != nil
         }
     }
 

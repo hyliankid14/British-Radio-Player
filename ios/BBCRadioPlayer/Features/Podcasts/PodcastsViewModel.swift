@@ -889,7 +889,7 @@ private struct QueryMatcher {
         for group in orGroups {
             var groupMatches = true
             for token in group {
-                let contains = searchableLowercased.contains(token.term)
+                let contains = searchableLowercased.range(of: "\\b\(NSRegularExpression.escapedPattern(for: token.term))", options: .regularExpression) != nil
                 if token.isNegated {
                     if contains {
                         groupMatches = false
