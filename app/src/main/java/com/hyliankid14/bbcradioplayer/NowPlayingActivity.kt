@@ -172,7 +172,7 @@ class NowPlayingActivity : AppCompatActivity() {
 
         ViewCompat.setOnApplyWindowInsetsListener(rootLayout) { _, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            rootLayout.updatePadding(top = bars.top)
+            rootLayout.updatePadding(top = bars.top, bottom = bars.bottom)
             insets
         }
         ViewCompat.requestApplyInsets(rootLayout)
@@ -1427,6 +1427,7 @@ class NowPlayingActivity : AppCompatActivity() {
         
         val playPauseColorStateList = android.content.res.ColorStateList.valueOf(currentPlayPauseButtonColor)
         val selectedIconTint = android.content.res.ColorStateList.valueOf(android.graphics.Color.WHITE)
+        val currentIconColorStateList = android.content.res.ColorStateList.valueOf(currentIconColor)
         
         // For episodes being played/previewed, show bookmark styling
         if (!episodeId.isNullOrEmpty()) {
@@ -1438,7 +1439,7 @@ class NowPlayingActivity : AppCompatActivity() {
             } else {
                 // Not saved: transparent background with colored icon
                 favoriteButton.backgroundTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.TRANSPARENT)
-                favoriteButton.iconTint = null
+                favoriteButton.iconTint = currentIconColorStateList
             }
         } else if (!isPodcast && station != null) {
             // Radio station favorite styling - match bookmark button behavior
@@ -1450,7 +1451,7 @@ class NowPlayingActivity : AppCompatActivity() {
             } else {
                 // Not favorited: transparent background with colored icon
                 favoriteButton.backgroundTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.TRANSPARENT)
-                favoriteButton.iconTint = null
+                favoriteButton.iconTint = currentIconColorStateList
             }
         }
     }
@@ -1674,13 +1675,13 @@ class NowPlayingActivity : AppCompatActivity() {
                         val iconColorStateList = android.content.res.ColorStateList.valueOf(iconColor)
                         
                         stopButton.backgroundTintList = outlineButtonColorStateList
-                        stopButton.iconTint = null
+                        stopButton.iconTint = iconColorStateList
                         previousButton.backgroundTintList = outlineButtonColorStateList
-                        previousButton.iconTint = null
+                        previousButton.iconTint = iconColorStateList
                         nextButton.backgroundTintList = outlineButtonColorStateList
-                        nextButton.iconTint = null
+                        nextButton.iconTint = iconColorStateList
                         favoriteButton.backgroundTintList = outlineButtonColorStateList
-                        favoriteButton.iconTint = null
+                        favoriteButton.iconTint = iconColorStateList
                         openPodcastButton.backgroundTintList = outlineButtonColorStateList
                         
                         // Apply visual distinction for favorited items (radio stations and saved episodes)
@@ -1699,7 +1700,7 @@ class NowPlayingActivity : AppCompatActivity() {
                             } else {
                                 // Not saved: transparent background with colored icon
                                 favoriteButton.backgroundTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.TRANSPARENT)
-                                favoriteButton.iconTint = null
+                                favoriteButton.iconTint = iconColorStateList
                             }
                         } else if (!isPodcast && station != null) {
                             // Radio station favorite styling - match bookmark button behavior
@@ -1711,7 +1712,7 @@ class NowPlayingActivity : AppCompatActivity() {
                             } else {
                                 // Not favorited: transparent background with colored icon
                                 favoriteButton.backgroundTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.TRANSPARENT)
-                                favoriteButton.iconTint = null
+                                favoriteButton.iconTint = iconColorStateList
                             }
                         }
                         
