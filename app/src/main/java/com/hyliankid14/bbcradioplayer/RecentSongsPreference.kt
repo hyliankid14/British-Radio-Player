@@ -64,10 +64,15 @@ object RecentSongsPreference {
         try {
             val now = System.currentTimeMillis()
             val current = getSongs(context).toMutableList()
-            // Avoid duplicate consecutive entries for the same song
-            if (current.isNotEmpty()) {
-                val last = current[0]
-                if (last.artist == artist && last.track == track && last.stationId == stationId) return
+            // Deduplicate within a 5-minute window: if the same artist+track was already
+            // added recently (e.g. by switching stations and switching back), skip this entry.
+            // Songs genuinely played again after the window will still appear.
+            // Entries are sorted newest-first, so we can stop as soon as we go past the window.
+            val dedupeWindowMs = 5 * 60 * 1000L
+            val cutoff = now - dedupeWindowMs
+            for (entry in current) {
+                if (entry.playedAtMs < cutoff) break
+                if (entry.artist == artist && entry.track == track) return
             }
             current.add(
                 0, SongEntry(
@@ -93,7 +98,7 @@ object RecentSongsPreference {
             }
             prefs(context).edit().putString(KEY_SONGS, arr.toString()).commit()
             try {
-                context.sendBroadcast(android.content.Intent(ACTION_RECENT_SONGS_CHANGED))
+                context.sendBroadcast(android.content.Intent(ACTION_RECENT_SONGS_CHANGED).setPackage(context.packageName))
             } catch (_: Exception) { }
         } catch (_: Exception) { }
     }
@@ -101,7 +106,7 @@ object RecentSongsPreference {
     fun clearAll(context: Context) {
         prefs(context).edit().remove(KEY_SONGS).apply()
         try {
-            context.sendBroadcast(android.content.Intent(ACTION_RECENT_SONGS_CHANGED))
+            context.sendBroadcast(android.content.Intent(ACTION_RECENT_SONGS_CHANGED).setPackage(context.packageName))
         } catch (_: Exception) { }
     }
 }

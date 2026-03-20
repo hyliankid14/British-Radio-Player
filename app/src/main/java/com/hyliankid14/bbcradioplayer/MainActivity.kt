@@ -1521,7 +1521,7 @@ class MainActivity : AppCompatActivity() {
         override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
             try {
                 runOnUiThread {
-                    if (currentMode == "list" && ::tabLayout.isInitialized && tabLayout.selectedTabPosition == 3) {
+                    if (currentMode == "list" && currentTabIndex == 3) {
                         showRecentSongs()
                     }
                 }
@@ -2415,26 +2415,60 @@ class MainActivity : AppCompatActivity() {
             if (song.artist.isNotBlank()) append(song.artist)
         }
 
-        val items = arrayOf(
-            "Spotify",
-            "YouTube Music",
-            "Amazon Music",
-            "Apple Music",
-            "Deezer"
+        data class StreamingService(val name: String, val iconUrl: String, val searchUrl: String)
+        data class Holder(val icon: ImageView, val name: TextView)
+
+        val services = listOf(
+            StreamingService("Spotify",
+                "https://www.google.com/s2/favicons?domain=open.spotify.com&sz=128",
+                "https://open.spotify.com/search/$encodedQuery"),
+            StreamingService("YouTube Music",
+                "https://www.google.com/s2/favicons?domain=music.youtube.com&sz=128",
+                "https://music.youtube.com/search?q=$encodedQuery"),
+            StreamingService("Amazon Music",
+                "https://www.google.com/s2/favicons?domain=music.amazon.co.uk&sz=128",
+                "https://music.amazon.co.uk/search/$encodedQuery"),
+            StreamingService("Apple Music",
+                "https://www.google.com/s2/favicons?domain=music.apple.com&sz=128",
+                "https://music.apple.com/gb/search?term=$encodedQuery"),
+            StreamingService("Deezer",
+                "https://www.google.com/s2/favicons?domain=deezer.com&sz=128",
+                "https://www.deezer.com/search/$encodedQuery")
         )
-        val urls = arrayOf(
-            "https://open.spotify.com/search/$encodedQuery",
-            "https://music.youtube.com/search?q=$encodedQuery",
-            "https://music.amazon.co.uk/search/$encodedQuery",
-            "https://music.apple.com/gb/search?term=$encodedQuery",
-            "https://www.deezer.com/search/$encodedQuery"
-        )
+
+        val adapter = object : android.widget.ArrayAdapter<StreamingService>(
+            this, R.layout.item_streaming_service, R.id.streaming_service_name, services) {
+
+            override fun getView(position: Int, convertView: View?, parent: android.view.ViewGroup): View {
+                val view: View
+                val holder: Holder
+                if (convertView == null) {
+                    view = layoutInflater.inflate(R.layout.item_streaming_service, parent, false)
+                    holder = Holder(
+                        view.findViewById(R.id.streaming_service_icon),
+                        view.findViewById(R.id.streaming_service_name)
+                    )
+                    view.tag = holder
+                } else {
+                    view = convertView
+                    holder = convertView.tag as Holder
+                }
+                val service = getItem(position)!!
+                holder.name.text = service.name
+                Glide.with(this@MainActivity)
+                    .load(service.iconUrl)
+                    .placeholder(R.drawable.ic_music_note)
+                    .error(R.drawable.ic_music_note)
+                    .into(holder.icon)
+                return view
+            }
+        }
 
         androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle("Listen to: $title")
-            .setItems(items) { _, which ->
+            .setAdapter(adapter) { _, which ->
                 try {
-                    startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(urls[which])))
+                    startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(services[which].searchUrl)))
                 } catch (_: Exception) {
                     Toast.makeText(this, "Could not open link", Toast.LENGTH_SHORT).show()
                 }
