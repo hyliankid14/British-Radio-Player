@@ -1692,9 +1692,10 @@ class PodcastsFragment : Fragment() {
                 // podcast list so that basic search always works.
                 val effectiveTitleMatches: List<Podcast> = if (titleMatches.isEmpty() && !hasIndexedPodcasts) {
                     withContext(Dispatchers.Default) {
+                        val wordBoundaryRegex = Regex("\\b${Regex.escape(qLower)}")
                         val basicResults = allPodcasts.filter { pod ->
-                            pod.title.contains(qLower, ignoreCase = true) ||
-                            pod.description.contains(qLower, ignoreCase = true)
+                            pod.title.lowercase().contains(wordBoundaryRegex) ||
+                            pod.description.lowercase().contains(wordBoundaryRegex)
                         }
                         repository.filterPodcasts(basicResults, currentFilter)
                     }

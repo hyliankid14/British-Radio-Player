@@ -44,22 +44,22 @@ class PodcastRepository(private val context: Context) {
         val textNorm = normalize(textLower)
         val queryNorm = normalize(queryLower)
 
-        // Exact phrase contains
-        if (textNorm.contains(queryNorm)) return true
+        // Word-boundary phrase match: the query must appear at the start of a word
+        if (textNorm.contains(Regex("\\b${Regex.escape(queryNorm)}"))) return true
 
         // Token proximity: ensure all tokens from the query are present in reasonable proximity
         val tokens = queryNorm.split(Regex("\\s+")).filter { it.isNotEmpty() }
         if (tokens.size <= 1) return false
         
-        // First check if all tokens exist at all
-        if (!tokens.all { textNorm.contains(it) }) return false
+        // First check if all tokens exist at word boundaries
+        if (!tokens.all { textNorm.contains(Regex("\\b${Regex.escape(it)}")) }) return false
         
         // For 2-token queries, check if they appear within 50 words of each other
         // For 3+ token queries, use simpler all-tokens-present check
         if (tokens.size == 2) {
             val words = textNorm.split(Regex("\\s+"))
-            val idx0 = words.indexOfFirst { it.contains(tokens[0]) }
-            val idx1 = words.indexOfFirst { it.contains(tokens[1]) }
+            val idx0 = words.indexOfFirst { it.startsWith(tokens[0]) }
+            val idx1 = words.indexOfFirst { it.startsWith(tokens[1]) }
             if (idx0 >= 0 && idx1 >= 0) {
                 return kotlin.math.abs(idx0 - idx1) <= 50
             }
