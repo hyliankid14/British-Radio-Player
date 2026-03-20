@@ -1638,7 +1638,15 @@ class PodcastsFragment : Fragment() {
                     val podcastById = allPodcasts.associateBy { it.id }
                     var enriched = 0
                     var fallback = 0
-                    val podcasts = indexPodcastResults.mapNotNull { fts ->
+                    val podcasts = indexPodcastResults
+                        // Reject any FTS hit that doesn't have a word-boundary match in title or
+                        // description — the remote server may use substring matching and return
+                        // results like "Miranda" for the query "iran".
+                        .filter { fts ->
+                            repository.textMatchesNormalized(fts.title, q) ||
+                            repository.textMatchesNormalized(fts.description, q)
+                        }
+                        .mapNotNull { fts ->
                         // First try to match against allPodcasts to get full metadata
                         val fullPodcast = podcastById[fts.podcastId]
                         if (fullPodcast != null) {
@@ -1843,6 +1851,12 @@ class PodcastsFragment : Fragment() {
                                 }
                                 if (ftsResults.isNotEmpty()) {
                                     val uniqueResults = ftsResults.distinctBy { it.episodeId }
+                                        // Reject FTS hits that don't have a word-boundary match —
+                                        // the remote server may use substring matching.
+                                        .filter { ef ->
+                                            repository.textMatchesNormalized(ef.title, q) ||
+                                            repository.textMatchesNormalized(ef.description, q)
+                                        }
                                     val podcastById = allPodcasts.associateBy { it.id }
                                     val episodeCacheById: Map<String, List<Episode>?> =
                                         uniqueResults.map { it.podcastId }.distinct()
@@ -1950,7 +1964,13 @@ class PodcastsFragment : Fragment() {
                                 val podcastById = allPodcasts.associateBy { it.id }
                                 val episodeCacheByPodcastId = mutableMapOf<String, List<Episode>?>()
 
-                                for (ef in ftsResults) {
+                                // Reject FTS hits that don't have a word-boundary match in title
+                                // or description before building Episode objects.
+                                val validFtsResults = ftsResults.filter { ef ->
+                                    repository.textMatchesNormalized(ef.title, q) ||
+                                    repository.textMatchesNormalized(ef.description, q)
+                                }
+                                for (ef in validFtsResults) {
                                     if (!coroutineContext.isActive) break
                                     val p = podcastById[ef.podcastId] ?: continue
                                     val cachedEpisodes = episodeCacheByPodcastId.getOrPut(ef.podcastId) {
