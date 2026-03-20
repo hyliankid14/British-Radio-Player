@@ -2437,24 +2437,24 @@ class MainActivity : AppCompatActivity() {
             if (song.artist.isNotBlank()) append(song.artist)
         }
 
-        data class StreamingService(val name: String, val iconRes: Int, val searchUrl: String)
+        data class StreamingService(val name: String, val iconUrl: String, val searchUrl: String)
         data class Holder(val icon: ImageView, val name: TextView)
 
         val services = listOf(
             StreamingService("Spotify",
-                R.drawable.ic_streaming_spotify,
+                "https://www.google.com/s2/favicons?domain=open.spotify.com&sz=128",
                 "https://open.spotify.com/search/$encodedQuery"),
             StreamingService("YouTube Music",
-                R.drawable.ic_streaming_youtube_music,
+                "https://www.google.com/s2/favicons?domain=music.youtube.com&sz=128",
                 "https://music.youtube.com/search?q=$encodedQuery"),
             StreamingService("Amazon Music",
-                R.drawable.ic_streaming_amazon_music,
+                "https://www.google.com/s2/favicons?domain=music.amazon.co.uk&sz=128",
                 "https://music.amazon.co.uk/search/$encodedQuery"),
             StreamingService("Apple Music",
-                R.drawable.ic_streaming_apple_music,
+                "https://www.google.com/s2/favicons?domain=music.apple.com&sz=128",
                 "https://music.apple.com/gb/search?term=$encodedQuery"),
             StreamingService("Deezer",
-                R.drawable.ic_streaming_deezer,
+                "https://www.google.com/s2/favicons?domain=deezer.com&sz=128",
                 "https://www.deezer.com/search/$encodedQuery")
         )
 
@@ -2477,8 +2477,11 @@ class MainActivity : AppCompatActivity() {
                 }
                 val service = getItem(position)!!
                 holder.name.text = service.name
-                holder.icon.setImageResource(service.iconRes)
-                holder.icon.imageTintList = null
+                Glide.with(this@MainActivity)
+                    .load(service.iconUrl)
+                    .placeholder(R.drawable.ic_music_note)
+                    .error(R.drawable.ic_music_note)
+                    .into(holder.icon)
                 return view
             }
         }
