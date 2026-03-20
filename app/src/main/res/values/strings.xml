@@ -75,6 +75,8 @@
     <string name="widget_next">Next station</string>
     <string name="widget_label_resizable">British Radio Widget</string>
     <string name="export_settings">Export Settings</string>
+    <string name="song_artwork_description">Song artwork</string>
+    <string name="song_streaming_services">Listen on streaming service</string>
     <string name="import_settings">Import Settings</string>
     <string name="backup_last_date_never">Last backup: Never</string>
     <string name="backup_last_date_value">Last backup: %1$s</string>

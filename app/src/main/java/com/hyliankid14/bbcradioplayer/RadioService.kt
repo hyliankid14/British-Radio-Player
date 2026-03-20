@@ -2241,6 +2241,21 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                     if (songSignature != lastSongSignature) {
                         lastSongSignature = songSignature
                         Log.d(TAG, "New song detected: $songSignature")
+                        // Save newly detected song to recent songs history
+                        try {
+                            val artist = show.secondary ?: ""
+                            val track = show.tertiary ?: ""
+                            val imageUrl = show.imageUrl ?: ""
+                            val stationName = currentStationTitle
+                            RecentSongsPreference.addSong(
+                                this@RadioService,
+                                artist,
+                                track,
+                                imageUrl,
+                                stationId,
+                                stationName
+                            )
+                        } catch (_: Exception) { }
                     }
                 } else {
                     // RMS returned no song data - clear immediately

@@ -185,6 +185,29 @@
                     android:background="?attr/colorSurface"
                     android:visibility="gone" />
 
+                <!-- Recent Songs list (shown when "Songs" tab is selected) -->
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/recent_songs_list"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:clipToPadding="false"
+                    android:scrollbars="vertical"
+                    android:background="?attr/colorSurface"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/recent_songs_empty"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="No recently played songs yet.\nSongs detected while a station is playing will appear here."
+                    android:textSize="14sp"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:gravity="center"
+                    android:padding="16dp"
+                    android:background="?attr/colorSurface"
+                    android:visibility="gone" />
+
             </LinearLayout>
 
             <!-- Favorites toggle group moved to top under the app bar -->

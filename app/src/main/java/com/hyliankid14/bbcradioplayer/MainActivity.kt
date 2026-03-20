@@ -1485,6 +1485,19 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // BroadcastReceiver to refresh the Recent Songs tab when a new song is detected
+    private val recentSongsChangedReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
+            try {
+                runOnUiThread {
+                    if (currentMode == "list" && ::tabLayout.isInitialized && tabLayout.selectedTabPosition == 3) {
+                        showRecentSongs()
+                    }
+                }
+            } catch (_: Exception) { }
+        }
+    }
+
     // BroadcastReceiver to refresh UI when an episode download completes
     private val downloadCompleteReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
@@ -1684,6 +1697,9 @@ class MainActivity : AppCompatActivity() {
         try {
             registerReceiver(downloadCompleteReceiver, android.content.IntentFilter(EpisodeDownloadManager.ACTION_DOWNLOAD_COMPLETE))
         } catch (_: Exception) {}
+        try {
+            registerReceiver(recentSongsChangedReceiver, android.content.IntentFilter(RecentSongsPreference.ACTION_RECENT_SONGS_CHANGED))
+        } catch (_: Exception) {}
     }
 
 
@@ -1698,6 +1714,9 @@ class MainActivity : AppCompatActivity() {
         } catch (_: Exception) {}
         try {
             unregisterReceiver(downloadCompleteReceiver)
+        } catch (_: Exception) {}
+        try {
+            unregisterReceiver(recentSongsChangedReceiver)
         } catch (_: Exception) {}
     }
 
@@ -2094,25 +2113,30 @@ class MainActivity : AppCompatActivity() {
                 android.util.Log.d("MainActivity", "Tab selected: $newIndex (current=$currentTabIndex), direction=$direction")
                 currentTabIndex = newIndex
 
-                val category = when (newIndex) {
-                    0 -> StationCategory.NATIONAL
-                    1 -> StationCategory.REGIONS
-                    2 -> StationCategory.LOCAL
-                    else -> StationCategory.NATIONAL
-                }
-
                 // If the stations content isn't laid out (width == 0), fall back to immediate update
                 val wasSwipeSelection = selectionFromSwipe
                 if (wasSwipeSelection) selectionFromSwipe = false
                 val slowTransition = !wasSwipeSelection
 
-                if (stationsContent.width <= 0) {
-                    android.util.Log.d("MainActivity", "stationsContent not laid out yet; updating immediately")
-                    showCategoryStations(category)
+                if (newIndex == 3) {
+                    // Songs tab — use a simple fade rather than the station-list slide animation
+                    // because the animation code hardcodes stationsList visibility
+                    showRecentSongs()
                 } else {
-                    animateListTransition(direction, {
+                    val category = when (newIndex) {
+                        0 -> StationCategory.NATIONAL
+                        1 -> StationCategory.REGIONS
+                        2 -> StationCategory.LOCAL
+                        else -> StationCategory.NATIONAL
+                    }
+                    if (stationsContent.width <= 0) {
+                        android.util.Log.d("MainActivity", "stationsContent not laid out yet; updating immediately")
                         showCategoryStations(category)
-                    }, slowTransition)
+                    } else {
+                        animateListTransition(direction, {
+                            showCategoryStations(category)
+                        }, slowTransition)
+                    }
                 }
             }
 
@@ -2267,6 +2291,10 @@ class MainActivity : AppCompatActivity() {
     
     private fun showCategoryStations(category: StationCategory) {
         android.util.Log.d("MainActivity", "showCategoryStations: $category")
+        // Hide recent songs views; show station list
+        try { findViewById<View>(R.id.recent_songs_list).visibility = View.GONE } catch (_: Exception) { }
+        try { findViewById<View>(R.id.recent_songs_empty).visibility = View.GONE } catch (_: Exception) { }
+        stationsList.visibility = View.VISIBLE
         val stations = StationRepository.getStationsByCategory(category)
         categorizedAdapter = CategorizedStationAdapter(this, stations, { stationId ->
             playStation(stationId)
@@ -2275,6 +2303,79 @@ class MainActivity : AppCompatActivity() {
         })
         stationsList.adapter = categorizedAdapter
         stationsList.scrollToPosition(0)
+    }
+
+    private fun showRecentSongs() {
+        android.util.Log.d("MainActivity", "showRecentSongs")
+        // Hide the station list; show recent songs
+        stationsList.visibility = View.GONE
+        try { findViewById<TextView>(R.id.favorite_stations_empty).visibility = View.GONE } catch (_: Exception) { }
+
+        val recentSongsList = try { findViewById<RecyclerView>(R.id.recent_songs_list) } catch (_: Exception) { null } ?: return
+        val recentSongsEmpty = try { findViewById<TextView>(R.id.recent_songs_empty) } catch (_: Exception) { null }
+
+        val songs = RecentSongsPreference.getSongs(this)
+        if (songs.isEmpty()) {
+            recentSongsList.visibility = View.GONE
+            recentSongsEmpty?.visibility = View.VISIBLE
+        } else {
+            recentSongsEmpty?.visibility = View.GONE
+            recentSongsList.visibility = View.VISIBLE
+            if (recentSongsList.layoutManager == null) {
+                recentSongsList.layoutManager = LinearLayoutManager(this)
+            }
+            val existing = recentSongsList.adapter as? RecentSongsAdapter
+            if (existing != null) {
+                existing.updateSongs(songs)
+            } else {
+                recentSongsList.adapter = RecentSongsAdapter(this, songs) { song ->
+                    showStreamingLinksDialog(song)
+                }
+            }
+        }
+    }
+
+    private fun showStreamingLinksDialog(song: RecentSongsPreference.SongEntry) {
+        val query = buildString {
+            if (song.artist.isNotBlank()) append(song.artist)
+            if (song.artist.isNotBlank() && song.track.isNotBlank()) append(" ")
+            if (song.track.isNotBlank()) append(song.track)
+        }.trim()
+        if (query.isBlank()) return
+
+        val encodedQuery = android.net.Uri.encode(query)
+        val title = buildString {
+            if (song.track.isNotBlank()) append(song.track)
+            if (song.track.isNotBlank() && song.artist.isNotBlank()) append(" · ")
+            if (song.artist.isNotBlank()) append(song.artist)
+        }
+
+        val items = arrayOf(
+            "Spotify",
+            "YouTube Music",
+            "Amazon Music",
+            "Apple Music",
+            "Deezer"
+        )
+        val urls = arrayOf(
+            "https://open.spotify.com/search/$encodedQuery",
+            "https://music.youtube.com/search?q=$encodedQuery",
+            "https://music.amazon.co.uk/search/$encodedQuery",
+            "https://music.apple.com/gb/search?term=$encodedQuery",
+            "https://www.deezer.com/search/$encodedQuery"
+        )
+
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Listen to: $title")
+            .setItems(items) { _, which ->
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(urls[which])))
+                } catch (_: Exception) {
+                    Toast.makeText(this, "Could not open link", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("Close", null)
+            .show()
     }
 
     private fun setupSwipeNavigation() {
