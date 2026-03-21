@@ -80,6 +80,8 @@ class RadioService : MediaBrowserServiceCompat() {
     private var currentEpisodeTitle: String = ""
     private var currentShowInfo: CurrentShow = CurrentShow("BBC Radio")
     private var lastSongSignature: String? = null
+    // Tracks which song signature was actually saved to RecentSongsPreference; updated only when addSong is called
+    private var lastSavedSongSignature: String? = null
     private val showInfoPollIntervalMs = 30_000L // Poll RMS at BBC's sweet spot (30s)
     private var alarmVolumeRampRunnable: Runnable? = null
     private var currentArtworkBitmap: android.graphics.Bitmap? = null
@@ -2112,6 +2114,7 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
         currentArtworkBitmap = null
         currentArtworkUri = currentStationLogo
         lastSongSignature = null // Reset last song signature for new station
+        lastSavedSongSignature = null
 
         // If switching from a podcast, stop its progress updates and clear episode id so UI stops showing episode/progress
         podcastProgressRunnable?.let { handler.removeCallbacks(it); podcastProgressRunnable = null }
@@ -2189,6 +2192,7 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
 
         Log.d(TAG, "Refreshing stream due to $reason. Station=${station.title}, HQ=$highQuality")
         lastSongSignature = null
+        lastSavedSongSignature = null
 
         // Ensure any podcast progress runnable is cancelled (prevents stale episode/progress persisting in UI)
         podcastProgressRunnable?.let { handler.removeCallbacks(it); podcastProgressRunnable = null }
@@ -2241,21 +2245,8 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                     if (songSignature != lastSongSignature) {
                         lastSongSignature = songSignature
                         Log.d(TAG, "New song detected: $songSignature")
-                        // Save newly detected song to recent songs history
-                        try {
-                            val artist = show.secondary ?: ""
-                            val track = show.tertiary ?: ""
-                            val imageUrl = show.imageUrl ?: ""
-                            val stationName = currentStationTitle
-                            RecentSongsPreference.addSong(
-                                this@RadioService,
-                                artist,
-                                track,
-                                imageUrl,
-                                stationId,
-                                stationName
-                            )
-                        } catch (_: Exception) { }
+                        // addSong is called in the apply paths below so it is saved at the same
+                        // time the mini player displays the song (avoiding premature list entries)
                     }
                 } else {
                     // RMS returned no song data - clear immediately
@@ -2263,6 +2254,7 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                         Log.d(TAG, "RMS stopped returning song data. Reverting to show name.")
                         finalShow = show.copy(secondary = null, tertiary = null)
                         lastSongSignature = null
+                        lastSavedSongSignature = null
                     }
                 }
                 
@@ -2313,6 +2305,8 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                         // Switch to main thread to update UI immediately for podcasts
                         handler.post {
                             Log.d(TAG, "Updating UI with show title: $currentShowTitle (podcast immediate)")
+                            // Save song to history at the same time the mini player shows it
+                            saveCurrentSongIfNew(stationId)
                             val nowPlayingImageUrl = mergedShow.imageUrl
                             if (nowPlayingImageUrl?.startsWith("http") == true) {
                                 currentArtworkUri = nowPlayingImageUrl
@@ -2349,6 +2343,8 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                         // Update UI right away
                         handler.post {
                             Log.d(TAG, "Updating UI with show title: $currentShowTitle (initial immediate)")
+                            // Save song to history at the same time the mini player shows it
+                            saveCurrentSongIfNew(stationId)
                             val nowPlayingImageUrl = finalShow.imageUrl
                             if (nowPlayingImageUrl?.startsWith("http") == true) {
                                 currentArtworkUri = nowPlayingImageUrl
@@ -2380,6 +2376,8 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                                 // Update UI on main thread
                                 handler.post {
                                     Log.d(TAG, "Updating UI with show title: $currentShowTitle (delayed)")
+                                    // Save song to history at the same time the mini player shows it (after the stream delay)
+                                    saveCurrentSongIfNew(stationId)
                                     val nowPlayingImageUrl = currentShowInfo.imageUrl
                                     if (!nowPlayingImageUrl.isNullOrEmpty() && nowPlayingImageUrl.startsWith("http")) {
                                         currentArtworkUri = nowPlayingImageUrl
@@ -2446,6 +2444,28 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
         }
     }
     
+    /**
+     * Saves the song currently in [currentShowInfo] to the recent songs history if it has not
+     * already been saved (i.e. if the song signature has changed). Must be called on the main
+     * thread so that [lastSavedSongSignature] is accessed safely.
+     */
+    private fun saveCurrentSongIfNew(stationId: String) {
+        val songSig = listOf(currentShowInfo.secondary, currentShowInfo.tertiary)
+            .filter { !it.isNullOrEmpty() }.joinToString("|").ifEmpty { null } ?: return
+        if (songSig == lastSavedSongSignature) return
+        lastSavedSongSignature = songSig
+        try {
+            RecentSongsPreference.addSong(
+                this,
+                currentShowInfo.secondary ?: "",
+                currentShowInfo.tertiary ?: "",
+                currentShowInfo.imageUrl ?: "",
+                stationId,
+                currentStationTitle
+            )
+        } catch (_: Exception) { }
+    }
+
     private fun updateMediaMetadata(artworkBitmap: android.graphics.Bitmap? = null, artworkUri: String? = null) {
         // Return early if playback is stopped to prevent queued notification updates
         if (isStopped || currentStationId.isBlank()) {
@@ -2736,6 +2756,7 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
         currentArtworkBitmap = null
         currentArtworkUri = null
         lastSongSignature = null
+        lastSavedSongSignature = null
 
         WidgetUpdateHelper.updateAllWidgets(this)
 
