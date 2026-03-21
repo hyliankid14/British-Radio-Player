@@ -107,6 +107,8 @@ class MainActivity : AppCompatActivity() {
     private var lastArtworkUrl: String? = null
     // When opening a podcast from Favorites, return back to Favorites instead of Podcasts list
     private var returnToFavoritesOnBack: Boolean = false
+    // When opening a saved search from Favorites, return back to the Saved Searches list on back press
+    private var returnToSavedSearchesOnBack: Boolean = false
 
     // Track the last visible percent for the episode/index progress bar so we can
     // defensively ignore any stray regressions emitted by background components.
@@ -287,6 +289,18 @@ class MainActivity : AppCompatActivity() {
                         suppressBottomNavSelection = true
                         try { bottomNavigation.selectedItemId = R.id.navigation_favorites } catch (_: Exception) { }
                         suppressBottomNavSelection = false
+                        showFavorites()
+                        return
+                    }
+                    if (returnToSavedSearchesOnBack && top is PodcastsFragment
+                            && supportFragmentManager.backStackEntryCount == 0) {
+                        returnToSavedSearchesOnBack = false
+                        suppressBottomNavSelection = true
+                        try { bottomNavigation.selectedItemId = R.id.navigation_favorites } catch (_: Exception) { }
+                        suppressBottomNavSelection = false
+                        // Persist the searches sub-tab as the active tab before restoring Favorites
+                        try { getPreferences(android.content.Context.MODE_PRIVATE).edit()
+                            .putInt("last_fav_tab_id", R.id.fav_tab_searches).apply() } catch (_: Exception) { }
                         showFavorites()
                         return
                     }
@@ -573,6 +587,8 @@ class MainActivity : AppCompatActivity() {
     private fun openSavedSearch(search: SavedSearchesPreference.SavedSearch) {
         try {
             showPodcasts()
+            // Flag that back should return to the Saved Searches list in Favorites
+            returnToSavedSearchesOnBack = true
             suppressBottomNavSelection = true
             try { bottomNavigation.selectedItemId = R.id.navigation_podcasts } catch (_: Exception) { }
             suppressBottomNavSelection = false
@@ -1825,6 +1841,7 @@ class MainActivity : AppCompatActivity() {
         disableSwipeNavigation()
         currentMode = "podcasts"
         returnToFavoritesOnBack = false
+        returnToSavedSearchesOnBack = false
         fragmentContainer.visibility = View.VISIBLE
         staticContentContainer.visibility = View.GONE
         // Hide the global action bar since the fragment has its own title bar
