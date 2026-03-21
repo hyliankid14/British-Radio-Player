@@ -547,6 +547,11 @@ class MainActivity : AppCompatActivity() {
         when (mode) {
             "favorites" -> showFavorites()
             "list" -> showAllStations()
+            "podcasts" -> {
+                try { bottomNavigation.selectedItemId = R.id.navigation_podcasts } catch (e: Exception) {
+                    android.util.Log.w("MainActivity", "Failed to navigate to podcasts tab", e)
+                }
+            }
             else -> {
                 // Unknown mode - ignore
             }
