@@ -5,6 +5,7 @@
     <string name="schedule_view">View schedule</string>
     <string name="schedule_now_playing">Now playing</string>
     <string name="schedule_no_schedule">No schedule available</string>
+    <string name="schedule_open_podcast">Open podcast page</string>
     <string name="index_schedule_label">Schedule index update</string>
     <string name="index_schedule_never">Never</string>
     <string name="index_schedule_1">Every day</string>

@@ -1,9 +1,11 @@
 package com.hyliankid14.bbcradioplayer
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.ProgressBar
 import android.widget.TextView
@@ -18,6 +20,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -64,7 +67,11 @@ class ScheduleActivity : AppCompatActivity() {
                 if (entries.isEmpty()) {
                     empty.visibility = View.VISIBLE
                 } else {
-                    recycler.adapter = ScheduleAdapter(entries)
+                    val repo = PodcastRepository(this@ScheduleActivity)
+                    val podcasts = withContext(Dispatchers.IO) { repo.fetchPodcasts(false) }
+                    val podcastsByTitle = podcasts.associateBy { it.title.lowercase() }
+
+                    recycler.adapter = ScheduleAdapter(entries, podcastsByTitle)
                     // Scroll to the currently playing item
                     val now = System.currentTimeMillis()
                     val currentIndex = entries.indexOfFirst { it.startTimeMs <= now && it.endTimeMs > now }
@@ -99,7 +106,8 @@ class ScheduleActivity : AppCompatActivity() {
 }
 
 class ScheduleAdapter(
-    private val entries: List<ScheduleEntry>
+    private val entries: List<ScheduleEntry>,
+    private val podcastsByTitle: Map<String, Podcast> = emptyMap()
 ) : RecyclerView.Adapter<ScheduleAdapter.ViewHolder>() {
 
     private val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault()).also {
@@ -112,6 +120,19 @@ class ScheduleAdapter(
         val showTitle: TextView = view.findViewById(R.id.schedule_show_title)
         val showSubtitle: TextView = view.findViewById(R.id.schedule_show_subtitle)
         val nowIndicator: ImageView = view.findViewById(R.id.schedule_now_indicator)
+        val podcastButton: ImageButton = view.findViewById(R.id.schedule_podcast_button)
+        var boundPodcast: Podcast? = null
+
+        init {
+            podcastButton.setOnClickListener {
+                val podcast = boundPodcast ?: return@setOnClickListener
+                val intent = Intent(it.context, MainActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    putExtra("open_podcast_id", podcast.id)
+                }
+                it.context.startActivity(intent)
+            }
+        }
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -156,5 +177,10 @@ class ScheduleAdapter(
             else -> 1.0f
         }
         holder.itemView.alpha = alpha
+
+        // Show podcast button if this show has a matching podcast
+        val podcast = podcastsByTitle[entry.title.lowercase()]
+        holder.boundPodcast = podcast
+        holder.podcastButton.visibility = if (podcast != null) View.VISIBLE else View.GONE
     }
 }

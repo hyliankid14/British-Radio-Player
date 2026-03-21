@@ -76,4 +76,16 @@
         android:visibility="gone"
         android:contentDescription="@string/schedule_now_playing" />
 
+    <ImageButton
+        android:id="@+id/schedule_podcast_button"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:layout_marginStart="4dp"
+        android:padding="6dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:src="@drawable/ic_podcast_outline"
+        android:tint="?attr/colorPrimary"
+        android:visibility="gone"
+        android:contentDescription="@string/schedule_open_podcast" />
+
 </LinearLayout>
