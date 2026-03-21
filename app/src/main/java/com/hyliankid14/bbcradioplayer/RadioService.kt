@@ -957,24 +957,12 @@ class RadioService : MediaBrowserServiceCompat() {
                                 val played = PlayedEpisodesPreference.isPlayed(this@RadioService, h.id)
                                 val progress = PlayedEpisodesPreference.getProgress(this@RadioService, h.id)
                                 val isDownloaded = h.id in downloadedIds
-                                val statusTag = when {
-                                    isDownloaded && played -> "Downloaded • Played"
-                                    isDownloaded && progress > 0L -> "Downloaded • In progress"
-                                    isDownloaded -> "Downloaded"
-                                    played -> "Played"
-                                    progress > 0L -> "In progress"
-                                    else -> ""
-                                }
-                                val subtitle = when {
-                                    h.podcastTitle.isNotBlank() && statusTag.isNotBlank() -> "${h.podcastTitle} • $statusTag"
-                                    h.podcastTitle.isNotBlank() -> h.podcastTitle
-                                    else -> statusTag
-                                }
+                                val inProgress = !played && progress > 0L
                                 MediaItem(
                                     MediaDescriptionCompat.Builder()
                                         .setMediaId("podcast_episode_${h.id}")
                                         .setTitle(h.title)
-                                        .setSubtitle(buildAutoEpisodeSubtitle(h.pubDate, subtitle))
+                                        .setSubtitle(buildAutoEpisodeIconSubtitle(h.pubDate, played, inProgress, isDownloaded, h.podcastTitle))
                                         .setIconUri(android.net.Uri.parse(h.imageUrl))
                                         .build(),
                                     MediaItem.FLAG_PLAYABLE
@@ -988,12 +976,18 @@ class RadioService : MediaBrowserServiceCompat() {
                     } else if (parentId == "podcasts_saved_episodes") {
                         try {
                             val saved = SavedEpisodes.getSavedEntries(this@RadioService)
+                            val savedDownloadedIds = DownloadedEpisodes.getDownloadedEntries(this@RadioService)
+                                .map { it.id }.toSet()
                             val itemsSaved = saved.map { s ->
+                                val played = PlayedEpisodesPreference.isPlayed(this@RadioService, s.id)
+                                val progress = PlayedEpisodesPreference.getProgress(this@RadioService, s.id)
+                                val isDownloaded = s.id in savedDownloadedIds
+                                val inProgress = !played && progress > 0L
                                 MediaItem(
                                     MediaDescriptionCompat.Builder()
                                         .setMediaId("podcast_episode_${s.id}")
                                         .setTitle(s.title)
-                                        .setSubtitle(buildAutoEpisodeSubtitle(s.pubDate, s.podcastTitle))
+                                        .setSubtitle(buildAutoEpisodeIconSubtitle(s.pubDate, played, inProgress, isDownloaded, s.podcastTitle))
                                         .setIconUri(android.net.Uri.parse(s.imageUrl))
                                         .build(),
                                     MediaItem.FLAG_PLAYABLE
@@ -1220,6 +1214,39 @@ class RadioService : MediaBrowserServiceCompat() {
             formattedDate.isNotBlank() -> formattedDate
             else -> status
         }
+    }
+
+    /**
+     * Build an icon-based subtitle for Android Auto episode rows in history and saved episode
+     * lists. Mirrors the format used by [episodeToMediaItem] for subscribed podcast lists, but
+     * also appends the [podcastTitle] so the source podcast is clear without opening the item.
+     *
+     * Examples:
+     *  - `✅ ⬇ Jan 2025 • BBC Radio 4`  (played + downloaded)
+     *  - `~ Jan 2025 • Desert Island Discs`  (in-progress)
+     *  - `● Jan 2025`  (new, no podcast title available)
+     */
+    private fun buildAutoEpisodeIconSubtitle(
+        pubDate: String?,
+        played: Boolean,
+        inProgress: Boolean,
+        isDownloaded: Boolean,
+        podcastTitle: String
+    ): String {
+        val formattedDate = formatAutoEpisodeDate(pubDate)
+        return buildString {
+            when {
+                played -> append("✅ ")
+                inProgress -> append("~ ")
+                else -> append("● ")
+            }
+            if (isDownloaded) append("⬇ ")
+            append(formattedDate)
+            if (podcastTitle.isNotBlank()) {
+                if (formattedDate.isNotBlank()) append(" • ")
+                append(podcastTitle)
+            }
+        }.trim()
     }
 
     private fun formatAutoEpisodeDate(raw: String?): String {
