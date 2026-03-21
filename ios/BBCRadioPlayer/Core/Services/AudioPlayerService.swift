@@ -74,6 +74,12 @@ final class AudioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
     override init() {
         super.init()
         startNetworkMonitoring()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAudioSessionInterruption),
+            name: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance()
+        )
     }
 
     deinit {
@@ -81,6 +87,16 @@ final class AudioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
             player.removeTimeObserver(timeObserver)
         }
         networkMonitor.cancel()
+        NotificationCenter.default.removeObserver(self, name: AVAudioSession.interruptionNotification, object: AVAudioSession.sharedInstance())
+    }
+
+    @objc private func handleAudioSessionInterruption(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
+        if type == .began {
+            stop()
+        }
     }
 
     func play(station: Station, quality: PlaybackQuality) {
