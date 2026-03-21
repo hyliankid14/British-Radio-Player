@@ -6,4 +6,6 @@
     <cache-path name="cache" path="." />
     <!-- External cache directory -->
     <external-cache-path name="external_cache" path="." />
+    <!-- Public Podcasts directory for downloaded episodes -->
+    <external-path name="public_podcasts" path="Podcasts/British Radio Player/" />
 </paths>

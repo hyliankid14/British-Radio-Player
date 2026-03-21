@@ -40,6 +40,7 @@ object EpisodeDownloadManager {
     private const val KEY_PREFIX_HTTP_RETRY = "http_retry_"
     private const val KEY_PREFIX_DIRECT_RETRY = "direct_retry_"
     private const val DOWNLOAD_FAILURE_CHANNEL_ID = "episode_download_failures"
+    private const val DOWNLOAD_SUCCESS_CHANNEL_ID = "episode_download_success"
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
@@ -130,6 +131,10 @@ object EpisodeDownloadManager {
                             putExtra(EXTRA_SUCCESS, true)
                         }
                         context.sendBroadcast(broadcastIntent)
+
+                        if (!autoDownload) {
+                            showSuccessNotification(context, episodeId, episode.title, podcastTitle, localRef)
+                        }
 
                         Log.d(TAG, "Episode downloaded successfully: ${episode.title} to $localRef")
                     } catch (e: Exception) {
@@ -286,6 +291,9 @@ object EpisodeDownloadManager {
                             putExtra(EXTRA_SUCCESS, true)
                         }
                         appContext.sendBroadcast(okIntent)
+                        if (!isAutoDownload) {
+                            showSuccessNotification(appContext, episode.id, episode.title, podcastTitle, destinationFile.absolutePath)
+                        }
                         Log.d(TAG, "Episode downloaded via primary direct path: ${episode.title}")
                     } else {
                         val code = result.httpCode ?: -1
@@ -381,7 +389,7 @@ object EpisodeDownloadManager {
         val request = DownloadManager.Request(Uri.parse(episode.audioUrl)).apply {
             setTitle("${podcastTitle ?: "Podcast"}: ${episode.title}")
             setDescription("Downloading episode")
-            setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
             setDestinationInExternalPublicDir(Environment.DIRECTORY_PODCASTS, publicSubPath)
             setMimeType("audio/mpeg")
             addRequestHeader("User-Agent", "British Radio Player/1.0 (Android)")
@@ -772,6 +780,100 @@ object EpisodeDownloadManager {
         }
 
         return DirectDownloadResult(success = false, httpCode = lastCode, errorMessage = "Too many redirects")
+    }
+
+    private fun ensureSuccessChannel(context: Context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val existing = manager.getNotificationChannel(DOWNLOAD_SUCCESS_CHANNEL_ID)
+        if (existing != null) return
+        val channel = NotificationChannel(
+            DOWNLOAD_SUCCESS_CHANNEL_ID,
+            "Episode downloads",
+            NotificationManager.IMPORTANCE_DEFAULT
+        )
+        manager.createNotificationChannel(channel)
+    }
+
+    private fun showSuccessNotification(
+        context: Context,
+        episodeId: String,
+        episodeTitle: String,
+        podcastTitle: String?,
+        localFilePath: String
+    ) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                val granted = ContextCompat.checkSelfPermission(
+                    context,
+                    android.Manifest.permission.POST_NOTIFICATIONS
+                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                if (!granted) return
+            }
+
+            ensureSuccessChannel(context)
+            val manager = NotificationManagerCompat.from(context)
+            if (!manager.areNotificationsEnabled()) return
+
+            val openAppIntent = Intent(context, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                putExtra("open_mode", "podcasts")
+            }
+            val contentIntent = PendingIntent.getActivity(
+                context,
+                "success_${episodeId}".hashCode(),
+                openAppIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val openFileIntent = try {
+                val file = File(localFilePath)
+                val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    androidx.core.content.FileProvider.getUriForFile(
+                        context,
+                        "${context.packageName}.fileprovider",
+                        file
+                    )
+                } else {
+                    Uri.fromFile(file)
+                }
+                Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, "audio/mpeg")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            } catch (_: Exception) { null }
+
+            val openFilePendingIntent = if (openFileIntent != null) {
+                PendingIntent.getActivity(
+                    context,
+                    "open_file_${episodeId}".hashCode(),
+                    openFileIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+            } else null
+
+            val contentText = if (!podcastTitle.isNullOrBlank()) podcastTitle else episodeTitle
+            val builder = NotificationCompat.Builder(context, DOWNLOAD_SUCCESS_CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                .setContentTitle("Episode downloaded")
+                .setContentText(contentText)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(episodeTitle))
+                .setAutoCancel(true)
+                .setContentIntent(contentIntent)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+
+            if (openFilePendingIntent != null) {
+                builder.addAction(
+                    android.R.drawable.ic_media_play,
+                    "Open file",
+                    openFilePendingIntent
+                )
+            }
+
+            manager.notify("success_${episodeId}".hashCode(), builder.build())
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to show download success notification", e)
+        }
     }
 
     private fun ensureFailureChannel(context: Context) {
