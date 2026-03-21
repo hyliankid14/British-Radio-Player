@@ -292,6 +292,19 @@ class MainActivity : AppCompatActivity() {
                         showFavorites()
                         return
                     }
+                    if (returnToSavedSearchesOnBack && top is PodcastDetailFragment) {
+                        // User is viewing a podcast detail opened from within a saved search session;
+                        // pop the detail and return directly to Favorites Searches.
+                        returnToSavedSearchesOnBack = false
+                        try { supportFragmentManager.popBackStack() } catch (_: Exception) { }
+                        suppressBottomNavSelection = true
+                        try { bottomNavigation.selectedItemId = R.id.navigation_favorites } catch (_: Exception) { }
+                        suppressBottomNavSelection = false
+                        try { getPreferences(android.content.Context.MODE_PRIVATE).edit()
+                            .putInt("last_fav_tab_id", R.id.fav_tab_searches).apply() } catch (_: Exception) { }
+                        showFavorites()
+                        return
+                    }
                     if (returnToSavedSearchesOnBack && top is PodcastsFragment
                             && supportFragmentManager.backStackEntryCount == 0) {
                         returnToSavedSearchesOnBack = false
