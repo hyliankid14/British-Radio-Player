@@ -589,6 +589,8 @@ class PodcastsFragment : Fragment() {
             sortSpinner.setText("Most popular", false)
             viewModel.cachedFilter = currentFilter
             viewModel.cachedSort = "Most popular"
+            // Reset the title bar to the default Podcasts state (remove back navigation)
+            resetTitleBar()
             applyFilters(emptyState, recyclerView)
             updateSaveSearchButtonVisibility()
         }
@@ -1312,6 +1314,15 @@ class PodcastsFragment : Fragment() {
         try { SearchCacheStore.clear(requireContext()) } catch (_: Exception) {}
     }
 
+    private fun resetTitleBar() {
+        view?.findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.podcasts_title_bar)
+            ?.apply {
+                title = "Podcasts"
+                navigationIcon = null
+                setNavigationOnClickListener(null)
+            }
+    }
+
     private fun showSaveSearchDialog() {
         val q = (viewModel.activeSearchQuery.value ?: searchQuery).trim()
         if (q.isBlank()) return
@@ -1466,6 +1477,17 @@ class PodcastsFragment : Fragment() {
         }
 
         updateSaveSearchButtonVisibility()
+
+        // Show a back arrow on the title bar and label it with the saved search name so the
+        // user can easily navigate back to the Saved Searches list.
+        val titleBar = view?.findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.podcasts_title_bar)
+        titleBar?.apply {
+            title = savedSearch.name.ifBlank { savedSearch.query }
+            setNavigationIcon(R.drawable.ic_arrow_back)
+            setNavigationOnClickListener {
+                requireActivity().onBackPressedDispatcher.onBackPressed()
+            }
+        }
 
         // Re-bind sort spinner to ensure it reflects the current sort and has proper listener
         if (sortSpinner != null && emptyState != null && recyclerView != null) {
