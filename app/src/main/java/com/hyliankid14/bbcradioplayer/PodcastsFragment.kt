@@ -1478,16 +1478,14 @@ class PodcastsFragment : Fragment() {
 
         updateSaveSearchButtonVisibility()
 
-        // Show a back arrow on the title bar and label it with the saved search name so the
-        // user can easily navigate back to the Saved Searches list.
-        val titleBar = view?.findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.podcasts_title_bar)
-        titleBar?.apply {
-            title = savedSearch.name.ifBlank { savedSearch.query }
-            setNavigationIcon(R.drawable.ic_arrow_back)
-            setNavigationOnClickListener {
-                requireActivity().onBackPressedDispatcher.onBackPressed()
+        // Show a back arrow on the title bar so the user can navigate back to the Saved Searches list.
+        view?.findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.podcasts_title_bar)
+            ?.apply {
+                setNavigationIcon(R.drawable.ic_arrow_back)
+                setNavigationOnClickListener {
+                    requireActivity().onBackPressedDispatcher.onBackPressed()
+                }
             }
-        }
 
         // Re-bind sort spinner to ensure it reflects the current sort and has proper listener
         if (sortSpinner != null && emptyState != null && recyclerView != null) {
