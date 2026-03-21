@@ -2,6 +2,12 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
 
+    <!-- View all episodes for the current podcast -->
+    <item
+        android:id="@+id/action_view_all_episodes"
+        android:title="View all episodes"
+        app:showAsAction="never" />
+
     <!-- Share Episode -->
     <item
         android:id="@+id/action_share"

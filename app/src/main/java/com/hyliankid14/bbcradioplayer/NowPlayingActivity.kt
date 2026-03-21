@@ -434,6 +434,20 @@ class NowPlayingActivity : AppCompatActivity() {
     // Back navigation handled by OnBackPressedDispatcher callback (added in onCreate).
 
     private fun navigateBackToPodcastDetail() {
+        // If opened from the saved-episodes or history list, return to that list rather than the podcast root
+        val backSource = intent.getStringExtra("back_source")
+        if (backSource == "saved_episodes" || backSource == "history") {
+            val favTab = if (backSource == "saved_episodes") "saved" else "history"
+            val returnIntent = Intent(this, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                putExtra("open_mode", "favorites")
+                putExtra("open_fav_tab", favTab)
+            }
+            startActivity(returnIntent)
+            finish()
+            return
+        }
+
         // Prefer the explicit preview episode's podcastId when available, otherwise derive from current station
         val podcastId = previewEpisodeProp?.podcastId ?: PlaybackStateHelper.getCurrentStation()?.id?.removePrefix("podcast_")
         if (!podcastId.isNullOrEmpty()) {
@@ -1100,6 +1114,10 @@ class NowPlayingActivity : AppCompatActivity() {
                     else -> null
                 }
 
+                // View all episodes: only show when we have a podcast context
+                val viewAllItem = menu.findItem(R.id.action_view_all_episodes)
+                viewAllItem.isVisible = podcastId != null
+
                 // Share: only show when we have an episode
                 val episodeId = previewEpisodeProp?.id ?: PlaybackStateHelper.getCurrentEpisodeId() ?: currentShownEpisodeId
                 val shareItem = menu.findItem(R.id.action_share)
@@ -1145,6 +1163,24 @@ class NowPlayingActivity : AppCompatActivity() {
                 when (item.itemId) {
                     android.R.id.home -> {
                         onSupportNavigateUp()
+                        return true
+                    }
+
+                    R.id.action_view_all_episodes -> {
+                        val station = PlaybackStateHelper.getCurrentStation()
+                        val podcastId = when {
+                            station != null && station.id.startsWith("podcast_") -> station.id.removePrefix("podcast_")
+                            previewEpisodeProp != null -> previewEpisodeProp!!.podcastId
+                            else -> null
+                        }
+                        if (!podcastId.isNullOrEmpty()) {
+                            val intent = Intent(this, MainActivity::class.java).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                                putExtra("open_podcast_id", podcastId)
+                            }
+                            startActivity(intent)
+                            finish()
+                        }
                         return true
                     }
 

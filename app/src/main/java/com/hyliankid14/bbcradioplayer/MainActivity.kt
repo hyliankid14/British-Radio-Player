@@ -572,7 +572,31 @@ class MainActivity : AppCompatActivity() {
     private fun handleOpenModeIntent(intent: Intent?) {
         val mode = intent?.getStringExtra("open_mode") ?: return
         when (mode) {
-            "favorites" -> showFavorites()
+            "favorites" -> {
+                showFavorites()
+                // Optionally switch to a specific favorites sub-tab
+                val favTab = intent.getStringExtra("open_fav_tab")
+                if (!favTab.isNullOrEmpty()) {
+                    val tabId = when (favTab) {
+                        "saved" -> R.id.fav_tab_saved
+                        "history" -> R.id.fav_tab_history
+                        "subscribed" -> R.id.fav_tab_subscribed
+                        "searches" -> R.id.fav_tab_searches
+                        "stations" -> R.id.fav_tab_stations
+                        else -> null
+                    }
+                    if (tabId != null) {
+                        try {
+                            getPreferences(android.content.Context.MODE_PRIVATE)
+                                .edit().putInt("last_fav_tab_id", tabId).apply()
+                        } catch (e: Exception) {
+                            android.util.Log.w("MainActivity", "Failed to persist fav tab selection: ${e.message}")
+                        }
+                        updateFavoritesToggleVisuals(tabId)
+                        showFavoritesTab(favTab)
+                    }
+                }
+            }
             "list" -> showAllStations()
             "podcasts" -> {
                 try { bottomNavigation.selectedItemId = R.id.navigation_podcasts } catch (e: Exception) {
@@ -693,6 +717,7 @@ class MainActivity : AppCompatActivity() {
                         putExtra("preview_use_play_ui", true)
                         putExtra("preview_podcast_title", podcastTitle)
                         putExtra("preview_podcast_image", episode.imageUrl.takeIf { it.isNotEmpty() } ?: podcastImage)
+                        putExtra("back_source", "saved_episodes")
                     }
                     startActivity(intent)
                 }, onRemoveSaved = { id ->
@@ -894,6 +919,7 @@ class MainActivity : AppCompatActivity() {
                             putExtra("preview_use_play_ui", true)
                             putExtra("preview_podcast_title", podcastTitle)
                             putExtra("preview_podcast_image", podcastImage)
+                            putExtra("back_source", "history")
                         }
                         startActivity(intent)
                     }
