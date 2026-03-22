@@ -1870,14 +1870,15 @@ class PodcastsFragment : Fragment() {
                                     }
                                 }
                                 if (ftsResults.isNotEmpty()) {
-                                    val uniqueResults = ftsResults.distinctBy { it.episodeId }
-                                        // Reject FTS hits that don't have a word-boundary match —
-                                        // the remote server may use substring matching.
-                                        .filter { ef ->
-                                            repository.textMatchesNormalized(ef.title, q) ||
-                                            repository.textMatchesNormalized(ef.description, q)
-                                        }
+                                    val deduped = ftsResults.distinctBy { it.episodeId }
                                     val podcastById = allPodcasts.associateBy { it.id }
+                                    val uniqueResults = deduped
+                                        // Reject FTS hits that don't have a word-boundary match in title
+                                        // or description, and enforce any NOT terms against the podcast name.
+                                        .filter { ef ->
+                                            val podcastName = podcastById[ef.podcastId]?.title ?: ""
+                                            repository.episodeMatchesQuery(ef.title, ef.description, podcastName, q)
+                                        }
                                     val episodeCacheById: Map<String, List<Episode>?> =
                                         uniqueResults.map { it.podcastId }.distinct()
                                             .associateWith { pid -> repository.getEpisodesFromCache(pid) }
@@ -1985,10 +1986,10 @@ class PodcastsFragment : Fragment() {
                                 val episodeCacheByPodcastId = mutableMapOf<String, List<Episode>?>()
 
                                 // Reject FTS hits that don't have a word-boundary match in title
-                                // or description before building Episode objects.
+                                // or description, and enforce any NOT terms against the podcast name.
                                 val validFtsResults = ftsResults.filter { ef ->
-                                    repository.textMatchesNormalized(ef.title, q) ||
-                                    repository.textMatchesNormalized(ef.description, q)
+                                    val podcastName = podcastById[ef.podcastId]?.title ?: ""
+                                    repository.episodeMatchesQuery(ef.title, ef.description, podcastName, q)
                                 }
                                 for (ef in validFtsResults) {
                                     if (!coroutineContext.isActive) break

@@ -112,6 +112,34 @@ class PodcastRepository(private val context: Context) {
     }
 
     /**
+     * Unified episode match check for the post-FTS filter. Combines:
+     *  - NOT filtering: returns false if any excluded term (-word) appears in the episode title,
+     *    episode description, OR the podcast name (so "-football" correctly excludes Football Daily
+     *    episodes even when "football" only appears in the podcast name, not the episode text).
+     *  - Positive matching: for simple queries, checks whether the episode title or description
+     *    contains the positive search term. For advanced queries with no positive terms (only NOT
+     *    operators), returns true once the NOT filter passes.
+     */
+    fun episodeMatchesQuery(
+        episodeTitle: String,
+        episodeDesc: String,
+        podcastName: String,
+        query: String
+    ): Boolean {
+        if (isAdvancedQuery(query)) {
+            val notTerms = extractNotTerms(query)
+            if (notTerms.isNotEmpty() &&
+                !listOf(episodeTitle, episodeDesc, podcastName).all { textPassesNotFilter(it, notTerms) }) {
+                return false
+            }
+            return true
+        }
+        val queryLower = query.lowercase(Locale.getDefault())
+        return containsPhraseOrAllTokens(episodeTitle.lowercase(Locale.getDefault()), queryLower) ||
+               containsPhraseOrAllTokens(episodeDesc.lowercase(Locale.getDefault()), queryLower)
+    }
+
+    /**
      * Extract plain-text phrases from an advanced query for contains-checking.
      * Splits on OR boundaries, strips quotes, operators and wildcards, normalizes whitespace.
      * e.g. '"Donald Trump" OR "President Trump"' → ["donald trump", "president trump"]
@@ -263,6 +291,11 @@ class PodcastRepository(private val context: Context) {
         val idx = episodesIndex[podcastId] ?: return emptyList()
         val notTerms = extractNotTerms(queryLower)
         val positiveQuery = if (notTerms.isNotEmpty()) extractPositiveQuery(queryLower) else queryLower
+        // If the podcast name itself contains a NOT term, skip the entire podcast for this query.
+        if (notTerms.isNotEmpty()) {
+            val podcastTitle = podcastSearchIndex[podcastId]?.first ?: ""
+            if (!textPassesNotFilter(podcastTitle, notTerms)) return emptyList()
+        }
         val titleMatches = mutableListOf<Episode>()
         val descMatches = mutableListOf<Episode>()
 
