@@ -2,12 +2,14 @@ package com.hyliankid14.bbcradioplayer
 
 import android.Manifest
 import android.app.DownloadManager
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.os.Build
+import android.provider.Settings
 import android.util.Log
 import android.view.KeyEvent
 import android.content.res.ColorStateList
@@ -21,6 +23,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.FragmentManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import android.support.v4.media.MediaDescriptionCompat
@@ -59,6 +62,13 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
 
 class MainActivity : AppCompatActivity() {
+    companion object {
+        private const val GITHUB_UPDATE_PREFS = "github_update_prefs"
+        private const val KEY_LAST_AUTO_CHECK_AT = "last_auto_check_at"
+        private const val KEY_LAST_DECLINED_VERSION = "last_declined_version"
+        private const val AUTO_UPDATE_CHECK_INTERVAL_MS = 6L * 60L * 60L * 1000L
+    }
+
     private lateinit var stationsList: RecyclerView
     private lateinit var settingsContainer: View
     private lateinit var fragmentContainer: View
@@ -122,6 +132,8 @@ class MainActivity : AppCompatActivity() {
     private var lastSeenIndexPercent: Int = 0
     private var savedSearchDateRefreshJob: Job? = null
     private lateinit var analytics: PrivacyAnalytics
+    private var updateDownloadId: Long? = null
+    private var updateDownloadReceiver: BroadcastReceiver? = null
 
     private val showChangeListener: (CurrentShow) -> Unit = { show ->
         runOnUiThread { updateMiniPlayerFromShow(show) }
@@ -470,6 +482,8 @@ class MainActivity : AppCompatActivity() {
         handleOpenPodcastIntent(intent)
         handleOpenModeIntent(intent)
         handleOpenSavedSearchIntent(intent)
+
+        maybeAutoCheckForGitHubUpdates()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -3315,9 +3329,119 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        unregisterUpdateReceiver()
         super.onDestroy()
         PlaybackStateHelper.removeShowChangeListener(showChangeListener)
         supportFragmentManager.removeOnBackStackChangedListener(backStackListener)
+    }
+
+    private fun maybeAutoCheckForGitHubUpdates() {
+        if (!BuildConfig.ENABLE_GITHUB_UPDATER) return
+
+        val prefs = getSharedPreferences(GITHUB_UPDATE_PREFS, MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        val lastCheckAt = prefs.getLong(KEY_LAST_AUTO_CHECK_AT, 0L)
+        if (now - lastCheckAt < AUTO_UPDATE_CHECK_INTERVAL_MS) return
+
+        prefs.edit().putLong(KEY_LAST_AUTO_CHECK_AT, now).apply()
+
+        lifecycleScope.launch {
+            kotlinx.coroutines.delay(1500)
+
+            val currentVersion = try {
+                packageManager.getPackageInfo(packageName, 0).versionName ?: return@launch
+            } catch (_: Exception) {
+                return@launch
+            }
+
+            val latestRelease = GitHubAppUpdater.fetchLatestRelease() ?: return@launch
+            if (!GitHubAppUpdater.isUpdateAvailable(currentVersion, latestRelease.version)) return@launch
+
+            val lastDeclinedVersion = prefs.getString(KEY_LAST_DECLINED_VERSION, null)
+            if (lastDeclinedVersion == latestRelease.version) return@launch
+
+            showGitHubUpdateDialog(latestRelease, prefs)
+        }
+    }
+
+    private fun showGitHubUpdateDialog(releaseInfo: GitHubReleaseInfo, prefs: android.content.SharedPreferences) {
+        if (isFinishing || isDestroyed) return
+
+        AlertDialog.Builder(this)
+            .setTitle("Update available")
+            .setMessage("Version ${releaseInfo.version} is available. Download and install now?")
+            .setPositiveButton("Download") { _, _ ->
+                try {
+                    val downloadId = GitHubAppUpdater.enqueueApkDownload(this, releaseInfo)
+                    updateDownloadId = downloadId
+                    registerUpdateReceiver()
+                    prefs.edit().remove(KEY_LAST_DECLINED_VERSION).apply()
+                    Toast.makeText(this, getString(R.string.update_download_started), Toast.LENGTH_SHORT).show()
+                } catch (_: Exception) {
+                    Toast.makeText(this, getString(R.string.update_check_failed), Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("Later") { _, _ ->
+                prefs.edit().putString(KEY_LAST_DECLINED_VERSION, releaseInfo.version).apply()
+            }
+            .show()
+    }
+
+    private fun registerUpdateReceiver() {
+        if (updateDownloadReceiver != null) return
+
+        updateDownloadReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                if (intent.action != DownloadManager.ACTION_DOWNLOAD_COMPLETE) return
+
+                val completedId = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L)
+                if (completedId <= 0 || completedId != updateDownloadId) return
+
+                val apkUri = GitHubAppUpdater.getDownloadedApkUri(this@MainActivity, completedId)
+                if (apkUri == null) {
+                    Toast.makeText(this@MainActivity, getString(R.string.update_download_failed), Toast.LENGTH_SHORT).show()
+                    return
+                }
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
+                    val settingsIntent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                        data = Uri.parse("package:$packageName")
+                    }
+                    startActivity(settingsIntent)
+                    Toast.makeText(this@MainActivity, "Allow installs from this app, then run update again.", Toast.LENGTH_LONG).show()
+                    return
+                }
+
+                val installIntent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(apkUri, "application/vnd.android.package-archive")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+
+                try {
+                    startActivity(installIntent)
+                } catch (_: Exception) {
+                    Toast.makeText(this@MainActivity, getString(R.string.update_download_failed), Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(updateDownloadReceiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(updateDownloadReceiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE))
+        }
+    }
+
+    private fun unregisterUpdateReceiver() {
+        val receiver = updateDownloadReceiver ?: return
+        try {
+            unregisterReceiver(receiver)
+        } catch (_: Exception) {
+        } finally {
+            updateDownloadReceiver = null
+            updateDownloadId = null
+        }
     }
     
     private fun areColorsSimilar(c1: Int, c2: Int): Boolean {
