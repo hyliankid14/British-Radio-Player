@@ -35,14 +35,42 @@ class PodcastRepository(private val context: Context) {
     }
 
     private fun containsPhraseOrAllTokens(textLower: String, queryLower: String): Boolean {
+        // Strip punctuation/whitespace but keep diacritics intact
+        val stripPunct = { s: String ->
+            s.replace(Regex("[^\\p{L}0-9\\s]"), " ").replace(Regex("\\s+"), " ").trim()
+        }
         // Normalize both text and query by removing diacritics, non-alphanumeric characters and collapsing whitespace
         val normalize = { s: String ->
             val noDiacritics = java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD)
                 .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
-            noDiacritics.replace(Regex("[^\\p{L}0-9\\s]"), " ").replace(Regex("\\s+"), " ").trim()
+            stripPunct(noDiacritics)
         }
         val textNorm = normalize(textLower)
         val queryNorm = normalize(queryLower)
+
+        // If the query contains diacritic characters (e.g. "nestlé" from a search for "Nestlé"),
+        // require the text to also contain those diacritics at a word boundary. Without this
+        // guard, "Nestlé" normalises to "nestle" and would falsely match common phrases like
+        // "nestle in the bottom corner" that have nothing to do with the Nestlé brand.
+        val queryStrippedPunct = stripPunct(queryLower)
+        if (queryNorm != queryStrippedPunct) {
+            val textStrippedPunct = stripPunct(textLower)
+            val normTokens = queryNorm.split(Regex("\\s+")).filter { it.isNotEmpty() }
+            val origTokens = queryStrippedPunct.split(Regex("\\s+")).filter { it.isNotEmpty() }
+            if (normTokens.size == origTokens.size) {
+                val diacriticTokens = normTokens.zip(origTokens)
+                    .filter { (norm, orig) -> norm != orig }
+                    .map { (_, orig) -> orig }
+                if (diacriticTokens.any { tok -> !textStrippedPunct.contains(Regex("\\b${Regex.escape(tok)}\\b")) }) {
+                    return false
+                }
+            } else {
+                // Token counts differ (unusual edge case); require the full diacritic phrase
+                if (!textStrippedPunct.contains(Regex("\\b${Regex.escape(queryStrippedPunct)}\\b"))) {
+                    return false
+                }
+            }
+        }
 
         // Word-boundary phrase match: the query must appear at the start of a word
         if (textNorm.contains(Regex("\\b${Regex.escape(queryNorm)}"))) return true
@@ -69,12 +97,46 @@ class PodcastRepository(private val context: Context) {
         return true
     }
 
-    // Public helper so other classes can check normalized phrase/token-AND matches using repository logic
+    // Public helper so other classes can check normalized phrase/token-AND matches using repository logic.
+    // For advanced queries containing NOT terms (e.g. "Nestle -noodles"), this returns false if the
+    // text contains any excluded term, ensuring the post-FTS filter honours the - operator.
     fun textMatchesNormalized(text: String, query: String): Boolean {
-        if (isAdvancedQuery(query)) return true
+        if (isAdvancedQuery(query)) {
+            val notTerms = extractNotTerms(query)
+            if (notTerms.isNotEmpty() && !textPassesNotFilter(text, notTerms)) return false
+            return true
+        }
         val textLower = text.lowercase(Locale.getDefault())
         val queryLower = query.lowercase(Locale.getDefault())
         return containsPhraseOrAllTokens(textLower, queryLower)
+    }
+
+    /**
+     * Unified episode match check for the post-FTS filter. Combines:
+     *  - NOT filtering: returns false if any excluded term (-word) appears in the episode title,
+     *    episode description, OR the podcast name (so "-football" correctly excludes Football Daily
+     *    episodes even when "football" only appears in the podcast name, not the episode text).
+     *  - Positive matching: for simple queries, checks whether the episode title or description
+     *    contains the positive search term. For advanced queries with no positive terms (only NOT
+     *    operators), returns true once the NOT filter passes.
+     */
+    fun episodeMatchesQuery(
+        episodeTitle: String,
+        episodeDesc: String,
+        podcastName: String,
+        query: String
+    ): Boolean {
+        if (isAdvancedQuery(query)) {
+            val notTerms = extractNotTerms(query)
+            if (notTerms.isNotEmpty() &&
+                !listOf(episodeTitle, episodeDesc, podcastName).all { textPassesNotFilter(it, notTerms) }) {
+                return false
+            }
+            return true
+        }
+        val queryLower = query.lowercase(Locale.getDefault())
+        return containsPhraseOrAllTokens(episodeTitle.lowercase(Locale.getDefault()), queryLower) ||
+               containsPhraseOrAllTokens(episodeDesc.lowercase(Locale.getDefault()), queryLower)
     }
 
     /**
@@ -97,13 +159,18 @@ class PodcastRepository(private val context: Context) {
 
     /**
      * For FTS podcast results, determine whether the match is in the title.
-     * For advanced/OR queries, checks if any plain term extracted from the query
-     * appears in the title — avoids the always-true shortcut of textMatchesNormalized.
+     * For advanced/OR queries, checks if any plain term extracted from the positive part of the
+     * query appears in the title — avoids the always-true shortcut of textMatchesNormalized.
+     * NOT terms are also enforced so that excluded terms block the match.
      */
     private fun ftsMatchesTitle(fts: com.hyliankid14.bbcradioplayer.db.PodcastFts, query: String): Boolean {
         if (!isAdvancedQuery(query)) return textMatchesNormalized(fts.title, query)
+        val notTerms = extractNotTerms(query)
+        if (!textPassesNotFilter(fts.title, notTerms)) return false
+        val positiveQuery = if (notTerms.isNotEmpty()) extractPositiveQuery(query) else query
+        if (positiveQuery.isBlank()) return true
         val titleLower = fts.title.lowercase(Locale.getDefault())
-        return extractPlainTermsFromQuery(query).any { term ->
+        return extractPlainTermsFromQuery(positiveQuery).any { term ->
             term.isNotEmpty() && containsPhraseOrAllTokens(titleLower, term)
         }
     }
@@ -114,8 +181,12 @@ class PodcastRepository(private val context: Context) {
      */
     private fun ftsMatchesDescription(fts: com.hyliankid14.bbcradioplayer.db.PodcastFts, query: String): Boolean {
         if (!isAdvancedQuery(query)) return textMatchesNormalized(fts.description, query)
+        val notTerms = extractNotTerms(query)
+        if (!textPassesNotFilter(fts.description, notTerms)) return false
+        val positiveQuery = if (notTerms.isNotEmpty()) extractPositiveQuery(query) else query
+        if (positiveQuery.isBlank()) return true
         val descLower = fts.description.lowercase(Locale.getDefault())
-        return extractPlainTermsFromQuery(query).any { term ->
+        return extractPlainTermsFromQuery(positiveQuery).any { term ->
             term.isNotEmpty() && containsPhraseOrAllTokens(descLower, term)
         }
     }
@@ -132,14 +203,57 @@ class PodcastRepository(private val context: Context) {
     }
 
     /**
+     * Extract NOT terms (prefixed with -) from a query.
+     * e.g. "Nestle -noodles -pasta" → ["noodles", "pasta"]
+     */
+    private fun extractNotTerms(query: String): List<String> {
+        val result = mutableListOf<String>()
+        for (token in query.trim().split(Regex("\\s+"))) {
+            if (token.startsWith("-") && token.length > 1) {
+                val term = token.removePrefix("-").trim('"', '*').lowercase(Locale.getDefault())
+                if (term.isNotEmpty()) result.add(term)
+            }
+        }
+        return result
+    }
+
+    /**
+     * Returns the query with all NOT terms (prefixed with -) removed,
+     * leaving only positive search terms.
+     * e.g. "Nestle -noodles" → "Nestle"
+     */
+    fun extractPositiveQuery(query: String): String =
+        query.trim().split(Regex("\\s+")).filter { !it.startsWith("-") }.joinToString(" ").trim()
+
+    /**
+     * Returns true if the text does NOT contain any of the given NOT terms at a word boundary.
+     * Both text and NOT terms are compared after diacritic-stripping.
+     */
+    private fun textPassesNotFilter(text: String, notTerms: List<String>): Boolean {
+        if (notTerms.isEmpty()) return true
+        val textNorm = java.text.Normalizer.normalize(text, java.text.Normalizer.Form.NFD)
+            .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
+            .replace(Regex("[^\\p{L}0-9\\s]"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+            .lowercase(Locale.getDefault())
+        return notTerms.none { term -> textNorm.contains(Regex("\\b${Regex.escape(term)}\\b")) }
+    }
+
+    /**
      * Check whether text matches any clause of a (possibly OR-compound) query.
      * Splits on OR boundaries so that "donald trump" or "president trump" each
      * get checked individually rather than as a single all-tokens expression.
+     * NOT terms (prefixed with -) are enforced: text containing an excluded term returns false.
      */
     private fun textMatchesAnyClauses(text: String, queryLower: String): Boolean {
-        val clauses = extractPlainTermsFromQuery(queryLower)
+        val notTerms = extractNotTerms(queryLower)
+        if (!textPassesNotFilter(text, notTerms)) return false
+        val positiveQuery = if (notTerms.isNotEmpty()) extractPositiveQuery(queryLower) else queryLower
+        if (positiveQuery.isBlank()) return true
+        val clauses = extractPlainTermsFromQuery(positiveQuery)
         if (clauses.size > 1) return clauses.any { containsPhraseOrAllTokens(text, it) }
-        return containsPhraseOrAllTokens(text, queryLower)
+        return containsPhraseOrAllTokens(text, positiveQuery)
     }
 
     fun podcastMatches(podcast: Podcast, queryLower: String): Boolean {
@@ -175,15 +289,26 @@ class PodcastRepository(private val context: Context) {
     fun searchCachedEpisodes(podcastId: String, queryLower: String, maxResults: Int = 3): List<Episode> {
         val eps = episodesCache[podcastId] ?: return emptyList()
         val idx = episodesIndex[podcastId] ?: return emptyList()
+        val notTerms = extractNotTerms(queryLower)
+        val positiveQuery = if (notTerms.isNotEmpty()) extractPositiveQuery(queryLower) else queryLower
+        // If there are only NOT terms and no positive query, nothing to match against.
+        if (positiveQuery.isBlank()) return emptyList()
+        // If the podcast name itself contains a NOT term, skip the entire podcast for this query.
+        if (notTerms.isNotEmpty()) {
+            val podcastTitle = podcastSearchIndex[podcastId]?.first ?: ""
+            if (!textPassesNotFilter(podcastTitle, notTerms)) return emptyList()
+        }
         val titleMatches = mutableListOf<Episode>()
         val descMatches = mutableListOf<Episode>()
 
         for (i in idx.indices) {
             val (titleLower, descLower) = idx[i]
-            if (containsPhraseOrAllTokens(titleLower, queryLower)) {
+            // Exclude episodes whose title or description contains a NOT term.
+            if (!textPassesNotFilter(titleLower, notTerms) || !textPassesNotFilter(descLower, notTerms)) continue
+            if (containsPhraseOrAllTokens(titleLower, positiveQuery)) {
                 titleMatches.add(eps[i])
                 android.util.Log.d("PodcastRepository", "searchCachedEpisodes: title matched podcast=$podcastId episode='${eps[i].title}' for query='$queryLower'")
-            } else if (containsPhraseOrAllTokens(descLower, queryLower)) {
+            } else if (containsPhraseOrAllTokens(descLower, positiveQuery)) {
                 descMatches.add(eps[i])
                 android.util.Log.d("PodcastRepository", "searchCachedEpisodes: description matched podcast=$podcastId episode='${eps[i].title}' for query='$queryLower'")
             }
@@ -502,6 +627,9 @@ class PodcastRepository(private val context: Context) {
         // Ensure we have indexed data for fast checks
         indexPodcasts(baseFiltered)
         val qLower = q.lowercase(Locale.getDefault())
+        // Strip NOT terms (e.g. "-football") before sending to FTS so that the FTS engine only
+        // receives positive search terms. NOT filtering is handled in-memory by our helpers.
+        val qPositive = extractPositiveQuery(q)
 
         // Attempt to use the remote server index first, then fall back to the on-disk
         // SQLite FTS index, and finally fall back to the in-memory cache.
@@ -515,12 +643,12 @@ class PodcastRepository(private val context: Context) {
         try {
             val remote = RemoteIndexClient(context)
             if (remote.isServerAvailable()) {
-                val pMatches = remote.searchPodcasts(q, 50)
-                android.util.Log.d("PodcastRepository", "Remote searchPodcasts q='$q' returned ${pMatches.size}")
+                val pMatches = remote.searchPodcasts(qPositive, 50)
+                android.util.Log.d("PodcastRepository", "Remote searchPodcasts qPositive='$qPositive' returned ${pMatches.size}")
                 val pTitleIds = pMatches.filter { ftsMatchesTitle(it, q) }.map { it.podcastId }.toSet()
                 val pDescIds  = pMatches.filter { !ftsMatchesTitle(it, q) && ftsMatchesDescription(it, q) }.map { it.podcastId }.toSet()
 
-                val eMatches = remote.searchEpisodes(q, 200)
+                val eMatches = remote.searchEpisodes(qPositive, 200)
                 val eTitleIds = eMatches.filter { textMatchesNormalized(it.title, q) }.map { it.podcastId }.toSet()
                 val eDescIds  = eMatches.filter { !textMatchesNormalized(it.title, q) && textMatchesNormalized(it.description, q) }.map { it.podcastId }.toSet()
 
@@ -553,8 +681,8 @@ class PodcastRepository(private val context: Context) {
         try {
             val index = com.hyliankid14.bbcradioplayer.db.IndexStore.getInstance(context)
 
-            val pMatches = index.searchPodcasts(q, 50)
-            android.util.Log.d("PodcastRepository", "searchPodcasts q='$q' returned ${pMatches.size}: ${pMatches.map { it.podcastId + '/' + it.title }}")
+            val pMatches = index.searchPodcasts(qPositive, 50)
+            android.util.Log.d("PodcastRepository", "searchPodcasts qPositive='$qPositive' returned ${pMatches.size}: ${pMatches.map { it.podcastId + '/' + it.title }}")
             val pTitleIds = pMatches.filter { ftsMatchesTitle(it, q) }.map { it.podcastId }.toSet()
             // Only include as a description match if the description actually has a word-boundary match
             val pDescIds = pMatches.filter { !ftsMatchesTitle(it, q) && ftsMatchesDescription(it, q) }.map { it.podcastId }.toSet()
@@ -565,7 +693,7 @@ class PodcastRepository(private val context: Context) {
                 android.util.Log.d("PodcastRepository", "  fts pid=${fts.podcastId} title='${fts.title}' ftsMatchesTitle=${ftsMatchesTitle(fts, q)} terms check: ${extractedTerms.map { term -> term to containsPhraseOrAllTokens(fts.title.lowercase(Locale.getDefault()), term) }}")
             }
 
-            val eMatches = index.searchEpisodes(q, 200)
+            val eMatches = index.searchEpisodes(qPositive, 200)
             val eTitleIds = eMatches.filter { textMatchesNormalized(it.title, q) }.map { it.podcastId }.toSet()
             val eDescIds = eMatches.filter { !textMatchesNormalized(it.title, q) && textMatchesNormalized(it.description, q) }.map { it.podcastId }.toSet()
 

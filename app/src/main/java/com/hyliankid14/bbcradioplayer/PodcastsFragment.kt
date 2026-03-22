@@ -1615,6 +1615,11 @@ class PodcastsFragment : Fragment() {
                 resolvedEpisodeMatches = mutableListOf()
                 displayedEpisodeCount = 0
                 val qLower = q.lowercase(Locale.getDefault())
+                // Strip NOT terms (e.g. "-football") before sending to the FTS engine (remote cloud
+                // or local SQLite).  The remote endpoint does not support the "-term" exclusion
+                // syntax; passing it raw returns zero results. NOT filtering is applied in-memory
+                // by episodeMatchesQuery / textMatchesNormalized after FTS retrieval.
+                val qFts = repository.extractPositiveQuery(q)
                 
                 val remoteIndexClient = com.hyliankid14.bbcradioplayer.RemoteIndexClient(requireContext())
 
@@ -1635,7 +1640,7 @@ class PodcastsFragment : Fragment() {
                 // PHASE 1: Quick podcast title/description matches from FTS index
                 val indexPodcastResults = withContext(Dispatchers.IO) {
                     val localResults = try {
-                        com.hyliankid14.bbcradioplayer.db.IndexStore.getInstance(requireContext()).searchPodcasts(q, 100)
+                        com.hyliankid14.bbcradioplayer.db.IndexStore.getInstance(requireContext()).searchPodcasts(qFts, 100)
                     } catch (e: Exception) {
                         android.util.Log.w("PodcastsFragment", "FTS podcast search failed: ${e.message}")
                         emptyList()
@@ -1645,7 +1650,7 @@ class PodcastsFragment : Fragment() {
                         localResults
                     } else {
                         try {
-                            remoteIndexClient.searchPodcasts(q, 100)
+                            remoteIndexClient.searchPodcasts(qFts, 100)
                         } catch (e: Exception) {
                             android.util.Log.w("PodcastsFragment", "Remote podcast search failed: ${e.message}")
                             emptyList()
@@ -1855,7 +1860,7 @@ class PodcastsFragment : Fragment() {
                                     val remote = com.hyliankid14.bbcradioplayer.RemoteIndexClient(requireContext())
                                     if (cloudSearchAvailable) {
                                         try {
-                                            return@run remote.searchEpisodes(q, 30)
+                                            return@run remote.searchEpisodes(qFts, 30)
                                         } catch (e: Exception) {
                                             android.util.Log.w("PodcastsFragment", "Remote episode search (quick) failed: ${e.message}")
                                         }
@@ -1863,21 +1868,22 @@ class PodcastsFragment : Fragment() {
                                     // Local fallback for offline/error mode.
                                     try {
                                         com.hyliankid14.bbcradioplayer.db.IndexStore.getInstance(requireContext())
-                                            .searchEpisodes(q, 30)
+                                            .searchEpisodes(qFts, 30)
                                     } catch (e: Exception) {
                                         android.util.Log.w("PodcastsFragment", "FTS episode search (quick) failed: ${e.message}")
                                         emptyList()
                                     }
                                 }
                                 if (ftsResults.isNotEmpty()) {
-                                    val uniqueResults = ftsResults.distinctBy { it.episodeId }
-                                        // Reject FTS hits that don't have a word-boundary match —
-                                        // the remote server may use substring matching.
-                                        .filter { ef ->
-                                            repository.textMatchesNormalized(ef.title, q) ||
-                                            repository.textMatchesNormalized(ef.description, q)
-                                        }
+                                    val deduped = ftsResults.distinctBy { it.episodeId }
                                     val podcastById = allPodcasts.associateBy { it.id }
+                                    val uniqueResults = deduped
+                                        // Reject FTS hits that don't have a word-boundary match in title
+                                        // or description, and enforce any NOT terms against the podcast name.
+                                        .filter { ef ->
+                                            val podcastName = podcastById[ef.podcastId]?.title ?: ""
+                                            repository.episodeMatchesQuery(ef.title, ef.description, podcastName, q)
+                                        }
                                     val episodeCacheById: Map<String, List<Episode>?> =
                                         uniqueResults.map { it.podcastId }.distinct()
                                             .associateWith { pid -> repository.getEpisodesFromCache(pid) }
@@ -1964,7 +1970,7 @@ class PodcastsFragment : Fragment() {
                                     val remote = com.hyliankid14.bbcradioplayer.RemoteIndexClient(requireContext())
                                     if (cloudSearchAvailable) {
                                         try {
-                                            return@run remote.searchEpisodes(q, 500, 0)
+                                            return@run remote.searchEpisodes(qFts, 500, 0)
                                         } catch (e: Exception) {
                                             android.util.Log.w("PodcastsFragment", "Remote episode search (full) failed: ${e.message}")
                                         }
@@ -1974,7 +1980,7 @@ class PodcastsFragment : Fragment() {
                                     // in one pass (sorted by pubEpoch DESC).
                                     try {
                                         com.hyliankid14.bbcradioplayer.db.IndexStore.getInstance(requireContext())
-                                            .searchEpisodes(q, Int.MAX_VALUE, 0)
+                                            .searchEpisodes(qFts, Int.MAX_VALUE, 0)
                                     } catch (e: Exception) {
                                         android.util.Log.w("PodcastsFragment", "FTS episode search (full) failed: ${e.message}")
                                         emptyList()
@@ -1985,10 +1991,10 @@ class PodcastsFragment : Fragment() {
                                 val episodeCacheByPodcastId = mutableMapOf<String, List<Episode>?>()
 
                                 // Reject FTS hits that don't have a word-boundary match in title
-                                // or description before building Episode objects.
+                                // or description, and enforce any NOT terms against the podcast name.
                                 val validFtsResults = ftsResults.filter { ef ->
-                                    repository.textMatchesNormalized(ef.title, q) ||
-                                    repository.textMatchesNormalized(ef.description, q)
+                                    val podcastName = podcastById[ef.podcastId]?.title ?: ""
+                                    repository.episodeMatchesQuery(ef.title, ef.description, podcastName, q)
                                 }
                                 for (ef in validFtsResults) {
                                     if (!coroutineContext.isActive) break
