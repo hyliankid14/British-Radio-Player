@@ -109,6 +109,13 @@ class MainActivity : AppCompatActivity() {
     private var returnToFavoritesOnBack: Boolean = false
     // When opening a saved search from Favorites, return back to the Saved Searches list on back press
     private var returnToSavedSearchesOnBack: Boolean = false
+    // When opening a podcast from the radio schedule, return back to that schedule on back press
+    private var returnToScheduleOnBack: Boolean = false
+    private var scheduleReturnStationId: String? = null
+    private var scheduleReturnStationTitle: String? = null
+    // The mode (currentMode) that was active when the user first navigated from the Schedule to a Podcast,
+    // so we can restore it after they back out past the Schedule.
+    private var scheduleReturnOriginMode: String = "list"
 
     // Track the last visible percent for the episode/index progress bar so we can
     // defensively ignore any stray regressions emitted by background components.
@@ -315,6 +322,27 @@ class MainActivity : AppCompatActivity() {
                         try { getPreferences(android.content.Context.MODE_PRIVATE).edit()
                             .putInt("last_fav_tab_id", R.id.fav_tab_searches).apply() } catch (_: Exception) { }
                         showFavorites()
+                        return
+                    }
+                    if (returnToScheduleOnBack && top is PodcastDetailFragment) {
+                        returnToScheduleOnBack = false
+                        val stationId = scheduleReturnStationId
+                        val stationTitle = scheduleReturnStationTitle
+                        val originMode = scheduleReturnOriginMode
+                        scheduleReturnStationId = null
+                        scheduleReturnStationTitle = null
+                        scheduleReturnOriginMode = "list"
+                        try { supportFragmentManager.popBackStack() } catch (_: Exception) { }
+                        if (!stationId.isNullOrEmpty()) {
+                            val scheduleIntent = Intent(this@MainActivity, ScheduleActivity::class.java).apply {
+                                putExtra(ScheduleActivity.EXTRA_STATION_ID, stationId)
+                                putExtra(ScheduleActivity.EXTRA_STATION_TITLE, stationTitle ?: "Schedule")
+                            }
+                            startActivity(scheduleIntent)
+                        }
+                        // Restore the page the user was on before navigating into the schedule, so
+                        // pressing back from ScheduleActivity returns to the correct screen.
+                        if (originMode == "favorites") showFavorites() else showAllStations()
                         return
                     }
                 } catch (_: Exception) { }
@@ -572,7 +600,31 @@ class MainActivity : AppCompatActivity() {
     private fun handleOpenModeIntent(intent: Intent?) {
         val mode = intent?.getStringExtra("open_mode") ?: return
         when (mode) {
-            "favorites" -> showFavorites()
+            "favorites" -> {
+                showFavorites()
+                // Optionally switch to a specific favorites sub-tab
+                val favTab = intent.getStringExtra("open_fav_tab")
+                if (!favTab.isNullOrEmpty()) {
+                    val tabId = when (favTab) {
+                        "saved" -> R.id.fav_tab_saved
+                        "history" -> R.id.fav_tab_history
+                        "subscribed" -> R.id.fav_tab_subscribed
+                        "searches" -> R.id.fav_tab_searches
+                        "stations" -> R.id.fav_tab_stations
+                        else -> null
+                    }
+                    if (tabId != null) {
+                        try {
+                            getPreferences(android.content.Context.MODE_PRIVATE)
+                                .edit().putInt("last_fav_tab_id", tabId).apply()
+                        } catch (e: Exception) {
+                            android.util.Log.w("MainActivity", "Failed to persist fav tab selection: ${e.message}")
+                        }
+                        updateFavoritesToggleVisuals(tabId)
+                        showFavoritesTab(favTab)
+                    }
+                }
+            }
             "list" -> showAllStations()
             "podcasts" -> {
                 try { bottomNavigation.selectedItemId = R.id.navigation_podcasts } catch (e: Exception) {
@@ -693,6 +745,7 @@ class MainActivity : AppCompatActivity() {
                         putExtra("preview_use_play_ui", true)
                         putExtra("preview_podcast_title", podcastTitle)
                         putExtra("preview_podcast_image", episode.imageUrl.takeIf { it.isNotEmpty() } ?: podcastImage)
+                        putExtra("back_source", "saved_episodes")
                     }
                     startActivity(intent)
                 }, onRemoveSaved = { id ->
@@ -894,6 +947,7 @@ class MainActivity : AppCompatActivity() {
                             putExtra("preview_use_play_ui", true)
                             putExtra("preview_podcast_title", podcastTitle)
                             putExtra("preview_podcast_image", podcastImage)
+                            putExtra("back_source", "history")
                         }
                         startActivity(intent)
                     }
@@ -1331,7 +1385,10 @@ class MainActivity : AppCompatActivity() {
                 // Hide the favourites toggle when showing a fragment/detail view
                 updateFavoritesToggleVisibility()
                 val detailFragment = PodcastDetailFragment().apply {
-                    arguments = android.os.Bundle().apply { putParcelable("podcast", podcast) }
+                    arguments = android.os.Bundle().apply {
+                        putParcelable("podcast", podcast)
+                        putString("back_context", "favorites")
+                    }
                 }
                 supportFragmentManager.beginTransaction().apply {
                     replace(R.id.fragment_container, detailFragment)
@@ -1719,7 +1776,12 @@ class MainActivity : AppCompatActivity() {
                                     suppressBottomNavSelection = false
                                     updateActionBarTitle()
                                     updateFavoritesToggleVisibility()
-                                    val detailFragment = PodcastDetailFragment().apply { arguments = android.os.Bundle().apply { putParcelable("podcast", podcast) } }
+                                    val detailFragment = PodcastDetailFragment().apply {
+                                        arguments = android.os.Bundle().apply {
+                                            putParcelable("podcast", podcast)
+                                            putString("back_context", "favorites")
+                                        }
+                                    }
                                     supportFragmentManager.beginTransaction().apply {
                                         replace(R.id.fragment_container, detailFragment)
                                         addToBackStack(null)
@@ -1855,6 +1917,9 @@ class MainActivity : AppCompatActivity() {
         currentMode = "podcasts"
         returnToFavoritesOnBack = false
         returnToSavedSearchesOnBack = false
+        returnToScheduleOnBack = false
+        scheduleReturnStationId = null
+        scheduleReturnStationTitle = null
         fragmentContainer.visibility = View.VISIBLE
         staticContentContainer.visibility = View.GONE
         // Hide the global action bar since the fragment has its own title bar
@@ -1893,8 +1958,30 @@ class MainActivity : AppCompatActivity() {
 
     private fun handleOpenPodcastIntent(intent: Intent?) {
         val podcastId = intent?.getStringExtra("open_podcast_id") ?: return
+        // Check if this navigation came from the radio schedule or Favourites so back can return there
+        val backSource = intent.getStringExtra("back_source")
+        val fromSchedule = backSource == "schedule"
+        val fromFavorites = backSource == "favorites"
+        val scheduleStationId = if (fromSchedule) intent.getStringExtra("schedule_station_id") else null
+        val scheduleStationTitle = if (fromSchedule) intent.getStringExtra("schedule_station_title") else null
+        // Capture the current mode BEFORE showPodcasts() changes it to "podcasts", and only on a
+        // fresh schedule→podcast navigation (not re-entry from NowPlayingActivity where
+        // returnToScheduleOnBack is already true).
+        val isFreshScheduleNav = fromSchedule && !returnToScheduleOnBack
+        val originModeSnapshot = currentMode
         // Ensure podcasts UI is shown
         showPodcasts()
+        if (fromSchedule && !scheduleStationId.isNullOrEmpty()) {
+            returnToScheduleOnBack = true
+            scheduleReturnStationId = scheduleStationId
+            scheduleReturnStationTitle = scheduleStationTitle
+            if (isFreshScheduleNav) {
+                // Persist where the user came from so we can restore it when they back out past the Schedule
+                scheduleReturnOriginMode = if (originModeSnapshot == "favorites") "favorites" else "list"
+            }
+        } else if (fromFavorites) {
+            returnToFavoritesOnBack = true
+        }
         // Fetch podcasts and open the matching podcast detail when available
         val repo = PodcastRepository(this)
         Thread {
@@ -1919,7 +2006,16 @@ class MainActivity : AppCompatActivity() {
                     // Hide the favourites toggle when showing a fragment/detail view
                     updateFavoritesToggleVisibility()
                     val detailFragment = PodcastDetailFragment().apply {
-                        arguments = android.os.Bundle().apply { putParcelable("podcast", match) }
+                        arguments = android.os.Bundle().apply {
+                            putParcelable("podcast", match)
+                            if (fromSchedule) {
+                                putString("back_context", "schedule")
+                                putString("back_context_station_id", scheduleStationId ?: "")
+                                putString("back_context_station_title", scheduleStationTitle ?: "")
+                            } else if (fromFavorites) {
+                                putString("back_context", "favorites")
+                            }
+                        }
                     }
                     supportFragmentManager.beginTransaction().apply {
                         replace(R.id.fragment_container, detailFragment)
@@ -2814,6 +2910,14 @@ class MainActivity : AppCompatActivity() {
         val intent = Intent(this, NowPlayingActivity::class.java).apply {
             // Tell NowPlaying where we are so it can return to the correct view on back
             putExtra("origin_mode", currentMode)
+            // Pass the current back context so NowPlayingActivity can relay it when returning to a podcast detail
+            if (returnToFavoritesOnBack) {
+                putExtra("back_context", "favorites")
+            } else if (returnToScheduleOnBack) {
+                putExtra("back_context", "schedule")
+                putExtra("back_context_station_id", scheduleReturnStationId ?: "")
+                putExtra("back_context_station_title", scheduleReturnStationTitle ?: "")
+            }
         }
         startActivity(intent)
     }

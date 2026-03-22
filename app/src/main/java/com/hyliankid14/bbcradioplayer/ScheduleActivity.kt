@@ -71,7 +71,7 @@ class ScheduleActivity : AppCompatActivity() {
                     val podcasts = withContext(Dispatchers.IO) { repo.fetchPodcasts(false) }
                     val podcastsByTitle = podcasts.associateBy { it.title.lowercase() }
 
-                    recycler.adapter = ScheduleAdapter(entries, podcastsByTitle)
+                    recycler.adapter = ScheduleAdapter(entries, podcastsByTitle, stationId, stationTitle)
                     // Scroll to the currently playing item
                     val now = System.currentTimeMillis()
                     val currentIndex = entries.indexOfFirst { it.startTimeMs <= now && it.endTimeMs > now }
@@ -107,14 +107,16 @@ class ScheduleActivity : AppCompatActivity() {
 
 class ScheduleAdapter(
     private val entries: List<ScheduleEntry>,
-    private val podcastsByTitle: Map<String, Podcast> = emptyMap()
+    private val podcastsByTitle: Map<String, Podcast> = emptyMap(),
+    private val stationId: String = "",
+    private val stationTitle: String = ""
 ) : RecyclerView.Adapter<ScheduleAdapter.ViewHolder>() {
 
     private val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault()).also {
         it.timeZone = TimeZone.getDefault()
     }
 
-    class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+    inner class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val startTime: TextView = view.findViewById(R.id.schedule_start_time)
         val endTime: TextView = view.findViewById(R.id.schedule_end_time)
         val showTitle: TextView = view.findViewById(R.id.schedule_show_title)
@@ -129,6 +131,9 @@ class ScheduleAdapter(
                 val intent = Intent(it.context, MainActivity::class.java).apply {
                     addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                     putExtra("open_podcast_id", podcast.id)
+                    putExtra("back_source", "schedule")
+                    putExtra("schedule_station_id", stationId)
+                    putExtra("schedule_station_title", stationTitle)
                 }
                 it.context.startActivity(intent)
             }

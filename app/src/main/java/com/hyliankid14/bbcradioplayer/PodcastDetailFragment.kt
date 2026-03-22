@@ -274,6 +274,15 @@ class PodcastDetailFragment : Fragment() {
                 putExtra("initial_podcast_title", it.title)
                 putExtra("initial_podcast_image", it.imageUrl)
             }
+            // Relay back context so NowPlayingActivity can return to the right screen on back
+            val backContext = arguments?.getString("back_context")
+            if (!backContext.isNullOrEmpty()) {
+                putExtra("back_context", backContext)
+                if (backContext == "schedule") {
+                    putExtra("back_context_station_id", arguments?.getString("back_context_station_id") ?: "")
+                    putExtra("back_context_station_title", arguments?.getString("back_context_station_title") ?: "")
+                }
+            }
         }
         startActivity(intent)
     }
