@@ -53,31 +53,27 @@ if [ -z "$AAB_FILE" ]; then
     exit 1
 fi
 
-if [ ! -f "$SYMBOLS_FILE" ]; then
-    SYMBOLS_FILE=$(find app/build/outputs -path "*/native-debug-symbols/*/native-debug-symbols.zip" | sort | head -1 || true)
-fi
+# Always generate a Play-compatible symbols archive from merged native libs.
+# Play Console expects ABI folders at zip root (arm64-v8a/, x86_64/, ...), not lib/.
+if [ -d "$NATIVE_LIBS_ROOT/lib" ] && find "$NATIVE_LIBS_ROOT/lib" -name "*.so" | grep -q .; then
+    SYMBOLS_FILE="app/build/outputs/native-debug-symbols/playRelease/native-debug-symbols.zip"
+    mkdir -p "$(dirname "$SYMBOLS_FILE")"
+    rm -f "$SYMBOLS_FILE"
 
-# Some AGP/dependency combinations do not emit native-debug-symbols.zip automatically.
-# In that case, package merged native .so files into the expected archive format.
-if [ -z "${SYMBOLS_FILE:-}" ] || [ ! -f "$SYMBOLS_FILE" ]; then
-    if [ -d "$NATIVE_LIBS_ROOT/lib" ] && find "$NATIVE_LIBS_ROOT/lib" -name "*.so" | grep -q .; then
-        SYMBOLS_FILE="app/build/outputs/native-debug-symbols/playRelease/native-debug-symbols.zip"
-        mkdir -p "$(dirname "$SYMBOLS_FILE")"
-        rm -f "$SYMBOLS_FILE"
-
-        if command -v zip >/dev/null 2>&1; then
-            (
-                cd "$NATIVE_LIBS_ROOT"
-                zip -rq "$PROJECT_ROOT/$SYMBOLS_FILE" lib
-            )
-        else
-            # macOS fallback if zip is unavailable.
-            (
-                cd "$NATIVE_LIBS_ROOT"
-                ditto -c -k --sequesterRsrc --keepParent lib "$PROJECT_ROOT/$SYMBOLS_FILE"
-            )
-        fi
+    if command -v zip >/dev/null 2>&1; then
+        (
+            cd "$NATIVE_LIBS_ROOT/lib"
+            zip -rq "$PROJECT_ROOT/$SYMBOLS_FILE" .
+        )
+    else
+        # macOS fallback if zip is unavailable.
+        (
+            cd "$NATIVE_LIBS_ROOT/lib"
+            ditto -c -k --sequesterRsrc . "$PROJECT_ROOT/$SYMBOLS_FILE"
+        )
     fi
+else
+    SYMBOLS_FILE=""
 fi
 
 # -------------------------------------------------------
