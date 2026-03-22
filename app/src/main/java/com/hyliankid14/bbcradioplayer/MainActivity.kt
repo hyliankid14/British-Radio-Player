@@ -113,6 +113,9 @@ class MainActivity : AppCompatActivity() {
     private var returnToScheduleOnBack: Boolean = false
     private var scheduleReturnStationId: String? = null
     private var scheduleReturnStationTitle: String? = null
+    // The mode (currentMode) that was active when the user first navigated from the Schedule to a Podcast,
+    // so we can restore it after they back out past the Schedule.
+    private var scheduleReturnOriginMode: String = "list"
 
     // Track the last visible percent for the episode/index progress bar so we can
     // defensively ignore any stray regressions emitted by background components.
@@ -325,8 +328,10 @@ class MainActivity : AppCompatActivity() {
                         returnToScheduleOnBack = false
                         val stationId = scheduleReturnStationId
                         val stationTitle = scheduleReturnStationTitle
+                        val originMode = scheduleReturnOriginMode
                         scheduleReturnStationId = null
                         scheduleReturnStationTitle = null
+                        scheduleReturnOriginMode = "list"
                         try { supportFragmentManager.popBackStack() } catch (_: Exception) { }
                         if (!stationId.isNullOrEmpty()) {
                             val scheduleIntent = Intent(this@MainActivity, ScheduleActivity::class.java).apply {
@@ -335,6 +340,9 @@ class MainActivity : AppCompatActivity() {
                             }
                             startActivity(scheduleIntent)
                         }
+                        // Restore the page the user was on before navigating into the schedule, so
+                        // pressing back from ScheduleActivity returns to the correct screen.
+                        if (originMode == "favorites") showFavorites() else showAllStations()
                         return
                     }
                 } catch (_: Exception) { }
@@ -1956,12 +1964,21 @@ class MainActivity : AppCompatActivity() {
         val fromFavorites = backSource == "favorites"
         val scheduleStationId = if (fromSchedule) intent.getStringExtra("schedule_station_id") else null
         val scheduleStationTitle = if (fromSchedule) intent.getStringExtra("schedule_station_title") else null
+        // Capture the current mode BEFORE showPodcasts() changes it to "podcasts", and only on a
+        // fresh schedule→podcast navigation (not re-entry from NowPlayingActivity where
+        // returnToScheduleOnBack is already true).
+        val isFreshScheduleNav = fromSchedule && !returnToScheduleOnBack
+        val originModeSnapshot = currentMode
         // Ensure podcasts UI is shown
         showPodcasts()
         if (fromSchedule && !scheduleStationId.isNullOrEmpty()) {
             returnToScheduleOnBack = true
             scheduleReturnStationId = scheduleStationId
             scheduleReturnStationTitle = scheduleStationTitle
+            if (isFreshScheduleNav) {
+                // Persist where the user came from so we can restore it when they back out past the Schedule
+                scheduleReturnOriginMode = if (originModeSnapshot == "favorites") "favorites" else "list"
+            }
         } else if (fromFavorites) {
             returnToFavoritesOnBack = true
         }
