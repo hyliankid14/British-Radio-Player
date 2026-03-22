@@ -35,14 +35,42 @@ class PodcastRepository(private val context: Context) {
     }
 
     private fun containsPhraseOrAllTokens(textLower: String, queryLower: String): Boolean {
+        // Strip punctuation/whitespace but keep diacritics intact
+        val stripPunct = { s: String ->
+            s.replace(Regex("[^\\p{L}0-9\\s]"), " ").replace(Regex("\\s+"), " ").trim()
+        }
         // Normalize both text and query by removing diacritics, non-alphanumeric characters and collapsing whitespace
         val normalize = { s: String ->
             val noDiacritics = java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD)
                 .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
-            noDiacritics.replace(Regex("[^\\p{L}0-9\\s]"), " ").replace(Regex("\\s+"), " ").trim()
+            stripPunct(noDiacritics)
         }
         val textNorm = normalize(textLower)
         val queryNorm = normalize(queryLower)
+
+        // If the query contains diacritic characters (e.g. "nestlé" from a search for "Nestlé"),
+        // require the text to also contain those diacritics at a word boundary. Without this
+        // guard, "Nestlé" normalises to "nestle" and would falsely match common phrases like
+        // "nestle in the bottom corner" that have nothing to do with the Nestlé brand.
+        val queryStrippedPunct = stripPunct(queryLower)
+        if (queryNorm != queryStrippedPunct) {
+            val textStrippedPunct = stripPunct(textLower)
+            val normTokens = queryNorm.split(Regex("\\s+")).filter { it.isNotEmpty() }
+            val origTokens = queryStrippedPunct.split(Regex("\\s+")).filter { it.isNotEmpty() }
+            if (normTokens.size == origTokens.size) {
+                val diacriticTokens = normTokens.zip(origTokens)
+                    .filter { (norm, orig) -> norm != orig }
+                    .map { (_, orig) -> orig }
+                if (diacriticTokens.any { tok -> !textStrippedPunct.contains(Regex("\\b${Regex.escape(tok)}\\b")) }) {
+                    return false
+                }
+            } else {
+                // Token counts differ (unusual edge case); require the full diacritic phrase
+                if (!textStrippedPunct.contains(Regex("\\b${Regex.escape(queryStrippedPunct)}\\b"))) {
+                    return false
+                }
+            }
+        }
 
         // Word-boundary phrase match: the query must appear at the start of a word
         if (textNorm.contains(Regex("\\b${Regex.escape(queryNorm)}"))) return true
