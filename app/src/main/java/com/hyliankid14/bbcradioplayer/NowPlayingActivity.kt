@@ -451,11 +451,20 @@ class NowPlayingActivity : AppCompatActivity() {
         // Prefer the explicit preview episode's podcastId when available, otherwise derive from current station
         val podcastId = previewEpisodeProp?.podcastId ?: PlaybackStateHelper.getCurrentStation()?.id?.removePrefix("podcast_")
         if (!podcastId.isNullOrEmpty()) {
-            val intent = Intent(this, MainActivity::class.java).apply {
+            // Relay the back context so MainActivity can restore Favourites or Schedule navigation on back
+            val backContext = this@NowPlayingActivity.intent.getStringExtra("back_context")
+            val mainIntent = Intent(this, MainActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                 putExtra("open_podcast_id", podcastId)
+                if (!backContext.isNullOrEmpty()) {
+                    putExtra("back_source", backContext)
+                    if (backContext == "schedule") {
+                        putExtra("schedule_station_id", this@NowPlayingActivity.intent.getStringExtra("back_context_station_id") ?: "")
+                        putExtra("schedule_station_title", this@NowPlayingActivity.intent.getStringExtra("back_context_station_title") ?: "")
+                    }
+                }
             }
-            startActivity(intent)
+            startActivity(mainIntent)
             finish()
             return
         }

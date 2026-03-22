@@ -1377,7 +1377,10 @@ class MainActivity : AppCompatActivity() {
                 // Hide the favourites toggle when showing a fragment/detail view
                 updateFavoritesToggleVisibility()
                 val detailFragment = PodcastDetailFragment().apply {
-                    arguments = android.os.Bundle().apply { putParcelable("podcast", podcast) }
+                    arguments = android.os.Bundle().apply {
+                        putParcelable("podcast", podcast)
+                        putString("back_context", "favorites")
+                    }
                 }
                 supportFragmentManager.beginTransaction().apply {
                     replace(R.id.fragment_container, detailFragment)
@@ -1765,7 +1768,12 @@ class MainActivity : AppCompatActivity() {
                                     suppressBottomNavSelection = false
                                     updateActionBarTitle()
                                     updateFavoritesToggleVisibility()
-                                    val detailFragment = PodcastDetailFragment().apply { arguments = android.os.Bundle().apply { putParcelable("podcast", podcast) } }
+                                    val detailFragment = PodcastDetailFragment().apply {
+                                        arguments = android.os.Bundle().apply {
+                                            putParcelable("podcast", podcast)
+                                            putString("back_context", "favorites")
+                                        }
+                                    }
                                     supportFragmentManager.beginTransaction().apply {
                                         replace(R.id.fragment_container, detailFragment)
                                         addToBackStack(null)
@@ -1942,9 +1950,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun handleOpenPodcastIntent(intent: Intent?) {
         val podcastId = intent?.getStringExtra("open_podcast_id") ?: return
-        // Check if this navigation came from the radio schedule so back can return there
+        // Check if this navigation came from the radio schedule or Favourites so back can return there
         val backSource = intent.getStringExtra("back_source")
         val fromSchedule = backSource == "schedule"
+        val fromFavorites = backSource == "favorites"
         val scheduleStationId = if (fromSchedule) intent.getStringExtra("schedule_station_id") else null
         val scheduleStationTitle = if (fromSchedule) intent.getStringExtra("schedule_station_title") else null
         // Ensure podcasts UI is shown
@@ -1953,6 +1962,8 @@ class MainActivity : AppCompatActivity() {
             returnToScheduleOnBack = true
             scheduleReturnStationId = scheduleStationId
             scheduleReturnStationTitle = scheduleStationTitle
+        } else if (fromFavorites) {
+            returnToFavoritesOnBack = true
         }
         // Fetch podcasts and open the matching podcast detail when available
         val repo = PodcastRepository(this)
@@ -1978,7 +1989,16 @@ class MainActivity : AppCompatActivity() {
                     // Hide the favourites toggle when showing a fragment/detail view
                     updateFavoritesToggleVisibility()
                     val detailFragment = PodcastDetailFragment().apply {
-                        arguments = android.os.Bundle().apply { putParcelable("podcast", match) }
+                        arguments = android.os.Bundle().apply {
+                            putParcelable("podcast", match)
+                            if (fromSchedule) {
+                                putString("back_context", "schedule")
+                                putString("back_context_station_id", scheduleStationId ?: "")
+                                putString("back_context_station_title", scheduleStationTitle ?: "")
+                            } else if (fromFavorites) {
+                                putString("back_context", "favorites")
+                            }
+                        }
                     }
                     supportFragmentManager.beginTransaction().apply {
                         replace(R.id.fragment_container, detailFragment)
@@ -2873,6 +2893,14 @@ class MainActivity : AppCompatActivity() {
         val intent = Intent(this, NowPlayingActivity::class.java).apply {
             // Tell NowPlaying where we are so it can return to the correct view on back
             putExtra("origin_mode", currentMode)
+            // Pass the current back context so NowPlayingActivity can relay it when returning to a podcast detail
+            if (returnToFavoritesOnBack) {
+                putExtra("back_context", "favorites")
+            } else if (returnToScheduleOnBack) {
+                putExtra("back_context", "schedule")
+                putExtra("back_context_station_id", scheduleReturnStationId ?: "")
+                putExtra("back_context_station_title", scheduleReturnStationTitle ?: "")
+            }
         }
         startActivity(intent)
     }
