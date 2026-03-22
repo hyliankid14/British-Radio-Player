@@ -35,8 +35,52 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      - name: Compute debug version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Fetch the latest production (non-prerelease) release tag.
+          LATEST_TAG=$(gh release list --exclude-pre-releases --limit 1 --json tagName -q '.[0].tagName' 2>&1) || {
+            echo "WARNING: gh release list failed (exit $?): ${LATEST_TAG}" >&2
+            LATEST_TAG=""
+          }
+
+          # Validate that the tag looks like a semver vX.Y.Z string before using it.
+          if [[ "$LATEST_TAG" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            MAJOR="${BASH_REMATCH[1]}"
+            MINOR="${BASH_REMATCH[2]}"
+            PATCH="${BASH_REMATCH[3]}"
+
+            # Bump patch by 1 so the debug build is always ahead of the release.
+            VERSION_NAME="${MAJOR}.${MINOR}.$(( PATCH + 1 ))"
+
+            echo "Latest release: ${LATEST_TAG#v} → debug version name: ${VERSION_NAME}"
+          else
+            if [[ -n "$LATEST_TAG" ]]; then
+              echo "WARNING: release tag '${LATEST_TAG}' is not a semver vX.Y.Z tag; falling back to gradle.properties." >&2
+            else
+              echo "No production release found; falling back to gradle.properties."
+            fi
+            # Fall back to the version name already in gradle.properties.
+            VERSION_NAME=$(grep -Po '(?<=APP_VERSION_NAME=).+' gradle.properties)
+          fi
+
+          # Use a Unix timestamp as the version code so every CI run produces a
+          # unique, strictly-increasing value.  This allows users to upgrade
+          # successive debug APKs in-place without reinstalling.
+          # (Max allowed versionCode is 2,100,000,000; Unix time ~1.7 B in 2025.)
+          VERSION_CODE=$(date -u +%s)
+
+          echo "Debug version: ${VERSION_NAME} (code ${VERSION_CODE})"
+          echo "version_name=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
+          echo "version_code=${VERSION_CODE}" >> "$GITHUB_OUTPUT"
+
       - name: Build github debug APK
-        run: ./gradlew assembleGithubDebug
+        run: |
+          ./gradlew assembleGithubDebug \
+            -PAPP_VERSION_NAME="${{ steps.version.outputs.version_name }}" \
+            -PAPP_VERSION_CODE="${{ steps.version.outputs.version_code }}"
 
       - name: Publish debug APK as rolling pre-release
         env:
@@ -54,11 +98,12 @@ jobs:
           # tag atomically via the API, preventing "release already exists" errors.
           gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
 
-          NOTES="Rolling debug build — branch \`${{ github.ref_name }}\`, commit \`${{ github.sha }}\`."$'\n\n'"This is a pre-release used for sideloading only. It is not a production release."
+          DEBUG_VERSION="${{ steps.version.outputs.version_name }}"
+          NOTES="Rolling debug build \`v${DEBUG_VERSION}-debug\` — branch \`${{ github.ref_name }}\`, commit \`${{ github.sha }}\`."$'\n\n'"This is a pre-release used for sideloading only. It is not a production release."
 
           # Create a fresh pre-release and attach the APK directly (not zipped).
           gh release create "$TAG" "$DEST" \
-            --title "Debug APK (latest)" \
+            --title "Debug APK (v${DEBUG_VERSION}-debug)" \
             --notes "$NOTES" \
             --prerelease
 
@@ -66,6 +111,8 @@ jobs:
 
           {
             echo "## 📱 Debug APK — direct download"
+            echo ""
+            echo "**Version: \`v${DEBUG_VERSION}-debug\`**"
             echo ""
             echo "**[⬇️ Download APK]($APK_URL)**"
             echo ""
