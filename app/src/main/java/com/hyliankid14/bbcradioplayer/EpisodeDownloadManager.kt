@@ -598,6 +598,17 @@ object EpisodeDownloadManager {
         }
     }
 
+    private fun shouldAttemptDirectFallback(reason: Int): Boolean {
+        if (reason in 300..599) return true
+        return when (reason) {
+            DownloadManager.ERROR_CANNOT_RESUME,
+            DownloadManager.ERROR_HTTP_DATA_ERROR,
+            DownloadManager.ERROR_UNHANDLED_HTTP_CODE,
+            DownloadManager.ERROR_TOO_MANY_REDIRECTS -> true
+            else -> false
+        }
+    }
+
     private data class DirectDownloadResult(
         val success: Boolean,
         val httpCode: Int? = null,
@@ -605,7 +616,7 @@ object EpisodeDownloadManager {
     )
 
     private fun tryDirectDownloadFallback(context: Context, episodeId: String, pendingData: String?, reason: Int): Boolean {
-        if (reason !in 400..599) return false
+        if (!shouldAttemptDirectFallback(reason)) return false
         if (pendingData.isNullOrBlank()) return false
 
         val prefs = prefs(context)
