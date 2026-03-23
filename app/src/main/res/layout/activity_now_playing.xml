@@ -26,6 +26,7 @@
         android:layout_height="wrap_content"
         android:scaleType="centerCrop"
         android:contentDescription="Station artwork"
+        app:layout_constrainedHeight="true"
         android:layout_marginStart="32dp"
         android:layout_marginEnd="32dp"
         android:layout_marginTop="16dp"
@@ -134,7 +135,7 @@
         android:layout_marginTop="0dp"
         android:paddingStart="24dp"
         android:paddingEnd="24dp"
-        app:layout_constraintTop_toBottomOf="@id/now_playing_episode_title"
+        app:layout_constraintTop_toBottomOf="@id/now_playing_release_date"
         app:layout_constraintBottom_toTopOf="@id/podcast_progress_group"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
