@@ -13,6 +13,8 @@ import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
@@ -43,6 +45,94 @@ object EpisodeDownloadManager {
     private const val DOWNLOAD_SUCCESS_CHANNEL_ID = "episode_download_success"
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    private fun showToast(context: Context, message: String) {
+        Handler(Looper.getMainLooper()).post {
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun recoverStuckDownloads(context: Context, maxItems: Int = 12) {
+        val prefs = prefs(context)
+        val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        val pendingKeys = prefs.all.keys
+            .filter { it.startsWith("pending_") }
+            .take(maxItems.coerceAtLeast(1))
+
+        var repairedCount = 0
+
+        for (pendingKey in pendingKeys) {
+            val episodeId = pendingKey.removePrefix("pending_")
+            val pendingData = prefs.getString(pendingKey, null) ?: continue
+
+            try {
+                val jsonStr = String(android.util.Base64.decode(pendingData, android.util.Base64.DEFAULT))
+                val json = org.json.JSONObject(jsonStr)
+                val originalEpisode = jsonToEpisode(json.getJSONObject("episode"))
+                val repairedEpisode = normaliseEpisodeAudioUrl(originalEpisode)
+                val podcastTitle = json.optString("podcastTitle", "")
+                val autoDownload = json.optBoolean("autoDownload", false)
+                val pendingPath = json.optString("localPath", "")
+                val destinationFile = if (pendingPath.isNotBlank()) File(pendingPath) else buildDestinationFile(context, repairedEpisode)
+
+                var shouldRequeue = repairedEpisode.audioUrl != originalEpisode.audioUrl
+                val existingDownloadId = prefs.getLong(KEY_PREFIX_DOWNLOAD_ID + episodeId, -1L)
+
+                if (existingDownloadId > 0) {
+                    val query = DownloadManager.Query().setFilterById(existingDownloadId)
+                    downloadManager.query(query).use { cursor ->
+                        if (!cursor.moveToFirst()) {
+                            shouldRequeue = true
+                        } else {
+                            val statusIndex = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS)
+                            val reasonIndex = cursor.getColumnIndex(DownloadManager.COLUMN_REASON)
+                            val status = if (statusIndex >= 0) cursor.getInt(statusIndex) else DownloadManager.STATUS_FAILED
+                            val reason = if (reasonIndex >= 0) cursor.getInt(reasonIndex) else -1
+
+                            if (status == DownloadManager.STATUS_FAILED) {
+                                shouldRequeue = true
+                            } else if (status == DownloadManager.STATUS_PAUSED && reason == DownloadManager.PAUSED_WAITING_TO_RETRY) {
+                                shouldRequeue = true
+                            }
+                        }
+                    }
+                } else {
+                    shouldRequeue = true
+                }
+
+                if (shouldRequeue) {
+                    if (existingDownloadId > 0) {
+                        try {
+                            downloadManager.remove(existingDownloadId)
+                        } catch (_: Exception) {
+                            // Best effort: continue with re-enqueue.
+                        }
+                    }
+
+                    val newDownloadId = enqueueDownload(downloadManager, context, repairedEpisode, podcastTitle, destinationFile)
+                    prefs.edit().putLong(KEY_PREFIX_DOWNLOAD_ID + episodeId, newDownloadId).apply()
+
+                    val updatedPending = android.util.Base64.encodeToString(
+                        org.json.JSONObject().apply {
+                            put("episode", episodeToJson(repairedEpisode))
+                            put("podcastTitle", podcastTitle)
+                            put("localPath", destinationFile.absolutePath)
+                            put("autoDownload", autoDownload)
+                        }.toString().toByteArray(),
+                        android.util.Base64.DEFAULT
+                    )
+                    prefs.edit().putString(pendingKey, updatedPending).apply()
+                    repairedCount++
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to repair pending download for $episodeId", e)
+            }
+        }
+
+        if (repairedCount > 0) {
+            Log.i(TAG, "Repaired $repairedCount pending downloads")
+        }
+    }
 
     fun handleSystemDownloadComplete(context: Context, intent: Intent) {
         if (intent.action != DownloadManager.ACTION_DOWNLOAD_COMPLETE) return
@@ -186,19 +276,21 @@ object EpisodeDownloadManager {
      */
     fun downloadEpisode(context: Context, episode: Episode, podcastTitle: String?, isAutoDownload: Boolean = false): Boolean {
         if (episode.audioUrl.isBlank()) {
-            Toast.makeText(context, "Episode audio URL not available", Toast.LENGTH_SHORT).show()
+            showToast(context, "Episode audio URL not available")
             return false
         }
 
+        val episodeForDownload = normaliseEpisodeAudioUrl(episode)
+
         // Check if already downloaded (checks SharedPreferences and the filesystem)
-        if (DownloadedEpisodes.isDownloaded(context, episode)) {
-            Toast.makeText(context, "Episode already downloaded", Toast.LENGTH_SHORT).show()
+        if (DownloadedEpisodes.isDownloaded(context, episodeForDownload)) {
+            showToast(context, "Episode already downloaded")
             return false
         }
 
         // Guard against reinstall-duplicates: the public file may already exist on disk even
         // though SharedPreferences was wiped.  If so, register it and skip the download.
-        val publicFileName = buildDestinationFile(context, episode).name
+        val publicFileName = buildDestinationFile(context, episodeForDownload).name
         val publicFile = File(
             File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PODCASTS), "British Radio Player"),
             publicFileName
@@ -211,21 +303,21 @@ object EpisodeDownloadManager {
                 val limit = DownloadPreferences.getAutoDownloadLimit(context).coerceAtLeast(1)
                 pruneDownloadsForPodcastToLimit(context, episode.podcastId, limit)
             } else {
-                Toast.makeText(context, "Episode already downloaded", Toast.LENGTH_SHORT).show()
+                showToast(context, "Episode already downloaded")
             }
             return false
         }
 
         // Check WiFi requirement
         if (DownloadPreferences.isDownloadOnWifiOnly(context) && !isWifiConnected(context)) {
-            Toast.makeText(context, "Download requires WiFi connection", Toast.LENGTH_SHORT).show()
+            showToast(context, "Download requires WiFi connection")
             return false
         }
 
         try {
             val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-            val destinationFile = buildDestinationFile(context, episode)
-            val downloadId = enqueueDownload(downloadManager, context, episode, podcastTitle, destinationFile)
+            val destinationFile = buildDestinationFile(context, episodeForDownload)
+            val downloadId = enqueueDownload(downloadManager, context, episodeForDownload, podcastTitle, destinationFile)
             
             // Store download ID mapped to episode ID
             prefs(context).edit().putLong(KEY_PREFIX_DOWNLOAD_ID + episode.id, downloadId).apply()
@@ -234,7 +326,7 @@ object EpisodeDownloadManager {
             val pendingKey = "pending_" + episode.id
             val pendingData = android.util.Base64.encodeToString(
                 org.json.JSONObject().apply {
-                    put("episode", episodeToJson(episode))
+                    put("episode", episodeToJson(episodeForDownload))
                     put("podcastTitle", podcastTitle ?: "")
                     put("localPath", destinationFile.absolutePath)
                     put("autoDownload", isAutoDownload)
@@ -243,11 +335,11 @@ object EpisodeDownloadManager {
             )
             prefs(context).edit().putString(pendingKey, pendingData).apply()
 
-            Toast.makeText(context, "Download started", Toast.LENGTH_SHORT).show()
+            showToast(context, "Download started")
             return true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start download", e)
-            Toast.makeText(context, "Failed to start download: ${e.message}", Toast.LENGTH_SHORT).show()
+            showToast(context, "Failed to start download: ${e.message}")
             return false
         }
     }
@@ -343,7 +435,7 @@ object EpisodeDownloadManager {
             val pendingKey = "pending_${episode.id}"
             val pendingData = android.util.Base64.encodeToString(
                 org.json.JSONObject().apply {
-                    put("episode", episodeToJson(episode))
+                    put("episode", episodeToJson(normaliseEpisodeAudioUrl(episode)))
                     put("podcastTitle", podcastTitle ?: "")
                     put("localPath", destinationFile.absolutePath)
                     put("autoDownload", isAutoDownload)
@@ -383,10 +475,12 @@ object EpisodeDownloadManager {
         podcastTitle: String?,
         destinationFile: File
     ): Long {
+        val downloadUrl = normaliseAudioUrl(episode.audioUrl)
+
         // Store in the public Podcasts directory so the files are accessible to file managers.
         // The DownloadManager system service has permission to write there on all API levels.
         val publicSubPath = "British Radio Player/${destinationFile.name}"
-        val request = DownloadManager.Request(Uri.parse(episode.audioUrl)).apply {
+        val request = DownloadManager.Request(Uri.parse(downloadUrl)).apply {
             setTitle("${podcastTitle ?: "Podcast"}: ${episode.title}")
             setDescription("Downloading episode")
             setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
@@ -423,11 +517,11 @@ object EpisodeDownloadManager {
                         file.delete()
                     }
                 }
-                if (showToast) Toast.makeText(context, "Download deleted", Toast.LENGTH_SHORT).show()
+                if (showToast) showToast(context, "Download deleted")
                 return true
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to delete download", e)
-                if (showToast) Toast.makeText(context, "Failed to delete download", Toast.LENGTH_SHORT).show()
+                if (showToast) showToast(context, "Failed to delete download")
             }
         }
         return false
@@ -452,7 +546,7 @@ object EpisodeDownloadManager {
         }
         
         DownloadedEpisodes.removeAll(context)
-        Toast.makeText(context, "Deleted $deletedCount episode(s)", Toast.LENGTH_SHORT).show()
+        showToast(context, "Deleted $deletedCount episode(s)")
     }
 
     fun pruneDownloadsForPodcastToLimit(context: Context, podcastId: String, limit: Int) {
@@ -492,6 +586,22 @@ object EpisodeDownloadManager {
 
     private fun sanitizeFilename(name: String): String {
         return name.replace(Regex("[^a-zA-Z0-9._-]"), "_").take(100)
+    }
+
+    private fun normaliseAudioUrl(url: String): String {
+        var normalised = url.trim()
+        if (normalised.contains("/proto/http/", ignoreCase = true)) {
+            normalised = normalised.replace("/proto/http/", "/proto/https/", ignoreCase = true)
+        }
+        if (normalised.startsWith("http://", ignoreCase = true)) {
+            normalised = normalised.replaceFirst("http://", "https://", ignoreCase = true)
+        }
+        return normalised
+    }
+
+    private fun normaliseEpisodeAudioUrl(episode: Episode): Episode {
+        val normalisedUrl = normaliseAudioUrl(episode.audioUrl)
+        return if (normalisedUrl == episode.audioUrl) episode else episode.copy(audioUrl = normalisedUrl)
     }
 
     private fun episodeToJson(episode: Episode): org.json.JSONObject {
@@ -561,11 +671,19 @@ object EpisodeDownloadManager {
             val json = org.json.JSONObject(jsonStr)
             val episodeJson = json.getJSONObject("episode")
             val episode = jsonToEpisode(episodeJson)
-            if (!episode.audioUrl.startsWith("https://", ignoreCase = true)) return false
 
-            val fallbackEpisode = episode.copy(
-                audioUrl = episode.audioUrl.replaceFirst("https://", "http://", ignoreCase = true)
-            )
+            val preferredEpisode = normaliseEpisodeAudioUrl(episode)
+            val fallbackEpisode = when {
+                preferredEpisode.audioUrl != episode.audioUrl -> preferredEpisode
+                preferredEpisode.audioUrl.startsWith("https://", ignoreCase = true) -> {
+                    preferredEpisode.copy(
+                        audioUrl = preferredEpisode.audioUrl
+                            .replace("/proto/https/", "/proto/http/", ignoreCase = true)
+                            .replaceFirst("https://", "http://", ignoreCase = true)
+                    )
+                }
+                else -> return false
+            }
             val podcastTitle = json.optString("podcastTitle", "")
             val autoDownload = json.optBoolean("autoDownload", false)
 
@@ -710,9 +828,20 @@ object EpisodeDownloadManager {
     }
 
     private fun directDownloadWithSchemeFallback(url: String, destinationFile: File): DirectDownloadResult {
-        val candidates = mutableListOf(url)
-        if (url.startsWith("https://", ignoreCase = true)) {
-            candidates.add(url.replaceFirst("https://", "http://", ignoreCase = true))
+        val preferredUrl = normaliseAudioUrl(url)
+        val candidates = when {
+            preferredUrl.startsWith("https://", ignoreCase = true) -> listOf(
+                preferredUrl,
+                preferredUrl.replace("/proto/https/", "/proto/http/", ignoreCase = true),
+                preferredUrl
+                    .replace("/proto/https/", "/proto/http/", ignoreCase = true)
+                    .replaceFirst("https://", "http://", ignoreCase = true)
+            )
+            preferredUrl.startsWith("http://", ignoreCase = true) -> listOf(
+                preferredUrl.replaceFirst("http://", "https://", ignoreCase = true),
+                preferredUrl
+            )
+            else -> listOf(preferredUrl)
         }
         var lastCode: Int? = null
         var lastError: String? = null
@@ -744,6 +873,7 @@ object EpisodeDownloadManager {
 
     private fun directDownloadWithHeaders(startUrl: String, destinationFile: File, headers: Map<String, String>): DirectDownloadResult {
         var currentUrl = startUrl
+        val originalHost = try { URL(startUrl).host.lowercase() } catch (_: Exception) { "" }
         var redirects = 0
         var lastCode: Int? = null
 
@@ -773,7 +903,16 @@ object EpisodeDownloadManager {
 
                 if (code in 300..399) {
                     val location = connection.getHeaderField("Location") ?: return DirectDownloadResult(success = false, httpCode = code, errorMessage = "Redirect without Location header")
-                    currentUrl = URL(URL(currentUrl), location).toString()
+                    val redirectedUrl = URL(URL(currentUrl), location)
+                    val redirectedHost = redirectedUrl.host.lowercase()
+                    if (redirectedHost != originalHost && isLikelyLocalNetworkHost(redirectedHost)) {
+                        return DirectDownloadResult(
+                            success = false,
+                            httpCode = code,
+                            errorMessage = "Redirected to local network host"
+                        )
+                    }
+                    currentUrl = redirectedUrl.toString()
                     redirects++
                     continue
                 }
@@ -791,6 +930,19 @@ object EpisodeDownloadManager {
         }
 
         return DirectDownloadResult(success = false, httpCode = lastCode, errorMessage = "Too many redirects")
+    }
+
+    private fun isLikelyLocalNetworkHost(host: String): Boolean {
+        if (host.isBlank()) return false
+        if (host == "localhost" || host == "127.0.0.1") return true
+        if (host.endsWith(".local") || host.endsWith(".lan") || host.endsWith(".home")) return true
+        if (host.contains("router") || host.contains("gateway") || host.contains("myrouter")) return true
+
+        if (Regex("^10\\.\\d+\\.\\d+\\.\\d+$").matches(host)) return true
+        if (Regex("^192\\.168\\.\\d+\\.\\d+$").matches(host)) return true
+        if (Regex("^172\\.(1[6-9]|2\\d|3[0-1])\\.\\d+\\.\\d+$").matches(host)) return true
+
+        return false
     }
 
     private fun ensureSuccessChannel(context: Context) {

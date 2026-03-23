@@ -207,6 +207,14 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                EpisodeDownloadManager.recoverStuckDownloads(this@MainActivity)
+            } catch (e: Exception) {
+                Log.w("MainActivity", "Pending download recovery failed: ${e.message}")
+            }
+        }
+
         // Local indexing is disabled in favour of cloud index search.
         // Cancel any stale one-time/periodic local indexing work on startup.
         try {
