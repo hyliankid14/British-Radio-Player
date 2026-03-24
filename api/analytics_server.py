@@ -22,7 +22,7 @@ Configure in the app by setting:
 """
 
 from flask import Flask, request, jsonify, Response
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import sqlite3
 import sys
 import csv
@@ -255,6 +255,27 @@ def _read_cloud_popular_snapshot_meta():
             }
     except (URLError, HTTPError, ValueError, OSError):
         return None
+
+
+def _format_human_timestamp(value):
+    """Format ISO-like timestamps into a human-readable UTC string."""
+    if not value:
+        return value
+
+    marker_values = {'never', 'unavailable', 'unknown'}
+    if isinstance(value, str) and value.strip().lower() in marker_values:
+        return value
+
+    try:
+        text = str(value).strip()
+        # Support trailing Z and timestamps without explicit timezone.
+        dt = datetime.fromisoformat(text.replace('Z', '+00:00'))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        dt_utc = dt.astimezone(timezone.utc)
+        return dt_utc.strftime('%d %b %Y, %H:%M UTC')
+    except Exception:
+        return value
 
 
 def _resolve_index_display_status(server_counts):
@@ -1119,6 +1140,7 @@ def index():
             podcast_count = effective['podcast_count']
             episode_count = effective['episode_count']
             last_updated = effective['last_updated'] or 'never'
+            last_updated = _format_human_timestamp(last_updated)
             index_source = effective['source']
         except Exception:
             podcast_count = 0
@@ -1131,6 +1153,7 @@ def index():
             top20_snapshot = _read_cloud_popular_snapshot_meta()
             if top20_snapshot:
                 app_top20_last_refreshed = top20_snapshot['generated_at'] or 'unknown'
+                app_top20_last_refreshed = _format_human_timestamp(app_top20_last_refreshed)
                 app_top20_snapshot_count = top20_snapshot['snapshot_count']
                 app_top20_source = 'gcp_popular_snapshot'
             else:
