@@ -685,7 +685,13 @@ class NowPlayingActivity : AppCompatActivity() {
                             .listener(object : RequestListener<Drawable> {
                                 override fun onLoadFailed(e: GlideException?, model: Any?, target: Target<Drawable>?, isFirstResource: Boolean): Boolean = false
                                 override fun onResourceReady(resource: Drawable?, model: Any?, target: Target<Drawable>?, dataSource: DataSource?, isFirstResource: Boolean): Boolean {
-                                    if (resource is BitmapDrawable) extractAndApplyDominantColor(resource.bitmap)
+                                    if (resource is BitmapDrawable) {
+                                        if (isPlaceholderImage(resource.bitmap)) {
+                                            stationArtwork.setImageDrawable(genericLogo)
+                                            return true
+                                        }
+                                        extractAndApplyDominantColor(resource.bitmap)
+                                    }
                                     return false
                                 }
                             })
@@ -1106,7 +1112,13 @@ class NowPlayingActivity : AppCompatActivity() {
                         .listener(object : RequestListener<Drawable> {
                             override fun onLoadFailed(e: GlideException?, model: Any?, target: Target<Drawable>?, isFirstResource: Boolean): Boolean = false
                             override fun onResourceReady(resource: Drawable?, model: Any?, target: Target<Drawable>?, dataSource: DataSource?, isFirstResource: Boolean): Boolean {
-                                if (resource is BitmapDrawable) extractAndApplyDominantColor(resource.bitmap)
+                                if (resource is BitmapDrawable) {
+                                    if (isPlaceholderImage(resource.bitmap)) {
+                                        stationArtwork.setImageDrawable(genericLogo)
+                                        return true
+                                    }
+                                    extractAndApplyDominantColor(resource.bitmap)
+                                }
                                 return false
                             }
                         })

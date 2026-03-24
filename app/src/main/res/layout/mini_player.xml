@@ -16,11 +16,11 @@
     <!-- Station Artwork -->
     <ImageView
         android:id="@+id/mini_player_artwork"
-        android:layout_width="80dp"
-        android:layout_height="80dp"
+        android:layout_width="88dp"
+        android:layout_height="88dp"
         android:scaleType="centerCrop"
         android:contentDescription="Station artwork"
-        android:layout_marginEnd="20dp" />
+        android:layout_marginEnd="16dp" />
 
     <!-- Station Info and Controls -->
     <LinearLayout

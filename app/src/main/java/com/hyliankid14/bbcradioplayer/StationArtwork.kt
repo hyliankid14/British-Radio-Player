@@ -22,7 +22,9 @@ object StationArtwork {
         /** Colour of the circle that contains the label. Defaults to near-black. */
         val circleColor: Int = Color.parseColor("#1A1A1A"),
         /** Colour of the label text. Defaults to white. */
-        val textColor: Int = Color.WHITE
+        val textColor: Int = Color.WHITE,
+        /** Optional small badge in the top-right corner (used for station variants). */
+        val badgeLabel: String? = null
     )
 
     private val configs: Map<String, Config> = mapOf(
@@ -42,8 +44,8 @@ object StationArtwork {
         "radio5live"                to Config(Color.parseColor("#2E2B8F"), "5",
                                                circleColor = Color.parseColor("#4E4BAF")),
         "radio5livesportsextra"     to Config(Color.parseColor("#006EB5"), "5S"),
-        "radio5livesportsextra2"    to Config(Color.parseColor("#005FA0"), "5S"),
-        "radio5livesportsextra3"    to Config(Color.parseColor("#00508B"), "5S"),
+        "radio5livesportsextra2"    to Config(Color.parseColor("#005FA0"), "5S", badgeLabel = "2"),
+        "radio5livesportsextra3"    to Config(Color.parseColor("#00508B"), "5S", badgeLabel = "3"),
         "radio6"                    to Config(Color.parseColor("#F5E10D"), "6"),
         "worldservice"              to Config(Color.parseColor("#0A1128"), "WS",
                                                circleColor = Color.parseColor("#1E3A6E")),
@@ -109,23 +111,20 @@ object StationArtwork {
     )
 
     /**
-     * Returns a [StationLogoDrawable] for [stationId].
+     * Returns a fresh [StationLogoDrawable] for [stationId].
      * Falls back to a generic purple-blue if the station is not in the map.
-     * Results are cached so the same object is reused across bind calls.
      */
-    private val cache = mutableMapOf<String, StationLogoDrawable>()
-
-    fun createDrawable(stationId: String): StationLogoDrawable =
-        cache.getOrPut(stationId) {
-            val config = configs[stationId]
-                ?: Config(Color.parseColor("#4A4A8A"), stationId.take(2).uppercase())
-            StationLogoDrawable(
-                backgroundColor = config.backgroundColor,
-                label = config.label,
-                circleColor = config.circleColor,
-                textColor = config.textColor
-            )
-        }
+    fun createDrawable(stationId: String): StationLogoDrawable {
+        val config = configs[stationId]
+            ?: Config(Color.parseColor("#4A4A8A"), stationId.take(2).uppercase())
+        return StationLogoDrawable(
+            backgroundColor = config.backgroundColor,
+            label = config.label,
+            circleColor = config.circleColor,
+            textColor = config.textColor,
+            badgeLabel = config.badgeLabel
+        )
+    }
 
     /**
      * Renders the [StationLogoDrawable] for [stationId] into a [Bitmap] of [size]×[size] pixels.

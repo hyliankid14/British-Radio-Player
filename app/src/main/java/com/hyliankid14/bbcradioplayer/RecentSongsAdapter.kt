@@ -46,29 +46,20 @@ class RecentSongsAdapter(
         holder.station.text = song.stationName
         holder.time.text = formatRelativeTime(song.playedAtMs)
 
-        val stationLogoUrl = StationRepository.getStationById(song.stationId)?.logoUrl
-        val artworkUrl = song.imageUrl.ifBlank { stationLogoUrl }
+        val genericArtwork = StationArtwork.createDrawable(song.stationId)
+        val artworkUrl = song.imageUrl.takeIf { it.isNotBlank() }
         if (artworkUrl != null) {
-            val request = Glide.with(context).load(artworkUrl)
-            val withFallback = if (song.imageUrl.isNotBlank() && stationLogoUrl != null) {
-                request.error(Glide.with(context).load(stationLogoUrl).error(R.drawable.ic_music_note))
-            } else {
-                request.error(R.drawable.ic_music_note)
-            }
-            withFallback
-                .placeholder(R.drawable.ic_music_note)
+            Glide.with(context)
+                .load(artworkUrl)
+                .placeholder(genericArtwork)
+                .error(genericArtwork)
                 .listener(object : RequestListener<android.graphics.drawable.Drawable> {
                     override fun onLoadFailed(e: GlideException?, model: Any?, target: Target<android.graphics.drawable.Drawable>?, isFirstResource: Boolean): Boolean {
                         return false
                     }
                     override fun onResourceReady(resource: android.graphics.drawable.Drawable?, model: Any?, target: Target<android.graphics.drawable.Drawable>?, dataSource: DataSource?, isFirstResource: Boolean): Boolean {
-                        if (resource is BitmapDrawable && stationLogoUrl != null && isPlaceholderImage(resource.bitmap)) {
-                            holder.artwork.post {
-                                Glide.with(context)
-                                    .load(stationLogoUrl)
-                                    .error(R.drawable.ic_music_note)
-                                    .into(holder.artwork)
-                            }
+                        if (resource is BitmapDrawable && isPlaceholderImage(resource.bitmap)) {
+                            holder.artwork.setImageDrawable(genericArtwork)
                             return true
                         }
                         return false
@@ -77,7 +68,7 @@ class RecentSongsAdapter(
                 .into(holder.artwork)
         } else {
             Glide.with(context).clear(holder.artwork)
-            holder.artwork.setImageResource(R.drawable.ic_music_note)
+            holder.artwork.setImageDrawable(genericArtwork)
         }
 
         holder.itemView.setOnClickListener { onSongClicked(song) }

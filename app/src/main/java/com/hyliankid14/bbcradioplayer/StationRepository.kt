@@ -7,11 +7,29 @@ data class Station(
     val id: String,
     val title: String,
     val serviceId: String,
+    val streamServiceIds: List<String> = listOf(serviceId),
+    val directStreamUrls: List<String> = emptyList(),
     val logoUrl: String,
     val category: StationCategory = StationCategory.LOCAL
 ) {
-    fun getUri(quality: ThemePreference.AudioQuality): String {
-        return "$STREAM_BASE?station=$serviceId&bitrate=${quality.bitrate}"
+    fun getUri(quality: ThemePreference.AudioQuality, serviceIdOverride: String? = null): String {
+        val resolvedServiceId = serviceIdOverride ?: serviceId
+        return "$STREAM_BASE?station=$resolvedServiceId&bitrate=${quality.bitrate}"
+    }
+
+    fun getStreamCandidates(quality: ThemePreference.AudioQuality): List<String> {
+        val requestedBitrate = quality.bitrate
+        val fallbackBitrates = listOf("128000", "96000", "48000", "320000")
+        val bitrates = listOf(requestedBitrate) + fallbackBitrates.filter { it != requestedBitrate }
+
+        val candidates = mutableListOf<String>()
+        candidates += directStreamUrls.filter { it.isNotBlank() }
+        for (sid in streamServiceIds.filter { it.isNotBlank() }) {
+            for (bitrate in bitrates) {
+                candidates += "$STREAM_BASE?station=$sid&bitrate=$bitrate"
+            }
+        }
+        return candidates.distinct()
     }
 }
 
@@ -26,12 +44,16 @@ object StationRepository {
         id: String,
         title: String,
         serviceId: String,
+        streamServiceIds: List<String> = listOf(serviceId),
+        directStreamUrls: List<String> = emptyList(),
         logoServiceId: String = serviceId,
         category: StationCategory = StationCategory.LOCAL
     ): Station = Station(
         id = id,
         title = title,
         serviceId = serviceId,
+        streamServiceIds = streamServiceIds,
+        directStreamUrls = directStreamUrls,
         logoUrl = "$LOGO_BASE/$logoServiceId/blocks-colour-black_600x600.png",
         category = category
     )
@@ -48,9 +70,45 @@ object StationRepository {
         station("radio4", "Radio 4", "bbc_radio_fourfm", category = StationCategory.NATIONAL),
         station("radio4extra", "Radio 4 Extra", "bbc_radio_four_extra", category = StationCategory.NATIONAL),
         station("radio5live", "Radio 5 Live", "bbc_radio_five_live", category = StationCategory.NATIONAL),
-        station("radio5livesportsextra", "Radio 5 Sports Extra", "bbc_radio_five_live_sports_extra", category = StationCategory.NATIONAL),
-        station("radio5livesportsextra2", "Radio 5 Sports Extra 2", "bbc_radio_five_sports_extra_2", category = StationCategory.NATIONAL),
-        station("radio5livesportsextra3", "Radio 5 Sports Extra 3", "bbc_radio_five_sports_extra_3", category = StationCategory.NATIONAL),
+        station(
+            "radio5livesportsextra",
+            "Radio 5 Sports Extra",
+            "bbc_radio_five_live_sports_extra",
+            streamServiceIds = listOf(
+                "bbc_radio_five_live_sports_extra",
+                "bbc_radio_five_sports_extra"
+            ),
+            directStreamUrls = listOf(
+                "http://as-hls-uk-live.akamaized.net/pool_47700285/live/uk/bbc_radio_five_live_sports_extra/bbc_radio_five_live_sports_extra.isml/bbc_radio_five_live_sports_extra-audio%3d96000.norewind.m3u8"
+            ),
+            category = StationCategory.NATIONAL
+        ),
+        station(
+            "radio5livesportsextra2",
+            "Radio 5 Sports Extra 2",
+            "bbc_radio_five_sports_extra_2",
+            streamServiceIds = listOf(
+                "bbc_radio_five_sports_extra_2",
+                "bbc_radio_five_live_sports_extra_2"
+            ),
+            directStreamUrls = listOf(
+                "https://a.files.bbci.co.uk/ms6/live/3441A116-B12E-4D2F-ACA8-C1984642FA4B/audio/simulcast/hls/uk/audio_syndication_high_sbr_v1/ak/bbc_radio_five_sports_extra_2.m3u8"
+            ),
+            category = StationCategory.NATIONAL
+        ),
+        station(
+            "radio5livesportsextra3",
+            "Radio 5 Sports Extra 3",
+            "bbc_radio_five_sports_extra_3",
+            streamServiceIds = listOf(
+                "bbc_radio_five_sports_extra_3",
+                "bbc_radio_five_live_sports_extra_3"
+            ),
+            directStreamUrls = listOf(
+                "https://a.files.bbci.co.uk/ms6/live/3441A116-B12E-4D2F-ACA8-C1984642FA4B/audio/simulcast/hls/uk/audio_syndication_high_sbr_v1/ak/bbc_radio_five_sports_extra_3.m3u8"
+            ),
+            category = StationCategory.NATIONAL
+        ),
         station("radio6", "Radio 6 Music", "bbc_6music", category = StationCategory.NATIONAL),
         station("worldservice", "World Service", "bbc_world_service", category = StationCategory.NATIONAL),
         station("asiannetwork", "Asian Network", "bbc_asian_network", category = StationCategory.NATIONAL),

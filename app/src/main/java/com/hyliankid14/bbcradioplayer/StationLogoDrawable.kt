@@ -17,7 +17,8 @@ class StationLogoDrawable(
     backgroundColor: Int,
     private val label: String,
     circleColor: Int = Color.parseColor("#1A1A1A"),
-    textColor: Int = Color.WHITE
+    textColor: Int = Color.WHITE,
+    private val badgeLabel: String? = null
 ) : Drawable() {
 
     private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -37,6 +38,18 @@ class StationLogoDrawable(
         typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
     }
 
+    private val badgeCirclePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = Color.parseColor("#111111")
+    }
+
+    private val badgeTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = Color.WHITE
+        textAlign = Paint.Align.CENTER
+        typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
+    }
+
     override fun draw(canvas: Canvas) {
         val bounds = bounds
         val width = bounds.width().toFloat()
@@ -48,31 +61,49 @@ class StationLogoDrawable(
         // Circle centred in the drawable
         val cx = width / 2f
         val cy = height / 2f
-        val radius = minOf(width, height) * 0.35f
+        val radius = minOf(width, height) * 0.41f
         canvas.drawCircle(cx, cy, radius, circlePaint)
 
-        // Label text inside the circle – scale font to fit
-        val scaleFactor = when {
-            label.length <= 1 -> 0.85f
-            label.length == 2 -> 0.62f
-            else -> 0.42f
+        // Label text inside the circle: keep a consistent base size and only shrink when needed.
+        val normalizedLabel = label.uppercase()
+        val baseTextSize = radius * 1.58f
+        textPaint.textSize = baseTextSize
+        val maxTextWidth = radius * 1.72f
+        val measuredWidth = textPaint.measureText(normalizedLabel)
+        if (measuredWidth > maxTextWidth && measuredWidth > 0f) {
+            textPaint.textSize = baseTextSize * (maxTextWidth / measuredWidth)
         }
-        textPaint.textSize = radius * scaleFactor * 2f
-        // Vertical centre adjustment: descend by ~35 % of text size
-        val textY = cy + textPaint.textSize * 0.35f
-        canvas.drawText(label, cx, textY, textPaint)
+        val fm = textPaint.fontMetrics
+        val textY = cy - ((fm.ascent + fm.descent) / 2f)
+        canvas.drawText(normalizedLabel, cx, textY, textPaint)
+
+        val badge = badgeLabel?.trim().orEmpty()
+        if (badge.isNotEmpty()) {
+            val badgeRadius = minOf(width, height) * 0.12f
+            val badgeCx = cx + radius * 0.78f
+            val badgeCy = cy - radius * 0.78f
+            canvas.drawCircle(badgeCx, badgeCy, badgeRadius, badgeCirclePaint)
+
+            badgeTextPaint.textSize = badgeRadius * 1.4f
+            val badgeTextY = badgeCy + badgeTextPaint.textSize * 0.33f
+            canvas.drawText(badge, badgeCx, badgeTextY, badgeTextPaint)
+        }
     }
 
     override fun setAlpha(alpha: Int) {
         bgPaint.alpha = alpha
         circlePaint.alpha = alpha
         textPaint.alpha = alpha
+        badgeCirclePaint.alpha = alpha
+        badgeTextPaint.alpha = alpha
     }
 
     override fun setColorFilter(colorFilter: ColorFilter?) {
         bgPaint.colorFilter = colorFilter
         circlePaint.colorFilter = colorFilter
         textPaint.colorFilter = colorFilter
+        badgeCirclePaint.colorFilter = colorFilter
+        badgeTextPaint.colorFilter = colorFilter
     }
 
     @Suppress("OVERRIDE_DEPRECATION")

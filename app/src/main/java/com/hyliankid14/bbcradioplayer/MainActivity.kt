@@ -3060,6 +3060,16 @@ class MainActivity : AppCompatActivity() {
                         .load(songArtworkUrl)
                         .placeholder(StationArtwork.createDrawable(station.id))
                         .error(StationArtwork.createDrawable(station.id))
+                        .listener(object : RequestListener<Drawable> {
+                            override fun onLoadFailed(e: GlideException?, model: Any?, target: Target<Drawable>?, isFirstResource: Boolean): Boolean = false
+                            override fun onResourceReady(resource: Drawable?, model: Any?, target: Target<Drawable>?, dataSource: DataSource?, isFirstResource: Boolean): Boolean {
+                                if (resource is BitmapDrawable && isPlaceholderImage(resource.bitmap)) {
+                                    miniPlayerArtwork.setImageDrawable(StationArtwork.createDrawable(station.id))
+                                    return true
+                                }
+                                return false
+                            }
+                        })
                         .into(miniPlayerArtwork)
                     Log.d("MainActivity", "Loading song artwork from: $songArtworkUrl")
                 }
@@ -3174,6 +3184,16 @@ class MainActivity : AppCompatActivity() {
                         .load(songArtworkUrl)
                         .placeholder(StationArtwork.createDrawable(currentStation.id))
                         .error(StationArtwork.createDrawable(currentStation.id))
+                        .listener(object : RequestListener<Drawable> {
+                            override fun onLoadFailed(e: GlideException?, model: Any?, target: Target<Drawable>?, isFirstResource: Boolean): Boolean = false
+                            override fun onResourceReady(resource: Drawable?, model: Any?, target: Target<Drawable>?, dataSource: DataSource?, isFirstResource: Boolean): Boolean {
+                                if (resource is BitmapDrawable && isPlaceholderImage(resource.bitmap)) {
+                                    miniPlayerArtwork.setImageDrawable(StationArtwork.createDrawable(currentStation.id))
+                                    return true
+                                }
+                                return false
+                            }
+                        })
                         .into(miniPlayerArtwork)
                     Log.d("MainActivity", "Loading song artwork from: $songArtworkUrl")
                 }

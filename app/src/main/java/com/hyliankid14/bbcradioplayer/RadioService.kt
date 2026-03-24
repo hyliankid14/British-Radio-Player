@@ -72,6 +72,8 @@ class RadioService : MediaBrowserServiceCompat() {
     
     private var currentStationTitle: String = ""
     @Volatile private var currentStationId: String = ""
+    private var currentStreamCandidateIndex: Int = 0
+    private var currentStreamCandidates: List<String> = emptyList()
     private var currentPodcastId: String? = null
     private var matchedPodcast: Podcast? = null  // Podcast matching currently playing radio show for Android Auto
     private var matchPodcastJob: kotlinx.coroutines.Job? = null
@@ -1618,8 +1620,11 @@ class RadioService : MediaBrowserServiceCompat() {
                                     replayEpisodeById(episodeId)
                                 }
                             } else if (currentStationId.isNotEmpty()) {
-                                Log.d(TAG, "Attempting to reconnect to station: $currentStationId")
-                                playStation(currentStationId)
+                                val stationId = currentStationId
+                                if (!tryFallbackStationStream(stationId, "player_error")) {
+                                    Log.d(TAG, "Attempting to reconnect to station: $stationId")
+                                    playStation(stationId)
+                                }
                             }
                         }
                         handler.postDelayed(playerReconnectRunnable!!, 3000) // Wait 3 seconds before reconnecting
@@ -2091,6 +2096,38 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
         )
     }
 
+    private fun tryFallbackStationStream(stationId: String, reason: String): Boolean {
+        val station = StationRepository.getStationById(stationId) ?: return false
+        if (currentStreamCandidateIndex >= currentStreamCandidates.lastIndex) return false
+
+        currentStreamCandidateIndex += 1
+        val streamUri = currentStreamCandidates[currentStreamCandidateIndex]
+        Log.w(
+            TAG,
+            "Retrying ${station.title} via fallback stream (${currentStreamCandidateIndex + 1}/${currentStreamCandidates.size}): $streamUri ($reason)"
+        )
+
+        lastSongSignature = null
+        lastSavedSongSignature = null
+
+        player?.release()
+        player = null
+        ensurePlayer()
+        requestAudioFocus()
+
+        updatePlaybackState(PlaybackStateCompat.STATE_BUFFERING)
+        player?.apply {
+            playWhenReady = true
+            setMediaItem(ExoMediaItem.fromUri(streamUri))
+            prepare()
+        }
+
+        fetchAndUpdateShowInfo(stationId)
+        scheduleShowInfoRefresh()
+        startForegroundNotification()
+        return true
+    }
+
     private fun playStation(stationId: String) {
         isStopped = false
         playerReconnectRunnable?.let { handler.removeCallbacks(it); playerReconnectRunnable = null }
@@ -2124,9 +2161,18 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
         PlaybackPreference.setLastStationId(this, station.id)
         
         val audioQuality = ThemePreference.getEffectiveAudioQuality(this)
-        val streamUri = station.getUri(audioQuality)
+        currentStreamCandidates = station.getStreamCandidates(audioQuality)
+        if (currentStreamCandidates.isEmpty()) {
+            Log.w(TAG, "No stream candidates available for station: ${station.id}")
+            return
+        }
+        currentStreamCandidateIndex = 0
+        val streamUri = currentStreamCandidates[currentStreamCandidateIndex]
 
-        Log.d(TAG, "Playing station: ${station.title} - $streamUri (quality: ${audioQuality.storageValue})")
+        Log.d(
+            TAG,
+            "Playing station: ${station.title} - $streamUri (candidate ${currentStreamCandidateIndex + 1}/${currentStreamCandidates.size}, quality: ${audioQuality.storageValue})"
+        )
         
         currentStationTitle = station.title
         currentStationId = station.id
@@ -2219,9 +2265,19 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
         }
 
         val audioQuality = ThemePreference.getEffectiveAudioQuality(this)
-        val streamUri = station.getUri(audioQuality)
+        val refreshedCandidates = station.getStreamCandidates(audioQuality)
+        if (refreshedCandidates.isEmpty()) {
+            Log.w(TAG, "refreshCurrentStream skipped ($reason): no stream candidates for ${station.id}")
+            return
+        }
+        currentStreamCandidates = refreshedCandidates
+        currentStreamCandidateIndex = currentStreamCandidateIndex.coerceIn(0, currentStreamCandidates.lastIndex)
+        val streamUri = currentStreamCandidates[currentStreamCandidateIndex]
 
-        Log.d(TAG, "Refreshing stream due to $reason. Station=${station.title}, quality=${audioQuality.storageValue}")
+        Log.d(
+            TAG,
+            "Refreshing stream due to $reason. Station=${station.title}, candidate ${currentStreamCandidateIndex + 1}/${currentStreamCandidates.size}, quality=${audioQuality.storageValue}"
+        )
         lastSongSignature = null
         lastSavedSongSignature = null
 
