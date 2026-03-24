@@ -3052,8 +3052,8 @@ class MainActivity : AppCompatActivity() {
                         .into(miniPlayerArtwork)
                     Log.d("MainActivity", "Loading podcast artwork from: $podArtworkUrl")
                 }
-            } else if (hasSongData && !show.imageUrl.isNullOrEmpty() && show.imageUrl!!.startsWith("http")) {
-                val songArtworkUrl = show.imageUrl!!
+            } else if (hasSongData && !show.imageUrl.isNullOrEmpty() && show.imageUrl.startsWith("http")) {
+                val songArtworkUrl = show.imageUrl
                 if (songArtworkUrl != lastArtworkUrl) {
                     lastArtworkUrl = songArtworkUrl
                     Glide.with(this)
@@ -3175,9 +3175,9 @@ class MainActivity : AppCompatActivity() {
             }
         } else if (currentStation != null) {
             val hasSongArtwork = (!show.secondary.isNullOrEmpty() || !show.tertiary.isNullOrEmpty()) &&
-                !show.imageUrl.isNullOrEmpty() && show.imageUrl!!.startsWith("http")
+                !show.imageUrl.isNullOrEmpty() && show.imageUrl.startsWith("http")
             if (hasSongArtwork) {
-                val songArtworkUrl = show.imageUrl!!
+                val songArtworkUrl = show.imageUrl
                 if (songArtworkUrl != lastArtworkUrl) {
                     lastArtworkUrl = songArtworkUrl
                     Glide.with(this)

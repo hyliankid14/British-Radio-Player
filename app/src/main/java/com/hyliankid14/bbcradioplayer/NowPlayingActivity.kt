@@ -672,9 +672,9 @@ class NowPlayingActivity : AppCompatActivity() {
                 }
             } else {
                 val hasSongArtwork = (!show.secondary.isNullOrEmpty() || !show.tertiary.isNullOrEmpty()) &&
-                    !show.imageUrl.isNullOrEmpty() && show.imageUrl!!.startsWith("http")
+                    !show.imageUrl.isNullOrEmpty() && show.imageUrl.startsWith("http")
                 if (hasSongArtwork) {
-                    val songArtworkUrl = show.imageUrl!!
+                    val songArtworkUrl = show.imageUrl
                     if (songArtworkUrl != lastArtworkUrl && !isFinishing && !isDestroyed) {
                         lastArtworkUrl = songArtworkUrl
                         val genericLogo = StationArtwork.createDrawable(station.id)
@@ -1099,9 +1099,9 @@ class NowPlayingActivity : AppCompatActivity() {
             }
         } else if (station != null) {
             val hasSongArtwork = (!show.secondary.isNullOrEmpty() || !show.tertiary.isNullOrEmpty()) &&
-                !show.imageUrl.isNullOrEmpty() && show.imageUrl!!.startsWith("http")
+                !show.imageUrl.isNullOrEmpty() && show.imageUrl.startsWith("http")
             if (hasSongArtwork) {
-                val songArtworkUrl = show.imageUrl!!
+                val songArtworkUrl = show.imageUrl
                 if (songArtworkUrl != lastArtworkUrl && !isFinishing && !isDestroyed) {
                     lastArtworkUrl = songArtworkUrl
                     val genericLogo = StationArtwork.createDrawable(station.id)
