@@ -1,5 +1,7 @@
 package com.hyliankid14.bbcradioplayer
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
 
 /**
@@ -123,5 +125,22 @@ object StationArtwork {
                 circleColor = config.circleColor,
                 textColor = config.textColor
             )
+        }
+
+    /**
+     * Renders the [StationLogoDrawable] for [stationId] into a [Bitmap] of [size]×[size] pixels.
+     * Results are cached alongside the drawable so repeated calls are cheap.
+     */
+    private val bitmapCache = mutableMapOf<String, Bitmap>()
+
+    @Synchronized
+    fun createBitmap(stationId: String, size: Int = 256): Bitmap =
+        bitmapCache.getOrPut("$stationId:$size") {
+            val drawable = createDrawable(stationId)
+            val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            drawable.setBounds(0, 0, size, size)
+            drawable.draw(canvas)
+            bitmap
         }
 }
