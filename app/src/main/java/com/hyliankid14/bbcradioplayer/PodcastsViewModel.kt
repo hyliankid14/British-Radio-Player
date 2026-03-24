@@ -37,6 +37,8 @@ class PodcastsViewModel : ViewModel() {
     var cachedUpdates: Map<String, Long> = emptyMap()
     var cachedEarliestUpdates: Map<String, Long> = emptyMap()
     var cachedNewlyAddedPodcastEpochs: Map<String, Long> = emptyMap()
+    var cachedPopularRanks: Map<String, Int> = emptyMap()
+    var cachedPopularTitleRanks: Map<String, Int> = emptyMap()
     var cachedGenres: List<String> = emptyList()
     var cachedFilter: PodcastFilter = PodcastFilter()
     var cachedSort: String = "Most popular"

@@ -117,6 +117,9 @@ class RemoteIndexClient(private val context: Context) {
         private const val POPULAR_CACHE_FILENAME = "popular_podcast_ranks.json"
         private const val POPULAR_CACHE_TTL_MS = 24 * 60 * 60 * 1_000L
 
+        // Disk cache for the streamed index summary used by browse sorts.
+        private const val INDEX_SUMMARY_CACHE_FILENAME = "remote_podcast_index_summary.json"
+
         // Home-server availability cache (5-minute TTL).
         @Volatile private var cachedServerAvailable: Boolean? = null
         @Volatile private var serverAvailabilityCheckedAt: Long = 0L
@@ -138,6 +141,17 @@ class RemoteIndexClient(private val context: Context) {
         val generatedAt: String,
         val podcasts: List<Podcast>,
         val episodes: List<Episode>
+    )
+
+    data class PodcastEpisodeBounds(
+        val earliestEpisodeEpoch: Long,
+        val latestEpisodeEpoch: Long
+    )
+
+    data class RemoteIndexSummary(
+        val generatedAt: String,
+        val podcastIds: Set<String>,
+        val podcastBounds: Map<String, PodcastEpisodeBounds>
     )
 
     /**
@@ -220,18 +234,50 @@ class RemoteIndexClient(private val context: Context) {
      * @param onProgress Optional callback to report download progress (message, percent)
      */
     fun downloadIndex(forceDownload: Boolean = false, onProgress: ((String, Int) -> Unit)? = null): RemoteIndex? {
-        val cacheFile = File(context.cacheDir, INDEX_CACHE_FILENAME)
+        val cacheFile = ensureCachedIndexFile(forceDownload = forceDownload, onProgress = onProgress)
+            ?: return null
 
-        // Use cached copy if still fresh and not forcing a re-download.
-        if (!forceDownload && !isCachedIndexStale() && cacheFile.exists()) {
-            Log.d(TAG, "Using cached podcast index (${cacheFile.length() / 1024} KB)")
-            return try { parseIndexFromFile(cacheFile) } catch (e: Exception) {
-                Log.w(TAG, "Failed to parse cached index: ${e.message}")
-                null
-            }
+        return try {
+            onProgress?.invoke("Parsing index...", 18)
+            // Parse with streaming JSON reader to avoid OOM
+            parseIndexFromFile(cacheFile, onProgress)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to download podcast index: ${e.message}")
+            null
+        }
+    }
+
+    fun getIndexSummary(forceDownload: Boolean = false, onProgress: ((String, Int) -> Unit)? = null): RemoteIndexSummary? {
+        val cacheFile = ensureCachedIndexFile(forceDownload = forceDownload, onProgress = onProgress)
+            ?: return null
+
+        readIndexSummaryCache(cacheFile)?.let {
+            Log.d(TAG, "Using cached podcast index summary")
+            return it
         }
 
-        // Download fresh copy.
+        return try {
+            onProgress?.invoke("Summarising index...", 18)
+            parseIndexSummaryFromFile(cacheFile, onProgress).also { summary ->
+                saveIndexSummaryCache(cacheFile, summary)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to summarise podcast index: ${e.message}")
+            null
+        }
+    }
+
+    private fun ensureCachedIndexFile(
+        forceDownload: Boolean,
+        onProgress: ((String, Int) -> Unit)? = null
+    ): File? {
+        val cacheFile = File(context.cacheDir, INDEX_CACHE_FILENAME)
+
+        if (!forceDownload && !isCachedIndexStale() && cacheFile.exists()) {
+            Log.d(TAG, "Using cached podcast index (${cacheFile.length() / 1024} KB)")
+            return cacheFile
+        }
+
         return try {
             val sourceLabel = "Cloud index"
             onProgress?.invoke("Connecting to $sourceLabel...", 5)
@@ -244,8 +290,7 @@ class RemoteIndexClient(private val context: Context) {
                 return null
             }
             onProgress?.invoke("Downloading index...", 7)
-            
-            // Stream directly to cache file to avoid OOM with large JSON
+
             val tempFile = File(context.cacheDir, "${INDEX_CACHE_FILENAME}.tmp")
             BufferedInputStream(conn.inputStream).use { networkStream ->
                 networkStream.mark(2)
@@ -265,40 +310,39 @@ class RemoteIndexClient(private val context: Context) {
                 }
 
                 payloadStream.use { decodedStream ->
-                BufferedOutputStream(FileOutputStream(tempFile)).use { fileOut ->
-                    val buffer = ByteArray(8192)
-                    var bytesRead: Int
-                    var totalBytes = 0L
-                    var lastProgress = 7
-                    
-                    while (decodedStream.read(buffer).also { bytesRead = it } != -1) {
-                        fileOut.write(buffer, 0, bytesRead)
-                        totalBytes += bytesRead
-                        
-                        // Update progress every ~200KB of decompressed data
-                        if (totalBytes % 200000 < 8192) {
-                            val newProgress = (7 + (totalBytes / 200000).toInt().coerceAtMost(10))
-                                .coerceIn(7, 17)
-                            if (newProgress > lastProgress) {
-                                onProgress?.invoke("Processing index... (${totalBytes / 1000}KB)", newProgress)
-                                lastProgress = newProgress
+                    BufferedOutputStream(FileOutputStream(tempFile)).use { fileOut ->
+                        val buffer = ByteArray(8192)
+                        var bytesRead: Int
+                        var totalBytes = 0L
+                        var lastProgress = 7
+
+                        while (decodedStream.read(buffer).also { bytesRead = it } != -1) {
+                            fileOut.write(buffer, 0, bytesRead)
+                            totalBytes += bytesRead
+
+                            if (totalBytes % 200000 < 8192) {
+                                val newProgress = (7 + (totalBytes / 200000).toInt().coerceAtMost(10))
+                                    .coerceIn(7, 17)
+                                if (newProgress > lastProgress) {
+                                    onProgress?.invoke("Processing index... (${totalBytes / 1000}KB)", newProgress)
+                                    lastProgress = newProgress
+                                }
                             }
                         }
                     }
                 }
-                }
             }
             conn.disconnect()
-            
+
             onProgress?.invoke("Saving to cache...", 17)
-            tempFile.renameTo(cacheFile)
+            if (!tempFile.renameTo(cacheFile)) {
+                tempFile.copyTo(cacheFile, overwrite = true)
+                tempFile.delete()
+            }
             Log.d(TAG, "Downloaded and decompressed podcast index (${cacheFile.length() / 1024} KB)")
-            
-            onProgress?.invoke("Parsing index...", 18)
-            // Parse with streaming JSON reader to avoid OOM
-            parseIndexFromFile(cacheFile, onProgress)
+            cacheFile
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to download podcast index: ${e.message}")
+            Log.w(TAG, "Failed to cache podcast index: ${e.message}")
             null
         }
     }
@@ -462,6 +506,180 @@ class RemoteIndexClient(private val context: Context) {
         }
 
         return RemoteIndex(generatedAt, podcasts, episodes)
+    }
+
+    private fun parseIndexSummaryFromFile(file: File, onProgress: ((String, Int) -> Unit)? = null): RemoteIndexSummary {
+        var generatedAt = ""
+        val podcastIds = linkedSetOf<String>()
+        val podcastBounds = linkedMapOf<String, PodcastEpisodeBounds>()
+        var lastPodcastReport = 0
+        var lastBoundsReport = 0
+
+        fun reportParsingStatus() {
+            onProgress?.invoke(
+                "Summarising index... podcasts: ${podcastIds.size}, bounded podcasts: ${podcastBounds.size}",
+                18
+            )
+        }
+
+        FileInputStream(file).use { fis ->
+            BufferedInputStream(fis).use { bis ->
+                JsonReader(InputStreamReader(bis, "UTF-8")).use { reader ->
+                    reader.beginObject()
+                    while (reader.hasNext()) {
+                        when (reader.nextName()) {
+                            "generated_at" -> generatedAt = reader.nextString()
+                            "podcasts" -> {
+                                reader.beginArray()
+                                while (reader.hasNext()) {
+                                    reader.beginObject()
+                                    var id = ""
+                                    while (reader.hasNext()) {
+                                        when (reader.nextName()) {
+                                            "id" -> id = reader.nextString()
+                                            else -> reader.skipValue()
+                                        }
+                                    }
+                                    reader.endObject()
+                                    if (id.isNotBlank()) {
+                                        podcastIds.add(id)
+                                        if (podcastIds.size - lastPodcastReport >= 500) {
+                                            reportParsingStatus()
+                                            lastPodcastReport = podcastIds.size
+                                        }
+                                    }
+                                }
+                                reader.endArray()
+                                reportParsingStatus()
+                            }
+                            "episodes" -> {
+                                reader.beginArray()
+                                while (reader.hasNext()) {
+                                    reader.beginObject()
+                                    var podcastId = ""
+                                    var pubDate = ""
+                                    while (reader.hasNext()) {
+                                        when (reader.nextName()) {
+                                            "podcastId" -> podcastId = reader.nextString()
+                                            "pubDate" -> pubDate = reader.nextString()
+                                            else -> reader.skipValue()
+                                        }
+                                    }
+                                    reader.endObject()
+
+                                    if (podcastId.isBlank()) continue
+                                    val epoch = com.hyliankid14.bbcradioplayer.db.IndexStore.parsePubEpoch(pubDate)
+                                    if (epoch <= 0L) continue
+
+                                    val existing = podcastBounds[podcastId]
+                                    podcastBounds[podcastId] = if (existing == null) {
+                                        PodcastEpisodeBounds(
+                                            earliestEpisodeEpoch = epoch,
+                                            latestEpisodeEpoch = epoch
+                                        )
+                                    } else {
+                                        PodcastEpisodeBounds(
+                                            earliestEpisodeEpoch = minOf(existing.earliestEpisodeEpoch, epoch),
+                                            latestEpisodeEpoch = maxOf(existing.latestEpisodeEpoch, epoch)
+                                        )
+                                    }
+
+                                    if (podcastBounds.size - lastBoundsReport >= 1000) {
+                                        reportParsingStatus()
+                                        lastBoundsReport = podcastBounds.size
+                                    }
+                                }
+                                reader.endArray()
+                                reportParsingStatus()
+                            }
+                            else -> reader.skipValue()
+                        }
+                    }
+                    reader.endObject()
+                }
+            }
+        }
+
+        return RemoteIndexSummary(
+            generatedAt = generatedAt,
+            podcastIds = podcastIds,
+            podcastBounds = podcastBounds
+        )
+    }
+
+    private fun readIndexSummaryCache(sourceFile: File): RemoteIndexSummary? {
+        val cacheFile = File(context.cacheDir, INDEX_SUMMARY_CACHE_FILENAME)
+        if (!cacheFile.exists()) return null
+
+        return try {
+            val json = JSONObject(cacheFile.readText())
+            if (json.optLong("source_last_modified", -1L) != sourceFile.lastModified()) {
+                return null
+            }
+
+            val podcastIds = linkedSetOf<String>()
+            val idsArray = json.optJSONArray("podcast_ids") ?: JSONArray()
+            for (i in 0 until idsArray.length()) {
+                val id = idsArray.optString(i)
+                if (id.isNotBlank()) podcastIds.add(id)
+            }
+
+            val podcastBounds = linkedMapOf<String, PodcastEpisodeBounds>()
+            val boundsObject = json.optJSONObject("podcast_bounds") ?: JSONObject()
+            boundsObject.keys().forEach { podcastId ->
+                val item = boundsObject.optJSONObject(podcastId) ?: return@forEach
+                val earliest = item.optLong("earliestEpoch", 0L)
+                val latest = item.optLong("latestEpoch", 0L)
+                if (earliest > 0L && latest > 0L) {
+                    podcastBounds[podcastId] = PodcastEpisodeBounds(
+                        earliestEpisodeEpoch = earliest,
+                        latestEpisodeEpoch = latest
+                    )
+                }
+            }
+
+            RemoteIndexSummary(
+                generatedAt = json.optString("generated_at", ""),
+                podcastIds = podcastIds,
+                podcastBounds = podcastBounds
+            )
+        } catch (e: Exception) {
+            Log.d(TAG, "Failed to read index summary cache: ${e.message}")
+            null
+        }
+    }
+
+    private fun saveIndexSummaryCache(sourceFile: File, summary: RemoteIndexSummary) {
+        val cacheFile = File(context.cacheDir, INDEX_SUMMARY_CACHE_FILENAME)
+        val tempFile = File(context.cacheDir, "$INDEX_SUMMARY_CACHE_FILENAME.tmp")
+        try {
+            val boundsObject = JSONObject()
+            summary.podcastBounds.forEach { (podcastId, bounds) ->
+                boundsObject.put(
+                    podcastId,
+                    JSONObject().apply {
+                        put("earliestEpoch", bounds.earliestEpisodeEpoch)
+                        put("latestEpoch", bounds.latestEpisodeEpoch)
+                    }
+                )
+            }
+
+            val json = JSONObject().apply {
+                put("generated_at", summary.generatedAt)
+                put("source_last_modified", sourceFile.lastModified())
+                put("podcast_ids", JSONArray(summary.podcastIds.toList()))
+                put("podcast_bounds", boundsObject)
+            }
+
+            tempFile.writeText(json.toString())
+            if (!tempFile.renameTo(cacheFile)) {
+                tempFile.copyTo(cacheFile, overwrite = true)
+                tempFile.delete()
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "Failed to save index summary cache: ${e.message}")
+            tempFile.delete()
+        }
     }
 
     // ── Fallback: home-server search ──────────────────────────────────────────

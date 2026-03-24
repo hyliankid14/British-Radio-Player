@@ -20,11 +20,10 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.Locale
 import android.view.KeyEvent
@@ -692,6 +691,8 @@ class PodcastsFragment : Fragment() {
             cachedUpdates = viewModel.cachedUpdates
             cachedEarliestUpdates = viewModel.cachedEarliestUpdates
             cachedNewlyAddedPodcastEpochs = viewModel.cachedNewlyAddedPodcastEpochs
+            analyticsPopularRanks = viewModel.cachedPopularRanks
+            analyticsPopularTitleRanks = viewModel.cachedPopularTitleRanks
             currentFilter = viewModel.cachedFilter
             // Restore sort: use cached sort if available, otherwise use default
             currentSort = if (viewModel.cachedSort.isNotEmpty()) {
@@ -766,6 +767,28 @@ class PodcastsFragment : Fragment() {
         emptyState.text = "No podcasts found"
         viewLifecycleOwner.lifecycleScope.launch {
             try {
+                launch {
+                    try {
+                        val popularRanks = withContext(Dispatchers.IO) {
+                            repository.fetchPopularPodcastRanks(days = 30)
+                        }
+                        analyticsPopularRanks = popularRanks.idRanks
+                        analyticsPopularTitleRanks = popularRanks.titleRanks
+                        viewModel.cachedPopularRanks = analyticsPopularRanks
+                        viewModel.cachedPopularTitleRanks = analyticsPopularTitleRanks
+                        android.util.Log.d(
+                            "PodcastsFragment",
+                            "Loaded analytics popularity ranks: ids=${popularRanks.idRanks.size}, titles=${popularRanks.titleRanks.size}"
+                        )
+
+                        if (isAdded && allPodcasts.isNotEmpty() && normalizeSortValue(currentSort) == SORT_MOST_POPULAR) {
+                            applyFilters(emptyState, recyclerView)
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.w("PodcastsFragment", "Failed to load popular podcast ranks: ${e.message}")
+                    }
+                }
+
                 // STEP 1: Show any locally available data immediately (stale disk cache or bundled
                 //         seed asset) so the list appears without waiting for a network round-trip.
                 val (immediate, needsRefresh, immediateEarliest, immediateNewlyAdded) = withContext(Dispatchers.IO) {
@@ -823,40 +846,13 @@ class PodcastsFragment : Fragment() {
                 }
 
                 // STEP 3 runs after Steps 1 and 2 have completed (all sequential in this coroutine).
-                // Fetch per-podcast episode date bounds in the background for sort options.
-                // allPodcasts has been updated by whichever display step ran last.
-                val (dateBounds, cloudEarliestUpdates, newlyAddedPodcastEpochs, popularRanks) = coroutineScope {
-                    val dateBoundsDeferred = async { repository.fetchPodcastDateBounds(allPodcasts) }
-                    val cloudEarliestDeferred = async { repository.fetchCloudPodcastDateBounds(allPodcasts) }
-                    val newlyAddedDeferred = async { repository.fetchNewlyAddedPodcastEpochs(allPodcasts) }
-                    val popularDeferred = async { repository.fetchPopularPodcastRanks(days = 30) }
-                    Quadruple(
-                        dateBoundsDeferred.await(),
-                        cloudEarliestDeferred.await().mapValues { it.value.earliestEpisodeEpoch },
-                        newlyAddedDeferred.await(),
-                        popularDeferred.await()
-                    )
-                }
-                val earliestFromDateBounds = dateBounds
-                    .mapValues { it.value.earliestEpisodeEpoch }
-                    .filterValues { it > 0L }
-                val earliestUpdates = when {
-                    cloudEarliestUpdates.isNotEmpty() -> cloudEarliestUpdates
-                    earliestFromDateBounds.isNotEmpty() -> earliestFromDateBounds
-                    else -> repository.getAvailableEarliestUpdatesNow(allPodcasts)
+                // Fetch only latest-episode bounds eagerly. New Podcasts metadata is loaded lazily
+                // when that sort is selected so startup does not parse the full cloud index.
+                val dateBounds = withContext(Dispatchers.IO) {
+                    repository.fetchPodcastDateBounds(allPodcasts)
                 }
                 cachedUpdates = dateBounds.mapValues { it.value.latestEpisodeEpoch }
-                cachedEarliestUpdates = earliestUpdates
-                cachedNewlyAddedPodcastEpochs = newlyAddedPodcastEpochs
-                analyticsPopularRanks = popularRanks.idRanks
-                analyticsPopularTitleRanks = popularRanks.titleRanks
                 viewModel.cachedUpdates = cachedUpdates
-                viewModel.cachedEarliestUpdates = cachedEarliestUpdates
-                viewModel.cachedNewlyAddedPodcastEpochs = cachedNewlyAddedPodcastEpochs
-                android.util.Log.d(
-                    "PodcastsFragment",
-                    "Loaded analytics popularity ranks: ids=${popularRanks.idRanks.size}, titles=${popularRanks.titleRanks.size}"
-                )
                 loadingIndicator.visibility = View.GONE
                 applyFilters(emptyState, recyclerView)
 

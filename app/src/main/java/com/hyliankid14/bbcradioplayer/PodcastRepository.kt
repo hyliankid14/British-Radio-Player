@@ -702,18 +702,18 @@ class PodcastRepository(private val context: Context) {
         val requestedIds = podcasts.map { it.id }.toSet()
         if (requestedIds.isEmpty()) return@withContext emptyMap()
 
-        val remoteIndex = try {
-            RemoteIndexClient(context).downloadIndex(forceDownload = forceRefresh)
+        val remoteIndexSummary = try {
+            RemoteIndexClient(context).getIndexSummary(forceDownload = forceRefresh)
         } catch (e: Exception) {
             Log.w("PodcastRepository", "Failed to download cloud index for New Podcasts", e)
             null
         }
 
-        if (remoteIndex == null) {
+        if (remoteIndexSummary == null) {
             return@withContext getAvailableNewPodcastEpochsNow(podcasts)
         }
 
-        val currentIds = remoteIndex.podcasts.map { it.id }.filter { it.isNotBlank() }.toSet()
+        val currentIds = remoteIndexSummary.podcastIds
         val previousState = readNewPodcastState()
         val existingState = previousState?.takeIf { it.schemaVersion >= NEW_PODCAST_STATE_SCHEMA_VERSION }
         val baselineKnownIds = when {
@@ -739,7 +739,7 @@ class PodcastRepository(private val context: Context) {
         writeNewPodcastState(
             NewPodcastState(
                 schemaVersion = NEW_PODCAST_STATE_SCHEMA_VERSION,
-                generatedAt = remoteIndex.generatedAt,
+                generatedAt = remoteIndexSummary.generatedAt,
                 knownIds = currentIds,
                 firstSeenEpochs = updatedFirstSeen
             )
@@ -777,10 +777,15 @@ class PodcastRepository(private val context: Context) {
         }
 
         try {
-            val remoteIndex = RemoteIndexClient(context).downloadIndex(forceDownload = forceRefresh) ?: run {
+            val summary = RemoteIndexClient(context).getIndexSummary(forceDownload = forceRefresh) ?: run {
                 return@withContext cached.filterKeys { it in requestedIds }
             }
-            val aggregated = aggregatePodcastDateBounds(remoteIndex.episodes)
+            val aggregated = summary.podcastBounds.mapValues { (_, bounds) ->
+                PodcastDateBounds(
+                    latestEpisodeEpoch = bounds.latestEpisodeEpoch,
+                    earliestEpisodeEpoch = bounds.earliestEpisodeEpoch
+                )
+            }
             if (aggregated.isNotEmpty()) {
                 writeCloudPodcastBoundsCache(aggregated)
             }
