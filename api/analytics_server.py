@@ -31,6 +31,7 @@ import logging
 import re
 import unicodedata
 import json
+import os
 from urllib.request import urlopen, Request
 from urllib.error import URLError, HTTPError
 from pathlib import Path
@@ -52,14 +53,161 @@ def add_cors_headers(response):
 # Database paths
 DB_PATH = Path(__file__).parent / 'analytics.db'
 PODCAST_INDEX_DB_PATH = Path(__file__).parent / 'podcast_index.db'
-GITHUB_PAGES_META_URL = (
-    'https://hyliankid14.github.io/British-Radio-Player/podcast-index-meta.json'
-)
+DEFAULT_GCS_BUCKET = 'bbc-radio-player-index-20260317-bc149e38'
 
 
-def _read_github_pages_index_meta():
+def _resolve_cloud_meta_url():
+    """Resolve cloud metadata URL from env vars, defaulting to production GCS."""
+    explicit_meta_url = os.environ.get('GCS_META_URL', '').strip()
+    if explicit_meta_url:
+        return explicit_meta_url
+
+    bucket = os.environ.get('GCS_BUCKET', '').strip() or DEFAULT_GCS_BUCKET
+    return f'https://storage.googleapis.com/{bucket}/podcast-index-meta.json'
+
+
+def _resolve_cloud_stats_url():
+    """Resolve popular podcasts snapshot URL from env vars, defaulting to production GCS."""
+    explicit_stats_url = os.environ.get('GCS_STATS_URL', '').strip()
+    if explicit_stats_url:
+        return explicit_stats_url
+
+    bucket = os.environ.get('GCS_BUCKET', '').strip() or DEFAULT_GCS_BUCKET
+    return f'https://storage.googleapis.com/{bucket}/popular-podcasts.json'
+
+# Canonical station names match the app's current naming convention.
+# Legacy names such as "BBC Radio 4" are normalised to "Radio 4".
+STATION_NAMES_BY_ID = {
+    'radio1': 'Radio 1',
+    '1xtra': 'Radio 1Xtra',
+    'radio1dance': 'Radio 1 Dance',
+    'radio1anthems': 'Radio 1 Anthems',
+    'radio2': 'Radio 2',
+    'radio3': 'Radio 3',
+    'radio3unwind': 'Radio 3 Unwind',
+    'radio4': 'Radio 4',
+    'radio4extra': 'Radio 4 Extra',
+    'radio5live': 'Radio 5 Live',
+    'radio5livesportsextra': 'Radio 5 Sports Extra',
+    'radio5livesportsextra2': 'Radio 5 Sports Extra 2',
+    'radio5livesportsextra3': 'Radio 5 Sports Extra 3',
+    'radio6': 'Radio 6 Music',
+    'worldservice': 'World Service',
+    'asiannetwork': 'Asian Network',
+    'radiocymru': 'Radio Cymru',
+    'radiocymru2': 'Radio Cymru 2',
+    'radiofoyle': 'Radio Foyle',
+    'radiogaidheal': 'Radio nan Gaidheal',
+    'radioorkney': 'Radio Orkney',
+    'radioscotland': 'Radio Scotland',
+    'radioscotlandextra': 'Radio Scotland Extra',
+    'radioshetland': 'Radio Shetland',
+    'radioulster': 'Radio Ulster',
+    'radiowales': 'Radio Wales',
+    'radiowalesextra': 'Radio Wales Extra',
+    'radioberkshire': 'Radio Berkshire',
+    'radiobristol': 'Radio Bristol',
+    'radiocambridge': 'Radio Cambridgeshire',
+    'radiocornwall': 'Radio Cornwall',
+    'radiocoventrywarwickshire': 'Radio Coventry & Warwickshire',
+    'radiocumbria': 'Radio Cumbria',
+    'radioderby': 'Radio Derby',
+    'radiodevon': 'Radio Devon',
+    'radioessex': 'Radio Essex',
+    'radioherefordworcester': 'Radio Hereford & Worcester',
+    'radiogloucestershire': 'Radio Gloucestershire',
+    'radioguernsey': 'Radio Guernsey',
+    'radiohumberside': 'Radio Humberside',
+    'radiojersey': 'Radio Jersey',
+    'radiokent': 'Radio Kent',
+    'radiolancashire': 'Radio Lancashire',
+    'radioleeds': 'Radio Leeds',
+    'radioleicester': 'Radio Leicester',
+    'radiolincolnshire': 'Radio Lincolnshire',
+    'radiolon': 'Radio London',
+    'radiomanchester': 'Radio Manchester',
+    'radiomerseyside': 'Radio Merseyside',
+    'radionewcastle': 'Radio Newcastle',
+    'radionorfolk': 'Radio Norfolk',
+    'radionorthampton': 'Radio Northampton',
+    'radionottingham': 'Radio Nottingham',
+    'radiooxford': 'Radio Oxford',
+    'radiosheffield': 'Radio Sheffield',
+    'radioshropshire': 'Radio Shropshire',
+    'radiosolent': 'Radio Solent',
+    'radiosolentwestdorset': 'Radio Solent West Dorset',
+    'radiosomerset': 'Radio Somerset',
+    'radiostoke': 'Radio Stoke',
+    'radiosuffolk': 'Radio Suffolk',
+    'radiosurrey': 'Radio Surrey',
+    'radiosussex': 'Radio Sussex',
+    'radiotees': 'Radio Tees',
+    'radiothreecounties': 'Three Counties Radio',
+    'radiowestmidlands': 'Radio West Midlands',
+    'radiowiltshire': 'Radio Wiltshire',
+    'radioyork': 'Radio York',
+}
+
+
+def _normalise_station_fields(station_id, station_name):
     """
-    Fetch lightweight index metadata from GitHub Pages.
+    Normalise station fields to match the app naming convention.
+
+    - Canonicalise known station IDs to their app title.
+    - Strip legacy leading "BBC " prefixes from free-form station names.
+    """
+    cleaned_station_id = station_id.strip() if isinstance(station_id, str) else station_id
+    cleaned_station_name = station_name.strip() if isinstance(station_name, str) else station_name
+
+    canonical_name = STATION_NAMES_BY_ID.get(cleaned_station_id)
+    if canonical_name:
+        return cleaned_station_id, canonical_name
+
+    if isinstance(cleaned_station_name, str) and cleaned_station_name:
+        cleaned_station_name = re.sub(r'^bbc\s+', '', cleaned_station_name, flags=re.IGNORECASE)
+        cleaned_station_name = re.sub(r'\s+', ' ', cleaned_station_name).strip()
+
+    return cleaned_station_id, cleaned_station_name
+
+
+def _backfill_station_names(conn):
+    """Backfill existing rows to canonical station names where possible."""
+    c = conn.cursor()
+    for station_id, canonical_name in STATION_NAMES_BY_ID.items():
+        c.execute(
+            '''
+            UPDATE events
+            SET station_name = ?
+            WHERE station_id = ?
+              AND (station_name IS NULL OR TRIM(station_name) != ?)
+            ''',
+            (canonical_name, station_id, canonical_name)
+        )
+
+    c.execute(
+        '''
+        UPDATE events
+        SET station_name = TRIM(SUBSTR(station_name, 5))
+        WHERE station_name IS NOT NULL
+          AND LOWER(station_name) LIKE 'bbc %'
+        '''
+    )
+
+
+def _normalise_station_result_row(row_dict):
+    """Normalise station name in a stats/export result row for display."""
+    station_id = row_dict.get('id') if 'id' in row_dict else row_dict.get('station_id')
+    station_name_key = 'name' if 'name' in row_dict else 'station_name'
+    station_name = row_dict.get(station_name_key)
+    _, normalised_name = _normalise_station_fields(station_id, station_name)
+    if normalised_name:
+        row_dict[station_name_key] = normalised_name
+    return row_dict
+
+
+def _read_cloud_index_meta():
+    """
+    Fetch lightweight index metadata from Google Cloud Storage.
 
     Returns:
         dict with podcast_count, episode_count, generated_at on success,
@@ -67,7 +215,7 @@ def _read_github_pages_index_meta():
     """
     try:
         req = Request(
-            GITHUB_PAGES_META_URL,
+            _resolve_cloud_meta_url(),
             headers={'User-Agent': 'British-Radio-Player-Analytics/1.0'}
         )
         with urlopen(req, timeout=5) as resp:
@@ -83,12 +231,38 @@ def _read_github_pages_index_meta():
         return None
 
 
+def _read_cloud_popular_snapshot_meta():
+    """
+    Fetch lightweight metadata from popular-podcasts snapshot used by the app.
+
+    Returns:
+        dict with generated_at and snapshot_count on success,
+        or None when unavailable.
+    """
+    try:
+        req = Request(
+            _resolve_cloud_stats_url(),
+            headers={'User-Agent': 'British-Radio-Player-Analytics/1.0'}
+        )
+        with urlopen(req, timeout=5) as resp:
+            if resp.status != 200:
+                return None
+            payload = json.loads(resp.read().decode('utf-8'))
+            snapshot = payload.get('popular_podcasts') or []
+            return {
+                'generated_at': payload.get('generated_at'),
+                'snapshot_count': len(snapshot)
+            }
+    except (URLError, HTTPError, ValueError, OSError):
+        return None
+
+
 def _resolve_index_display_status(server_counts):
     """
     Resolve effective index status for UI/API display.
 
     Prefer local server FTS counts. If local FTS is empty/uninitialised,
-    fall back to GitHub Pages metadata (the app's primary index source).
+    fall back to Google Cloud metadata (the app's primary index source).
     """
     local_has_data = (
         server_counts['podcast_count'] > 0 or
@@ -103,13 +277,13 @@ def _resolve_index_display_status(server_counts):
             'source': 'server_fts'
         }
 
-    upstream = _read_github_pages_index_meta()
+    upstream = _read_cloud_index_meta()
     if upstream:
         return {
             'podcast_count': upstream['podcast_count'],
             'episode_count': upstream['episode_count'],
             'last_updated': upstream['generated_at'],
-            'source': 'github_pages_meta'
+            'source': 'gcp_meta'
         }
 
     return {
@@ -232,6 +406,8 @@ def init_db():
         c.execute("UPDATE events SET platform = 'web' WHERE platform IS NULL AND app_version LIKE '%-web'")
         c.execute("UPDATE events SET platform = 'android' WHERE platform IS NULL")
 
+    _backfill_station_names(conn)
+
     conn.commit()
     conn.close()
 
@@ -277,6 +453,10 @@ def log_event():
         
         event_type = data['event']
         source = data.get('source', 'app')
+        station_id, station_name = _normalise_station_fields(
+            data.get('station_id'),
+            data.get('station_name')
+        )
         
         # For web player events, be more flexible with validation
         if source == 'web_player':
@@ -299,8 +479,8 @@ def log_event():
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 event_type,
-                data.get('station_id'),
-                data.get('station_name'),
+                station_id,
+                station_name,
                 data.get('podcast_id'),
                 data.get('episode_id'),
                 data.get('podcast_title'),
@@ -320,8 +500,6 @@ def log_event():
             return jsonify({'status': 'ok'}), 201
         
         # App source - maintain original strict validation
-        station_id = data.get('station_id')
-        station_name = data.get('station_name')
         podcast_id = data.get('podcast_id')
         episode_id = data.get('episode_id')
         podcast_title = data.get('podcast_title')
@@ -409,7 +587,10 @@ def get_stats():
             ORDER BY plays DESC
             LIMIT 20
         ''', params)
-        popular_stations = [dict(row) for row in c.fetchall()]
+        popular_stations = [
+            _normalise_station_result_row(dict(row))
+            for row in c.fetchall()
+        ]
 
         # Most popular podcasts (app + web player)
         c.execute(f'''
@@ -527,6 +708,7 @@ def export_csv():
             'platform'
         ])
         for row in c.fetchall():
+            row_dict = _normalise_station_result_row(dict(row))
             raw_date = row['date'] or ''
             date_part = raw_date
             time_part = ''
@@ -534,17 +716,17 @@ def export_csv():
                 date_part, time_part = raw_date.split('T', 1)
                 time_part = time_part.rstrip('Z')
             writer.writerow([
-                row['event_type'],
-                row['station_id'],
-                row['station_name'],
-                row['podcast_id'],
-                row['podcast_title'],
-                row['episode_id'],
-                row['episode_title'],
+                row_dict['event_type'],
+                row_dict['station_id'],
+                row_dict['station_name'],
+                row_dict['podcast_id'],
+                row_dict['podcast_title'],
+                row_dict['episode_id'],
+                row_dict['episode_title'],
                 date_part,
                 time_part,
-                row['app_version'],
-                row['platform']
+                row_dict['app_version'],
+                row_dict['platform']
             ])
 
         conn.close()
@@ -943,6 +1125,22 @@ def index():
             episode_count = 0
             last_updated = 'unavailable'
             index_source = 'unavailable'
+
+        # App-facing top podcasts snapshot freshness (GCS popular-podcasts.json)
+        try:
+            top20_snapshot = _read_cloud_popular_snapshot_meta()
+            if top20_snapshot:
+                app_top20_last_refreshed = top20_snapshot['generated_at'] or 'unknown'
+                app_top20_snapshot_count = top20_snapshot['snapshot_count']
+                app_top20_source = 'gcp_popular_snapshot'
+            else:
+                app_top20_last_refreshed = 'unavailable'
+                app_top20_snapshot_count = 0
+                app_top20_source = 'unavailable'
+        except Exception:
+            app_top20_last_refreshed = 'unavailable'
+            app_top20_snapshot_count = 0
+            app_top20_source = 'unavailable'
         
         html = f"""
         <!DOCTYPE html>
@@ -950,7 +1148,7 @@ def index():
         <head>
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>British Radio Player Analytics Dashboard</title>
+            <title>British Radio Player</title>
             <style>
                 * {{ box-sizing: border-box; }}
                 html, body {{ margin: 0; padding: 0; }}
@@ -1011,7 +1209,7 @@ def index():
             <div class="container">
                 <div class="header">
                     <div>
-                        <h1>British Radio Player Analytics</h1>
+                        <h1>British Radio Player</h1>
                         <p class="muted">Privacy-respecting, anonymous popularity analytics.</p>
                     </div>
                     <div class="badge">Total events: {total_events}</div>
@@ -1073,6 +1271,16 @@ def index():
                         <strong>{episode_count}</strong> episodes &nbsp;·&nbsp;
                         Last updated: <code>{last_updated}</code> &nbsp;·&nbsp;
                         Source: <code>{index_source}</code>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <h3>App Top 20 Podcasts Refresh</h3>
+                    <p class="muted">Refresh time of the cloud snapshot the app uses for fast "Most popular" rankings.</p>
+                    <div style="margin-top: 10px;">
+                        Last refreshed: <code>{app_top20_last_refreshed}</code> &nbsp;·&nbsp;
+                        Snapshot items: <strong>{app_top20_snapshot_count}</strong> &nbsp;·&nbsp;
+                        Source: <code>{app_top20_source}</code>
                     </div>
                 </div>
 
