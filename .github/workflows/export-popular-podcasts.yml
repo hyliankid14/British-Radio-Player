@@ -1,0 +1,84 @@
+name: Export popular podcasts to GCS
+
+# Fetches the 30-day popular-podcast stats from the analytics server and uploads
+# a lightweight popular-podcasts.json snapshot to the GCS bucket.  The Android
+# app checks this file first (fast CDN) before falling back to the home server,
+# so users experience near-instant "Most popular" sorting on every launch after
+# the first one.
+#
+# Required GitHub Secrets:
+#   ANALYTICS_ENDPOINT  — base URL of the analytics server, e.g.
+#                         https://raspberrypi.tailc23afa.ts.net:8443
+#   GCS_BUCKET          — name of the GCS bucket, e.g.
+#                         bbc-radio-player-index-20260317-bc149e38
+#   GCS_SA_KEY          — JSON key for a service account with
+#                         roles/storage.objectAdmin on the bucket
+
+on:
+  schedule:
+    # Run every 6 hours so the snapshot stays reasonably fresh.
+    - cron: '0 */6 * * *'
+  workflow_dispatch:   # allow manual trigger from the Actions tab
+
+permissions: {}   # no GITHUB_TOKEN permissions needed; GCS access uses GCS_SA_KEY secret
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Fetch stats from analytics server
+        env:
+          ANALYTICS_ENDPOINT: ${{ secrets.ANALYTICS_ENDPOINT }}
+        run: |
+          echo "Fetching popular podcasts from ${ANALYTICS_ENDPOINT}/stats?days=30"
+          curl -f \
+            --connect-timeout 15 \
+            --max-time 60 \
+            "${ANALYTICS_ENDPOINT}/stats?days=30" \
+            -o /tmp/stats.json
+          echo "Download complete ($(wc -c < /tmp/stats.json) bytes)"
+
+      - name: Extract popular_podcasts and write snapshot
+        run: |
+          python3 - <<'EOF'
+          import json
+          import datetime
+
+          with open('/tmp/stats.json') as f:
+              data = json.load(f)
+
+          popular = data.get('popular_podcasts', [])
+          snapshot = {
+              'popular_podcasts': popular,
+              'generated_at': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+          }
+
+          with open('/tmp/popular-podcasts.json', 'w') as f:
+              json.dump(snapshot, f)
+
+          print(f"Snapshot contains {len(popular)} popular podcasts")
+          EOF
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCS_SA_KEY }}
+
+      - name: Upload snapshot to GCS
+        uses: google-github-actions/upload-cloud-storage@v2
+        with:
+          path: /tmp/popular-podcasts.json
+          destination: ${{ secrets.GCS_BUCKET }}
+          gzip: false
+          headers: |-
+            cache-control: public, max-age=21600
+
+      - name: Summary
+        run: |
+          echo "## ✅ Popular podcasts exported" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Snapshot uploaded to \`gs://${{ secrets.GCS_BUCKET }}/popular-podcasts.json\`" >> "$GITHUB_STEP_SUMMARY"
+          PODCASTS=$(python3 -c "import json; d=json.load(open('/tmp/popular-podcasts.json')); print(len(d['popular_podcasts']))")
+          echo "Contains **${PODCASTS}** popular podcasts." >> "$GITHUB_STEP_SUMMARY"

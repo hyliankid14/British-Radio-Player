@@ -63,11 +63,12 @@ class RemoteIndexClient(private val context: Context) {
 
         // ── Index download URLs ───────────────────────────────────────────────
 
-        // Google Cloud Storage public URLs (set via GCS_INDEX_URL / GCS_META_URL
+        // Google Cloud Storage public URLs (set via GCS_INDEX_URL / GCS_META_URL / GCS_STATS_URL
         // in local.properties or environment variables at build time).
         // These are optional overrides; defaults below point to production cloud index.
         private val GCS_INDEX_URL: String get() = BuildConfig.GCS_INDEX_URL
         private val GCS_META_URL: String  get() = BuildConfig.GCS_META_URL
+        private val GCS_STATS_URL: String get() = BuildConfig.GCS_STATS_URL
 
         // Default cloud-hosted index URLs.
         private const val DEFAULT_CLOUD_INDEX_URL =
@@ -75,11 +76,18 @@ class RemoteIndexClient(private val context: Context) {
         private const val DEFAULT_CLOUD_META_URL =
             "https://storage.googleapis.com/bbc-radio-player-index-20260317-bc149e38/podcast-index-meta.json"
 
+        // Default cloud-hosted popularity snapshot URL (uploaded by the export-popular-podcasts
+        // GitHub Actions workflow from the analytics server every 6 hours).
+        private const val DEFAULT_CLOUD_STATS_URL =
+            "https://storage.googleapis.com/bbc-radio-player-index-20260317-bc149e38/popular-podcasts.json"
+
         // Resolved index URL: prefer explicit build-time overrides, otherwise cloud defaults.
         internal val INDEX_URL: String
             get() = GCS_INDEX_URL.takeIf { it.isNotBlank() } ?: DEFAULT_CLOUD_INDEX_URL
         internal val META_URL: String
             get() = GCS_META_URL.takeIf { it.isNotBlank() } ?: DEFAULT_CLOUD_META_URL
+        internal val STATS_URL: String
+            get() = GCS_STATS_URL.takeIf { it.isNotBlank() } ?: DEFAULT_CLOUD_STATS_URL
 
         // ── Live search URL ───────────────────────────────────────────────────
 
@@ -102,6 +110,12 @@ class RemoteIndexClient(private val context: Context) {
         // Re-download the static index at most once every 6 hours.
         private const val INDEX_CACHE_TTL_MS = 6 * 60 * 60 * 1_000L
         private const val INDEX_CACHE_FILENAME = "remote_podcast_index.json"
+
+        // Disk cache for popular podcast ranks (24-hour TTL).
+        // The cache is written after each successful network fetch so subsequent
+        // app launches return immediately without waiting for the home server.
+        private const val POPULAR_CACHE_FILENAME = "popular_podcast_ranks.json"
+        private const val POPULAR_CACHE_TTL_MS = 24 * 60 * 60 * 1_000L
 
         // Home-server availability cache (5-minute TTL).
         @Volatile private var cachedServerAvailable: Boolean? = null
@@ -525,12 +539,33 @@ class RemoteIndexClient(private val context: Context) {
      *
      * Returns a map of podcast ID -> 1-based rank, where lower is more popular.
      * If stats are unavailable, returns an empty map so callers can fall back.
+     *
+     * Loading order (fastest to slowest):
+     *   1. Disk cache — returns immediately if the cache is less than 24 hours old.
+     *   2. GCS snapshot — CDN-hosted JSON uploaded by the export-popular-podcasts
+     *      GitHub Actions workflow every 6 hours.  Fast and globally available.
+     *   3. Home analytics server — real-time data but subject to home-server latency.
+     *   4. Cloud Function — fallback if both of the above are unreachable.
+     *
+     * A successful network result is always written back to disk so the next
+     * launch returns instantly from step 1.
      */
     fun fetchPopularPodcastRanks(days: Int = 30, limit: Int = 200): PopularPodcastRanking {
+        // Step 1: return disk cache immediately if it is still fresh.
+        readPopularRanksCache()?.let { cached ->
+            Log.d(TAG, "fetchPopularPodcastRanks: returning fresh disk cache")
+            return cached
+        }
+
+        // Steps 2-4: try each URL in priority order (GCS snapshot → home server → Cloud Function).
         val safeDays = days.coerceAtLeast(1)
         val safeLimit = limit.coerceAtLeast(1)
         val statsUrls = listOf(
+            // GCS-hosted snapshot: fast, globally available, updated every 6 hours.
+            STATS_URL,
+            // Home analytics server: real-time but may be slow on home connections.
             "${PrivacyAnalytics.getAnalyticsBaseUrl()}/stats?days=${encode(safeDays.toString())}",
+            // Cloud Function fallback.
             "$LIVE_SEARCH_URL/stats?days=${encode(safeDays.toString())}"
         )
 
@@ -576,13 +611,67 @@ class RemoteIndexClient(private val context: Context) {
                 }
 
                 if (idRanks.isNotEmpty() || titleRanks.isNotEmpty()) {
-                    return PopularPodcastRanking(idRanks = idRanks, titleRanks = titleRanks)
+                    val result = PopularPodcastRanking(idRanks = idRanks, titleRanks = titleRanks)
+                    savePopularRanksCache(result)
+                    return result
                 }
             } catch (e: Exception) {
                 Log.d(TAG, "fetchPopularPodcastRanks failed for $url: ${e.message}")
             }
         }
         return PopularPodcastRanking(idRanks = emptyMap(), titleRanks = emptyMap())
+    }
+
+    /**
+     * Read popular podcast ranks from the on-device disk cache.
+     *
+     * Returns null if the cache file does not exist or is older than
+     * [POPULAR_CACHE_TTL_MS] (24 hours).
+     */
+    private fun readPopularRanksCache(): PopularPodcastRanking? {
+        val cacheFile = File(context.cacheDir, POPULAR_CACHE_FILENAME)
+        if (!cacheFile.exists()) return null
+        if (System.currentTimeMillis() - cacheFile.lastModified() > POPULAR_CACHE_TTL_MS) return null
+        return try {
+            val json = JSONObject(cacheFile.readText())
+            val idRanksObj = json.optJSONObject("id_ranks") ?: return null
+            val titleRanksObj = json.optJSONObject("title_ranks") ?: return null
+            val idRanks = linkedMapOf<String, Int>()
+            val titleRanks = linkedMapOf<String, Int>()
+            idRanksObj.keys().forEach { key -> idRanks[key] = idRanksObj.getInt(key) }
+            titleRanksObj.keys().forEach { key -> titleRanks[key] = titleRanksObj.getInt(key) }
+            PopularPodcastRanking(idRanks = idRanks, titleRanks = titleRanks)
+        } catch (e: Exception) {
+            Log.d(TAG, "Failed to read popular ranks cache: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Persist popular podcast ranks to disk so the next launch can return
+     * immediately without a network round-trip.
+     *
+     * Writes to a temporary file first and renames atomically to prevent a
+     * corrupt cache if the app is killed mid-write.
+     */
+    private fun savePopularRanksCache(ranking: PopularPodcastRanking) {
+        val cacheFile = File(context.cacheDir, POPULAR_CACHE_FILENAME)
+        val tmpFile = File(context.cacheDir, "$POPULAR_CACHE_FILENAME.tmp")
+        try {
+            val idRanksObj = JSONObject()
+            ranking.idRanks.forEach { (k, v) -> idRanksObj.put(k, v) }
+            val titleRanksObj = JSONObject()
+            ranking.titleRanks.forEach { (k, v) -> titleRanksObj.put(k, v) }
+            val json = JSONObject()
+            json.put("id_ranks", idRanksObj)
+            json.put("title_ranks", titleRanksObj)
+            tmpFile.writeText(json.toString())
+            tmpFile.renameTo(cacheFile)
+            Log.d(TAG, "Saved popular ranks cache: ${ranking.idRanks.size} ids")
+        } catch (e: Exception) {
+            Log.d(TAG, "Failed to save popular ranks cache: ${e.message}")
+            tmpFile.delete()
+        }
     }
 
     private fun normalizeTitle(value: String): String =

@@ -243,11 +243,60 @@ To also configure GitHub Actions as a fallback builder:
 
 ---
 
+## Popular Podcasts Snapshot (fast loading)
+
+The `export-popular-podcasts` GitHub Actions workflow runs every 6 hours. It
+fetches the `/stats?days=30` response from the home analytics server and
+uploads a lightweight `popular-podcasts.json` snapshot to the same GCS bucket.
+
+The Android app checks this CDN-hosted file first when sorting by "Most
+popular", so subsequent launches return ranking data instantly instead of
+waiting for the home server.
+
+### Setup
+
+Add the following secrets to the GitHub repository
+(**Settings → Secrets and variables → Actions**):
+
+| Secret | Value |
+|---|---|
+| `ANALYTICS_ENDPOINT` | Base URL of your home analytics server, e.g. `https://raspberrypi.tailc23afa.ts.net:8443` |
+| `GCS_BUCKET` | Name of the GCS bucket, e.g. `bbc-radio-player-index-20260317-bc149e38` |
+| `GCS_SA_KEY` | JSON key for a service account with `roles/storage.objectAdmin` on the bucket |
+
+The same service account used for the index builder (`bbc-index-builder`) can
+be reused — it already has the necessary bucket permissions.
+
+To download its key:
+
+```bash
+gcloud iam service-accounts keys create /tmp/sa-key.json \
+  --iam-account=bbc-index-builder@YOUR_PROJECT.iam.gserviceaccount.com
+cat /tmp/sa-key.json   # paste the contents into the GCS_SA_KEY secret
+```
+
+### Configure the app
+
+Add `GCS_STATS_URL` to `local.properties` (or as an environment variable at
+build time) so the app reads the CDN snapshot for the production build:
+
+```
+GCS_STATS_URL=https://storage.googleapis.com/YOUR_BUCKET/popular-podcasts.json
+```
+
+If left blank the app defaults to the production bucket URL bundled in
+`RemoteIndexClient`.
+
+---
+
 ## Verifying the Deployment
 
 ```bash
 # Check index freshness metadata
 curl "https://storage.googleapis.com/YOUR_BUCKET/podcast-index-meta.json"
+
+# Check popular podcasts snapshot
+curl "https://storage.googleapis.com/YOUR_BUCKET/popular-podcasts.json"
 
 # Check function status
 curl "FUNCTION_URL/index/status"
@@ -275,3 +324,4 @@ curl -X POST "FUNCTION_URL/summarize" \
 | Scheduler job never fires | Service agent lacks `iam.serviceAccountUser` on the scheduler SA | Re-run `ensure_scheduler_permissions` in the setup script |
 | Cloud Run Job fails to push to GCS | Builder SA lacks `roles/storage.objectAdmin` | Re-run `ensure_builder_permissions` in the setup script |
 | `gcloud auth application-default login` required | Local ADC not configured | Run `gcloud auth application-default login` before running `build_index.py` locally |
+| `popular-podcasts.json` missing from GCS | Workflow has not run yet or secrets are not set | Trigger `.github/workflows/export-popular-podcasts.yml` manually from the Actions tab |
