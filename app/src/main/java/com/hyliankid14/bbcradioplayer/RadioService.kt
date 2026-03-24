@@ -1038,6 +1038,7 @@ class RadioService : MediaBrowserServiceCompat() {
                 .setTitle(station.title)
                 .setSubtitle(displaySubtitle)
                 .setIconUri(android.net.Uri.parse(station.logoUrl))
+                .setIconBitmap(StationArtwork.createBitmap(station.id))
                 .build(),
             MediaItem.FLAG_PLAYABLE
         )
@@ -2523,6 +2524,7 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
         }
 
         val displayBitmap = artworkBitmap ?: currentArtworkBitmap
+            ?: if (!isPodcast && currentStationId.isNotBlank()) StationArtwork.createBitmap(currentStationId) else null
 
         val mediaIdVal: String = if (isPodcast) {
             // Prefer currently-playing episode id; fall back to station id (never null at runtime, but coerce defensively)
