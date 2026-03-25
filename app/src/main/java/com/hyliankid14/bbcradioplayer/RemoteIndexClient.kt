@@ -55,7 +55,9 @@ class RemoteIndexClient(private val context: Context) {
 
     data class PopularPodcastRanking(
         val idRanks: Map<String, Int>,
-        val titleRanks: Map<String, Int>
+        val titleRanks: Map<String, Int>,
+        /** True when these ranks were read from the on-device disk cache rather than fetched live. */
+        val fromCache: Boolean = false
     )
 
     companion object {
@@ -777,7 +779,8 @@ class RemoteIndexClient(private val context: Context) {
      * If stats are unavailable, returns an empty map so callers can fall back.
      *
      * Loading order (fastest to slowest):
-     *   1. Disk cache — returns immediately if the cache is less than 24 hours old.
+     *   1. Disk cache — returns immediately if the cache is less than 24 hours old
+     *      (skipped when [skipCache] is true).
      *   2. GCS snapshot — CDN-hosted JSON uploaded by the export-popular-podcasts
      *      GitHub Actions workflow every 6 hours.  Fast and globally available.
      *   3. Home analytics server — real-time data but subject to home-server latency.
@@ -785,12 +788,18 @@ class RemoteIndexClient(private val context: Context) {
      *
      * A successful network result is always written back to disk so the next
      * launch returns instantly from step 1.
+     *
+     * @param skipCache When true the disk cache is ignored and a live network request is always
+     *   made. Use this for background refresh calls so the UI stays up-to-date after the GCS
+     *   snapshot is refreshed by the GitHub Actions workflow.
      */
-    fun fetchPopularPodcastRanks(days: Int = 30, limit: Int = 200): PopularPodcastRanking {
-        // Step 1: return disk cache immediately if it is still fresh.
-        readPopularRanksCache()?.let { cached ->
-            Log.d(TAG, "fetchPopularPodcastRanks: returning fresh disk cache")
-            return cached
+    fun fetchPopularPodcastRanks(days: Int = 30, limit: Int = 200, skipCache: Boolean = false): PopularPodcastRanking {
+        // Step 1: return disk cache immediately if it is still fresh (and not bypassed).
+        if (!skipCache) {
+            readPopularRanksCache()?.let { cached ->
+                Log.d(TAG, "fetchPopularPodcastRanks: returning fresh disk cache")
+                return cached.copy(fromCache = true)
+            }
         }
 
         // Steps 2-4: try each URL in priority order (GCS snapshot → home server → Cloud Function).

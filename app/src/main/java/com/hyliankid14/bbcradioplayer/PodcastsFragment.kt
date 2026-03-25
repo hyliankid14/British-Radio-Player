@@ -769,6 +769,8 @@ class PodcastsFragment : Fragment() {
             try {
                 launch {
                     try {
+                        // Initial load: use the on-device disk cache if it is still fresh so the
+                        // sort order appears instantly without waiting for a network round-trip.
                         val popularRanks = withContext(Dispatchers.IO) {
                             repository.fetchPopularPodcastRanks(days = 30)
                         }
@@ -778,11 +780,38 @@ class PodcastsFragment : Fragment() {
                         viewModel.cachedPopularTitleRanks = analyticsPopularTitleRanks
                         android.util.Log.d(
                             "PodcastsFragment",
-                            "Loaded analytics popularity ranks: ids=${popularRanks.idRanks.size}, titles=${popularRanks.titleRanks.size}"
+                            "Loaded analytics popularity ranks: ids=${popularRanks.idRanks.size}, titles=${popularRanks.titleRanks.size}, fromCache=${popularRanks.fromCache}"
                         )
 
                         if (isAdded && allPodcasts.isNotEmpty() && normalizeSortValue(currentSort) == SORT_MOST_POPULAR) {
                             applyFilters(emptyState, recyclerView)
+                        }
+
+                        // Background refresh: if the initial data came from the disk cache, always
+                        // fetch the latest snapshot from the network so that ranking updates pushed
+                        // by the GitHub Actions workflow (every 6 hours, or on manual trigger) are
+                        // reflected without waiting for the 24-hour cache TTL to expire.
+                        if (popularRanks.fromCache) {
+                            val freshRanks = withContext(Dispatchers.IO) {
+                                repository.fetchPopularPodcastRanks(days = 30, skipCache = true)
+                            }
+                            // Map.equals() compares by content (key-value pairs), so this detects
+                            // any change in the network-fetched rankings vs the cached snapshot.
+                            if (freshRanks.idRanks != analyticsPopularRanks ||
+                                freshRanks.titleRanks != analyticsPopularTitleRanks
+                            ) {
+                                analyticsPopularRanks = freshRanks.idRanks
+                                analyticsPopularTitleRanks = freshRanks.titleRanks
+                                viewModel.cachedPopularRanks = analyticsPopularRanks
+                                viewModel.cachedPopularTitleRanks = analyticsPopularTitleRanks
+                                android.util.Log.d(
+                                    "PodcastsFragment",
+                                    "Updated popularity ranks from network: ids=${freshRanks.idRanks.size}, titles=${freshRanks.titleRanks.size}"
+                                )
+                                if (isAdded && allPodcasts.isNotEmpty() && normalizeSortValue(currentSort) == SORT_MOST_POPULAR) {
+                                    applyFilters(emptyState, recyclerView)
+                                }
+                            }
                         }
                     } catch (e: Exception) {
                         android.util.Log.w("PodcastsFragment", "Failed to load popular podcast ranks: ${e.message}")

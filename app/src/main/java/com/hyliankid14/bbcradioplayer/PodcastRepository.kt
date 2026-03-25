@@ -685,10 +685,10 @@ class PodcastRepository(private val context: Context) {
         }
     }
 
-    suspend fun fetchPopularPodcastRanks(days: Int = 30): RemoteIndexClient.PopularPodcastRanking = withContext(Dispatchers.IO) {
+    suspend fun fetchPopularPodcastRanks(days: Int = 30, skipCache: Boolean = false): RemoteIndexClient.PopularPodcastRanking = withContext(Dispatchers.IO) {
         try {
             val remote = RemoteIndexClient(context)
-            remote.fetchPopularPodcastRanks(days = days)
+            remote.fetchPopularPodcastRanks(days = days, skipCache = skipCache)
         } catch (e: Exception) {
             Log.w("PodcastRepository", "Error fetching popular podcast ranks", e)
             RemoteIndexClient.PopularPodcastRanking(idRanks = emptyMap(), titleRanks = emptyMap())

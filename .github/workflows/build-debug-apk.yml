@@ -11,9 +11,6 @@ name: Build Debug APK
 
 on:
   workflow_dispatch:       # allow manual trigger from the Actions tab
-  push:
-    branches:
-      - 'copilot/**'        # auto-build for Copilot PR branches
 
 permissions:
   contents: write          # needed to create/update the rolling debug-apk-latest release
