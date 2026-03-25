@@ -2450,7 +2450,7 @@ class PodcastsFragment : Fragment() {
         private const val SHAKE_THRESHOLD_GRAVITY = 2.7f
         private const val SHAKE_DEBOUNCE_MS = 1000L
         private const val SORT_MOST_POPULAR = "Most popular"
-        private const val SORT_MOST_RECENT_EPISODES = "Most recent episodes"
+        private const val SORT_MOST_RECENT_EPISODES = "Most recently updated"
         private const val SORT_MOST_RECENT_EPISODES_LEGACY = "Most recent"
         private const val SORT_NEW_PODCASTS = "New Podcasts"
         private const val SORT_NEW_PODCASTS_LEGACY = "Most recently added podcasts"
