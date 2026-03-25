@@ -2576,11 +2576,29 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
         val displayUri: String = if (isPodcast) {
             (artworkUri ?: preferredPodcastArtwork.takeIf { it.isNotBlank() } ?: currentArtworkUri ?: currentStationLogo).orEmpty()
         } else {
-            (artworkUri ?: currentShowInfo.imageUrl ?: currentArtworkUri ?: currentStationLogo).orEmpty()
+            // For radio stations, only use show/episode artwork; never fall back to the BBC station
+            // logo so that Android Auto's now playing screen shows the generic icon instead.
+            listOfNotNull(artworkUri, currentShowInfo.imageUrl, currentArtworkUri)
+                .firstOrNull { it.isNotEmpty() && it != currentStationLogo }
+                .orEmpty()
         }
 
-        val displayBitmap = artworkBitmap ?: currentArtworkBitmap
-            ?: if (!isPodcast && currentStationId.isNotBlank()) StationArtwork.createBitmap(currentStationId) else null
+        val displayBitmap = if (!isPodcast) {
+            // For radio stations, only trust bitmaps that were loaded alongside show artwork
+            // (i.e. the accompanying URI is not the BBC station logo).  Everything else falls
+            // back to the generic StationArtwork so the BBC logo never appears on the Android
+            // Auto now-playing screen.
+            val passedBitmapIsShowArt = artworkBitmap != null && artworkUri != null && artworkUri != currentStationLogo
+            val cachedBitmapIsShowArt = currentArtworkBitmap != null && currentArtworkUri != null && currentArtworkUri != currentStationLogo
+            when {
+                passedBitmapIsShowArt -> artworkBitmap
+                cachedBitmapIsShowArt -> currentArtworkBitmap
+                currentStationId.isNotBlank() -> StationArtwork.createBitmap(currentStationId)
+                else -> null
+            }
+        } else {
+            artworkBitmap ?: currentArtworkBitmap
+        }
 
         val mediaIdVal: String = if (isPodcast) {
             // Prefer currently-playing episode id; fall back to station id (never null at runtime, but coerce defensively)
