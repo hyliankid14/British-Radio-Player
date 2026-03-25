@@ -658,6 +658,8 @@ def get_stats():
         ]
 
         # Most popular podcasts (app + web player)
+        # Fetch a larger pool (200) so that after merging same-named podcasts that were
+        # tracked under multiple podcast_ids we still have enough entries to fill 20 slots.
         c.execute(f'''
             SELECT
                 podcast_id AS id,
@@ -669,9 +671,36 @@ def get_stats():
             AND podcast_id IS NOT NULL
             GROUP BY podcast_id
             ORDER BY plays DESC
-            LIMIT 20
+            LIMIT 200
         ''', params)
-        popular_podcasts = [dict(row) for row in c.fetchall()]
+        raw_podcast_rows = [dict(row) for row in c.fetchall()]
+
+        # Merge duplicate podcast entries that share the same display name but were
+        # stored under different podcast_ids (e.g. after a BBC re-index).  The id of
+        # the entry with the most plays is kept as the canonical id so that the Android
+        # app can still match it by id as well as by title.
+        merged: dict = {}  # merge_key -> {'id', 'name', 'plays', 'top_plays'}
+        for row in raw_podcast_rows:
+            norm = row['name'].strip().lower() if row['name'] else ''
+            # Fall back to the podcast_id as the merge key for untitled entries so
+            # they are not incorrectly grouped together.
+            merge_key = norm if norm else row['id']
+            if merge_key not in merged:
+                merged[merge_key] = {'id': row['id'], 'name': row['name'],
+                                     'plays': row['plays'], 'top_plays': row['plays']}
+            else:
+                merged[merge_key]['plays'] += row['plays']
+                # Promote the id/name of whichever sub-entry had the most plays.
+                if row['plays'] > merged[merge_key]['top_plays']:
+                    merged[merge_key]['top_plays'] = row['plays']
+                    merged[merge_key]['id'] = row['id']
+                    merged[merge_key]['name'] = row['name']
+
+        popular_podcasts = sorted(
+            ({'id': v['id'], 'name': v['name'], 'plays': v['plays']}
+             for v in merged.values()),
+            key=lambda x: -x['plays']
+        )[:20]
 
         # Most popular episodes (app + web player)
         c.execute(f'''
