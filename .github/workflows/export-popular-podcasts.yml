@@ -47,7 +47,7 @@ jobs:
             -o /tmp/stats.json
           echo "Download complete ($(wc -c < /tmp/stats.json) bytes)"
 
-      - name: Extract popular_podcasts, popular_episodes and write snapshot
+      - name: Extract popular_podcasts and write snapshot
         run: |
           python3 - <<'EOF'
           import json
@@ -57,17 +57,15 @@ jobs:
               data = json.load(f)
 
           popular = data.get('popular_podcasts', [])
-          popular_episodes = data.get('popular_episodes', [])
           snapshot = {
               'popular_podcasts': popular,
-              'popular_episodes': popular_episodes,
               'generated_at': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
           }
 
           with open('/tmp/popular-podcasts.json', 'w') as f:
               json.dump(snapshot, f)
 
-          print(f"Snapshot contains {len(popular)} popular podcasts and {len(popular_episodes)} popular episodes")
+          print(f"Snapshot contains {len(popular)} popular podcasts")
           EOF
 
       - name: Authenticate to Google Cloud
@@ -94,5 +92,4 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "Snapshot uploaded to \`gs://${{ secrets.GCS_BUCKET }}/popular-podcasts.json\`" >> "$GITHUB_STEP_SUMMARY"
           PODCASTS=$(python3 -c "import json; d=json.load(open('/tmp/popular-podcasts.json')); print(len(d['popular_podcasts']))")
-          EPISODES=$(python3 -c "import json; d=json.load(open('/tmp/popular-podcasts.json')); print(len(d.get('popular_episodes', [])))")
-          echo "Contains **${PODCASTS}** popular podcasts and **${EPISODES}** popular episodes." >> "$GITHUB_STEP_SUMMARY"
+          echo "Contains **${PODCASTS}** popular podcasts." >> "$GITHUB_STEP_SUMMARY"

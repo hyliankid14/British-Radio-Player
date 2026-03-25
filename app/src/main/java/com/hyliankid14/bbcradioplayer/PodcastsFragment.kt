@@ -46,7 +46,6 @@ class PodcastsFragment : Fragment() {
     private var cachedNewlyAddedPodcastEpochs: Map<String, Long> = emptyMap()
     private var analyticsPopularRanks: Map<String, Int> = emptyMap()
     private var analyticsPopularTitleRanks: Map<String, Int> = emptyMap()
-    private var analyticsPopularEpisodeRanks: Map<String, Int> = emptyMap()
     private var searchQuery = ""
     private var searchEditText: com.google.android.material.textfield.MaterialAutoCompleteTextView? = null
     private var searchInputLayout: com.google.android.material.textfield.TextInputLayout? = null
@@ -694,7 +693,6 @@ class PodcastsFragment : Fragment() {
             cachedNewlyAddedPodcastEpochs = viewModel.cachedNewlyAddedPodcastEpochs
             analyticsPopularRanks = viewModel.cachedPopularRanks
             analyticsPopularTitleRanks = viewModel.cachedPopularTitleRanks
-            analyticsPopularEpisodeRanks = viewModel.cachedPopularEpisodeRanks
             currentFilter = viewModel.cachedFilter
             // Restore sort: use cached sort if available, otherwise use default
             currentSort = if (viewModel.cachedSort.isNotEmpty()) {
@@ -785,17 +783,6 @@ class PodcastsFragment : Fragment() {
                             "Loaded analytics popularity ranks: ids=${popularRanks.idRanks.size}, titles=${popularRanks.titleRanks.size}, fromCache=${popularRanks.fromCache}"
                         )
 
-                        // Fetch popular episode ranks from cache (same 6-hour TTL as podcast ranks).
-                        val popularEpisodeRanks = withContext(Dispatchers.IO) {
-                            repository.fetchPopularEpisodeRanks()
-                        }
-                        analyticsPopularEpisodeRanks = popularEpisodeRanks.idRanks
-                        viewModel.cachedPopularEpisodeRanks = analyticsPopularEpisodeRanks
-                        android.util.Log.d(
-                            "PodcastsFragment",
-                            "Loaded analytics popularity episode ranks: ids=${popularEpisodeRanks.idRanks.size}, fromCache=${popularEpisodeRanks.fromCache}"
-                        )
-
                         if (isAdded && allPodcasts.isNotEmpty() && normalizeSortValue(currentSort) == SORT_MOST_POPULAR) {
                             applyFilters(emptyState, recyclerView)
                         }
@@ -804,32 +791,22 @@ class PodcastsFragment : Fragment() {
                         // fetch the latest snapshot from the network so that ranking updates pushed
                         // by the GitHub Actions workflow (every 6 hours, or on manual trigger) are
                         // reflected without waiting for the cache TTL to expire.
-                        if (popularRanks.fromCache || popularEpisodeRanks.fromCache) {
+                        if (popularRanks.fromCache) {
                             val freshRanks = withContext(Dispatchers.IO) {
                                 repository.fetchPopularPodcastRanks(days = 30, skipCache = true)
                             }
-                            // fetchPopularPodcastRanks with skipCache=true also refreshes the
-                            // popular episode cache (when the GCS snapshot is the source). Read
-                            // the freshly-written episode cache rather than making a second HTTP
-                            // request to the same GCS URL.
-                            val freshEpisodeRanks = withContext(Dispatchers.IO) {
-                                repository.fetchPopularEpisodeRanks(skipCache = false)
-                            }
                             // Map.equals() compares by content (key-value pairs), so this detects
                             // any change in the network-fetched rankings vs the cached snapshot.
-                            val podcastRanksChanged = freshRanks.idRanks != analyticsPopularRanks ||
+                            if (freshRanks.idRanks != analyticsPopularRanks ||
                                 freshRanks.titleRanks != analyticsPopularTitleRanks
-                            val episodeRanksChanged = freshEpisodeRanks.idRanks != analyticsPopularEpisodeRanks
-                            if (podcastRanksChanged || episodeRanksChanged) {
+                            ) {
                                 analyticsPopularRanks = freshRanks.idRanks
                                 analyticsPopularTitleRanks = freshRanks.titleRanks
-                                analyticsPopularEpisodeRanks = freshEpisodeRanks.idRanks
                                 viewModel.cachedPopularRanks = analyticsPopularRanks
                                 viewModel.cachedPopularTitleRanks = analyticsPopularTitleRanks
-                                viewModel.cachedPopularEpisodeRanks = analyticsPopularEpisodeRanks
                                 android.util.Log.d(
                                     "PodcastsFragment",
-                                    "Updated popularity ranks from network: ids=${freshRanks.idRanks.size}, titles=${freshRanks.titleRanks.size}, episodeIds=${freshEpisodeRanks.idRanks.size}"
+                                    "Updated popularity ranks from network: ids=${freshRanks.idRanks.size}, titles=${freshRanks.titleRanks.size}"
                                 )
                                 if (isAdded && allPodcasts.isNotEmpty() && normalizeSortValue(currentSort) == SORT_MOST_POPULAR) {
                                     applyFilters(emptyState, recyclerView)
@@ -2376,20 +2353,13 @@ class PodcastsFragment : Fragment() {
                 compareBy<Pair<Episode, Podcast>>({ it.first.title }, { it.second.title })
             )
             else -> {
-                // Most popular: prefer direct episode popularity rank (from the GCS snapshot's
-                // popular_episodes field) so individually popular episodes surface prominently.
-                // Unranked episodes fall back to their parent podcast's popularity rank.
-                // Ties at the same rank level are broken by publication date (newest first).
+                // Most popular: sort by podcast popularity, then by episode pub date
                 val epochMap: Map<String, Long> = episodes.associate { (ep, _) ->
                     ep.id to com.hyliankid14.bbcradioplayer.db.IndexStore.parsePubEpoch(ep.pubDate)
                 }
                 episodes.sortedWith(
-                    compareBy<Pair<Episode, Podcast>>(
-                        // Primary key: episodes with a direct rank come before unranked episodes.
-                        { if (analyticsPopularEpisodeRanks.containsKey(it.first.id)) 0 else 1 },
-                        // Secondary key: direct episode rank (ranked) or podcast rank (unranked).
-                        { analyticsPopularEpisodeRanks[it.first.id] ?: getPopularRank(it.second) }
-                    ).thenByDescending { epochMap[it.first.id] ?: 0L }
+                    compareBy<Pair<Episode, Podcast>> { getPopularRank(it.second) }
+                        .thenByDescending { epochMap[it.first.id] ?: 0L }
                 )
             }
         }
