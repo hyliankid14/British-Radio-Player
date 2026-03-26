@@ -2425,7 +2425,8 @@ class PodcastsFragment : Fragment() {
                 episodes
                     .filter { (_, podcast) -> isNewPodcast(podcast) }
                     .sortedWith(
-                        compareByDescending<Pair<Episode, Podcast>> { earliestEpisodeEpoch(it.second) }
+                        compareByDescending<Pair<Episode, Podcast>> { newlyAddedEpoch(it.second) }
+                            .thenByDescending { earliestEpisodeEpoch(it.second) }
                             .thenByDescending { epochMap[it.first.id] ?: Long.MIN_VALUE }
                             .thenBy { it.first.title }
                     )
@@ -2478,18 +2479,17 @@ class PodcastsFragment : Fragment() {
     }
 
     private fun isNewPodcast(podcast: Podcast): Boolean {
-        val earliest = earliestEpisodeEpoch(podcast)
-        if (earliest <= 0L || earliest == Long.MIN_VALUE) return false
-        val earliestIsRecent = System.currentTimeMillis() - earliest <= NEW_PODCAST_WINDOW_MS
-        if (!earliestIsRecent) return false
-
-        // Programmatic guard: if we have cloud-index discovery data, only treat podcasts
-        // first seen recently in that directory as genuinely new launches.
+        // Preferred source: repository-managed discovery epochs from cloud-index snapshots.
+        // This map is capped to the top 50 most recently discovered IDs on device.
         if (cachedNewlyAddedPodcastEpochs.isNotEmpty()) {
             return newlyAddedEpoch(podcast) > 0L
         }
 
-        return true
+        // Fallback path when discovery metadata has not loaded yet.
+        val earliest = earliestEpisodeEpoch(podcast)
+        if (earliest <= 0L || earliest == Long.MIN_VALUE) return false
+        val earliestIsRecent = System.currentTimeMillis() - earliest <= NEW_PODCAST_WINDOW_MS
+        return earliestIsRecent
     }
 
     private fun sortPodcasts(podcasts: List<Podcast>): List<Podcast> {
@@ -2505,7 +2505,8 @@ class PodcastsFragment : Fragment() {
             SORT_NEW_PODCASTS -> podcasts
                 .filter { isNewPodcast(it) }
                 .sortedWith(
-                    compareByDescending<Podcast> { earliestEpisodeEpoch(it) }
+                    compareByDescending<Podcast> { newlyAddedEpoch(it) }
+                        .thenByDescending { earliestEpisodeEpoch(it) }
                         .thenBy { it.title }
                 )
             SORT_ALPHABETICAL -> podcasts.sortedBy { it.title }

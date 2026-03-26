@@ -37,15 +37,19 @@ android {
         //   e.g. https://storage.googleapis.com/YOUR_BUCKET/podcast-index-meta.json
         // GCS_STATS_URL   — public URL of popular-podcasts.json in GCS (popularity snapshot)
         //   e.g. https://storage.googleapis.com/YOUR_BUCKET/popular-podcasts.json
+        // GCS_NEW_PODCASTS_URL — public URL of new-podcasts.json in GCS (rolling top-50)
+        //   e.g. https://storage.googleapis.com/YOUR_BUCKET/new-podcasts.json
         // CLOUD_FUNCTION_URL — base URL of the Cloud Function search API
         //   e.g. https://REGION-PROJECT.cloudfunctions.net/podcast-search
         def gcsIndexUrl       = project.findProperty("GCS_INDEX_URL")       ?: System.getenv("GCS_INDEX_URL")       ?: ""
         def gcsMetaUrl        = project.findProperty("GCS_META_URL")        ?: System.getenv("GCS_META_URL")        ?: ""
         def gcsStatsUrl       = project.findProperty("GCS_STATS_URL")       ?: System.getenv("GCS_STATS_URL")       ?: ""
+        def gcsNewPodcastsUrl = project.findProperty("GCS_NEW_PODCASTS_URL")?: System.getenv("GCS_NEW_PODCASTS_URL")?: ""
         def cloudFunctionUrl  = project.findProperty("CLOUD_FUNCTION_URL")  ?: System.getenv("CLOUD_FUNCTION_URL")  ?: ""
         buildConfigField "String", "GCS_INDEX_URL",      "\"${gcsIndexUrl}\""
         buildConfigField "String", "GCS_META_URL",       "\"${gcsMetaUrl}\""
         buildConfigField "String", "GCS_STATS_URL",      "\"${gcsStatsUrl}\""
+        buildConfigField "String", "GCS_NEW_PODCASTS_URL", "\"${gcsNewPodcastsUrl}\""
         buildConfigField "String", "CLOUD_FUNCTION_URL", "\"${cloudFunctionUrl}\""
         buildConfigField "boolean", "ENABLE_GITHUB_UPDATER", "false"
         buildConfigField "String", "DISTRIBUTION_CHANNEL", "\"unknown\""

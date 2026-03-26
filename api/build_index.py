@@ -52,6 +52,61 @@ USER_AGENT = (
 MAX_EPISODES_PER_PODCAST = sys.maxsize  # Index all available episodes per podcast
 REQUEST_TIMEOUT = 20                    # seconds per HTTP request
 DEFAULT_WORKERS = 16                    # parallel RSS fetch threads
+NEW_PODCASTS_MAX_COUNT = 50
+NEW_PODCASTS_POLICY_START_EPOCH_MS = 1_742_774_400_000  # 2026-03-24T00:00:00Z
+NEW_PODCASTS_SNAPSHOT_OBJECT = "new-podcasts.json"
+NEW_PODCASTS_STATE_OBJECT = "new-podcasts-state.json"
+
+# Baseline seed list (ordered newest -> oldest within the initial curated set).
+# New podcasts discovered in the live index are assigned a fresher epoch and float above this set.
+BASELINE_NEW_PODCAST_IDS = [
+    "p0n5p4w5",  # Secrets of the Salt Path
+    "w13xtwk9",  # Inheritance: Samsung
+    "p0n3r2yp",  # Don't Say A Word
+    "m002sh1p",  # Natalie McNally Murder: YouTuber on Trial
+    "m002rkhb",  # Made in China
+    "m002rkh9",  # MF DOOM: Long Island to Leeds
+    "m002rkh7",  # Judged: A Mother's Love
+    "m002rkh8",  # It's So Loud In Here!
+    "m002r4y1",  # Life Without
+    "m002qwn7",  # The Interface
+    "m002jty0",  # How Did We Get Here?
+    "m002q5dk",  # The History Bureau
+    "p0mksq4x",  # SEND in the Spotlight
+    "p0mhhr0q",  # Improbable
+    "p0mh9lt6",  # Game's Gone: The Steve Bracknall Podcast
+    "p0mf920m",  # Matt Chorley's Urgent Questions
+    "p0mcyd0k",  # Complex with Kimberley Wilson
+    "p0mdcpkb",  # Ready to Talk with Emma Barnett
+    "m002lsmt",  # The Ireland Rugby Social Podcast
+    "m002lg00",  # Matched With A Predator
+    "p0m75t46",  # Borderland – UK or United Ireland?
+    "m002h2gt",  # Scam Secrets
+    "p016tmg0",  # The Arts Hour
+    "p0llhcln",  # Making of a Fugitive
+    "p0ljk1vg",  # Situationships with Sophie and Christine
+    "p0lgrwds",  # Havana Helmet Club
+    "p0lbnm09",  # You About?
+    "m002c000",  # The State of Us
+    "p0l3x7rp",  # Strange But True Crime
+    "p0l3td5c",  # The Couch to 5K Podcast
+    "m0029hx3",  # This Week in History
+    "p02pc9x6",  # Comedy of the Week
+    "m00298p7",  # What's Up Docs?
+    "p0kvsxcv",  # Fool's Gold
+    "p0kqbtlv",  # Melting Pot
+    "p0kqbfv4",  # Heart & Stone
+    "p0kqbqw2",  # Criminally Queer: The Bolton 7
+    "w13xtw18",  # The Mangione Trial
+    "p0kqh5hj",  # DNA Trail
+    "p0kq9275",  # Daddy, What's A Podcast?
+    "m0027wx2",  # Romanov: Czar of Hearts
+    "m000c9mb",  # Fake Heiress
+    "p0klkdww",  # Stalked
+    "p0kmb39j",  # Golden Boy: Louis Rees-Zammit
+    "p0kktwvl",  # Unmasked: Extreme Far Right
+    "m00272c7",  # In Dark Corners
+]
 
 
 # ── HTTP helpers ──────────────────────────────────────────────────────────────
@@ -202,7 +257,13 @@ def fetch_podcast(pid, title, rss_url, max_episodes):
 
 # ── GCS upload ───────────────────────────────────────────────────────────────
 
-def upload_to_gcs(bucket_name: str, local_index_path: Path, local_meta_path: Path) -> None:
+def upload_to_gcs(
+    bucket_name: str,
+    local_index_path: Path,
+    local_meta_path: Path,
+    local_new_podcasts_path: Path,
+    local_new_podcasts_state_path: Path,
+) -> None:
     """
     Upload both output files to a Google Cloud Storage bucket.
 
@@ -253,6 +314,102 @@ def upload_to_gcs(bucket_name: str, local_index_path: Path, local_meta_path: Pat
     meta_blob.upload_from_filename(str(local_meta_path))
     print(f"Uploaded {local_meta_path.name} → gs://{bucket_name}/podcast-index-meta.json")
     print(f"  Public URL: https://storage.googleapis.com/{bucket_name}/podcast-index-meta.json")
+
+    new_podcasts_blob = bucket.blob(NEW_PODCASTS_SNAPSHOT_OBJECT)
+    new_podcasts_blob.cache_control = index_cache_control
+    new_podcasts_blob.content_type = "application/json"
+    new_podcasts_blob.upload_from_filename(str(local_new_podcasts_path))
+    print(f"Uploaded {local_new_podcasts_path.name} → gs://{bucket_name}/{NEW_PODCASTS_SNAPSHOT_OBJECT}")
+    print(f"  Public URL: https://storage.googleapis.com/{bucket_name}/{NEW_PODCASTS_SNAPSHOT_OBJECT}")
+
+    state_blob = bucket.blob(NEW_PODCASTS_STATE_OBJECT)
+    state_blob.cache_control = "no-cache, max-age=0"
+    state_blob.content_type = "application/json"
+    state_blob.upload_from_filename(str(local_new_podcasts_state_path))
+    print(f"Uploaded {local_new_podcasts_state_path.name} → gs://{bucket_name}/{NEW_PODCASTS_STATE_OBJECT}")
+
+
+def _seed_baseline_epochs(now_ms: int) -> dict[str, int]:
+    # Keep baseline ordering stable and below genuinely new discoveries.
+    # Secrets of the Salt Path sits at the anchor timestamp.
+    del now_ms
+    return {
+        pid: NEW_PODCASTS_POLICY_START_EPOCH_MS - idx
+        for idx, pid in enumerate(BASELINE_NEW_PODCAST_IDS)
+    }
+
+
+def _load_previous_new_podcast_state(bucket_name: str) -> dict:
+    if not bucket_name:
+        return {}
+    try:
+        from google.cloud import storage as gcs  # type: ignore[import-untyped]
+    except ImportError:
+        return {}
+
+    try:
+        client = gcs.Client()
+        blob = client.bucket(bucket_name).blob(NEW_PODCASTS_STATE_OBJECT)
+        if not blob.exists():
+            return {}
+        return json.loads(blob.download_as_text(encoding="utf-8"))
+    except Exception as exc:
+        print(f"WARN: failed to load previous new podcast state from GCS: {exc}", file=sys.stderr)
+        return {}
+
+
+def _build_new_podcast_snapshot(
+    generated_at: str,
+    podcasts_out: list[dict],
+    previous_state: dict,
+) -> tuple[dict, dict]:
+    now_ms = int(time.time() * 1000)
+    current_ids = {p["id"] for p in podcasts_out if p.get("id")}
+    title_by_id = {p["id"]: p.get("title", "") for p in podcasts_out if p.get("id")}
+
+    prev_known_ids = {
+        i for i in previous_state.get("knownIds", []) if isinstance(i, str) and i
+    }
+    baseline_seed = _seed_baseline_epochs(now_ms)
+
+    known_ids = prev_known_ids if prev_known_ids else set(BASELINE_NEW_PODCAST_IDS)
+    first_seen = {
+        k: int(v)
+        for k, v in (previous_state.get("firstSeenEpochs") or {}).items()
+        if isinstance(k, str) and k and isinstance(v, (int, float)) and int(v) > 0
+    }
+
+    for pid in current_ids - known_ids:
+        first_seen.setdefault(pid, now_ms)
+
+    for pid, epoch in baseline_seed.items():
+        if pid in current_ids:
+            first_seen.setdefault(pid, epoch)
+
+    first_seen = {pid: epoch for pid, epoch in first_seen.items() if pid in current_ids and epoch > 0}
+
+    top_entries = sorted(first_seen.items(), key=lambda kv: (-kv[1], kv[0]))[:NEW_PODCASTS_MAX_COUNT]
+    snapshot = {
+        "generated_at": generated_at,
+        "count": len(top_entries),
+        "new_podcasts": [
+            {
+                "id": pid,
+                "title": title_by_id.get(pid, ""),
+                "first_seen_epoch_ms": epoch,
+            }
+            for pid, epoch in top_entries
+        ],
+    }
+
+    state = {
+        "schemaVersion": 1,
+        "generatedAt": generated_at,
+        "knownIds": sorted(current_ids),
+        "firstSeenEpochs": first_seen,
+    }
+
+    return snapshot, state
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -323,19 +480,35 @@ def build_index(
     with open(str(meta_path), "w", encoding="utf-8") as f:
         json.dump(meta, f, separators=(",", ":"))
 
+    previous_new_state = _load_previous_new_podcast_state(gcs_bucket)
+    new_snapshot, new_state = _build_new_podcast_snapshot(
+        generated_at=index["generated_at"],
+        podcasts_out=podcasts_out,
+        previous_state=previous_new_state,
+    )
+    new_snapshot_path = out.with_name(NEW_PODCASTS_SNAPSHOT_OBJECT)
+    with open(str(new_snapshot_path), "w", encoding="utf-8") as f:
+        json.dump(new_snapshot, f, separators=(",", ":"))
+
+    new_state_path = out.with_name(NEW_PODCASTS_STATE_OBJECT)
+    with open(str(new_state_path), "w", encoding="utf-8") as f:
+        json.dump(new_state, f, separators=(",", ":"))
+
     size_kb = out.stat().st_size / 1024
     print(
         f"\nWrote {len(podcasts_out)} podcasts, {len(episodes_out)} episodes "
         f"→ {out} ({size_kb:.0f} KB, gzip-compressed)"
     )
     print(f"Wrote metadata → {meta_path}")
+    print(f"Wrote New Podcasts snapshot → {new_snapshot_path}")
+    print(f"Wrote New Podcasts state → {new_state_path}")
     if failed:
         print(f"{failed} podcasts failed (see warnings above)")
 
     # Optionally upload to Google Cloud Storage.
     if gcs_bucket:
         print(f"\nUploading to GCS bucket '{gcs_bucket}' ...")
-        upload_to_gcs(gcs_bucket, out, meta_path)
+        upload_to_gcs(gcs_bucket, out, meta_path, new_snapshot_path, new_state_path)
 
 
 if __name__ == "__main__":

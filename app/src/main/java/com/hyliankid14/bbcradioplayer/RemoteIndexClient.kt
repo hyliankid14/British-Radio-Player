@@ -62,6 +62,12 @@ class RemoteIndexClient(private val context: Context) {
         val snapshotGeneratedAt: String = ""
     )
 
+    data class NewPodcastSnapshot(
+        val firstSeenEpochs: Map<String, Long>,
+        val snapshotGeneratedAt: String,
+        val fromCache: Boolean = false
+    )
+
     companion object {
         private const val TAG = "RemoteIndexClient"
 
@@ -73,6 +79,7 @@ class RemoteIndexClient(private val context: Context) {
         private val GCS_INDEX_URL: String get() = BuildConfig.GCS_INDEX_URL
         private val GCS_META_URL: String  get() = BuildConfig.GCS_META_URL
         private val GCS_STATS_URL: String get() = BuildConfig.GCS_STATS_URL
+        private val GCS_NEW_PODCASTS_URL: String get() = BuildConfig.GCS_NEW_PODCASTS_URL
 
         // Default cloud-hosted index URLs.
         private const val DEFAULT_CLOUD_INDEX_URL =
@@ -84,6 +91,8 @@ class RemoteIndexClient(private val context: Context) {
         // GitHub Actions workflow from the analytics server every 6 hours).
         private const val DEFAULT_CLOUD_STATS_URL =
             "https://storage.googleapis.com/bbc-radio-player-index-20260317-bc149e38/popular-podcasts.json"
+        private const val DEFAULT_CLOUD_NEW_PODCASTS_URL =
+            "https://storage.googleapis.com/bbc-radio-player-index-20260317-bc149e38/new-podcasts.json"
 
         // Resolved index URL: prefer explicit build-time overrides, otherwise cloud defaults.
         internal val INDEX_URL: String
@@ -92,6 +101,8 @@ class RemoteIndexClient(private val context: Context) {
             get() = GCS_META_URL.takeIf { it.isNotBlank() } ?: DEFAULT_CLOUD_META_URL
         internal val STATS_URL: String
             get() = GCS_STATS_URL.takeIf { it.isNotBlank() } ?: DEFAULT_CLOUD_STATS_URL
+        internal val NEW_PODCASTS_URL: String
+            get() = GCS_NEW_PODCASTS_URL.takeIf { it.isNotBlank() } ?: DEFAULT_CLOUD_NEW_PODCASTS_URL
 
         // ── Live search URL ───────────────────────────────────────────────────
 
@@ -121,6 +132,8 @@ class RemoteIndexClient(private val context: Context) {
         // app launches return immediately without waiting for the home server.
         private const val POPULAR_CACHE_FILENAME = "popular_podcast_ranks.json"
         private const val POPULAR_CACHE_TTL_MS = 6 * 60 * 60 * 1_000L
+        private const val NEW_PODCASTS_CACHE_FILENAME = "new_podcasts_snapshot.json"
+        private const val NEW_PODCASTS_CACHE_TTL_MS = 6 * 60 * 60 * 1_000L
 
         // Disk cache for the streamed index summary used by browse sorts.
         private const val INDEX_SUMMARY_CACHE_FILENAME = "remote_podcast_index_summary.json"
@@ -876,6 +889,48 @@ class RemoteIndexClient(private val context: Context) {
         return PopularPodcastRanking(idRanks = emptyMap(), titleRanks = emptyMap())
     }
 
+    fun fetchNewPodcastSnapshot(skipCache: Boolean = false): NewPodcastSnapshot? {
+        if (!skipCache) {
+            readNewPodcastSnapshotCache()?.let { cached ->
+                Log.d(TAG, "fetchNewPodcastSnapshot: returning fresh disk cache")
+                return cached.copy(fromCache = true)
+            }
+        }
+
+        return try {
+            val response = getJson(
+                NEW_PODCASTS_URL,
+                connectTimeoutMs = LIVE_SEARCH_CONNECT_TIMEOUT_MS,
+                readTimeoutMs = LIVE_SEARCH_READ_TIMEOUT_MS
+            ) ?: return readNewPodcastSnapshotCache()
+
+            val generatedAt = response.optString("generated_at", "")
+            val entries = response.optJSONArray("new_podcasts") ?: JSONArray()
+            val firstSeenEpochs = linkedMapOf<String, Long>()
+            for (i in 0 until entries.length()) {
+                val item = entries.optJSONObject(i) ?: continue
+                val id = item.optString("id", "").trim()
+                val epoch = item.optLong("first_seen_epoch_ms", 0L)
+                if (id.isBlank() || epoch <= 0L || firstSeenEpochs.containsKey(id)) continue
+                firstSeenEpochs[id] = epoch
+            }
+
+            if (firstSeenEpochs.isEmpty()) {
+                return readNewPodcastSnapshotCache()
+            }
+
+            val snapshot = NewPodcastSnapshot(
+                firstSeenEpochs = firstSeenEpochs,
+                snapshotGeneratedAt = generatedAt
+            )
+            saveNewPodcastSnapshotCache(snapshot)
+            snapshot
+        } catch (e: Exception) {
+            Log.d(TAG, "fetchNewPodcastSnapshot failed: ${e.message}")
+            readNewPodcastSnapshotCache()
+        }
+    }
+
     /**
      * Read popular podcast ranks from the on-device disk cache.
      *
@@ -932,6 +987,53 @@ class RemoteIndexClient(private val context: Context) {
             Log.d(TAG, "Saved popular ranks cache: ${ranking.idRanks.size} ids")
         } catch (e: Exception) {
             Log.d(TAG, "Failed to save popular ranks cache: ${e.message}")
+            tmpFile.delete()
+        }
+    }
+
+    private fun readNewPodcastSnapshotCache(): NewPodcastSnapshot? {
+        val cacheFile = File(context.cacheDir, NEW_PODCASTS_CACHE_FILENAME)
+        if (!cacheFile.exists()) return null
+        if (System.currentTimeMillis() - cacheFile.lastModified() > NEW_PODCASTS_CACHE_TTL_MS) return null
+        return try {
+            val json = JSONObject(cacheFile.readText())
+            val generatedAt = json.optString("generated_at", "")
+            val arr = json.optJSONArray("new_podcasts") ?: return null
+            val epochs = linkedMapOf<String, Long>()
+            for (i in 0 until arr.length()) {
+                val item = arr.optJSONObject(i) ?: continue
+                val id = item.optString("id", "").trim()
+                val epoch = item.optLong("first_seen_epoch_ms", 0L)
+                if (id.isBlank() || epoch <= 0L || epochs.containsKey(id)) continue
+                epochs[id] = epoch
+            }
+            if (epochs.isEmpty()) return null
+            NewPodcastSnapshot(firstSeenEpochs = epochs, snapshotGeneratedAt = generatedAt)
+        } catch (e: Exception) {
+            Log.d(TAG, "Failed to read new podcasts snapshot cache: ${e.message}")
+            null
+        }
+    }
+
+    private fun saveNewPodcastSnapshotCache(snapshot: NewPodcastSnapshot) {
+        val cacheFile = File(context.cacheDir, NEW_PODCASTS_CACHE_FILENAME)
+        val tmpFile = File(context.cacheDir, "$NEW_PODCASTS_CACHE_FILENAME.tmp")
+        try {
+            val arr = JSONArray()
+            snapshot.firstSeenEpochs.forEach { (id, epoch) ->
+                val item = JSONObject()
+                item.put("id", id)
+                item.put("first_seen_epoch_ms", epoch)
+                arr.put(item)
+            }
+            val root = JSONObject()
+            root.put("generated_at", snapshot.snapshotGeneratedAt)
+            root.put("new_podcasts", arr)
+            tmpFile.writeText(root.toString())
+            tmpFile.renameTo(cacheFile)
+            Log.d(TAG, "Saved new podcasts snapshot cache: ${snapshot.firstSeenEpochs.size} ids")
+        } catch (e: Exception) {
+            Log.d(TAG, "Failed to save new podcasts snapshot cache: ${e.message}")
             tmpFile.delete()
         }
     }

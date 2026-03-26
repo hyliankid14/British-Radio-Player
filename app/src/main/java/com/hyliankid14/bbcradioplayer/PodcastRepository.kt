@@ -20,8 +20,6 @@ class PodcastRepository(private val context: Context) {
     private val cloudBoundsCacheFile = File(context.cacheDir, "podcast_cloud_bounds_cache.json")
     private val cloudBoundsCacheTTL = 6 * 60 * 60 * 1000 // 6 hours
     private val newPodcastsStateFile = File(context.filesDir, "new_podcasts_state.json")
-    private val newPodcastsRecentWindowMs = 30L * 24L * 60L * 60L * 1000L
-    private val newPodcastsPolicyStartEpochMs = 1_742_774_400_000L // 2026-03-24T00:00:00Z
 
     data class PodcastDateBounds(
         val latestEpisodeEpoch: Long,
@@ -43,29 +41,7 @@ class PodcastRepository(private val context: Context) {
 
     companion object {
         private const val NEW_PODCAST_STATE_SCHEMA_VERSION = 2
-        private val RETAINED_NEW_PODCAST_IDS = setOf(
-            "p08vxrgx", // The Sink: A Sleep Aid
-            "p0n5p4w5", // Secrets of the Salt Path
-            "w13xtwk9", // Inheritance: Samsung
-            "p0n3r2yp", // Don't Say A Word
-            "p02nrtry", // Your Farm and Mine
-            "m002sh1p", // Natalie McNally Murder: YouTuber on Trial
-            "m002rkh8", // It's So Loud In Here!
-            "m002rkh7", // Judged: A Mother's Love
-            "m002rkh9", // MF DOOM: Long Island to Leeds
-            "m002rkhb", // Made In China
-            "m002r4y1", // Life Without
-            "m002qwn7", // The Interface
-            "m002jty0", // How Did We Get Here?
-            "p0mksq4x", // SEND in the Spotlight
-            "p0mdcpkb", // Ready to Talk with Emma Barnett
-            "p0mcyd0k", // Complex with Kimberley Wilson
-            "m002lsmt", // The Ireland Rugby Social Podcast
-            "m002lg00", // Matched With A Predator
-            "p0m75t46", // Borderland - UK or United Ireland?
-            "p0mh9lt6", // Game's Gone: The Steve Bracknall Podcast
-            "w13xtwds"  // Asia Specific
-        )
+        private const val NEW_PODCAST_MAX_COUNT = 50
     }
 
     // In-memory cache of fetched episode metadata to support searching episode titles/descriptions
@@ -702,6 +678,26 @@ class PodcastRepository(private val context: Context) {
         val requestedIds = podcasts.map { it.id }.toSet()
         if (requestedIds.isEmpty()) return@withContext emptyMap()
 
+        try {
+            val cloudSnapshot = RemoteIndexClient(context).fetchNewPodcastSnapshot(skipCache = forceRefresh)
+            if (cloudSnapshot != null) {
+                val trimmedFromCloud = trimNewPodcastEpochs(cloudSnapshot.firstSeenEpochs, requestedIds)
+                if (trimmedFromCloud.isNotEmpty()) {
+                    writeNewPodcastState(
+                        NewPodcastState(
+                            schemaVersion = NEW_PODCAST_STATE_SCHEMA_VERSION,
+                            generatedAt = cloudSnapshot.snapshotGeneratedAt,
+                            knownIds = requestedIds,
+                            firstSeenEpochs = trimmedFromCloud
+                        )
+                    )
+                    return@withContext trimmedFromCloud
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("PodcastRepository", "Failed to fetch cloud New Podcasts snapshot", e)
+        }
+
         val remoteIndexSummary = try {
             RemoteIndexClient(context).getIndexSummary(forceDownload = forceRefresh)
         } catch (e: Exception) {
@@ -730,38 +726,38 @@ class PodcastRepository(private val context: Context) {
         (currentIds - baselineKnownIds).forEach { podcastId ->
             updatedFirstSeen.putIfAbsent(podcastId, now)
         }
-        // Keep the user-curated list visible without hand-maintaining title checks in the UI layer.
-        // These IDs are only retained when still present in the active cloud index.
-        (RETAINED_NEW_PODCAST_IDS intersect currentIds).forEach { podcastId ->
-            updatedFirstSeen.putIfAbsent(podcastId, newPodcastsPolicyStartEpochMs)
-        }
+        val trimmedFirstSeen = trimNewPodcastEpochs(updatedFirstSeen, currentIds)
 
         writeNewPodcastState(
             NewPodcastState(
                 schemaVersion = NEW_PODCAST_STATE_SCHEMA_VERSION,
                 generatedAt = remoteIndexSummary.generatedAt,
                 knownIds = currentIds,
-                firstSeenEpochs = updatedFirstSeen
+                firstSeenEpochs = trimmedFirstSeen
             )
         )
 
-        return@withContext updatedFirstSeen
-            .filterKeys { it in requestedIds && it in currentIds }
-            .filter { (id, epoch) ->
-                epoch > 0L && (id in RETAINED_NEW_PODCAST_IDS || now - epoch <= newPodcastsRecentWindowMs)
-            }
+        return@withContext trimmedFirstSeen.filterKeys { it in requestedIds }
     }
 
     fun getAvailableNewPodcastEpochsNow(podcasts: List<Podcast>): Map<String, Long> {
         val requestedIds = podcasts.map { it.id }.toSet()
         if (requestedIds.isEmpty()) return emptyMap()
-        val now = System.currentTimeMillis()
         val state = readNewPodcastState() ?: return emptyMap()
-        return state.firstSeenEpochs
-            .filterKeys { it in requestedIds && it in state.knownIds }
-            .filter { (id, epoch) ->
-                epoch > 0L && (id in RETAINED_NEW_PODCAST_IDS || now - epoch <= newPodcastsRecentWindowMs)
-            }
+        return trimNewPodcastEpochs(state.firstSeenEpochs, state.knownIds)
+            .filterKeys { it in requestedIds }
+    }
+
+    private fun trimNewPodcastEpochs(
+        firstSeenEpochs: Map<String, Long>,
+        currentIds: Set<String>
+    ): Map<String, Long> {
+        return firstSeenEpochs.entries
+            .asSequence()
+            .filter { (id, epoch) -> id in currentIds && epoch > 0L }
+            .sortedWith(compareByDescending<Map.Entry<String, Long>> { it.value }.thenBy { it.key })
+            .take(NEW_PODCAST_MAX_COUNT)
+            .associate { it.key to it.value }
     }
 
     suspend fun fetchCloudPodcastDateBounds(
