@@ -126,6 +126,13 @@ android {
     buildFeatures {
         buildConfig = true
     }
+
+    packaging {
+        jniLibs {
+            // Keep native libs uncompressed and page-aligned for modern devices, including 16 KB pages.
+            useLegacyPackaging = false
+        }
+    }
 }
 
 androidComponents {
@@ -152,6 +159,7 @@ kotlin {
 }
 
 dependencies {
+    implementation 'androidx.activity:activity-ktx:1.9.3'
     implementation 'androidx.core:core-ktx:1.9.0'
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.11.0'

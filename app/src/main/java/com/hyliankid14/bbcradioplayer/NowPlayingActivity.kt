@@ -9,6 +9,7 @@ import android.widget.ImageView
 import com.google.android.material.slider.Slider
 import android.widget.TextView
 import android.text.method.ScrollingMovementMethod
+import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.palette.graphics.Palette
@@ -28,6 +29,7 @@ import java.util.Locale
 import android.view.View
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.view.updatePadding
 
 class NowPlayingActivity : AppCompatActivity() {
@@ -159,6 +161,7 @@ class NowPlayingActivity : AppCompatActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_now_playing)
 
@@ -1735,16 +1738,10 @@ class NowPlayingActivity : AppCompatActivity() {
                     currentIconColor = iconColor
                     currentIsLightBackground = isLightBackground
                     
-                    // Apply the background color to root layout, toolbar, and status bar
+                    // Apply the background color to root layout and toolbar.
                     runOnUiThread {
                         rootLayout.setBackgroundColor(subtleColor)
                         toolbar.setBackgroundColor(subtleColor)
-                        if (android.os.Build.VERSION.SDK_INT < 35) {
-                            @Suppress("DEPRECATION")
-                            run {
-                                window.statusBarColor = subtleColor
-                            }
-                        }
                         
                         // Apply dynamic colors to icon buttons (outline style)
                         val outlineButtonColorStateList = android.content.res.ColorStateList.valueOf(buttonOutlineColor)
@@ -1811,28 +1808,10 @@ class NowPlayingActivity : AppCompatActivity() {
                         seekBar.trackInactiveTintList = android.content.res.ColorStateList.valueOf(inactiveColor)
                         seekBar.haloTintList = android.content.res.ColorStateList.valueOf(inactiveColor)
                         
-                        // Set status bar icons to be dark in light mode, light in dark mode
-                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                            // Modern API (Android 11+)
-                            window.insetsController?.setSystemBarsAppearance(
-                                if (isDarkMode) 0 else android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS,
-                                android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
-                            )
-                        } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-                            // Legacy API (Android 6-10)
-                            @Suppress("DEPRECATION")
-                            run {
-                                val decorView = window.decorView
-                                if (isDarkMode) {
-                                    // Dark mode: use light icons
-                                    decorView.systemUiVisibility = decorView.systemUiVisibility and 
-                                        android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
-                                } else {
-                                    // Light mode: use dark icons
-                                    decorView.systemUiVisibility = decorView.systemUiVisibility or 
-                                        android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
-                                }
-                            }
+                        // Use the compat controller to avoid deprecated status bar appearance APIs.
+                        WindowInsetsControllerCompat(window, window.decorView).apply {
+                            isAppearanceLightStatusBars = !isDarkMode
+                            isAppearanceLightNavigationBars = !isDarkMode
                         }
                     }
                 }

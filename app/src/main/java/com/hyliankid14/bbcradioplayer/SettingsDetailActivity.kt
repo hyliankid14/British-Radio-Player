@@ -15,6 +15,7 @@ import android.widget.Button
 import android.widget.RadioGroup
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
@@ -56,6 +57,7 @@ class SettingsDetailActivity : AppCompatActivity() {
     private val githubReleasesUrl = "https://github.com/hyliankid14/British-Radio-Player/releases"
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         
         val section = intent.getStringExtra(EXTRA_SECTION) ?: SECTION_THEME
@@ -113,7 +115,7 @@ class SettingsDetailActivity : AppCompatActivity() {
         if (settingsRoot != null) {
             ViewCompat.setOnApplyWindowInsetsListener(settingsRoot) { _, insets ->
                 val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-                settingsRoot.updatePadding(top = bars.top)
+                settingsRoot.updatePadding(top = bars.top, bottom = bars.bottom)
                 insets
             }
             ViewCompat.requestApplyInsets(settingsRoot)

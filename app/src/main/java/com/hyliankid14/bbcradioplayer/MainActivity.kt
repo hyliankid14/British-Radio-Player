@@ -17,6 +17,7 @@ import androidx.core.content.ContextCompat
 import android.net.Uri
 import android.widget.Button
 import android.widget.Toast
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import org.json.JSONArray
@@ -203,6 +204,7 @@ class MainActivity : AppCompatActivity() {
         // Apply theme before creating the view
         val theme = ThemePreference.getTheme(this)
         ThemeManager.applyTheme(theme)
+        enableEdgeToEdge()
         
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
