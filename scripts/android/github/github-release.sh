@@ -101,10 +101,16 @@ fi
 cp "$SIGNED_APK" "$APK_OUTPUT_PATH"
 
 PREV_TAG="$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | grep -v "^${TAG}$" | head -1)"
+NOTES_END_REF="HEAD"
+if git rev-parse "$TAG" >/dev/null 2>&1; then
+    # If rerunning for an existing tag, keep notes pinned to that tagged commit.
+    NOTES_END_REF="$TAG"
+fi
+
 if [[ -n "$PREV_TAG" ]]; then
-    COMMITS="$(git log --pretty=format:'%s' "${PREV_TAG}"..HEAD --no-merges)"
+    COMMITS="$(git log --pretty=format:'%s' "${PREV_TAG}".."${NOTES_END_REF}" --no-merges)"
 else
-    COMMITS="$(git log --pretty=format:'%s' -n 40 --no-merges)"
+    COMMITS="$(git log --pretty=format:'%s' "${NOTES_END_REF}" --no-merges)"
 fi
 
 collect_matches() {
