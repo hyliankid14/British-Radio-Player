@@ -94,7 +94,8 @@
     <string name="podcast_detail_hide_played_menu">Hide played episodes</string>
     <string name="podcast_detail_hide_played_enabled">Played episodes moved into a collapsible section</string>
     <string name="podcast_detail_hide_played_disabled">Played episodes shown inline again</string>
-    <string name="podcast_detail_played_section_title">Played episodes (%1$d)</string>
+    <string name="podcast_detail_played_section_title">Played episodes</string>
+    <string name="podcast_detail_played_load_more">Load more played episodes (%1$d remaining)</string>
     <string name="android_auto_auto_resume_label">Auto-play last station or podcast when Android Auto connects</string>
     <string name="android_auto_hide_played_label">Hide fully played episodes in Android Auto</string>
     <string name="audio_quality_title">Audio quality</string>

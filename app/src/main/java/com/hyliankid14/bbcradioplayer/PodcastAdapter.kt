@@ -248,19 +248,27 @@ class EpisodeAdapter(
 
     private sealed class DisplayItem {
         data class EpisodeRow(val episode: Episode) : DisplayItem()
-        data class PlayedSectionHeader(val count: Int, val expanded: Boolean) : DisplayItem()
+        data class PlayedSectionHeader(val count: Int, val expanded: Boolean, val allLoaded: Boolean) : DisplayItem()
+        data class PlayedLoadMore(val remainingCount: Int) : DisplayItem()
     }
 
     // Maintained in sync with `episodes` to allow O(1) duplicate checks in addEpisodes.
     private val episodeIds = mutableSetOf<String>()
     private var displayItems: List<DisplayItem> = emptyList()
+    private var unplayedEpisodes: List<Episode> = emptyList()
+    private var playedEpisodes: List<Episode> = emptyList()
+    private var playedRowItems: List<DisplayItem.EpisodeRow> = emptyList()
     private var hidePlayedEpisodes = false
     private var playedSectionExpanded = false
+    private var playedVisibleCount = 0
+    private var isAppendingPlayedPage = false
+    private var allPagesLoaded = false
 
     fun updateEpisodes(newEpisodes: List<Episode>) {
         episodes = newEpisodes
         episodeIds.clear()
         episodes.mapTo(episodeIds) { it.id }
+        recomputePlayedBuckets()
         rebuildDisplayItems()
     }
 
@@ -269,6 +277,7 @@ class EpisodeAdapter(
         if (uniqueNew.isEmpty()) return
         episodes = episodes + uniqueNew
         uniqueNew.mapTo(episodeIds) { it.id }
+        recomputePlayedBuckets()
         rebuildDisplayItems()
     }
 
@@ -277,16 +286,26 @@ class EpisodeAdapter(
         hidePlayedEpisodes = enabled
         if (!enabled) {
             playedSectionExpanded = false
+            playedVisibleCount = 0
+            unplayedEpisodes = emptyList()
+            playedEpisodes = emptyList()
+        } else {
+            recomputePlayedBuckets()
         }
         rebuildDisplayItems()
     }
 
     fun refreshPlayedState() {
+        if (hidePlayedEpisodes) {
+            recomputePlayedBuckets()
+        }
         rebuildDisplayItems()
     }
 
-    fun refreshDownloadState() {
-        rebuildDisplayItems()
+    fun setAllPagesLoaded(loaded: Boolean) {
+        if (allPagesLoaded == loaded) return
+        allPagesLoaded = loaded
+        if (hidePlayedEpisodes) rebuildDisplayItems()
     }
 
     private fun rebuildDisplayItems() {
@@ -296,6 +315,117 @@ class EpisodeAdapter(
             return
         }
 
+        if (!playedSectionExpanded) {
+            playedVisibleCount = 0
+        } else if (playedEpisodes.isNotEmpty()) {
+            if (playedVisibleCount <= 0) {
+                playedVisibleCount = minOf(PLAYED_PAGE_SIZE, playedEpisodes.size)
+            }
+            playedVisibleCount = playedVisibleCount.coerceAtMost(playedEpisodes.size)
+        }
+
+        displayItems = buildList {
+            addAll(unplayedEpisodes.map { DisplayItem.EpisodeRow(it) })
+            if (playedEpisodes.isNotEmpty()) {
+                add(DisplayItem.PlayedSectionHeader(count = playedEpisodes.size, expanded = playedSectionExpanded, allLoaded = allPagesLoaded))
+                if (playedSectionExpanded) {
+                    addAll(playedRowItems.take(playedVisibleCount))
+                    val remainingCount = playedEpisodes.size - playedVisibleCount
+                    if (remainingCount > 0) {
+                        add(DisplayItem.PlayedLoadMore(remainingCount))
+                    }
+                }
+            }
+        }
+        notifyDataSetChanged()
+    }
+
+    private fun togglePlayedSection() {
+        if (!hidePlayedEpisodes || playedEpisodes.isEmpty()) return
+
+        val headerIndex = unplayedEpisodes.size
+        val currentHeader = displayItems.getOrNull(headerIndex) as? DisplayItem.PlayedSectionHeader
+        if (currentHeader == null) {
+            playedSectionExpanded = !playedSectionExpanded
+            rebuildDisplayItems()
+            return
+        }
+
+        val mutableItems = displayItems.toMutableList()
+        val newExpanded = !playedSectionExpanded
+        playedSectionExpanded = newExpanded
+        mutableItems[headerIndex] = currentHeader.copy(expanded = newExpanded)
+
+        if (newExpanded) {
+            playedVisibleCount = minOf(PLAYED_PAGE_SIZE, playedEpisodes.size)
+            val visibleRows = playedRowItems.take(playedVisibleCount)
+            mutableItems.addAll(headerIndex + 1, visibleRows)
+            val remainingCount = playedEpisodes.size - playedVisibleCount
+            if (remainingCount > 0) {
+                mutableItems.add(headerIndex + 1 + visibleRows.size, DisplayItem.PlayedLoadMore(remainingCount))
+            }
+            displayItems = mutableItems
+            notifyItemChanged(headerIndex)
+            val insertedCount = visibleRows.size + if (remainingCount > 0) 1 else 0
+            if (insertedCount > 0) {
+                notifyItemRangeInserted(headerIndex + 1, insertedCount)
+            }
+        } else {
+            playedVisibleCount = 0
+            var removeCount = 0
+            var idx = headerIndex + 1
+            while (idx < mutableItems.size && (mutableItems[idx] is DisplayItem.EpisodeRow || mutableItems[idx] is DisplayItem.PlayedLoadMore)) {
+                removeCount++
+                idx++
+            }
+            if (removeCount > 0) {
+                mutableItems.subList(headerIndex + 1, headerIndex + 1 + removeCount).clear()
+            }
+            displayItems = mutableItems
+            notifyItemChanged(headerIndex)
+            if (removeCount > 0) {
+                notifyItemRangeRemoved(headerIndex + 1, removeCount)
+            }
+        }
+    }
+
+    private fun loadMorePlayedEpisodes() {
+        if (!hidePlayedEpisodes || !playedSectionExpanded) return
+        val remaining = playedEpisodes.size - playedVisibleCount
+        if (remaining <= 0) return
+
+        val toAdd = minOf(PLAYED_PAGE_SIZE, remaining)
+        val headerIndex = unplayedEpisodes.size
+        val insertStart = headerIndex + 1 + playedVisibleCount
+        val hadLoadMore = displayItems.getOrNull(insertStart) is DisplayItem.PlayedLoadMore
+
+        val mutableItems = displayItems.toMutableList()
+        val newRows = playedRowItems.subList(playedVisibleCount, playedVisibleCount + toAdd)
+        mutableItems.addAll(insertStart, newRows)
+        playedVisibleCount += toAdd
+
+        val newRemaining = playedEpisodes.size - playedVisibleCount
+        val footerIndexAfter = headerIndex + 1 + playedVisibleCount
+        if (newRemaining > 0) {
+            if (hadLoadMore && footerIndexAfter < mutableItems.size && mutableItems[footerIndexAfter] is DisplayItem.PlayedLoadMore) {
+                mutableItems[footerIndexAfter] = DisplayItem.PlayedLoadMore(newRemaining)
+            } else {
+                mutableItems.add(footerIndexAfter, DisplayItem.PlayedLoadMore(newRemaining))
+            }
+        } else if (hadLoadMore && footerIndexAfter < mutableItems.size && mutableItems[footerIndexAfter] is DisplayItem.PlayedLoadMore) {
+            mutableItems.removeAt(footerIndexAfter)
+        }
+
+        displayItems = mutableItems
+        notifyItemRangeInserted(insertStart, newRows.size)
+        if (newRemaining > 0) {
+            notifyItemChanged(footerIndexAfter)
+        } else if (hadLoadMore) {
+            notifyItemRemoved(footerIndexAfter)
+        }
+    }
+
+    private fun recomputePlayedBuckets() {
         val unplayed = mutableListOf<Episode>()
         val played = mutableListOf<Episode>()
         episodes.forEach { episode ->
@@ -305,17 +435,9 @@ class EpisodeAdapter(
                 unplayed.add(episode)
             }
         }
-
-        displayItems = buildList {
-            addAll(unplayed.map { DisplayItem.EpisodeRow(it) })
-            if (played.isNotEmpty()) {
-                add(DisplayItem.PlayedSectionHeader(count = played.size, expanded = playedSectionExpanded))
-                if (playedSectionExpanded) {
-                    addAll(played.map { DisplayItem.EpisodeRow(it) })
-                }
-            }
-        }
-        notifyDataSetChanged()
+        unplayedEpisodes = unplayed
+        playedEpisodes = played
+        playedRowItems = played.map { DisplayItem.EpisodeRow(it) }
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
@@ -323,8 +445,13 @@ class EpisodeAdapter(
             VIEW_TYPE_PLAYED_HEADER -> {
                 val view = LayoutInflater.from(context).inflate(R.layout.item_section_header, parent, false)
                 PlayedSectionHeaderViewHolder(view) {
-                    playedSectionExpanded = !playedSectionExpanded
-                    rebuildDisplayItems()
+                    togglePlayedSection()
+                }
+            }
+            VIEW_TYPE_PLAYED_LOAD_MORE -> {
+                val view = LayoutInflater.from(context).inflate(R.layout.item_section_header, parent, false)
+                PlayedLoadMoreViewHolder(view) {
+                    loadMorePlayedEpisodes()
                 }
             }
             else -> {
@@ -337,7 +464,17 @@ class EpisodeAdapter(
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         when (val item = displayItems[position]) {
             is DisplayItem.EpisodeRow -> (holder as EpisodeViewHolder).bind(item.episode)
-            is DisplayItem.PlayedSectionHeader -> (holder as PlayedSectionHeaderViewHolder).bind(item.count, item.expanded)
+            is DisplayItem.PlayedSectionHeader -> (holder as PlayedSectionHeaderViewHolder).bind(item.expanded)
+            is DisplayItem.PlayedLoadMore -> {
+                (holder as PlayedLoadMoreViewHolder).bind(item.remainingCount)
+                if (!isAppendingPlayedPage) {
+                    isAppendingPlayedPage = true
+                    holder.itemView.post {
+                        isAppendingPlayedPage = false
+                        loadMorePlayedEpisodes()
+                    }
+                }
+            }
         }
     }
 
@@ -347,6 +484,7 @@ class EpisodeAdapter(
         return when (displayItems[position]) {
             is DisplayItem.EpisodeRow -> VIEW_TYPE_EPISODE
             is DisplayItem.PlayedSectionHeader -> VIEW_TYPE_PLAYED_HEADER
+            is DisplayItem.PlayedLoadMore -> VIEW_TYPE_PLAYED_LOAD_MORE
         }
     }
 
@@ -362,10 +500,33 @@ class EpisodeAdapter(
             itemView.setOnClickListener { onToggle() }
         }
 
-        fun bind(count: Int, expanded: Boolean) {
-            titleView.text = itemView.context.getString(R.string.podcast_detail_played_section_title, count)
+        fun bind(expanded: Boolean) {
+            titleView.text = itemView.context.getString(R.string.podcast_detail_played_section_title)
             val icon = if (expanded) R.drawable.ic_expand_less else R.drawable.ic_expand_more
             val drawable = AppCompatResources.getDrawable(itemView.context, icon)?.mutate()
+            if (drawable != null) {
+                DrawableCompat.setTint(drawable, titleView.currentTextColor)
+            }
+            titleView.setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, drawable, null)
+            titleView.compoundDrawablePadding = (8 * itemView.resources.displayMetrics.density).toInt()
+        }
+    }
+
+    class PlayedLoadMoreViewHolder(
+        itemView: View,
+        onLoadMore: () -> Unit
+    ) : RecyclerView.ViewHolder(itemView) {
+        private val titleView: TextView = itemView.findViewById(R.id.section_title)
+
+        init {
+            itemView.isClickable = true
+            itemView.isFocusable = true
+            itemView.setOnClickListener { onLoadMore() }
+        }
+
+        fun bind(remainingCount: Int) {
+            titleView.text = itemView.context.getString(R.string.podcast_detail_played_load_more, remainingCount)
+            val drawable = AppCompatResources.getDrawable(itemView.context, R.drawable.ic_expand_more)?.mutate()
             if (drawable != null) {
                 DrawableCompat.setTint(drawable, titleView.currentTextColor)
             }
@@ -506,6 +667,8 @@ class EpisodeAdapter(
     companion object {
         private const val VIEW_TYPE_EPISODE = 0
         private const val VIEW_TYPE_PLAYED_HEADER = 1
+        private const val VIEW_TYPE_PLAYED_LOAD_MORE = 2
+        private const val PLAYED_PAGE_SIZE = 10
         private val OUTPUT_FORMAT = SimpleDateFormat("EEE, dd MMM yyyy", Locale.US)
     }
 }
