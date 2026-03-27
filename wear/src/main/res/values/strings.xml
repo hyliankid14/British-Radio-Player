@@ -1,6 +1,6 @@
 <resources>
-    <string name="app_name">BBC Radio Player Wear</string>
-    <string name="home_title">BBC Radio Player</string>
+    <string name="app_name">British Radio Player</string>
+    <string name="home_title">British Radio Player</string>
     <string name="favourites">Favourites</string>
     <string name="all_stations">All Stations</string>
     <string name="podcasts">Podcasts</string>

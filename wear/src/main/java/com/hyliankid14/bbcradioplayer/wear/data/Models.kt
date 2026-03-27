@@ -10,7 +10,8 @@ data class Station(
     val category: StationCategory = StationCategory.LOCAL
 ) {
     fun streamCandidates(): List<String> {
-        val bitrates = listOf("96000", "128000", "48000")
+        // Prefer lower bitrates first for smoother playback on constrained Wear connections.
+        val bitrates = listOf("48000", "96000", "128000")
         val candidates = mutableListOf<String>()
         candidates += directStreamUrls.filter { it.isNotBlank() }
         for (sid in streamServiceIds.filter { it.isNotBlank() }) {

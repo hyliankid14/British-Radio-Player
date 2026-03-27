@@ -11,7 +11,8 @@ data class NowPlaying(
     val isPlaying: Boolean,
     val positionMs: Long,
     val durationMs: Long,
-    val artworkUrl: String?
+    val artworkUrl: String?,
+    val stationId: String?
 )
 
 object WearPlaybackStateStore {

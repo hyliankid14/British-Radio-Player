@@ -62,6 +62,15 @@ android {
     }
 }
 
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        def suffix = variant.buildType == "debug" ? "-debug" : ""
+        variant.outputs.each { output ->
+            output.versionName.set("${appVersionName}${suffix}")
+        }
+    }
+}
+
 kotlin {
     jvmToolchain(21)
 }

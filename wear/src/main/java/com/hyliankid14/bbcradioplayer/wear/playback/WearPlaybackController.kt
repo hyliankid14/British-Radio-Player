@@ -19,9 +19,11 @@ class WearPlaybackController(private val context: Context) {
                 WearPlaybackService.EXTRA_STREAM_CANDIDATES,
                 ArrayList(station.streamCandidates().mapNotNull(::normaliseUrl))
             )
+            putExtra(WearPlaybackService.EXTRA_STATION_ID, station.id)
+            putExtra(WearPlaybackService.EXTRA_SERVICE_ID, station.serviceId)
             putExtra(WearPlaybackService.EXTRA_TITLE, station.title)
             putExtra(WearPlaybackService.EXTRA_SUBTITLE, "Live radio")
-            putExtra(WearPlaybackService.EXTRA_ARTWORK_URL, normaliseUrl(station.logoUrl))
+            putExtra(WearPlaybackService.EXTRA_ARTWORK_URL, null as String?)
             putExtra(WearPlaybackService.EXTRA_IS_LIVE, true)
         }
         ContextCompat.startForegroundService(context, intent)
@@ -64,6 +66,13 @@ class WearPlaybackController(private val context: Context) {
 
     fun stop() {
         context.startService(baseIntent(WearPlaybackService.ACTION_STOP))
+    }
+
+    fun adjustVolume(direction: Int) {
+        context.startService(
+            baseIntent(WearPlaybackService.ACTION_ADJUST_VOLUME)
+                .putExtra(WearPlaybackService.EXTRA_VOLUME_DIRECTION, direction)
+        )
     }
 
     private fun baseIntent(action: String): Intent {

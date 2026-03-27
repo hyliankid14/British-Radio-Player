@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="192dp"
+    android:height="192dp"
+    android:viewportWidth="192"
+    android:viewportHeight="192">
+
+    <path android:fillColor="#6200EE" android:pathData="M0,0H192V192H0Z"/>
+    <path android:fillColor="#FFFFFF" android:pathData="M32,50Q42,50 42,60V140Q42,150 32,150H160Q170,150 170,140V60Q170,50 160,50H32Z"/>
+    <path android:fillColor="#F2F2F2" android:pathData="M38,56Q46,56 46,64V136Q46,144 38,144H154Q162,144 162,136V64Q162,56 154,56H38Z"/>
+    <path android:fillColor="#000000" android:pathData="M52,68Q56,68 56,72V108Q56,112 52,112H140Q144,112 144,108V72Q144,68 140,68H52Z"/>
+    <path android:fillColor="#00C853" android:pathData="M62,100H66V106H62Z"/>
+    <path android:fillColor="#00C853" android:pathData="M70,92H74V106H70Z"/>
+    <path android:fillColor="#00C853" android:pathData="M78,84H82V106H78Z"/>
+    <path android:fillColor="#00C853" android:pathData="M86,76H90V106H86Z"/>
+    <path android:fillColor="#00C853" android:pathData="M94,72H98V106H94Z"/>
+    <path android:fillColor="#00C853" android:pathData="M102,76H106V106H102Z"/>
+    <path android:fillColor="#00C853" android:pathData="M110,84H114V106H110Z"/>
+    <path android:fillColor="#00C853" android:pathData="M118,92H122V106H118Z"/>
+    <path android:fillColor="#00C853" android:pathData="M126,100H130V106H126Z"/>
+    <path android:fillColor="#6B6B6B" android:pathData="M64,128 m -14,0 a 14,14 0 1,0 28,0 a 14,14 0 1,0 -28,0"/>
+    <path android:fillColor="#FFFFFF" android:pathData="M64,128 m -11,0 a 11,11 0 1,0 22,0 a 11,11 0 1,0 -22,0"/>
+    <path android:fillColor="#6200EE" android:pathData="M63,118H65V125H63Z"/>
+    <path android:fillColor="#6B6B6B" android:pathData="M128,128 m -14,0 a 14,14 0 1,0 28,0 a 14,14 0 1,0 -28,0"/>
+    <path android:fillColor="#FFFFFF" android:pathData="M128,128 m -11,0 a 11,11 0 1,0 22,0 a 11,11 0 1,0 -22,0"/>
+    <path android:fillColor="#6200EE" android:pathData="M127,118H129V125H127Z"/>
+</vector>

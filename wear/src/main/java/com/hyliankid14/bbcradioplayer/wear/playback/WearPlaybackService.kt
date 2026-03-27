@@ -3,9 +3,12 @@ package com.hyliankid14.bbcradioplayer.wear.playback
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
+import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.getSystemService
 import androidx.media.MediaBrowserServiceCompat
@@ -26,9 +29,23 @@ import com.google.android.exoplayer2.upstream.DefaultHttpDataSource
 import com.hyliankid14.bbcradioplayer.wear.MainActivity
 import com.hyliankid14.bbcradioplayer.wear.R
 import com.hyliankid14.bbcradioplayer.wear.WatchAppStateSync
+import com.hyliankid14.bbcradioplayer.wear.analytics.PrivacyAnalytics
+import com.hyliankid14.bbcradioplayer.wear.data.StationArtwork
 import com.hyliankid14.bbcradioplayer.wear.storage.EpisodeSyncStore
 import com.hyliankid14.bbcradioplayer.wear.storage.FavouritesStore
 import com.hyliankid14.bbcradioplayer.wear.storage.SubscriptionStore
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 
 class WearPlaybackService : MediaBrowserServiceCompat() {
     private lateinit var player: ExoPlayer
@@ -36,6 +53,8 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
     private lateinit var favouritesStore: FavouritesStore
     private lateinit var subscriptionStore: SubscriptionStore
     private lateinit var episodeSyncStore: EpisodeSyncStore
+    private lateinit var analytics: PrivacyAnalytics
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private var candidates: List<String> = emptyList()
     private var candidateIndex = 0
@@ -45,8 +64,14 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
     private var currentIsLive = false
     private var currentEpisodeId: String? = null
     private var currentPodcastId: String? = null
+    private var currentStationId: String? = null
+    private var currentServiceId: String? = null
     private var lastProgressSyncAtMs = 0L
     private var lastSavedPositionMs = 0L
+    private var liveMetadataJob: Job? = null
+    private var stationAnalyticsJob: Job? = null
+    private var episodeAnalyticsJob: Job? = null
+    private var progressTickerJob: Job? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -54,9 +79,20 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
         favouritesStore = FavouritesStore(this)
         subscriptionStore = SubscriptionStore(this)
         episodeSyncStore = EpisodeSyncStore(this)
+        analytics = PrivacyAnalytics(this)
 
         mediaSession = MediaSessionCompat(this, "WearPlaybackService").apply {
             setFlags(MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS)
+            setSessionActivity(
+                PendingIntent.getActivity(
+                    this@WearPlaybackService,
+                    2,
+                    Intent(this@WearPlaybackService, MainActivity::class.java).apply {
+                        flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    },
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+            )
             setCallback(object : MediaSessionCompat.Callback() {
                 override fun onPlay() {
                     if (player.playbackState == Player.STATE_IDLE && candidates.isNotEmpty()) {
@@ -119,10 +155,12 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
             )
             addListener(object : Player.Listener {
                 override fun onPlaybackStateChanged(playbackState: Int) {
+                    updateProgressTicker()
                     refreshSessionAndNotification()
                 }
 
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
+                    updateProgressTicker()
                     refreshSessionAndNotification()
                 }
 
@@ -139,6 +177,15 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
                 ) {
                     refreshSessionAndNotification()
                 }
+
+                override fun onMediaMetadataChanged(mediaMetadata: com.google.android.exoplayer2.MediaMetadata) {
+                    if (!currentIsLive) return
+                    val titleFromStream = mediaMetadata.title?.toString().orEmpty().trim()
+                    if (titleFromStream.isNotBlank() && titleFromStream != currentTitle) {
+                        currentTitle = titleFromStream
+                        refreshSessionAndNotification()
+                    }
+                }
             })
         }
         refreshSessionAndNotification()
@@ -149,6 +196,8 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
             ACTION_PLAY_STATION -> {
                 candidates = intent.getStringArrayListExtra(EXTRA_STREAM_CANDIDATES)?.toList().orEmpty()
                 candidateIndex = 0
+                currentStationId = intent.getStringExtra(EXTRA_STATION_ID)
+                currentServiceId = intent.getStringExtra(EXTRA_SERVICE_ID)
                 currentTitle = intent.getStringExtra(EXTRA_TITLE).orEmpty()
                 currentSubtitle = intent.getStringExtra(EXTRA_SUBTITLE).orEmpty()
                 currentArtwork = intent.getStringExtra(EXTRA_ARTWORK_URL)
@@ -157,6 +206,8 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
                 currentPodcastId = null
                 lastProgressSyncAtMs = 0L
                 lastSavedPositionMs = 0L
+                scheduleStationAnalytics(currentStationId.orEmpty(), currentTitle)
+                startLiveMetadataPolling()
                 if (candidates.isNotEmpty()) {
                     playCurrentCandidate()
                 }
@@ -178,8 +229,17 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
                     currentIsLive = intent.getBooleanExtra(EXTRA_IS_LIVE, false)
                     currentEpisodeId = intent.getStringExtra(EXTRA_EPISODE_ID)
                     currentPodcastId = intent.getStringExtra(EXTRA_PODCAST_ID)
+                    currentStationId = null
+                    currentServiceId = null
                     lastProgressSyncAtMs = 0L
                     lastSavedPositionMs = 0L
+                    stopLiveMetadataPolling()
+                    scheduleEpisodeAnalytics(
+                        podcastId = currentPodcastId.orEmpty(),
+                        episodeId = currentEpisodeId.orEmpty(),
+                        episodeTitle = currentTitle,
+                        podcastTitle = currentSubtitle
+                    )
                     playCurrentCandidate()
                     val resumePositionMs = intent.getLongExtra(EXTRA_START_POSITION_MS, 0L)
                     if (resumePositionMs > 0L) {
@@ -200,6 +260,10 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
 
             ACTION_SEEK_BY -> {
                 seekBy(intent.getLongExtra(EXTRA_SEEK_DELTA_MS, 0L))
+            }
+
+            ACTION_ADJUST_VOLUME -> {
+                adjustVolume(intent.getIntExtra(EXTRA_VOLUME_DIRECTION, 0))
             }
 
             ACTION_STOP -> stopPlayback()
@@ -225,6 +289,11 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
     override fun onDestroy() {
         persistEpisodeState(force = true)
         WearPlaybackStateStore.publish(null)
+        stopLiveMetadataPolling()
+        stationAnalyticsJob?.cancel()
+        episodeAnalyticsJob?.cancel()
+        progressTickerJob?.cancel()
+        serviceScope.cancel()
         mediaSession.release()
         player.release()
         super.onDestroy()
@@ -268,8 +337,14 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
         currentIsLive = false
         currentEpisodeId = null
         currentPodcastId = null
+        currentStationId = null
+        currentServiceId = null
         lastProgressSyncAtMs = 0L
         lastSavedPositionMs = 0L
+        stopLiveMetadataPolling()
+        stationAnalyticsJob?.cancel()
+        episodeAnalyticsJob?.cancel()
+        progressTickerJob?.cancel()
         WearPlaybackStateStore.publish(null)
         mediaSession.setMetadata(null)
         mediaSession.setPlaybackState(
@@ -289,6 +364,38 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
         mediaSession.setPlaybackState(buildPlaybackState(state))
         val notification = buildNotification(state)
         startForeground(NOTIFICATION_ID, notification)
+    }
+
+    private fun updateProgressTicker() {
+        val shouldTick = !currentIsLive && player.currentMediaItem != null && player.isPlaying
+        if (!shouldTick) {
+            progressTickerJob?.cancel()
+            progressTickerJob = null
+            return
+        }
+        if (progressTickerJob?.isActive == true) {
+            return
+        }
+        progressTickerJob = serviceScope.launch {
+            while (isActive && !currentIsLive && player.currentMediaItem != null && player.isPlaying) {
+                refreshSessionAndNotification()
+                delay(1_000L)
+            }
+        }
+    }
+
+    private fun adjustVolume(direction: Int) {
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+        val safeDirection = when {
+            direction > 0 -> AudioManager.ADJUST_RAISE
+            direction < 0 -> AudioManager.ADJUST_LOWER
+            else -> AudioManager.ADJUST_SAME
+        }
+        audioManager.adjustStreamVolume(
+            AudioManager.STREAM_MUSIC,
+            safeDirection,
+            AudioManager.FLAG_SHOW_UI
+        )
     }
 
     private fun persistEpisodeState(force: Boolean) {
@@ -324,7 +431,8 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
                 isPlaying = player.isPlaying,
                 positionMs = player.currentPosition.coerceAtLeast(0L),
                 durationMs = player.duration.takeIf { it > 0 } ?: 0L,
-                artworkUrl = currentArtwork
+                artworkUrl = currentArtwork,
+                stationId = currentStationId
             )
         }
         WearPlaybackStateStore.publish(state)
@@ -332,14 +440,24 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
     }
 
     private fun buildMetadata(): MediaMetadataCompat {
-        return MediaMetadataCompat.Builder()
+        val builder = MediaMetadataCompat.Builder()
             .putString(MediaMetadataCompat.METADATA_KEY_TITLE, currentTitle)
+            .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_TITLE, currentTitle)
             .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, currentSubtitle)
+            .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, currentSubtitle)
             .putLong(
                 MediaMetadataCompat.METADATA_KEY_DURATION,
                 if (currentIsLive) -1L else (player.duration.takeIf { it > 0 } ?: 0L)
             )
-            .build()
+        if (!currentArtwork.isNullOrBlank()) {
+            builder.putString(MediaMetadataCompat.METADATA_KEY_ALBUM_ART_URI, currentArtwork)
+        } else {
+            val fallbackStationId = currentStationId
+            if (!fallbackStationId.isNullOrBlank()) {
+                builder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, StationArtwork.createBitmap(fallbackStationId, 512))
+            }
+        }
+        return builder.build()
     }
 
     private fun buildPlaybackState(state: NowPlaying?): PlaybackStateCompat {
@@ -368,6 +486,205 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
                 PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS
         }
         return actions
+    }
+
+    private fun scheduleStationAnalytics(stationId: String, stationTitle: String) {
+        stationAnalyticsJob?.cancel()
+        episodeAnalyticsJob?.cancel()
+        if (stationId.isBlank()) return
+        stationAnalyticsJob = serviceScope.launch {
+            delay(ANALYTICS_MIN_PLAY_MS)
+            if (isActive && currentIsLive && player.isPlaying && currentStationId == stationId) {
+                analytics.trackStationPlay(stationId, stationTitle)
+            }
+        }
+    }
+
+    private fun scheduleEpisodeAnalytics(
+        podcastId: String,
+        episodeId: String,
+        episodeTitle: String,
+        podcastTitle: String
+    ) {
+        episodeAnalyticsJob?.cancel()
+        stationAnalyticsJob?.cancel()
+        if (podcastId.isBlank() || episodeId.isBlank()) return
+        episodeAnalyticsJob = serviceScope.launch {
+            delay(ANALYTICS_MIN_PLAY_MS)
+            if (isActive && !currentIsLive && player.isPlaying && currentEpisodeId == episodeId) {
+                analytics.trackEpisodePlay(
+                    podcastId = podcastId,
+                    episodeId = episodeId,
+                    episodeTitle = episodeTitle,
+                    podcastTitle = podcastTitle
+                )
+            }
+        }
+    }
+
+    private fun startLiveMetadataPolling() {
+        stopLiveMetadataPolling()
+        val serviceId = currentServiceId?.takeIf { it.isNotBlank() } ?: return
+        liveMetadataJob = serviceScope.launch {
+            while (isActive && currentIsLive && currentServiceId == serviceId) {
+                runCatching { withContext(Dispatchers.IO) { fetchLiveNowPlayingUpdate(serviceId) } }
+                    .onSuccess { update ->
+                        if (update != null && currentIsLive && currentServiceId == serviceId) {
+                            var changed = false
+                            if (update.title.isNotBlank() && update.title != currentTitle) {
+                                currentTitle = update.title
+                                changed = true
+                            }
+                            if (update.subtitle != currentSubtitle) {
+                                currentSubtitle = update.subtitle
+                                changed = true
+                            }
+                            if (update.artworkUrl != currentArtwork) {
+                                currentArtwork = update.artworkUrl
+                                changed = true
+                            }
+                            if (changed) {
+                                refreshSessionAndNotification()
+                            }
+                        }
+                    }
+                    .onFailure { e -> Log.w(TAG, "Live metadata refresh failed: ${e.message}") }
+                delay(LIVE_METADATA_POLL_MS)
+            }
+        }
+    }
+
+    private fun stopLiveMetadataPolling() {
+        liveMetadataJob?.cancel()
+        liveMetadataJob = null
+    }
+
+    private fun fetchLiveNowPlayingUpdate(serviceId: String): LiveNowPlayingUpdate? {
+        val schedule = fetchCurrentScheduleShow(serviceId)
+        val segment = fetchCurrentSegment(serviceId)
+
+        val showName = schedule?.title.orEmpty().ifBlank { currentTitle }
+        val showDetail = schedule?.detail.orEmpty()
+        val songTitle = listOfNotNull(
+            segment?.artist?.takeIf { it.isNotBlank() },
+            segment?.track?.takeIf { it.isNotBlank() }
+        ).joinToString(" - ")
+
+        val title = if (songTitle.isNotBlank()) songTitle else showName.ifBlank { "Live radio" }
+        val subtitle = if (songTitle.isNotBlank()) {
+            showName.ifBlank { "On air now" }
+        } else {
+            showDetail.ifBlank { showName.ifBlank { "On air now" } }
+        }
+        val artwork = normaliseUrl(segment?.imageUrl ?: schedule?.imageUrl)
+        return LiveNowPlayingUpdate(title = title, subtitle = subtitle, artworkUrl = artwork)
+    }
+
+    private fun fetchCurrentScheduleShow(serviceId: String): ScheduleShow? {
+        return runCatching {
+            val url = "https://ess.api.bbci.co.uk/schedules?serviceId=$serviceId&t=${System.currentTimeMillis()}"
+            val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+                connectTimeout = 5000
+                readTimeout = 5000
+                requestMethod = "GET"
+                setRequestProperty("User-Agent", "BBC Radio Player Wear/1.0")
+            }
+            if (connection.responseCode != HttpURLConnection.HTTP_OK) {
+                connection.disconnect()
+                return@runCatching null
+            }
+            val response = connection.inputStream.bufferedReader().use { it.readText() }
+            connection.disconnect()
+
+            val root = JSONObject(response)
+            val items = root.optJSONArray("items") ?: return@runCatching null
+            val now = System.currentTimeMillis()
+            var fallback: ScheduleShow? = null
+            for (index in 0 until items.length()) {
+                val item = items.optJSONObject(index) ?: continue
+                val published = item.optJSONObject("published_time")
+                val start = parseIsoTimeMs(published?.optString("start").orEmpty())
+                val end = parseIsoTimeMs(published?.optString("end").orEmpty())
+                val brand = item.optJSONObject("brand")
+                val episode = item.optJSONObject("episode")
+                val brandTitle = brand?.optString("title").orEmpty().trim()
+                val episodeTitle = episode?.optString("title").orEmpty().trim()
+                val title = brandTitle.ifBlank { episodeTitle }
+                val imageTemplate = episode?.optJSONObject("image")?.optString("template_url")
+                    ?: brand?.optJSONObject("image")?.optString("template_url")
+                val imageUrl = imageTemplate?.replace("{recipe}", "320x320")
+                val synopsisObj = episode?.optJSONObject("synopses") ?: brand?.optJSONObject("synopses")
+                val synopsis = listOf(
+                    synopsisObj?.optString("short").orEmpty().trim(),
+                    synopsisObj?.optString("medium").orEmpty().trim(),
+                    synopsisObj?.optString("long").orEmpty().trim()
+                ).firstOrNull { it.isNotBlank() }.orEmpty()
+                val detail = when {
+                    episodeTitle.isNotBlank() && !episodeTitle.equals(title, ignoreCase = true) -> episodeTitle
+                    synopsis.isNotBlank() -> synopsis
+                    else -> "On air now"
+                }
+                val candidate = ScheduleShow(title = title, imageUrl = normaliseUrl(imageUrl), detail = detail)
+                if (fallback == null && title.isNotBlank()) {
+                    fallback = candidate
+                }
+                if (start > 0L && end > 0L && now in start..end && title.isNotBlank()) {
+                    return@runCatching candidate
+                }
+            }
+            fallback
+        }.getOrNull()
+    }
+
+    private fun fetchCurrentSegment(serviceId: String): SegmentNowPlaying? {
+        return runCatching {
+            val url = "https://rms.api.bbc.co.uk/v2/services/$serviceId/segments/latest?t=${System.currentTimeMillis()}"
+            val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+                connectTimeout = 5000
+                readTimeout = 5000
+                requestMethod = "GET"
+                setRequestProperty("User-Agent", "BBC Radio Player Wear/1.0")
+            }
+            if (connection.responseCode != HttpURLConnection.HTTP_OK) {
+                connection.disconnect()
+                return@runCatching null
+            }
+            val response = connection.inputStream.bufferedReader().use { it.readText() }
+            connection.disconnect()
+
+            val root = JSONObject(response)
+            val data = root.optJSONArray("data") ?: return@runCatching null
+            if (data.length() == 0) return@runCatching null
+            val latest = data.optJSONObject(0) ?: return@runCatching null
+            val offset = latest.optJSONObject("offset")
+            if (offset != null && !offset.optBoolean("now_playing", true)) {
+                return@runCatching null
+            }
+            val titles = latest.optJSONObject("titles") ?: return@runCatching null
+            val artist = titles.optString("primary").orEmpty().trim()
+            val track = titles.optString("secondary").orEmpty().ifBlank {
+                titles.optString("tertiary").orEmpty()
+            }.trim()
+            val rawImage = latest.optString("image_url").orEmpty()
+            val imageUrl = rawImage
+                .replace("\\/", "/")
+                .replace("{recipe}", "320x320")
+                .takeIf { it.startsWith("http") }
+            if (artist.isBlank() && track.isBlank()) {
+                return@runCatching null
+            }
+            SegmentNowPlaying(artist = artist, track = track, imageUrl = normaliseUrl(imageUrl))
+        }.getOrNull()
+    }
+
+    private fun parseIsoTimeMs(raw: String): Long {
+        if (raw.isBlank()) return 0L
+        return runCatching { java.time.Instant.parse(raw).toEpochMilli() }.getOrDefault(0L)
+    }
+
+    private fun normaliseUrl(url: String?): String? {
+        if (url.isNullOrBlank()) return null
+        return url.trim().replace("http://", "https://")
     }
 
     private fun buildNotification(state: NowPlaying?): android.app.Notification {
@@ -470,18 +787,22 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
         const val ACTION_PLAY_EPISODE = "com.hyliankid14.bbcradioplayer.wear.action.PLAY_EPISODE"
         const val ACTION_TOGGLE_PLAY_PAUSE = "com.hyliankid14.bbcradioplayer.wear.action.TOGGLE_PLAY_PAUSE"
         const val ACTION_SEEK_BY = "com.hyliankid14.bbcradioplayer.wear.action.SEEK_BY"
+        const val ACTION_ADJUST_VOLUME = "com.hyliankid14.bbcradioplayer.wear.action.ADJUST_VOLUME"
         const val ACTION_STOP = "com.hyliankid14.bbcradioplayer.wear.action.STOP"
 
         const val EXTRA_STREAM_CANDIDATES = "extra_stream_candidates"
         const val EXTRA_EPISODE_URL = "extra_episode_url"
         const val EXTRA_EPISODE_ID = "extra_episode_id"
         const val EXTRA_PODCAST_ID = "extra_podcast_id"
+        const val EXTRA_STATION_ID = "extra_station_id"
+        const val EXTRA_SERVICE_ID = "extra_service_id"
         const val EXTRA_TITLE = "extra_title"
         const val EXTRA_SUBTITLE = "extra_subtitle"
         const val EXTRA_ARTWORK_URL = "extra_artwork_url"
         const val EXTRA_IS_LIVE = "extra_is_live"
         const val EXTRA_START_POSITION_MS = "extra_start_position_ms"
         const val EXTRA_SEEK_DELTA_MS = "extra_seek_delta_ms"
+        const val EXTRA_VOLUME_DIRECTION = "extra_volume_direction"
 
         private const val CHANNEL_ID = "wear_playback"
         private const val NOTIFICATION_ID = 1001
@@ -489,5 +810,26 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
         private const val PROGRESS_SYNC_INTERVAL_MS = 15_000L
         private const val PROGRESS_SYNC_MIN_DELTA_MS = 10_000L
         private const val PLAYED_COMPLETION_THRESHOLD_MS = 15_000L
+        private const val ANALYTICS_MIN_PLAY_MS = 10_001L
+        private const val LIVE_METADATA_POLL_MS = 45_000L
+        private const val TAG = "WearPlaybackService"
     }
+
+    private data class ScheduleShow(
+        val title: String,
+        val imageUrl: String?,
+        val detail: String
+    )
+
+    private data class SegmentNowPlaying(
+        val artist: String,
+        val track: String,
+        val imageUrl: String?
+    )
+
+    private data class LiveNowPlayingUpdate(
+        val title: String,
+        val subtitle: String,
+        val artworkUrl: String?
+    )
 }

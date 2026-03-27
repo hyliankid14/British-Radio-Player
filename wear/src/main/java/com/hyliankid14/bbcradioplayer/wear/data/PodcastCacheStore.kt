@@ -14,6 +14,7 @@ class PodcastCacheStore(context: Context) {
             prefs.edit()
                 .remove(KEY_PODCASTS)
                 .remove(KEY_PODCASTS_UPDATED_AT)
+                .remove(KEY_PODCAST_UPDATED_AT)
                 .putInt(KEY_SCHEMA_VERSION, CURRENT_SCHEMA_VERSION)
                 .apply()
         }
@@ -62,6 +63,35 @@ class PodcastCacheStore(context: Context) {
     fun isPodcastCacheFresh(maxAgeMs: Long): Boolean {
         val updatedAt = prefs.getLong(KEY_PODCASTS_UPDATED_AT, 0L)
         return updatedAt > 0L && System.currentTimeMillis() - updatedAt <= maxAgeMs
+    }
+
+    fun getPodcastUpdatedAtMap(): Map<String, Long> {
+        val raw = prefs.getString(KEY_PODCAST_UPDATED_AT, null) ?: return emptyMap()
+        return runCatching {
+            val obj = JSONObject(raw)
+            obj.keys().asSequence()
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .associateWith { key -> obj.optLong(key, 0L) }
+                .filterValues { it > 0L }
+        }.getOrDefault(emptyMap())
+    }
+
+    fun mergePodcastUpdatedAtMap(updatedAtById: Map<String, Long>) {
+        if (updatedAtById.isEmpty()) return
+        val merged = getPodcastUpdatedAtMap().toMutableMap()
+        updatedAtById.forEach { (id, updatedAt) ->
+            if (id.isNotBlank() && updatedAt > 0L) {
+                val previous = merged[id] ?: 0L
+                if (updatedAt > previous) {
+                    merged[id] = updatedAt
+                }
+            }
+        }
+        val json = JSONObject().apply {
+            merged.forEach { (id, updatedAt) -> put(id, updatedAt) }
+        }
+        prefs.edit().putString(KEY_PODCAST_UPDATED_AT, json.toString()).apply()
     }
 
     fun getCachedEpisodes(podcastId: String): List<EpisodeSummary> {
@@ -120,7 +150,8 @@ class PodcastCacheStore(context: Context) {
         private const val PREFS_NAME = "wear_podcast_cache"
         private const val KEY_PODCASTS = "podcasts"
         private const val KEY_PODCASTS_UPDATED_AT = "podcasts_updated_at"
+        private const val KEY_PODCAST_UPDATED_AT = "podcast_updated_at_map"
         private const val KEY_SCHEMA_VERSION = "schema_version"
-        private const val CURRENT_SCHEMA_VERSION = 2  // bump when cache format changes
+        private const val CURRENT_SCHEMA_VERSION = 4  // bump when cache format changes
     }
 }

@@ -1,7 +1,5 @@
 package com.hyliankid14.bbcradioplayer.wear.data
 
-private const val LOGO_BASE = "https://sounds.files.bbci.co.uk/3.11.1/services"
-
 object StationRepository {
     private fun station(
         id: String,
@@ -9,7 +7,6 @@ object StationRepository {
         serviceId: String,
         streamServiceIds: List<String> = listOf(serviceId),
         directStreamUrls: List<String> = emptyList(),
-        logoServiceId: String = serviceId,
         category: StationCategory = StationCategory.LOCAL
     ): Station = Station(
         id = id,
@@ -17,7 +14,7 @@ object StationRepository {
         serviceId = serviceId,
         streamServiceIds = streamServiceIds,
         directStreamUrls = directStreamUrls,
-        logoUrl = "$LOGO_BASE/$logoServiceId/blocks-colour-black_600x600.png",
+        logoUrl = "",
         category = category
     )
 
@@ -87,6 +84,8 @@ object StationRepository {
     )
 
     fun allStations(): List<Station> = stations
+
+    fun findStationById(stationId: String): Station? = stations.firstOrNull { it.id == stationId }
 
     fun favouritesFromIds(ids: Set<String>): List<Station> = stations.filter { it.id in ids }
 }

@@ -17,9 +17,14 @@ import com.hyliankid14.bbcradioplayer.wear.playback.WearPlaybackController
 import com.hyliankid14.bbcradioplayer.wear.storage.EpisodeSyncStore
 import com.hyliankid14.bbcradioplayer.wear.storage.FavouritesStore
 import com.hyliankid14.bbcradioplayer.wear.storage.SubscriptionStore
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 
 class WearViewModel(application: Application) : AndroidViewModel(application) {
     private val favouritesStore = FavouritesStore(application)
@@ -48,6 +53,9 @@ class WearViewModel(application: Application) : AndroidViewModel(application) {
     var podcasts by mutableStateOf<List<PodcastSummary>>(emptyList())
         private set
 
+    var podcastUpdatedAtMap by mutableStateOf(podcastRepository.getCachedPodcastUpdatedAtMap())
+        private set
+
     var episodes by mutableStateOf<List<EpisodeSummary>>(emptyList())
         private set
 
@@ -63,10 +71,21 @@ class WearViewModel(application: Application) : AndroidViewModel(application) {
     var errorMessage by mutableStateOf<String?>(null)
         private set
 
+    var stationLiveTitleMap by mutableStateOf<Map<String, String>>(emptyMap())
+        private set
+
+    var stationLiveDetailMap by mutableStateOf<Map<String, String>>(emptyMap())
+        private set
+
     val nowPlaying: NowPlaying?
         get() = playbackState
 
     private var playbackState by mutableStateOf(playbackController.currentState)
+    private var stationNavigationIds by mutableStateOf<List<String>>(emptyList())
+    private var stationNavigationIndex by mutableStateOf(-1)
+    private var refreshingUpdatedHints = false
+    private var refreshingPodcasts = false
+    private val stationShowsInFlight = mutableSetOf<String>()
 
     init {
         podcasts = podcastRepository.getCachedPodcasts()
@@ -87,6 +106,7 @@ class WearViewModel(application: Application) : AndroidViewModel(application) {
             SubscriptionStore.subscribedIdsFlow().collectLatest {
                 subscribedPodcastIds = it
                 Log.d(TAG, "subscribedIdsFlow size=${it.size}")
+                refreshPodcasts()
             }
         }
         viewModelScope.launch {
@@ -106,12 +126,12 @@ class WearViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             // Request an initial sync and retry a few times in case phone services are still waking.
-            repeat(8) { attempt ->
+            repeat(5) { attempt ->
                 WatchAppStateSync.requestPhoneState(application)
                 if (favouritesStore.hasRemoteSnapshot() && subscriptionStore.hasRemoteSnapshot() && episodeSyncStore.hasRemoteSnapshot()) {
                     return@launch
                 }
-                if (attempt < 7) {
+                if (attempt < 4) {
                     delay(15_000L)
                 }
             }
@@ -122,18 +142,60 @@ class WearViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun refreshPodcasts() {
+        if (refreshingPodcasts) return
         viewModelScope.launch {
+            refreshingPodcasts = true
             loadingPodcasts = podcasts.isEmpty()
             errorMessage = null
             podcasts = try {
-                podcastRepository.fetchPodcasts()
+                podcastRepository.fetchPodcastsForSubscriptions(subscribedPodcastIds)
             } catch (e: Exception) {
                 errorMessage = e.message ?: "Podcast loading failed"
                 emptyList()
             } finally {
                 loadingPodcasts = false
+                refreshingPodcasts = false
             }
+            refreshPodcastUpdatedHints()
             Log.d(TAG, "refreshPodcasts loaded=${podcasts.size} loading=$loadingPodcasts error=${errorMessage != null}")
+        }
+    }
+
+    fun prefetchStationShows(stations: List<Station>, limit: Int = 8) {
+        if (stations.isEmpty()) return
+        val targets = stations
+            .filter { station ->
+                station.serviceId.isNotBlank() &&
+                    (stationLiveTitleMap[station.id].isNullOrBlank()) &&
+                    stationShowsInFlight.add(station.id)
+            }
+            .take(limit)
+
+        if (targets.isEmpty()) return
+
+        viewModelScope.launch {
+            val updates = withContext(Dispatchers.IO) {
+                targets.associate { station ->
+                    station.id to fetchCurrentShow(station.serviceId)
+                }
+            }
+            val titleUpdates = mutableMapOf<String, String>()
+            val detailUpdates = mutableMapOf<String, String>()
+            updates.forEach { (stationId, show) ->
+                stationShowsInFlight.remove(stationId)
+                if (show != null) {
+                    titleUpdates[stationId] = show.title
+                    if (show.detail.isNotBlank()) {
+                        detailUpdates[stationId] = show.detail
+                    }
+                }
+            }
+            if (titleUpdates.isNotEmpty()) {
+                stationLiveTitleMap = stationLiveTitleMap + titleUpdates
+            }
+            if (detailUpdates.isNotEmpty()) {
+                stationLiveDetailMap = stationLiveDetailMap + detailUpdates
+            }
         }
     }
 
@@ -166,7 +228,15 @@ class WearViewModel(application: Application) : AndroidViewModel(application) {
         WatchAppStateSync.pushCurrentState(getApplication(), favouritesStore, subscriptionStore, episodeSyncStore)
     }
 
-    fun playStation(station: Station) {
+    fun playStation(station: Station, navigationStations: List<Station> = emptyList()) {
+        val ids = navigationStations.map { it.id }
+        if (ids.isNotEmpty()) {
+            stationNavigationIds = ids
+            stationNavigationIndex = ids.indexOf(station.id)
+        } else {
+            stationNavigationIds = emptyList()
+            stationNavigationIndex = -1
+        }
         playbackController.playStation(station)
     }
 
@@ -190,11 +260,138 @@ class WearViewModel(application: Application) : AndroidViewModel(application) {
         playbackController.seekBy(30_000)
     }
 
+    fun skipPreviousInNowPlaying() {
+        if (nowPlaying?.isLive == true) {
+            skipStation(-1)
+        } else {
+            seekBack()
+        }
+    }
+
+    fun skipNextInNowPlaying() {
+        if (nowPlaying?.isLive == true) {
+            skipStation(1)
+        } else {
+            seekForward()
+        }
+    }
+
+    fun canSkipPreviousInNowPlaying(): Boolean {
+        if (nowPlaying?.isLive != true) return true
+        return stationNavigationIds.size > 1 && stationNavigationIndex in stationNavigationIds.indices
+    }
+
+    fun canSkipNextInNowPlaying(): Boolean {
+        if (nowPlaying?.isLive != true) return true
+        return stationNavigationIds.size > 1 && stationNavigationIndex in stationNavigationIds.indices
+    }
+
     fun stopPlayback() {
         playbackController.stop()
     }
 
+    fun volumeUp() {
+        playbackController.adjustVolume(1)
+    }
+
+    fun volumeDown() {
+        playbackController.adjustVolume(-1)
+    }
+
+    fun openVolumeControls() {
+        playbackController.adjustVolume(0)
+    }
+
+    private fun refreshPodcastUpdatedHints() {
+        if (refreshingUpdatedHints) return
+        if (subscribedPodcastIds.isEmpty() || podcasts.isEmpty()) return
+        val subscribedKnown = podcasts.filter { it.id in subscribedPodcastIds && it.rssUrl.isNotBlank() }
+        if (subscribedKnown.isEmpty()) return
+        val hintsMissing = subscribedKnown.filter { (podcastUpdatedAtMap[it.id] ?: 0L) <= 0L }
+        if (hintsMissing.isEmpty()) return
+        viewModelScope.launch {
+            refreshingUpdatedHints = true
+            try {
+                podcastUpdatedAtMap = podcastRepository.refreshPodcastUpdatedAtHints(hintsMissing.take(MAX_HINT_REFRESH_COUNT))
+            } finally {
+                refreshingUpdatedHints = false
+            }
+        }
+    }
+
+    private fun skipStation(delta: Int) {
+        if (stationNavigationIds.isEmpty() || stationNavigationIndex !in stationNavigationIds.indices) {
+            return
+        }
+        val size = stationNavigationIds.size
+        val nextIndex = (stationNavigationIndex + delta + size) % size
+        val nextId = stationNavigationIds[nextIndex]
+        val nextStation = stations.firstOrNull { it.id == nextId } ?: return
+        stationNavigationIndex = nextIndex
+        playbackController.playStation(nextStation)
+    }
+
+    private fun fetchCurrentShow(serviceId: String): LiveShow? {
+        return runCatching {
+            val url = "https://ess.api.bbci.co.uk/schedules?serviceId=$serviceId&t=${System.currentTimeMillis()}"
+            val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+                connectTimeout = 4000
+                readTimeout = 4000
+                requestMethod = "GET"
+                setRequestProperty("User-Agent", "BBC Radio Player Wear/1.0")
+            }
+            if (connection.responseCode != HttpURLConnection.HTTP_OK) {
+                connection.disconnect()
+                return@runCatching null
+            }
+            val response = connection.inputStream.bufferedReader().use { it.readText() }
+            connection.disconnect()
+
+            val root = JSONObject(response)
+            val items = root.optJSONArray("items") ?: return@runCatching null
+            val now = System.currentTimeMillis()
+            for (index in 0 until items.length()) {
+                val item = items.optJSONObject(index) ?: continue
+                val published = item.optJSONObject("published_time")
+                val start = parseIsoTimeMs(published?.optString("start").orEmpty())
+                val end = parseIsoTimeMs(published?.optString("end").orEmpty())
+                if (start <= 0L || end <= 0L || now !in start..end) continue
+
+                val brand = item.optJSONObject("brand")
+                val episode = item.optJSONObject("episode")
+                val brandTitle = brand?.optString("title").orEmpty().trim()
+                val episodeTitle = episode?.optString("title").orEmpty().trim()
+                val title = brandTitle.ifBlank { episodeTitle }.ifBlank { "On air" }
+
+                val synopsisObj = episode?.optJSONObject("synopses") ?: brand?.optJSONObject("synopses")
+                val synopsis = listOf(
+                    synopsisObj?.optString("short").orEmpty().trim(),
+                    synopsisObj?.optString("medium").orEmpty().trim(),
+                    synopsisObj?.optString("long").orEmpty().trim()
+                ).firstOrNull { it.isNotBlank() }.orEmpty()
+
+                val detail = when {
+                    episodeTitle.isNotBlank() && !episodeTitle.equals(title, ignoreCase = true) -> episodeTitle
+                    synopsis.isNotBlank() -> synopsis
+                    else -> "On air now"
+                }
+                return@runCatching LiveShow(title = title, detail = detail)
+            }
+            null
+        }.getOrNull()
+    }
+
+    private fun parseIsoTimeMs(rawIso: String): Long {
+        return runCatching { java.time.Instant.parse(rawIso).toEpochMilli() }.getOrDefault(0L)
+    }
+
+    private data class LiveShow(
+        val title: String,
+        val detail: String
+    )
+
     companion object {
         private const val TAG = "WearViewModel"
+        private const val MAX_HINT_REFRESH_COUNT = 4
     }
 }
