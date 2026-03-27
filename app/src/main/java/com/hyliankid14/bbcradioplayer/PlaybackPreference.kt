@@ -8,6 +8,7 @@ object PlaybackPreference {
     private const val KEY_LAST_MEDIA_ID = "last_media_id"
     private const val KEY_AUTO_RESUME_ANDROID_AUTO = "auto_resume_android_auto"
     private const val KEY_HIDE_PLAYED_ANDROID_AUTO = "hide_played_android_auto"
+    private const val KEY_HIDE_PLAYED_PODCAST_DETAIL_PREFIX = "hide_played_podcast_detail_"
     private const val KEY_SHAKE_RANDOM_PODCAST = "shake_random_podcast"
     private const val KEY_PODCAST_ARTWORK_SOURCE = "podcast_artwork_source"
 
@@ -57,6 +58,16 @@ object PlaybackPreference {
     fun isHidePlayedEpisodesInAndroidAutoEnabled(context: Context): Boolean {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         return prefs.getBoolean(KEY_HIDE_PLAYED_ANDROID_AUTO, false)
+    }
+
+    fun setHidePlayedEpisodesInPodcastDetail(context: Context, podcastId: String, enabled: Boolean) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putBoolean(KEY_HIDE_PLAYED_PODCAST_DETAIL_PREFIX + podcastId, enabled).apply()
+    }
+
+    fun isHidePlayedEpisodesInPodcastDetailEnabled(context: Context, podcastId: String): Boolean {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getBoolean(KEY_HIDE_PLAYED_PODCAST_DETAIL_PREFIX + podcastId, false)
     }
 
     fun setShakeRandomPodcastEnabled(context: Context, enabled: Boolean) {

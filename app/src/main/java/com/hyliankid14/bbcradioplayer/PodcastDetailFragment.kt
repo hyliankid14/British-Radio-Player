@@ -36,11 +36,12 @@ class PodcastDetailFragment : Fragment() {
     private var isLoadingPage = false
     private var reachedEnd = false
     private val pageSize = 20
+    private var hidePlayedEpisodes = false
     private val playedStatusReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
             // Refresh the episodes list when played status changes
             requireActivity().runOnUiThread {
-                episodesAdapter?.notifyDataSetChanged()
+                episodesAdapter?.refreshPlayedState()
             }
         }
     }
@@ -62,9 +63,9 @@ class PodcastDetailFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
 
         repository = PodcastRepository(requireContext())
-
         currentPodcast = arguments?.let { bundle -> bundle.getParcelableCompat<Podcast>("podcast", Podcast::class.java) }
         currentPodcast?.let { podcast ->
+            hidePlayedEpisodes = PlaybackPreference.isHidePlayedEpisodesInPodcastDetailEnabled(requireContext(), podcast.id)
             val imageView: ImageView = view.findViewById(R.id.podcast_detail_image)
             val titleView: TextView = view.findViewById(R.id.podcast_detail_title)
             val descriptionView: TextView = view.findViewById(R.id.podcast_detail_description)
@@ -198,6 +199,7 @@ class PodcastDetailFragment : Fragment() {
                 onPlayClick = { episode -> playEpisode(episode) },
                 onOpenFull = { episode -> openEpisodePreview(episode) }
             )
+            episodesAdapter?.setHidePlayedEpisodes(hidePlayedEpisodes)
             episodesRecycler.adapter = episodesAdapter
 
             // Listen for played-status changes so the list updates when items are marked/unmarked
@@ -261,6 +263,7 @@ class PodcastDetailFragment : Fragment() {
     override fun onPrepareOptionsMenu(menu: Menu) {
         super.onPrepareOptionsMenu(menu)
         menu.findItem(R.id.action_toggle_episode_sort)?.title = getEpisodeSortMenuTitle()
+        menu.findItem(R.id.action_hide_played_episodes)?.isChecked = hidePlayedEpisodes
     }
 
     private fun openEpisodePreview(episode: Episode) {
@@ -340,6 +343,10 @@ class PodcastDetailFragment : Fragment() {
                 toggleEpisodeSortOrder()
                 true
             }
+            R.id.action_hide_played_episodes -> {
+                toggleHidePlayedEpisodes(item)
+                true
+            }
             else -> super.onOptionsItemSelected(item)
         }
     }
@@ -369,6 +376,25 @@ class PodcastDetailFragment : Fragment() {
         loadNextPage(reset = true)
     }
 
+    private fun toggleHidePlayedEpisodes(item: MenuItem) {
+        val podcast = currentPodcast ?: return
+        hidePlayedEpisodes = !hidePlayedEpisodes
+        item.isChecked = hidePlayedEpisodes
+        PlaybackPreference.setHidePlayedEpisodesInPodcastDetail(requireContext(), podcast.id, hidePlayedEpisodes)
+        episodesAdapter?.setHidePlayedEpisodes(hidePlayedEpisodes)
+
+        val messageRes = if (hidePlayedEpisodes) {
+            R.string.podcast_detail_hide_played_enabled
+        } else {
+            R.string.podcast_detail_hide_played_disabled
+        }
+        view?.let {
+            com.google.android.material.snackbar.Snackbar.make(it, getString(messageRes), com.google.android.material.snackbar.Snackbar.LENGTH_SHORT)
+                .setAnchorView(requireActivity().findViewById(R.id.playback_controls))
+                .show()
+        }
+    }
+
     private fun loadNextPage(reset: Boolean = false) {
         val podcast = currentPodcast ?: return
         val recycler = episodesRecycler ?: return
@@ -380,6 +406,7 @@ class PodcastDetailFragment : Fragment() {
             reachedEnd = false
             isLoadingPage = false
             episodesAdapter?.updateEpisodes(emptyList())
+            episodesAdapter?.setHidePlayedEpisodes(hidePlayedEpisodes)
             recycler.scrollToPosition(0)
         }
 

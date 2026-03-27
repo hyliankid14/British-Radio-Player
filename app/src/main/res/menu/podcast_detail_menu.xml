@@ -4,4 +4,10 @@
         android:id="@+id/action_toggle_episode_sort"
         android:title="@string/podcast_episode_sort_switch_to_oldest"
         android:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_hide_played_episodes"
+        android:title="@string/podcast_detail_hide_played_menu"
+        android:checkable="true"
+        android:showAsAction="never" />
 </menu>

@@ -8,6 +8,8 @@ import android.view.animation.AccelerateDecelerateInterpolator
 import android.widget.ImageView
 import android.widget.ProgressBar
 import android.widget.TextView
+import androidx.appcompat.content.res.AppCompatResources
+import androidx.core.graphics.drawable.DrawableCompat
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
 import com.google.android.material.button.MaterialButton
@@ -242,39 +244,133 @@ class EpisodeAdapter(
     private var episodes: List<Episode> = emptyList(),
     private val onPlayClick: (Episode) -> Unit,
     private val onOpenFull: (Episode) -> Unit
-) : RecyclerView.Adapter<EpisodeAdapter.EpisodeViewHolder>() {
+) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+
+    private sealed class DisplayItem {
+        data class EpisodeRow(val episode: Episode) : DisplayItem()
+        data class PlayedSectionHeader(val count: Int, val expanded: Boolean) : DisplayItem()
+    }
 
     // Maintained in sync with `episodes` to allow O(1) duplicate checks in addEpisodes.
     private val episodeIds = mutableSetOf<String>()
+    private var displayItems: List<DisplayItem> = emptyList()
+    private var hidePlayedEpisodes = false
+    private var playedSectionExpanded = false
 
     fun updateEpisodes(newEpisodes: List<Episode>) {
         episodes = newEpisodes
         episodeIds.clear()
         episodes.mapTo(episodeIds) { it.id }
-        notifyDataSetChanged()
+        rebuildDisplayItems()
     }
 
     fun addEpisodes(newEpisodes: List<Episode>) {
         val uniqueNew = newEpisodes.filter { it.id !in episodeIds }
         if (uniqueNew.isEmpty()) return
-        val oldSize = episodes.size
         episodes = episodes + uniqueNew
         uniqueNew.mapTo(episodeIds) { it.id }
-        notifyItemRangeInserted(oldSize, uniqueNew.size)
+        rebuildDisplayItems()
     }
 
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): EpisodeViewHolder {
-        val view = LayoutInflater.from(context).inflate(R.layout.item_episode, parent, false)
-        return EpisodeViewHolder(view, onPlayClick, onOpenFull)
+    fun setHidePlayedEpisodes(enabled: Boolean) {
+        if (hidePlayedEpisodes == enabled) return
+        hidePlayedEpisodes = enabled
+        if (!enabled) {
+            playedSectionExpanded = false
+        }
+        rebuildDisplayItems()
     }
 
-    override fun onBindViewHolder(holder: EpisodeViewHolder, position: Int) {
-        holder.bind(episodes[position])
+    fun refreshPlayedState() {
+        rebuildDisplayItems()
     }
 
-    override fun getItemCount() = episodes.size
+    private fun rebuildDisplayItems() {
+        if (!hidePlayedEpisodes) {
+            displayItems = episodes.map { DisplayItem.EpisodeRow(it) }
+            notifyDataSetChanged()
+            return
+        }
 
-    class EpisodeViewHolder(
+        val unplayed = mutableListOf<Episode>()
+        val played = mutableListOf<Episode>()
+        episodes.forEach { episode ->
+            if (PlayedEpisodesPreference.isPlayed(context, episode.id)) {
+                played.add(episode)
+            } else {
+                unplayed.add(episode)
+            }
+        }
+
+        displayItems = buildList {
+            addAll(unplayed.map { DisplayItem.EpisodeRow(it) })
+            if (played.isNotEmpty()) {
+                add(DisplayItem.PlayedSectionHeader(count = played.size, expanded = playedSectionExpanded))
+                if (playedSectionExpanded) {
+                    addAll(played.map { DisplayItem.EpisodeRow(it) })
+                }
+            }
+        }
+        notifyDataSetChanged()
+    }
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
+        return when (viewType) {
+            VIEW_TYPE_PLAYED_HEADER -> {
+                val view = LayoutInflater.from(context).inflate(R.layout.item_section_header, parent, false)
+                PlayedSectionHeaderViewHolder(view) {
+                    playedSectionExpanded = !playedSectionExpanded
+                    rebuildDisplayItems()
+                }
+            }
+            else -> {
+                val view = LayoutInflater.from(context).inflate(R.layout.item_episode, parent, false)
+                EpisodeViewHolder(view, onPlayClick, onOpenFull)
+            }
+        }
+    }
+
+    override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
+        when (val item = displayItems[position]) {
+            is DisplayItem.EpisodeRow -> (holder as EpisodeViewHolder).bind(item.episode)
+            is DisplayItem.PlayedSectionHeader -> (holder as PlayedSectionHeaderViewHolder).bind(item.count, item.expanded)
+        }
+    }
+
+    override fun getItemCount() = displayItems.size
+
+    override fun getItemViewType(position: Int): Int {
+        return when (displayItems[position]) {
+            is DisplayItem.EpisodeRow -> VIEW_TYPE_EPISODE
+            is DisplayItem.PlayedSectionHeader -> VIEW_TYPE_PLAYED_HEADER
+        }
+    }
+
+    class PlayedSectionHeaderViewHolder(
+        itemView: View,
+        onToggle: () -> Unit
+    ) : RecyclerView.ViewHolder(itemView) {
+        private val titleView: TextView = itemView.findViewById(R.id.section_title)
+
+        init {
+            itemView.isClickable = true
+            itemView.isFocusable = true
+            itemView.setOnClickListener { onToggle() }
+        }
+
+        fun bind(count: Int, expanded: Boolean) {
+            titleView.text = itemView.context.getString(R.string.podcast_detail_played_section_title, count)
+            val icon = if (expanded) R.drawable.ic_expand_less else R.drawable.ic_expand_more
+            val drawable = AppCompatResources.getDrawable(itemView.context, icon)?.mutate()
+            if (drawable != null) {
+                DrawableCompat.setTint(drawable, titleView.currentTextColor)
+            }
+            titleView.setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, drawable, null)
+            titleView.compoundDrawablePadding = (8 * itemView.resources.displayMetrics.density).toInt()
+        }
+    }
+
+    open class EpisodeViewHolder(
         itemView: View,
         private val onPlayClick: (Episode) -> Unit,
         private val onOpenFull: (Episode) -> Unit
@@ -404,6 +500,8 @@ class EpisodeAdapter(
     }
 
     companion object {
+        private const val VIEW_TYPE_EPISODE = 0
+        private const val VIEW_TYPE_PLAYED_HEADER = 1
         private val OUTPUT_FORMAT = SimpleDateFormat("EEE, dd MMM yyyy", Locale.US)
     }
 }
