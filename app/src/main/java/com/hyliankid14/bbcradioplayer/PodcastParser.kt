@@ -274,12 +274,12 @@ object RSSParser {
                                     }
                                 }
                             }
-                            PUB_DATE -> {
+                            PUB_DATE.lowercase(Locale.US) -> {
                                 if (inItem && parser.next() == XmlPullParser.TEXT) {
                                     currentPubDate = parser.text
                                 }
                             }
-                            UPDATED, PUBLISHED, "date", "datePublished" -> {
+                            UPDATED, PUBLISHED, "date", "datepublished" -> {
                                 if (currentPubDate.isBlank() && parser.next() == XmlPullParser.TEXT) {
                                     currentPubDate = parser.text
                                 }

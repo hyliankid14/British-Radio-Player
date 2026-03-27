@@ -683,11 +683,12 @@ class PodcastRepository(private val context: Context) {
             if (cloudSnapshot != null) {
                 val trimmedFromCloud = trimNewPodcastEpochs(cloudSnapshot.firstSeenEpochs, requestedIds)
                 if (trimmedFromCloud.isNotEmpty()) {
+                    val mergedKnownIds = (readNewPodcastState()?.knownIds ?: emptySet()) + requestedIds
                     writeNewPodcastState(
                         NewPodcastState(
                             schemaVersion = NEW_PODCAST_STATE_SCHEMA_VERSION,
                             generatedAt = cloudSnapshot.snapshotGeneratedAt,
-                            knownIds = requestedIds,
+                            knownIds = mergedKnownIds,
                             firstSeenEpochs = trimmedFromCloud
                         )
                     )

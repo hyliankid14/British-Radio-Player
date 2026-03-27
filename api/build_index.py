@@ -372,15 +372,20 @@ def _build_new_podcast_snapshot(
     }
     baseline_seed = _seed_baseline_epochs(now_ms)
 
-    known_ids = prev_known_ids if prev_known_ids else set(BASELINE_NEW_PODCAST_IDS)
+    had_previous_state = bool(prev_known_ids)
+    known_ids = prev_known_ids if had_previous_state else set(BASELINE_NEW_PODCAST_IDS)
     first_seen = {
         k: int(v)
         for k, v in (previous_state.get("firstSeenEpochs") or {}).items()
         if isinstance(k, str) and k and isinstance(v, (int, float)) and int(v) > 0
     }
 
-    for pid in current_ids - known_ids:
-        first_seen.setdefault(pid, now_ms)
+    # Only mark newly discovered IDs after we have an established prior-known set.
+    # On initial bootstrap, keep the curated baseline only; otherwise almost the
+    # entire catalogue would be tagged as "new" at the same timestamp.
+    if had_previous_state:
+        for pid in current_ids - known_ids:
+            first_seen.setdefault(pid, now_ms)
 
     for pid, epoch in baseline_seed.items():
         if pid in current_ids:
