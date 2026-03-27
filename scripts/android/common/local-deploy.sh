@@ -8,6 +8,8 @@ PROPS_FILE="$PROJECT_ROOT/gradle.properties"
 # Always execute Gradle from the repository root.
 cd "$PROJECT_ROOT"
 
+REQUESTED_DEVICE="${1:-${ANDROID_SERIAL:-}}"
+
 read_prop() {
     local key="$1"
     awk -F'=' -v k="$key" '
@@ -157,17 +159,64 @@ if [ -z "$APK_PACKAGE" ]; then
     APK_PACKAGE="com.hyliankid14.bbcradioplayer.debug"
 fi
 
-# Check for connected device
-if ! adb get-state 1>/dev/null 2>&1; then
+# Check for connected devices and select an install target.
+CONNECTED_DEVICES=()
+while IFS= read -r device_serial; do
+    CONNECTED_DEVICES+=("$device_serial")
+done < <(adb devices | awk 'NR > 1 && $2 == "device" { print $1 }')
+
+if [ ${#CONNECTED_DEVICES[@]} -eq 0 ]; then
     echo "⚠️  No device connected via ADB."
     echo "    APK is ready at: $APK_FILE"
     exit 0
 fi
 
+is_watch_device() {
+    local serial="$1"
+    local characteristics
+    characteristics="$(adb -s "$serial" shell getprop ro.build.characteristics 2>/dev/null | tr -d '\r')"
+    [[ "$characteristics" == *watch* ]]
+}
+
+TARGET_DEVICE=""
+
+if [ -n "$REQUESTED_DEVICE" ]; then
+    for serial in "${CONNECTED_DEVICES[@]}"; do
+        if [ "$serial" = "$REQUESTED_DEVICE" ]; then
+            TARGET_DEVICE="$serial"
+            break
+        fi
+    done
+
+    if [ -z "$TARGET_DEVICE" ]; then
+        echo "❌ Requested device not found: $REQUESTED_DEVICE"
+        echo "Connected devices:"
+        printf '    %s\n' "${CONNECTED_DEVICES[@]}"
+        exit 1
+    fi
+elif [ ${#CONNECTED_DEVICES[@]} -eq 1 ]; then
+    TARGET_DEVICE="${CONNECTED_DEVICES[0]}"
+else
+    for serial in "${CONNECTED_DEVICES[@]}"; do
+        if ! is_watch_device "$serial"; then
+            TARGET_DEVICE="$serial"
+            break
+        fi
+    done
+
+    if [ -z "$TARGET_DEVICE" ]; then
+        TARGET_DEVICE="${CONNECTED_DEVICES[0]}"
+    fi
+
+    echo "ℹ️  Multiple ADB devices detected."
+    printf '    %s\n' "${CONNECTED_DEVICES[@]}"
+    echo "    Using: $TARGET_DEVICE"
+fi
+
 echo "📦 Installing new version (preserving data)..."
 # Use -r (reinstall) and -d (allow downgrade) to update in place without losing data
 # If this fails due to signature mismatch, user will need to manually uninstall first
-if ! adb install -r -d "$APK_FILE"; then
+if ! adb -s "$TARGET_DEVICE" install -r -d "$APK_FILE"; then
     echo "⚠️  Update in place failed. Trying clean install..."
     echo "    (This will clear app data)"
 
@@ -179,10 +228,10 @@ if ! adb install -r -d "$APK_FILE"; then
 
     for pkg in "${!PACKAGE_CANDIDATES[@]}"; do
         echo "🧹 Removing package (if installed): $pkg"
-        adb uninstall "$pkg" >/dev/null 2>&1 || true
+        adb -s "$TARGET_DEVICE" uninstall "$pkg" >/dev/null 2>&1 || true
     done
 
-    adb install "$APK_FILE"
+    adb -s "$TARGET_DEVICE" install "$APK_FILE"
 fi
 
-echo "✅ App installed successfully!"
+echo "✅ App installed successfully on $TARGET_DEVICE!"

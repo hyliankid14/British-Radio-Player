@@ -179,6 +179,7 @@ dependencies {
 
     // Google ML Kit on-device language identification (used for podcast language filtering)
     implementation 'com.google.mlkit:language-id:17.0.5'
+    implementation 'com.google.android.gms:play-services-wearable:18.2.0'
 
     // (Room temporarily disabled due to Gradle/Kapt compatibility; will re-enable after resolving plugin issue)
     // implementation 'androidx.room:room-runtime:2.6.1'

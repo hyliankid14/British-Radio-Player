@@ -2,6 +2,7 @@
 /.gradle/
 /build/
 /app/build/
+/wear/build/
 /captures/
 /.externalNativeBuild/
 /.cxx/

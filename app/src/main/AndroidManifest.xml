@@ -106,6 +106,14 @@
             </intent-filter>
         </service>
 
+        <service
+            android:name=".PhoneWearSyncListenerService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.BIND_LISTENER" />
+            </intent-filter>
+        </service>
+
         <!-- Scheduling for periodic indexing now handled by WorkManager in BackgroundIndexWorker -->
         <!-- <receiver android:name=".IndexAlarmReceiver" android:exported="true">
             <intent-filter>

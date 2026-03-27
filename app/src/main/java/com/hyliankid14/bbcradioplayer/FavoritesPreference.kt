@@ -13,7 +13,7 @@ object FavoritesPreference {
         return favorites.contains(stationId)
     }
 
-    fun toggleFavorite(context: Context, stationId: String) {
+    fun toggleFavorite(context: Context, stationId: String, syncToWear: Boolean = true) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val favorites = prefs.getStringSet(KEY_FAVORITES, emptySet())?.toMutableSet() ?: mutableSetOf()
         
@@ -32,6 +32,21 @@ object FavoritesPreference {
         
         prefs.edit().putStringSet(KEY_FAVORITES, favorites).apply()
         saveFavoritesOrder(context, currentOrder)
+        if (syncToWear) {
+            WearAppStateSync.pushCurrentState(context)
+        }
+    }
+
+    fun setFavorites(context: Context, orderedIds: List<String>, syncToWear: Boolean = true) {
+        val normalisedOrder = orderedIds.filter { it.isNotBlank() }.distinct()
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit()
+            .putStringSet(KEY_FAVORITES, normalisedOrder.toSet())
+            .putString(KEY_FAVORITES_ORDER_STRING, normalisedOrder.joinToString(","))
+            .apply()
+        if (syncToWear) {
+            WearAppStateSync.pushCurrentState(context)
+        }
     }
 
     fun getFavoriteIds(context: Context): Set<String> {

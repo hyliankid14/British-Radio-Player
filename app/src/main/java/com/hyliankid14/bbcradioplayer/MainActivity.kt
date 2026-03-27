@@ -208,6 +208,7 @@ class MainActivity : AppCompatActivity() {
         
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        WearAppStateSync.pushCurrentState(this)
 
         lifecycleScope.launch(Dispatchers.IO) {
             try {

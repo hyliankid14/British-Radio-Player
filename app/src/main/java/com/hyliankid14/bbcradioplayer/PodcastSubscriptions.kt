@@ -30,7 +30,7 @@ object PodcastSubscriptions {
         return getSubscribedIds(context).contains(podcastId)
     }
 
-    fun toggleSubscription(context: Context, podcastId: String) {
+    fun toggleSubscription(context: Context, podcastId: String, syncToWear: Boolean = true) {
         val current = getSubscribedIds(context).toMutableSet()
         val wasSubscribed = current.contains(podcastId)
         if (wasSubscribed) {
@@ -57,6 +57,35 @@ object PodcastSubscriptions {
                 putExtra(EXTRA_IS_SUBSCRIBED, !wasSubscribed)
             }
         )
+
+        if (syncToWear) {
+            WearAppStateSync.pushCurrentState(context)
+        }
+    }
+
+    fun setSubscribedIds(context: Context, ids: Set<String>, syncToWear: Boolean = true) {
+        val normalisedIds = ids.filter { it.isNotBlank() }.toSet()
+        val previousIds = getSubscribedIds(context)
+        val keptNotificationIds = getNotificationsEnabledIds(context).intersect(normalisedIds)
+        prefs(context).edit()
+            .putStringSet(KEY_SUBSCRIBED_IDS, normalisedIds)
+            .putStringSet(KEY_NOTIFICATIONS_ENABLED, keptNotificationIds)
+            .apply()
+
+        val changedIds = (previousIds + normalisedIds).filter { previousIds.contains(it) != normalisedIds.contains(it) }
+        changedIds.forEach { podcastId ->
+            context.sendBroadcast(
+                android.content.Intent(ACTION_SUBSCRIPTION_CHANGED).apply {
+                    setPackage(context.packageName)
+                    putExtra(EXTRA_PODCAST_ID, podcastId)
+                    putExtra(EXTRA_IS_SUBSCRIBED, normalisedIds.contains(podcastId))
+                }
+            )
+        }
+
+        if (syncToWear) {
+            WearAppStateSync.pushCurrentState(context)
+        }
     }
 
     /**
