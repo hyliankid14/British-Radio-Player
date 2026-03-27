@@ -215,30 +215,7 @@ class RadioService : MediaBrowserServiceCompat() {
         mediaSession.setCallback(object : MediaSessionCompat.Callback() {
             override fun onPlay() {
                 Log.d(TAG, "onPlay called")
-                val playerState = player?.playbackState ?: Player.STATE_IDLE
-                val canResume = !isStopped &&
-                    (playerState == Player.STATE_READY || playerState == Player.STATE_BUFFERING)
-                if (canResume) {
-                    // Normal resume: player is paused but prepared
-                    player?.play()
-                    updatePlaybackState(PlaybackStateCompat.STATE_PLAYING)
-                    PlaybackStateHelper.setIsPlaying(true)
-                    if (!currentStationId.startsWith("podcast_")) scheduleShowInfoRefresh()
-                    startForegroundNotification()
-                } else {
-                    // Player is stopped or in error state — attempt to restart from last known media
-                    val lastMediaId = PlaybackPreference.getLastMediaId(this@RadioService)
-                    Log.d(TAG, "onPlay: player not resumable (isStopped=$isStopped, state=$playerState), restarting from lastMediaId=$lastMediaId")
-                    when {
-                        lastMediaId?.startsWith("podcast_episode_") == true ->
-                            replayEpisodeById(lastMediaId.removePrefix("podcast_episode_"))
-                        lastMediaId?.startsWith("station_") == true ->
-                            playStation(lastMediaId.removePrefix("station_"))
-                        currentStationId.isNotEmpty() && !currentStationId.startsWith("podcast_") ->
-                            playStation(currentStationId)
-                        else -> Log.w(TAG, "onPlay: no media to restart")
-                    }
-                }
+                handlePlayRequest("MediaSession.onPlay")
             }
 
             override fun onSkipToNext() {
@@ -263,9 +240,7 @@ class RadioService : MediaBrowserServiceCompat() {
 
             override fun onPause() {
                 Log.d(TAG, "onPause called")
-                player?.pause()
-                updatePlaybackState(PlaybackStateCompat.STATE_PAUSED)
-                PlaybackStateHelper.setIsPlaying(false)
+                handlePauseRequest("MediaSession.onPause")
             }
 
             override fun onStop() {
@@ -559,25 +534,42 @@ class RadioService : MediaBrowserServiceCompat() {
     }
 
     override fun onUnbind(intent: android.content.Intent?): Boolean {
-        // If the Android Auto client (previously recorded in onGetRoot) unbinds, stop playback.
-        // Use the calling UID + package lookup to reduce false positives.
+        // If an Android Auto client was tracked, treat unbind as an Auto disconnect signal.
+        // Some head-units/OEM stacks can report a different calling UID here, so relying only
+        // on Binder#getCallingUid can miss the disconnect and leave a paused podcast session
+        // alive. That stale session keeps posting metadata/notification updates and can make the
+        // media notification reappear after the phone disconnects from the car.
         try {
+            val trackedAutoUid = lastAndroidAutoClientUid
             val uid = android.os.Binder.getCallingUid()
-            if (uid == lastAndroidAutoClientUid) {
+            if (trackedAutoUid != null) {
                 val pkgs = packageManager.getPackagesForUid(uid) ?: emptyArray()
-                val isAuto = pkgs.any { it.contains(ANDROID_AUTO_CLIENT_HINT, ignoreCase = true) || it.contains("com.google.android.projection") || it.contains("com.android.car") }
-                if (isAuto) {
-                    Log.d(TAG, "Android Auto client disconnected (uid=$uid, pkgs=${'$'}{pkgs.joinToString()}) — stopping playback")
-                    try {
-                        if (PlaybackStateHelper.getIsPlaying()) stopPlayback()
-                    } catch (t: Throwable) {
-                        Log.w(TAG, "Error stopping playback on Auto disconnect: ${'$'}{t.message}")
-                    }
-                    // Clear cached client state
-                    lastAndroidAutoClientUid = null
-                    lastAndroidAutoRefreshMs = 0L
-                    lastAndroidAutoAutoplayMs = 0L
+                val isAutoCaller = pkgs.any {
+                    it.contains(ANDROID_AUTO_CLIENT_HINT, ignoreCase = true) ||
+                        it.contains("com.google.android.projection") ||
+                        it.contains("com.android.car")
                 }
+                val shouldTreatAsAutoDisconnect = uid == trackedAutoUid || isAutoCaller
+                if (shouldTreatAsAutoDisconnect) {
+                    Log.d(TAG, "Android Auto client disconnected (uid=$uid, trackedUid=$trackedAutoUid, pkgs=${'$'}{pkgs.joinToString()}) — stopping playback/session")
+                } else {
+                    Log.d(TAG, "onUnbind with tracked Android Auto client (caller uid=$uid, trackedUid=$trackedAutoUid) — forcing playback/session stop to avoid stale notification")
+                }
+
+                try {
+                    // Stop even when paused: paused podcast sessions can still keep progress
+                    // runnables alive and recreate notifications after disconnect.
+                    if (currentStationId.isNotEmpty() || PlaybackStateHelper.getCurrentEpisodeId() != null || PlaybackStateHelper.getIsPlaying()) {
+                        stopPlayback()
+                    }
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Error stopping playback on Auto disconnect: ${'$'}{t.message}")
+                }
+
+                // Clear cached client state
+                lastAndroidAutoClientUid = null
+                lastAndroidAutoRefreshMs = 0L
+                lastAndroidAutoAutoplayMs = 0L
             }
         } catch (e: Exception) {
             Log.w(TAG, "onUnbind error: ${'$'}{e.message}")
@@ -1650,6 +1642,62 @@ class RadioService : MediaBrowserServiceCompat() {
             @Suppress("DEPRECATION")
             // For older Android versions, request focus without listener to avoid conflicts
             audioManager.requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
+        }
+    }
+
+    private fun persistCurrentPodcastProgress() {
+        if (!currentStationId.startsWith("podcast_")) return
+        val episodeId = PlaybackStateHelper.getCurrentEpisodeId() ?: return
+        val pos = player?.currentPosition ?: 0L
+        if (pos <= 0L) return
+        try {
+            PlayedEpisodesPreference.setProgress(this, episodeId, pos)
+            lastSavedProgress[episodeId] = pos
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to persist podcast progress for $episodeId on pause: ${e.message}")
+        }
+    }
+
+    private fun handlePauseRequest(source: String) {
+        Log.d(TAG, "handlePauseRequest from $source")
+        player?.pause()
+        persistCurrentPodcastProgress()
+        updatePlaybackState(PlaybackStateCompat.STATE_PAUSED)
+        PlaybackStateHelper.setIsPlaying(false)
+        startForegroundNotification()
+    }
+
+    private fun handlePlayRequest(source: String) {
+        if (!mediaSession.isActive) mediaSession.isActive = true
+        requestAudioFocus()
+
+        val currentPlayer = player
+        val playerState = currentPlayer?.playbackState ?: Player.STATE_IDLE
+        val canResume = currentPlayer != null && !isStopped &&
+            (playerState == Player.STATE_READY || playerState == Player.STATE_BUFFERING)
+
+        if (canResume) {
+            currentPlayer?.playWhenReady = true
+            currentPlayer?.play()
+            updatePlaybackState(PlaybackStateCompat.STATE_PLAYING)
+            PlaybackStateHelper.setIsPlaying(true)
+            if (!currentStationId.startsWith("podcast_")) scheduleShowInfoRefresh()
+            startForegroundNotification()
+            return
+        }
+
+        val lastMediaId = PlaybackPreference.getLastMediaId(this)
+        val currentEpisodeId = PlaybackStateHelper.getCurrentEpisodeId()
+        Log.d(TAG, "handlePlayRequest: player not resumable (source=$source, isStopped=$isStopped, state=$playerState), restarting from current/last media")
+        when {
+            !currentEpisodeId.isNullOrEmpty() -> replayEpisodeById(currentEpisodeId)
+            lastMediaId?.startsWith("podcast_episode_") == true ->
+                replayEpisodeById(lastMediaId.removePrefix("podcast_episode_"))
+            lastMediaId?.startsWith("station_") == true ->
+                playStation(lastMediaId.removePrefix("station_"))
+            currentStationId.isNotEmpty() && !currentStationId.startsWith("podcast_") ->
+                playStation(currentStationId)
+            else -> Log.w(TAG, "handlePlayRequest: no media to restart")
         }
     }
 
@@ -3021,17 +3069,10 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                     refreshPodcastArtworkPreference()
                 }
                 ACTION_PLAY -> {
-                    if (!mediaSession.isActive) mediaSession.isActive = true
-                    player?.play()
-                    PlaybackStateHelper.setIsPlaying(true)
-                    updatePlaybackState(PlaybackStateCompat.STATE_PLAYING)
-                    startForegroundNotification()
+                    handlePlayRequest("onStartCommand.ACTION_PLAY")
                 }
                 ACTION_PAUSE -> {
-                    player?.pause()
-                    PlaybackStateHelper.setIsPlaying(false)
-                    updatePlaybackState(PlaybackStateCompat.STATE_PAUSED)
-                    startForegroundNotification()
+                    handlePauseRequest("onStartCommand.ACTION_PAUSE")
                 }
                 ACTION_STOP -> {
                     stopPlayback()
@@ -3429,7 +3470,12 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                         // Refresh metadata and playback state so Android Auto gets up-to-date position/duration
                         try {
                             updateMediaMetadata()
-                            updatePlaybackState(PlaybackStateCompat.STATE_PLAYING)
+                            val playbackState = if (player?.isPlaying == true) {
+                                PlaybackStateCompat.STATE_PLAYING
+                            } else {
+                                PlaybackStateCompat.STATE_PAUSED
+                            }
+                            updatePlaybackState(playbackState)
                             // Also refresh the notification progress so the shade shows the current position
                             try {
                                 updateNotificationProgressOnly()
