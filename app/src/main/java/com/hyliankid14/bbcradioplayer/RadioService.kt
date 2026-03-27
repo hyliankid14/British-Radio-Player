@@ -2597,7 +2597,15 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                 else -> null
             }
         } else {
-            artworkBitmap ?: currentArtworkBitmap
+            // For podcasts, do not publish a stale bitmap from a previous episode/source.
+            // Many full-screen surfaces and Android Auto prioritise bitmap keys over URI keys.
+            val passedBitmapMatchesDisplay = artworkBitmap != null && !artworkUri.isNullOrBlank() && artworkUri == displayUri
+            val cachedBitmapMatchesDisplay = currentArtworkBitmap != null && !currentArtworkUri.isNullOrBlank() && currentArtworkUri == displayUri
+            when {
+                passedBitmapMatchesDisplay -> artworkBitmap
+                cachedBitmapMatchesDisplay -> currentArtworkBitmap
+                else -> null
+            }
         }
 
         val mediaIdVal: String = if (isPodcast) {
@@ -3151,6 +3159,8 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
             // Set show/name strings so notification and metadata show episode/podcast info immediately
             currentShowName = syntheticStation.title
             currentShowTitle = episode.title
+            // Clear stale art from previous playback so metadata doesn't reuse the wrong bitmap.
+            currentArtworkBitmap = null
             currentArtworkUri = syntheticStation.logoUrl
             currentShowInfo = CurrentShow(
                 title = syntheticStation.title,
@@ -3232,13 +3242,18 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                 android.net.Uri.parse(effectiveAudioUrl)
             }
 
+            val mediaMetadataBuilder = MediaMetadata.Builder()
+                .setTitle(episode.title)
+            if (podcastTitle.isNotBlank()) {
+                mediaMetadataBuilder.setAlbumTitle(podcastTitle)
+            }
+            if (preferredArtwork.isNotBlank()) {
+                mediaMetadataBuilder.setArtworkUri(Uri.parse(preferredArtwork))
+            }
+
             val mediaItem = ExoMediaItem.Builder()
                 .setUri(playbackUri)
-                .setMediaMetadata(
-                    MediaMetadata.Builder()
-                        .setTitle(episode.title)
-                        .build()
-                )
+                .setMediaMetadata(mediaMetadataBuilder.build())
                 .build()
             player?.apply {
                 playWhenReady = true
@@ -3321,10 +3336,10 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
             // can show the image before the progress runnable (which clears show.imageUrl) runs.
             updateMediaMetadata(artworkBitmap = null, artworkUri = preferredArtwork)
 
-            // If we don't have a proper podcast image yet (saved episodes often lack it), or we only
-            // have an unlabeled "Podcast" title, attempt to resolve the podcast's series metadata
-            // (title/image) in the background and update metadata/notification once we have it.
-            if (syntheticStation.logoUrl.isEmpty() || syntheticStation.logoUrl.endsWith("icon-apple-podcast.png") || syntheticStation.title == "Podcast") {
+            // If we don't have enough artwork context yet (saved/history entries often lack episode
+            // image URLs), or we only have an unlabeled "Podcast" title, resolve canonical series +
+            // episode metadata in the background and update metadata/notification when available.
+            if (syntheticStation.logoUrl.isEmpty() || syntheticStation.logoUrl.endsWith("icon-apple-podcast.png") || syntheticStation.title == "Podcast" || currentEpisodeArtworkUrl.isNullOrEmpty()) {
                 serviceScope.launch {
                     try {
                         val repo = PodcastRepository(this@RadioService)
@@ -3332,6 +3347,14 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                         val found = all.firstOrNull { it.id == episode.podcastId }
                         val seriesImage = found?.imageUrl
                         if (found != null) {
+                            if (currentEpisodeArtworkUrl.isNullOrEmpty()) {
+                                val resolvedEpisodeImage = withContext(Dispatchers.IO) {
+                                    repo.fetchEpisodesIfNeeded(found).firstOrNull { it.id == episode.id }?.imageUrl
+                                }?.takeIf { it.isNotBlank() }
+                                if (!resolvedEpisodeImage.isNullOrEmpty()) {
+                                    currentEpisodeArtworkUrl = sanitiseArtworkUrl(resolvedEpisodeImage)
+                                }
+                            }
                             if (!seriesImage.isNullOrEmpty()) {
                                 currentPodcastArtworkUrl = seriesImage
                             }

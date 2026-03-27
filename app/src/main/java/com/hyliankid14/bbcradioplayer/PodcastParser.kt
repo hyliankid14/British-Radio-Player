@@ -190,23 +190,57 @@ object RSSParser {
             var currentTitle = ""
             var currentDescription = ""
             var currentAudioUrl = ""
+            var currentImageUrl = ""
             var currentPubDate = ""
             var currentDuration = 0
             var currentGuid = ""
+            var channelImageUrl = ""
+            var inItem = false
+            var inChannelImage = false
             var itemIndex = -1
 
             parseLoop@ while (eventType != XmlPullParser.END_DOCUMENT) {
                 when (eventType) {
                     XmlPullParser.START_TAG -> {
-                        when (parser.name) {
+                        val tagName = parser.name.orEmpty().lowercase(Locale.US)
+                        when (tagName) {
                             ITEM -> {
+                                inItem = true
                                 currentTitle = ""
                                 currentDescription = ""
                                 currentAudioUrl = ""
+                                currentImageUrl = ""
                                 currentPubDate = ""
                                 currentDuration = 0
                                 currentGuid = ""
                                 itemIndex++
+                            }
+                            "image" -> {
+                                val href = getAttributeValueIgnoreCase(parser, "href")
+                                val urlAttr = getAttributeValueIgnoreCase(parser, "url")
+                                if (inItem) {
+                                    val candidate = normaliseImageUrl(href ?: urlAttr)
+                                    if (candidate.isNotEmpty()) {
+                                        currentImageUrl = candidate
+                                    }
+                                } else {
+                                    inChannelImage = true
+                                    val candidate = normaliseImageUrl(href ?: urlAttr)
+                                    if (candidate.isNotEmpty()) {
+                                        channelImageUrl = candidate
+                                    }
+                                }
+                            }
+                            "thumbnail", "content" -> {
+                                if (inItem) {
+                                    val urlAttr = normaliseImageUrl(getAttributeValueIgnoreCase(parser, "url"))
+                                    val medium = getAttributeValueIgnoreCase(parser, "medium")?.lowercase(Locale.US).orEmpty()
+                                    val type = getAttributeValueIgnoreCase(parser, "type")?.lowercase(Locale.US).orEmpty()
+                                    val looksLikeImage = tagName == "thumbnail" || medium == "image" || type.startsWith("image/")
+                                    if (looksLikeImage && urlAttr.isNotEmpty() && currentImageUrl.isEmpty()) {
+                                        currentImageUrl = urlAttr
+                                    }
+                                }
                             }
                             TITLE -> {
                                 if (parser.next() == XmlPullParser.TEXT) {
@@ -227,10 +261,21 @@ object RSSParser {
                                 }
                             }
                             ENCLOSURE -> {
-                                currentAudioUrl = parser.getAttributeValue(null, "url") ?: ""
+                                val urlAttr = (getAttributeValueIgnoreCase(parser, "url") ?: "").trim()
+                                val type = getAttributeValueIgnoreCase(parser, "type")?.lowercase(Locale.US).orEmpty()
+                                if (type.startsWith("image/")) {
+                                    if (currentImageUrl.isEmpty()) {
+                                        currentImageUrl = normaliseImageUrl(urlAttr)
+                                    }
+                                } else if (urlAttr.isNotEmpty()) {
+                                    // Prefer explicit audio enclosures, but still accept untyped ones.
+                                    if (currentAudioUrl.isEmpty() || type.startsWith("audio/")) {
+                                        currentAudioUrl = urlAttr
+                                    }
+                                }
                             }
                             PUB_DATE -> {
-                                if (parser.next() == XmlPullParser.TEXT) {
+                                if (inItem && parser.next() == XmlPullParser.TEXT) {
                                     currentPubDate = parser.text
                                 }
                             }
@@ -249,10 +294,25 @@ object RSSParser {
                                     currentGuid = parser.text
                                 }
                             }
+                            "url" -> {
+                                if (!inItem && inChannelImage && parser.next() == XmlPullParser.TEXT) {
+                                    val candidate = normaliseImageUrl(parser.text)
+                                    if (candidate.isNotEmpty()) {
+                                        channelImageUrl = candidate
+                                    }
+                                }
+                            }
                         }
                     }
                     XmlPullParser.END_TAG -> {
-                        if (parser.name == ITEM && currentAudioUrl.isNotEmpty()) {
+                        val tagName = parser.name.orEmpty().lowercase(Locale.US)
+                        if (tagName == "image" && !inItem) {
+                            inChannelImage = false
+                        }
+                        if (tagName == ITEM) {
+                            inItem = false
+                        }
+                        if (tagName == ITEM && currentAudioUrl.isNotEmpty()) {
                             // Only add episodes within the requested window [startIndex, startIndex+maxCount)
                             if (itemIndex >= startIndex && episodes.size < maxCount) {
                                 // Use the BBC PID extracted from the guid URL so episode IDs match
@@ -266,12 +326,13 @@ object RSSParser {
                                 // Skip episodes whose ID has already been seen in this feed to
                                 // prevent duplicates when the RSS feed contains repeated items.
                                 if (seenEpisodeIds.add(episodeId)) {
+                                    val resolvedImage = currentImageUrl.ifBlank { channelImageUrl }
                                     val episode = Episode(
                                         id = episodeId,
                                         title = currentTitle.trim(),
                                         description = currentDescription.trim(),
                                         audioUrl = currentAudioUrl.trim(),
-                                        imageUrl = "",
+                                        imageUrl = resolvedImage,
                                         pubDate = currentPubDate.trim(),
                                         durationMins = currentDuration,
                                         podcastId = podcastId
@@ -444,5 +505,22 @@ object RSSParser {
         } catch (e: Exception) {
             0
         }
+    }
+
+    private fun getAttributeValueIgnoreCase(parser: XmlPullParser, name: String): String? {
+        val direct = parser.getAttributeValue(null, name)
+        if (!direct.isNullOrEmpty()) return direct
+        for (i in 0 until parser.attributeCount) {
+            if (parser.getAttributeName(i).equals(name, ignoreCase = true)) {
+                return parser.getAttributeValue(i)
+            }
+        }
+        return null
+    }
+
+    private fun normaliseImageUrl(value: String?): String {
+        val trimmed = value?.trim().orEmpty()
+        if (trimmed.isEmpty()) return ""
+        return trimmed.replace("http://", "https://")
     }
 }
