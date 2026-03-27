@@ -13,6 +13,15 @@
     <string name="index_schedule_7">Every 7 days</string>
     <string name="exclude_non_english_label">Exclude non-English podcasts</string>
     <string name="index_wifi_only_label">Only download index on Wi-Fi</string>
+    <string name="index_status_title">Index status</string>
+    <string name="index_source_label">Source: Google Cloud index</string>
+    <string name="index_section_updates">Latest updates</string>
+    <string name="index_section_coverage">Indexed content</string>
+    <string name="index_last_updated_default">Last updated: —</string>
+    <string name="index_popular_updated_default">Most popular updated: —</string>
+    <string name="index_new_podcasts_updated_default">New Podcasts updated: —</string>
+    <string name="index_podcast_count_default">— podcasts indexed</string>
+    <string name="index_episode_count_default">— episodes indexed</string>
 
     <string-array name="index_schedule_options">
         <item>@string/index_schedule_never</item>

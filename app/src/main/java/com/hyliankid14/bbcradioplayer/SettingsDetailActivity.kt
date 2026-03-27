@@ -560,18 +560,18 @@ class SettingsDetailActivity : AppCompatActivity() {
 
                 runOnUiThread {
                     if (!meta?.generatedAt.isNullOrBlank()) {
-                        indexLastRebuilt.text = formatGeneratedAt("Last updated (Google Cloud)", meta?.generatedAt)
+                        indexLastRebuilt.text = formatGeneratedAt("Last updated", meta?.generatedAt)
                     }
                     if ((meta?.podcastCount ?: 0) > 0) {
                         indexPodcastCount.text = "${meta!!.podcastCount} podcasts indexed"
                         indexEpisodeCount.text = "${meta.episodeCount} episodes indexed"
                     }
                     popularLastUpdated.text = formatGeneratedAt(
-                        "Most popular updated (Google Cloud)",
+                        "Most popular updated",
                         popularSnapshot?.snapshotGeneratedAt
                     )
                     newPodcastsLastUpdated.text = formatGeneratedAt(
-                        "New Podcasts updated (Google Cloud)",
+                        "New Podcasts updated",
                         newPodcastSnapshot?.snapshotGeneratedAt
                     )
                 }
