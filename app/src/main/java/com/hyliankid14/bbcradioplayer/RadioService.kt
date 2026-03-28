@@ -1815,6 +1815,14 @@ class RadioService : MediaBrowserServiceCompat() {
                 (pbShow.episodeTitle ?: currentShowTitle).orEmpty()
             }
 
+            // Determine fallback artwork: prefer cached show/episode artwork bitmap,
+            // otherwise use the station's generic logo as immediate placeholder
+            val fallbackLargeIcon = if (currentStationId.isNotBlank()) {
+                StationArtwork.createBitmap(currentStationId)
+            } else {
+                null
+            }
+
             val notificationBuilder = NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle(notificationTitle)
                 .setContentText(notificationContentText)
@@ -1836,6 +1844,13 @@ class RadioService : MediaBrowserServiceCompat() {
                 .setShowActionsInCompactView(1, 2, 3)
             )
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            
+            // Set fallback large icon immediately so notification doesn't show a grey square
+            // whilst artwork is loading. This will be replaced with actual show/episode artwork
+            // once loadStationLogoAndUpdateNotification() completes.
+            if (fallbackLargeIcon != null) {
+                notificationBuilder.setLargeIcon(fallbackLargeIcon)
+            }
 
         val notification = notificationBuilder.build()
         startForeground(NOTIFICATION_ID, notification)
