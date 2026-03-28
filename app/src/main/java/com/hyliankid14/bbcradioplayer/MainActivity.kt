@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
 import android.os.Bundle
 import android.os.Build
 import android.provider.Settings
@@ -76,6 +77,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var staticContentContainer: View
     private lateinit var stationsView: View
     private lateinit var stationsContent: View
+    private lateinit var vpnWarningBanner: TextView
     private lateinit var bottomNavigation: BottomNavigationView
     private lateinit var miniPlayer: LinearLayout
     private lateinit var miniPlayerTitle: TextView
@@ -135,6 +137,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var analytics: PrivacyAnalytics
     private var updateDownloadId: Long? = null
     private var updateDownloadReceiver: BroadcastReceiver? = null
+    private var vpnStatusCallback: ConnectivityManager.NetworkCallback? = null
 
     private val showChangeListener: (CurrentShow) -> Unit = { show ->
         runOnUiThread { updateMiniPlayerFromShow(show) }
@@ -269,6 +272,8 @@ class MainActivity : AppCompatActivity() {
         staticContentContainer = findViewById(R.id.static_content_container)
         stationsView = findViewById(R.id.stations_view)
         stationsContent = findViewById(R.id.stations_content)
+        vpnWarningBanner = findViewById(R.id.vpn_warning_banner)
+        updateVpnWarningBanner()
         
         // Try multiple ids because some build/tooling combinations either generate the include id
         // or only the ids from the included layout itself. Fall back to a hidden placeholder if none found.
@@ -1120,6 +1125,34 @@ class MainActivity : AppCompatActivity() {
         } catch (_: Exception) { }
     }
 
+    private fun shouldShowVpnWarningBanner(): Boolean {
+        if (!NetworkQualityDetector.isVpnActive(this)) return false
+
+        return when (currentMode) {
+            "list" -> true
+            "favorites" -> isButtonChecked(R.id.fav_tab_stations)
+            else -> false
+        }
+    }
+
+    private fun updateVpnWarningBanner() {
+        if (!::vpnWarningBanner.isInitialized) return
+        vpnWarningBanner.visibility = if (shouldShowVpnWarningBanner()) View.VISIBLE else View.GONE
+    }
+
+    private fun registerVpnStatusMonitoring() {
+        if (vpnStatusCallback != null) return
+        vpnStatusCallback = NetworkQualityDetector.registerVpnStatusCallback(this) {
+            runOnUiThread { updateVpnWarningBanner() }
+        }
+    }
+
+    private fun unregisterVpnStatusMonitoring() {
+        val callback = vpnStatusCallback ?: return
+        NetworkQualityDetector.unregisterVpnStatusCallback(this, callback)
+        vpnStatusCallback = null
+    }
+
     private fun showAllStations() {
         // Ensure history UI is hidden when leaving Favorites
         hideHistoryViews()
@@ -1154,6 +1187,7 @@ class MainActivity : AppCompatActivity() {
         setupFilterButtons()
         // Ensure saved episodes UI is hidden when switching to All Stations
         refreshSavedEpisodesSection()
+        updateVpnWarningBanner()
         
         // Hide filter buttons if not available
         filterButtonsContainer?.visibility = View.VISIBLE
@@ -1187,6 +1221,7 @@ class MainActivity : AppCompatActivity() {
         val historyContainer = findViewById<View>(R.id.favorites_history_container)
         // Ensure the favourites toggle group is visible when in Favorites
         try { updateFavoritesToggleVisibility() } catch (_: Exception) { }
+        updateVpnWarningBanner()
 
         // Key for persisting the last-selected Favorites sub-tab (declare once)
         val LAST_FAV_TAB_KEY = "last_fav_tab_id"
@@ -1712,6 +1747,7 @@ class MainActivity : AppCompatActivity() {
                 findViewById<View>(R.id.favorites_history_container).visibility = View.GONE
                 try { findViewById<TextView>(R.id.favorites_history_empty).visibility = View.GONE } catch (_: Exception) { }
                 try { findViewById<RecyclerView>(R.id.favorites_history_recycler).visibility = View.GONE } catch (_: Exception) { }
+                updateVpnWarningBanner()
             }
             "subscribed" -> {
                 supportActionBar?.title = "Subscribed Podcasts"
@@ -1730,6 +1766,7 @@ class MainActivity : AppCompatActivity() {
                 if (existingAdapter == null || existingAdapter.itemCount == 0) {
                     setSubscribedPodcastsLoading(true)
                 }
+                updateVpnWarningBanner()
 
                 // Refresh subscribed podcasts list asynchronously
                 Thread {
@@ -1875,10 +1912,13 @@ class MainActivity : AppCompatActivity() {
                 try { refreshHistorySection(); findViewById<RecyclerView>(R.id.favorites_history_recycler).scrollToPosition(0) } catch (_: Exception) { }
             }
         }
+        updateVpnWarningBanner()
     }
 
     override fun onStart() {
         super.onStart()
+        registerVpnStatusMonitoring()
+        updateVpnWarningBanner()
         val receiverFlags = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             android.content.Context.RECEIVER_NOT_EXPORTED
         } else 0
@@ -1900,6 +1940,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
+        unregisterVpnStatusMonitoring()
         try {
             unregisterReceiver(playedStatusReceiver)
         } catch (_: Exception) {}
@@ -1923,6 +1964,7 @@ class MainActivity : AppCompatActivity() {
         fragmentContainer.visibility = View.GONE
         staticContentContainer.visibility = View.VISIBLE
         stationsView.visibility = View.GONE
+        updateVpnWarningBanner()
         stationsList.visibility = View.GONE
         filterButtonsContainer?.visibility = View.GONE
         settingsContainer.visibility = View.VISIBLE
@@ -2811,6 +2853,7 @@ class MainActivity : AppCompatActivity() {
                 refreshHistorySection()
             }
         } catch (_: Exception) { }
+        updateVpnWarningBanner()
     }
 
     private fun refreshSavedSearchesSection() {

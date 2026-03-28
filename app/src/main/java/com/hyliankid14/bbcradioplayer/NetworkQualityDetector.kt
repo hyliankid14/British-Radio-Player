@@ -6,6 +6,58 @@ import android.net.NetworkCapabilities
 import android.os.Build
 
 object NetworkQualityDetector {
+    fun isVpnActive(context: Context): Boolean {
+        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val network = connectivityManager.activeNetwork ?: return false
+            val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+        } else {
+            @Suppress("DEPRECATION")
+            connectivityManager.activeNetworkInfo?.type == ConnectivityManager.TYPE_VPN
+        }
+    }
+
+    fun registerVpnStatusCallback(
+        context: Context,
+        onChanged: () -> Unit
+    ): ConnectivityManager.NetworkCallback? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return null
+
+        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: android.net.Network) {
+                onChanged()
+            }
+
+            override fun onLost(network: android.net.Network) {
+                onChanged()
+            }
+
+            override fun onCapabilitiesChanged(
+                network: android.net.Network,
+                networkCapabilities: NetworkCapabilities
+            ) {
+                onChanged()
+            }
+        }
+
+        connectivityManager.registerDefaultNetworkCallback(callback)
+        return callback
+    }
+
+    fun unregisterVpnStatusCallback(
+        context: Context,
+        callback: ConnectivityManager.NetworkCallback
+    ) {
+        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        try {
+            connectivityManager.unregisterNetworkCallback(callback)
+        } catch (_: Exception) {
+        }
+    }
+
     fun getRecommendedAudioQuality(context: Context): ThemePreference.AudioQuality {
         val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 

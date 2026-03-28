@@ -162,6 +162,20 @@
                 android:layout_weight="1"
                 android:orientation="vertical">
 
+                <TextView
+                    android:id="@+id/vpn_warning_banner"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="?attr/colorSecondaryContainer"
+                    android:paddingStart="16dp"
+                    android:paddingTop="12dp"
+                    android:paddingEnd="16dp"
+                    android:paddingBottom="12dp"
+                    android:text="@string/vpn_station_warning"
+                    android:textColor="?attr/colorOnSecondaryContainer"
+                    android:textSize="14sp"
+                    android:visibility="gone" />
+
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/stations_list"
                     android:layout_width="match_parent"
