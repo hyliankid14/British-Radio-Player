@@ -3,6 +3,7 @@ package com.hyliankid14.bbcradioplayer.wear
 import android.app.Application
 import android.util.Log
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
@@ -71,11 +72,9 @@ class WearViewModel(application: Application) : AndroidViewModel(application) {
     var errorMessage by mutableStateOf<String?>(null)
         private set
 
-    var stationLiveTitleMap by mutableStateOf<Map<String, String>>(emptyMap())
-        private set
+    val stationLiveTitleMap = mutableStateMapOf<String, String>()
 
-    var stationLiveDetailMap by mutableStateOf<Map<String, String>>(emptyMap())
-        private set
+    val stationLiveDetailMap = mutableStateMapOf<String, String>()
 
     val nowPlaying: NowPlaying?
         get() = playbackState
@@ -191,10 +190,10 @@ class WearViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             if (titleUpdates.isNotEmpty()) {
-                stationLiveTitleMap = stationLiveTitleMap + titleUpdates
+                stationLiveTitleMap.putAll(titleUpdates)
             }
             if (detailUpdates.isNotEmpty()) {
-                stationLiveDetailMap = stationLiveDetailMap + detailUpdates
+                stationLiveDetailMap.putAll(detailUpdates)
             }
         }
     }
@@ -307,12 +306,26 @@ class WearViewModel(application: Application) : AndroidViewModel(application) {
         if (subscribedPodcastIds.isEmpty() || podcasts.isEmpty()) return
         val subscribedKnown = podcasts.filter { it.id in subscribedPodcastIds && it.rssUrl.isNotBlank() }
         if (subscribedKnown.isEmpty()) return
-        val hintsMissing = subscribedKnown.filter { (podcastUpdatedAtMap[it.id] ?: 0L) <= 0L }
-        if (hintsMissing.isEmpty()) return
+
         viewModelScope.launch {
             refreshingUpdatedHints = true
             try {
-                podcastUpdatedAtMap = podcastRepository.refreshPodcastUpdatedAtHints(hintsMissing.take(MAX_HINT_REFRESH_COUNT))
+                var remaining = subscribedKnown
+                var currentMap = podcastUpdatedAtMap
+
+                while (remaining.isNotEmpty()) {
+                    val missing = remaining.filter { (currentMap[it.id] ?: 0L) <= 0L }
+                    if (missing.isEmpty()) break
+
+                    val batch = missing.take(MAX_HINT_REFRESH_COUNT)
+                    currentMap = podcastRepository.refreshPodcastUpdatedAtHints(batch)
+                    podcastUpdatedAtMap = currentMap
+
+                    remaining = missing.drop(batch.size)
+                    if (remaining.isNotEmpty()) {
+                        delay(HINT_REFRESH_BATCH_DELAY_MS)
+                    }
+                }
             } finally {
                 refreshingUpdatedHints = false
             }
@@ -392,6 +405,7 @@ class WearViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
         private const val TAG = "WearViewModel"
-        private const val MAX_HINT_REFRESH_COUNT = 4
+        private const val MAX_HINT_REFRESH_COUNT = 10
+        private const val HINT_REFRESH_BATCH_DELAY_MS = 200L
     }
 }

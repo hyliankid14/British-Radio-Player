@@ -67,6 +67,7 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
     private var currentEpisodeDescription: String = ""
     private var currentEpisodePubDate: String = ""
     private var currentEpisodeAudioUrl: String = ""
+    private var currentEpisodeStartedAtMs: Long = 0L
     private var currentStationId: String? = null
     private var currentServiceId: String? = null
     private var lastProgressSyncAtMs = 0L
@@ -226,6 +227,7 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
                 }
                 if (candidates.isNotEmpty()) {
                     candidateIndex = 0
+                    currentEpisodeStartedAtMs = System.currentTimeMillis()
                     currentTitle = intent.getStringExtra(EXTRA_TITLE).orEmpty()
                     currentSubtitle = intent.getStringExtra(EXTRA_SUBTITLE).orEmpty()
                     currentArtwork = intent.getStringExtra(EXTRA_ARTWORK_URL)
@@ -239,6 +241,23 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
                     currentServiceId = null
                     lastProgressSyncAtMs = 0L
                     lastSavedPositionMs = 0L
+
+                    // Mirror phone behaviour: episode should appear in history when playback starts,
+                    // not only when completion threshold is reached.
+                    episodeSyncStore.addHistoryWithMeta(
+                        episodeId = currentEpisodeId.orEmpty(),
+                        title = currentTitle,
+                        description = currentEpisodeDescription,
+                        imageUrl = currentArtwork.orEmpty(),
+                        audioUrl = currentEpisodeAudioUrl,
+                        pubDate = currentEpisodePubDate,
+                        durationMins = 0,
+                        podcastId = currentPodcastId.orEmpty(),
+                        podcastTitle = currentSubtitle,
+                        playedAtMs = currentEpisodeStartedAtMs
+                    )
+                    WatchAppStateSync.pushCurrentState(this, favouritesStore, subscriptionStore, episodeSyncStore)
+
                     stopLiveMetadataPolling()
                     scheduleEpisodeAnalytics(
                         podcastId = currentPodcastId.orEmpty(),
@@ -346,6 +365,7 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
         currentEpisodeDescription = ""
         currentEpisodePubDate = ""
         currentEpisodeAudioUrl = ""
+        currentEpisodeStartedAtMs = 0L
         currentStationId = null
         currentServiceId = null
         lastProgressSyncAtMs = 0L
@@ -412,9 +432,28 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
         val episodeId = currentEpisodeId?.takeIf { it.isNotBlank() } ?: return
         val positionMs = player.currentPosition.coerceAtLeast(0L)
         val durationMs = player.duration.takeIf { it > 0L } ?: 0L
+        val durationMins = if (durationMs > 0L) {
+            kotlin.math.max(1, ((durationMs + 59_999L) / 60_000L).toInt())
+        } else {
+            0
+        }
         val now = System.currentTimeMillis()
         val progressedEnough = kotlin.math.abs(positionMs - lastSavedPositionMs) >= PROGRESS_SYNC_MIN_DELTA_MS
         val dueForSync = now - lastProgressSyncAtMs >= PROGRESS_SYNC_INTERVAL_MS
+
+        // Keep history metadata fresh so the phone can render correct duration/progress indicators.
+        episodeSyncStore.addHistoryWithMeta(
+            episodeId = episodeId,
+            title = currentTitle,
+            description = currentEpisodeDescription,
+            imageUrl = currentArtwork.orEmpty(),
+            audioUrl = currentEpisodeAudioUrl,
+            pubDate = currentEpisodePubDate,
+            durationMins = durationMins,
+            podcastId = currentPodcastId.orEmpty(),
+            podcastTitle = currentSubtitle,
+            playedAtMs = currentEpisodeStartedAtMs.takeIf { it > 0L } ?: now
+        )
 
         if (durationMs > 0L && positionMs >= durationMs - PLAYED_COMPLETION_THRESHOLD_MS) {
             episodeSyncStore.markPlayedWithMeta(
@@ -424,10 +463,10 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
                 imageUrl = currentArtwork.orEmpty(),
                 audioUrl = currentEpisodeAudioUrl,
                 pubDate = currentEpisodePubDate,
-                durationMins = (durationMs / 60_000L).toInt(),
+                durationMins = durationMins,
                 podcastId = currentPodcastId.orEmpty(),
                 podcastTitle = currentSubtitle,
-                playedAtMs = System.currentTimeMillis()
+                playedAtMs = currentEpisodeStartedAtMs.takeIf { it > 0L } ?: now
             )
         } else if (positionMs > 0L && (force || progressedEnough || dueForSync)) {
             episodeSyncStore.setProgress(episodeId, positionMs)

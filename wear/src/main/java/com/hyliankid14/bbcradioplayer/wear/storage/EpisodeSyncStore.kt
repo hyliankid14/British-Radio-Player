@@ -68,7 +68,46 @@ class EpisodeSyncStore(context: Context) {
         playedAtMs: Long
     ) {
         markPlayed(episodeId)
+        addHistoryWithMeta(
+            episodeId = episodeId,
+            title = title,
+            description = description,
+            imageUrl = imageUrl,
+            audioUrl = audioUrl,
+            pubDate = pubDate,
+            durationMins = durationMins,
+            podcastId = podcastId,
+            podcastTitle = podcastTitle,
+            playedAtMs = playedAtMs
+        )
+    }
+
+    fun addHistoryWithMeta(
+        episodeId: String,
+        title: String,
+        description: String,
+        imageUrl: String,
+        audioUrl: String,
+        pubDate: String,
+        durationMins: Int,
+        podcastId: String,
+        podcastTitle: String,
+        playedAtMs: Long
+    ) {
         if (episodeId.isBlank()) return
+
+        val updatedHistory = buildList {
+            add(episodeId)
+            addAll(getHistoryEpisodeIds().filterNot { it == episodeId })
+        }.take(MAX_HISTORY_SIZE)
+
+        persist(
+            progress = getProgressMap(),
+            playedIds = getPlayedEpisodeIds(),
+            historyIds = updatedHistory,
+            remoteSynced = true
+        )
+
         val metaEntry = JSONObject().apply {
             put("id", episodeId)
             put("title", title)

@@ -36,9 +36,18 @@ class PodcastRepository(context: Context) {
         }
 
         val targetIds = subscribedIds.map { it.trim() }.filter { it.isNotBlank() }.toSet()
+        val cachedPodcasts = cacheStore.getCachedPodcasts()
+        val cachedById = cachedPodcasts.associateBy { it.id }
+
+        if (cacheStore.isPodcastCacheFresh(PODCAST_CACHE_MAX_AGE_MS)) {
+            val allSubscribedKnownInCache = targetIds.all { it in cachedById }
+            if (allSubscribedKnownInCache) {
+                return@withContext targetIds.mapNotNull { cachedById[it] }
+            }
+        }
+
         val parser = fetchXmlPullParser(OPML_URL) ?: return@withContext cacheStore.getCachedPodcasts().filter { it.id in targetIds }
         val podcasts = mutableListOf<PodcastSummary>()
-        val cachedById = cacheStore.getCachedPodcasts().associateBy { it.id }
         val seen = mutableSetOf<String>()
 
         var eventType = parser.eventType
@@ -235,7 +244,27 @@ class PodcastRepository(context: Context) {
     private fun extractPodcastIdFromRssUrl(rssUrl: String): String {
         // Note: in a triple-quoted raw string, use a single \ for a regex literal dot (\.) 
         val match = Regex("""/([a-z0-9]+)\.rss$""", RegexOption.IGNORE_CASE).find(rssUrl)
-        return match?.groupValues?.getOrNull(1) ?: rssUrl.hashCode().toString()
+        if (match != null) {
+            return match.groupValues[1]
+        }
+
+        val uri = runCatching { java.net.URI(rssUrl) }.getOrNull()
+        val pathSegments = uri?.path
+            ?.split('/')
+            ?.map { it.trim() }
+            ?.filter { it.isNotBlank() }
+            ?: emptyList()
+        val candidate = pathSegments.lastOrNull()
+            ?.removeSuffix(".rss")
+            ?.replace(Regex("[^a-zA-Z0-9_-]"), "")
+            ?.lowercase(Locale.US)
+            .orEmpty()
+
+        if (candidate.isNotBlank()) {
+            return candidate
+        }
+
+        return "podcast_${kotlin.math.abs(rssUrl.hashCode())}"
     }
 
     private fun extractEpisodeIdFromGuid(guid: String): String {

@@ -3,6 +3,8 @@ package com.hyliankid14.bbcradioplayer.wear
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -28,14 +30,22 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Pause
+import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.SkipNext
+import androidx.compose.material.icons.outlined.SkipPrevious
+import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import com.hyliankid14.bbcradioplayer.wear.data.EpisodeSummary
 import com.hyliankid14.bbcradioplayer.wear.data.PodcastSummary
 import com.hyliankid14.bbcradioplayer.wear.data.Station
+import com.hyliankid14.bbcradioplayer.wear.data.StationCategory
 import com.hyliankid14.bbcradioplayer.wear.data.StationArtwork
 import com.hyliankid14.bbcradioplayer.wear.ui.Screen
 import coil.compose.AsyncImage
@@ -48,8 +58,6 @@ import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Scaffold
 import androidx.wear.compose.material.Text
 import androidx.wear.compose.material.TimeText
-import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
-import androidx.wear.compose.foundation.lazy.items
 import kotlinx.coroutines.delay
 
 @Composable
@@ -62,9 +70,22 @@ fun WearRadioApp(viewModel: WearViewModel = viewModel()) {
         screen = when (screen) {
             Screen.EPISODES -> Screen.PODCASTS
             Screen.NOW_PLAYING -> previousScreenBeforeNowPlaying
-            Screen.FAVOURITES, Screen.ALL_STATIONS -> Screen.STATIONS_MENU
+            Screen.FAVOURITES,
+            Screen.STATIONS_NATIONAL,
+            Screen.STATIONS_REGIONS,
+            Screen.STATIONS_LOCAL -> Screen.STATIONS_MENU
             else -> Screen.HOME
         }
+    }
+
+    val nationalStations = remember(viewModel.stations) {
+        viewModel.stations.filter { it.category == StationCategory.NATIONAL }
+    }
+    val regionalStations = remember(viewModel.stations) {
+        viewModel.stations.filter { it.category == StationCategory.REGIONS }
+    }
+    val localStations = remember(viewModel.stations) {
+        viewModel.stations.filter { it.category == StationCategory.LOCAL }
     }
 
     MaterialTheme {
@@ -77,7 +98,9 @@ fun WearRadioApp(viewModel: WearViewModel = viewModel()) {
 
                 Screen.STATIONS_MENU -> StationsMenuScreen(
                     onOpenFavourites = { screen = Screen.FAVOURITES },
-                    onOpenAllStations = { screen = Screen.ALL_STATIONS }
+                    onOpenNationalStations = { screen = Screen.STATIONS_NATIONAL },
+                    onOpenRegionalStations = { screen = Screen.STATIONS_REGIONS },
+                    onOpenLocalStations = { screen = Screen.STATIONS_LOCAL }
                 )
 
                 Screen.FAVOURITES -> {
@@ -108,7 +131,6 @@ fun WearRadioApp(viewModel: WearViewModel = viewModel()) {
                         title = "Favourites",
                         stations = allFavourites,
                         stationShowTitleMap = viewModel.stationLiveTitleMap,
-                        onRequestShow = { viewModel.prefetchStationShows(listOf(it), limit = 1) },
                         onPlay = {
                             viewModel.playStation(it, allFavourites)
                             previousScreenBeforeNowPlaying = Screen.FAVOURITES
@@ -118,18 +140,51 @@ fun WearRadioApp(viewModel: WearViewModel = viewModel()) {
                     )
                 }
 
-                Screen.ALL_STATIONS -> {
-                    LaunchedEffect(viewModel.stations) {
-                        viewModel.prefetchStationShows(viewModel.stations, limit = 12)
+                Screen.STATIONS_NATIONAL -> {
+                    LaunchedEffect(nationalStations) {
+                        viewModel.prefetchStationShows(nationalStations, limit = 8)
                     }
                     StationListScreen(
-                        title = "All Stations",
-                        stations = viewModel.stations,
+                        title = "National",
+                        stations = nationalStations,
                         stationShowTitleMap = viewModel.stationLiveTitleMap,
-                        onRequestShow = { viewModel.prefetchStationShows(listOf(it), limit = 1) },
                         onPlay = {
-                            viewModel.playStation(it, viewModel.stations)
-                            previousScreenBeforeNowPlaying = Screen.ALL_STATIONS
+                            viewModel.playStation(it, nationalStations)
+                            previousScreenBeforeNowPlaying = Screen.STATIONS_NATIONAL
+                            screen = Screen.NOW_PLAYING
+                        },
+                        emptyText = "No stations available"
+                    )
+                }
+
+                Screen.STATIONS_REGIONS -> {
+                    LaunchedEffect(regionalStations) {
+                        viewModel.prefetchStationShows(regionalStations, limit = 8)
+                    }
+                    StationListScreen(
+                        title = "Regions",
+                        stations = regionalStations,
+                        stationShowTitleMap = viewModel.stationLiveTitleMap,
+                        onPlay = {
+                            viewModel.playStation(it, regionalStations)
+                            previousScreenBeforeNowPlaying = Screen.STATIONS_REGIONS
+                            screen = Screen.NOW_PLAYING
+                        },
+                        emptyText = "No stations available"
+                    )
+                }
+
+                Screen.STATIONS_LOCAL -> {
+                    LaunchedEffect(localStations) {
+                        viewModel.prefetchStationShows(localStations, limit = 8)
+                    }
+                    StationListScreen(
+                        title = "Local",
+                        stations = localStations,
+                        stationShowTitleMap = viewModel.stationLiveTitleMap,
+                        onPlay = {
+                            viewModel.playStation(it, localStations)
+                            previousScreenBeforeNowPlaying = Screen.STATIONS_LOCAL
                             screen = Screen.NOW_PLAYING
                         },
                         emptyText = "No stations available"
@@ -147,6 +202,7 @@ fun WearRadioApp(viewModel: WearViewModel = viewModel()) {
                             )
                             val unresolved = viewModel.subscribedPodcastIds
                                 .filterNot { it in knownIds }
+                                .filterNot(::looksLikeNumericSyntheticId)
                                 .sorted()
                                 .map { id ->
                                     PodcastSummary(
@@ -211,28 +267,25 @@ fun WearRadioApp(viewModel: WearViewModel = viewModel()) {
     }
 }
 
+private val ListContentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 20.dp, bottom = 14.dp)
+private val HeaderHorizontalSafePadding = 24.dp
+
 @Composable
 private fun HomeScreen(
     onOpenStations: () -> Unit,
     onOpenPodcasts: () -> Unit
 ) {
-    ScalingLazyColumn(
+    LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
+        contentPadding = ListContentPadding,
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        item {
-            Text(
-                text = "British Radio Player",
-                style = MaterialTheme.typography.title3,
-                modifier = Modifier.padding(horizontal = 6.dp)
-            )
-        }
+        item { RoundSafeHeaderTitle("British Radio Player", maxLines = 2) }
         item {
             Chip(
                 onClick = onOpenStations,
                 label = { Text("Stations") },
-                secondaryLabel = { Text("Favourites and all") },
+                secondaryLabel = { Text("Favourites and All Stations") },
                 colors = ChipDefaults.primaryChipColors(),
                 modifier = Modifier.fillMaxWidth()
             )
@@ -252,20 +305,16 @@ private fun HomeScreen(
 @Composable
 private fun StationsMenuScreen(
     onOpenFavourites: () -> Unit,
-    onOpenAllStations: () -> Unit
+    onOpenNationalStations: () -> Unit,
+    onOpenRegionalStations: () -> Unit,
+    onOpenLocalStations: () -> Unit
 ) {
-    ScalingLazyColumn(
+    LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
+        contentPadding = ListContentPadding,
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        item {
-            Text(
-                text = "Stations",
-                style = MaterialTheme.typography.title3,
-                modifier = Modifier.padding(horizontal = 6.dp)
-            )
-        }
+        item { RoundSafeHeaderTitle("Stations", maxLines = 2) }
         item {
             Chip(
                 onClick = onOpenFavourites,
@@ -277,9 +326,27 @@ private fun StationsMenuScreen(
         }
         item {
             Chip(
-                onClick = onOpenAllStations,
-                label = { Text("All Stations") },
-                secondaryLabel = { Text("Live radio") },
+                onClick = onOpenNationalStations,
+                label = { Text("National") },
+                secondaryLabel = { Text("UK-wide stations") },
+                colors = ChipDefaults.secondaryChipColors(),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        item {
+            Chip(
+                onClick = onOpenRegionalStations,
+                label = { Text("Regions") },
+                secondaryLabel = { Text("Nations and regions") },
+                colors = ChipDefaults.secondaryChipColors(),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        item {
+            Chip(
+                onClick = onOpenLocalStations,
+                label = { Text("Local") },
+                secondaryLabel = { Text("Local BBC stations") },
                 colors = ChipDefaults.secondaryChipColors(),
                 modifier = Modifier.fillMaxWidth()
             )
@@ -292,29 +359,23 @@ private fun StationListScreen(
     title: String,
     stations: List<Station>,
     stationShowTitleMap: Map<String, String>,
-    onRequestShow: (Station) -> Unit,
     onPlay: (Station) -> Unit,
     emptyText: String
 ) {
-    ScalingLazyColumn(
+    LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
+        contentPadding = ListContentPadding,
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        item {
-            Text(text = title, style = MaterialTheme.typography.title3, modifier = Modifier.padding(horizontal = 6.dp))
-        }
+        item { RoundSafeHeaderTitle(title, maxLines = 2) }
         if (stations.isEmpty()) {
-            item { Text(emptyText, modifier = Modifier.padding(horizontal = 6.dp)) }
+            item {
+                RoundSafeHeaderMessage(emptyText, maxLines = 2)
+            }
         } else {
             items(stations, key = { it.id }) { station ->
                 val showTitle = stationShowTitleMap[station.id]
-                LaunchedEffect(station.id, showTitle) {
-                    if (showTitle.isNullOrBlank()) {
-                        onRequestShow(station)
-                    }
-                }
-                val stationArtwork = remember(station.id) { StationArtwork.createBitmap(station.id, 96).asImageBitmap() }
+                val stationArtwork = remember(station.id) { StationArtwork.createBitmap(station.id, 72).asImageBitmap() }
                 Chip(
                     onClick = { onPlay(station) },
                     label = { Text(station.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -342,6 +403,11 @@ private fun StationListScreen(
     }
 }
 
+private fun looksLikeNumericSyntheticId(id: String): Boolean {
+    val trimmed = id.trim()
+    return Regex("^-?\\d{6,}$").matches(trimmed)
+}
+
 @Composable
 private fun PodcastListScreen(
     title: String,
@@ -354,19 +420,19 @@ private fun PodcastListScreen(
     var visibleCount by rememberSaveable { mutableStateOf(8) }
     val visiblePodcasts = podcasts.take(visibleCount.coerceAtMost(podcasts.size))
 
-    ScalingLazyColumn(
+    LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
+        contentPadding = ListContentPadding,
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        item { Text(title, style = MaterialTheme.typography.title3, modifier = Modifier.padding(horizontal = 6.dp)) }
+        item { RoundSafeHeaderTitle(title, maxLines = 2) }
 
         if (loading) {
-            item { Text("Loading…", modifier = Modifier.padding(horizontal = 6.dp)) }
+            item { RoundSafeHeaderMessage("Loading…", maxLines = 1) }
         }
 
         if (!loading && errorMessage != null) {
-            item { Text(errorMessage, modifier = Modifier.padding(horizontal = 6.dp)) }
+            item { RoundSafeHeaderMessage(errorMessage, maxLines = 2) }
             item {
                 Chip(
                     onClick = onRetry,
@@ -378,7 +444,7 @@ private fun PodcastListScreen(
         }
 
         if (!loading && errorMessage == null && podcasts.isEmpty()) {
-            item { Text("No podcasts available", modifier = Modifier.padding(horizontal = 6.dp)) }
+            item { RoundSafeHeaderMessage("No podcasts available", maxLines = 1) }
         }
 
         items(visiblePodcasts, key = { it.id }) { podcast ->
@@ -416,25 +482,19 @@ private fun EpisodeListScreen(
     var visibleCount by rememberSaveable(podcast?.id) { mutableStateOf(8) }
     val visibleEpisodes = episodes.take(visibleCount.coerceAtMost(episodes.size))
 
-    ScalingLazyColumn(
+    LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
+        contentPadding = ListContentPadding,
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         item {
-            Text(
-                text = podcast?.title ?: "Episodes",
-                style = MaterialTheme.typography.title3,
-                modifier = Modifier.padding(horizontal = 6.dp),
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
+            RoundSafeHeaderTitle(podcast?.title ?: "Episodes", maxLines = 2)
         }
 
         if (loading) {
-            item { Text("Loading…", modifier = Modifier.padding(horizontal = 6.dp)) }
+            item { RoundSafeHeaderMessage("Loading…", maxLines = 1) }
         } else if (episodes.isEmpty()) {
-            item { Text("No episodes available", modifier = Modifier.padding(horizontal = 6.dp)) }
+            item { RoundSafeHeaderMessage("No episodes available", maxLines = 1) }
         } else {
             items(visibleEpisodes, key = { it.id }) { episode ->
                 val isPlayed = episode.id in playedEpisodeIds
@@ -468,6 +528,43 @@ private fun EpisodeListScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun RoundSafeHeaderTitle(text: String, maxLines: Int = 2) {
+    Box(
+        modifier = Modifier.fillMaxWidth(),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.title3,
+            textAlign = TextAlign.Center,
+            maxLines = maxLines,
+            overflow = TextOverflow.Clip,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = HeaderHorizontalSafePadding)
+        )
+    }
+}
+
+@Composable
+private fun RoundSafeHeaderMessage(text: String, maxLines: Int) {
+    Box(
+        modifier = Modifier.fillMaxWidth(),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            textAlign = TextAlign.Center,
+            maxLines = maxLines,
+            overflow = TextOverflow.Clip,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = HeaderHorizontalSafePadding)
+        )
     }
 }
 
@@ -620,7 +717,7 @@ private fun NowPlayingScreen(
                             colors = ButtonDefaults.secondaryButtonColors()
                         ) {
                             Icon(
-                                painter = painterResource(android.R.drawable.ic_media_previous),
+                                imageVector = Icons.Outlined.SkipPrevious,
                                 contentDescription = "Previous"
                             )
                         }
@@ -631,7 +728,7 @@ private fun NowPlayingScreen(
                             colors = ButtonDefaults.secondaryButtonColors()
                         ) {
                             Icon(
-                                painter = painterResource(android.R.drawable.ic_media_next),
+                                imageVector = Icons.Outlined.SkipNext,
                                 contentDescription = "Next"
                             )
                         }
@@ -647,7 +744,7 @@ private fun NowPlayingScreen(
                             colors = ButtonDefaults.secondaryButtonColors()
                         ) {
                             Icon(
-                                painter = painterResource(android.R.drawable.ic_lock_silent_mode_off),
+                                imageVector = Icons.AutoMirrored.Outlined.VolumeUp,
                                 contentDescription = "Volume"
                             )
                         }
@@ -657,7 +754,7 @@ private fun NowPlayingScreen(
                             colors = ButtonDefaults.primaryButtonColors()
                         ) {
                             Icon(
-                                painter = painterResource(if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play),
+                                imageVector = if (isPlaying) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
                                 contentDescription = if (isPlaying) "Pause" else "Play"
                             )
                         }
