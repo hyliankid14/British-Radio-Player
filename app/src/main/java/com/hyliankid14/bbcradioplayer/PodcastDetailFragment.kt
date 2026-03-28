@@ -239,6 +239,18 @@ class PodcastDetailFragment : Fragment() {
         }
     }
 
+    private fun maybeLoadMoreIfContentShort() {
+        val root = view ?: return
+        val parentScroll = root.findViewById<androidx.core.widget.NestedScrollView>(R.id.podcast_detail_scroll)
+        val child = parentScroll.getChildAt(0) ?: return
+        val diff = child.measuredHeight - (parentScroll.height + parentScroll.scrollY)
+        // When visible content is too short to produce a scroll event (e.g. many hidden played episodes),
+        // keep advancing pagination until we either fill the viewport or exhaust the feed.
+        if (diff <= 600 && !isLoadingPage && !reachedEnd) {
+            loadNextPage()
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         currentPodcast?.let { podcast ->
@@ -382,6 +394,7 @@ class PodcastDetailFragment : Fragment() {
         item.isChecked = hidePlayedEpisodes
         PlaybackPreference.setHidePlayedEpisodesInPodcastDetail(requireContext(), podcast.id, hidePlayedEpisodes)
         episodesAdapter?.setHidePlayedEpisodes(hidePlayedEpisodes)
+        view?.post { maybeLoadMoreIfContentShort() }
 
         val messageRes = if (hidePlayedEpisodes) {
             R.string.podcast_detail_hide_played_enabled
@@ -440,6 +453,7 @@ class PodcastDetailFragment : Fragment() {
                 currentOffset += page.size
             }
             isLoadingPage = false
+            recycler.post { maybeLoadMoreIfContentShort() }
         }
     }
 }
