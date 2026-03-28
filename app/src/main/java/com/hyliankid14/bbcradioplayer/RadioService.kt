@@ -1627,22 +1627,11 @@ class RadioService : MediaBrowserServiceCompat() {
     }
 
     private fun requestAudioFocus() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val audioAttributes = AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_MEDIA)
-                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                .build()
-            audioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                .setAudioAttributes(audioAttributes)
-                .setAcceptsDelayedFocusGain(false)
-                .setOnAudioFocusChangeListener(audioFocusChangeListener)
-                .build()
-            audioFocusRequest?.let { audioManager.requestAudioFocus(it) }
-        } else {
-            @Suppress("DEPRECATION")
-            // For older Android versions, request focus without listener to avoid conflicts
-            audioManager.requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
-        }
+        // ExoPlayer already requests and manages audio focus when configured with
+        // setAudioAttributes(..., handleAudioFocus = true). A second manual request
+        // here can race and trigger immediate focus-loss callbacks on resume.
+        // Keep this method as a no-op so existing call sites remain simple.
+        return
     }
 
     private fun persistCurrentPodcastProgress() {
@@ -1673,6 +1662,7 @@ class RadioService : MediaBrowserServiceCompat() {
 
         val currentPlayer = player
         val playerState = currentPlayer?.playbackState ?: Player.STATE_IDLE
+        val hasCurrentMediaItem = currentPlayer?.currentMediaItem != null
         val canResume = currentPlayer != null && !isStopped &&
             (playerState == Player.STATE_READY || playerState == Player.STATE_BUFFERING)
 
@@ -1684,6 +1674,35 @@ class RadioService : MediaBrowserServiceCompat() {
             if (!currentStationId.startsWith("podcast_")) scheduleShowInfoRefresh()
             startForegroundNotification()
             return
+        }
+
+        // Reliability path: if the player still has media attached, recover directly from
+        // local ExoPlayer state before doing an episode/station lookup restart.
+        if (currentPlayer != null && !isStopped && hasCurrentMediaItem) {
+            when (playerState) {
+                Player.STATE_IDLE -> {
+                    Log.d(TAG, "handlePlayRequest: recovering from IDLE using current media item (source=$source)")
+                    currentPlayer.playWhenReady = true
+                    currentPlayer.prepare()
+                    currentPlayer.play()
+                    updatePlaybackState(PlaybackStateCompat.STATE_PLAYING)
+                    PlaybackStateHelper.setIsPlaying(true)
+                    if (!currentStationId.startsWith("podcast_")) scheduleShowInfoRefresh()
+                    startForegroundNotification()
+                    return
+                }
+                Player.STATE_ENDED -> {
+                    Log.d(TAG, "handlePlayRequest: restarting ENDED media item from start (source=$source)")
+                    currentPlayer.seekTo(0L)
+                    currentPlayer.playWhenReady = true
+                    currentPlayer.play()
+                    updatePlaybackState(PlaybackStateCompat.STATE_PLAYING)
+                    PlaybackStateHelper.setIsPlaying(true)
+                    if (!currentStationId.startsWith("podcast_")) scheduleShowInfoRefresh()
+                    startForegroundNotification()
+                    return
+                }
+            }
         }
 
         val lastMediaId = PlaybackPreference.getLastMediaId(this)
