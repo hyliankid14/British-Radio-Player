@@ -67,9 +67,9 @@ android {
             keyPassword "android"
         }
         github {
-            // GitHub releases use the standard Android SDK debug keystore so that
-            // sideloaded APKs can upgrade in place across machines and CI builds.
-            storeFile file("${System.getProperty('user.home')}/.android/debug.keystore")
+            // GitHub releases use the shared repository debug keystore so that
+            // sideloaded APKs can always upgrade in place across machines and CI builds.
+            storeFile rootProject.file("keystore/debug.keystore")
             storePassword "android"
             keyAlias "androiddebugkey"
             keyPassword "android"

@@ -6,6 +6,13 @@ PROJECT_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || (c
 
 cd "$PROJECT_ROOT"
 
+VERSION_NAME=$(grep -E '^APP_VERSION_NAME=' gradle.properties | cut -d'=' -f2-)
+VERSION_CODE=$(grep -E '^APP_VERSION_CODE=' gradle.properties | cut -d'=' -f2-)
+PHONE_VERSION_NAME="$VERSION_NAME"
+PHONE_VERSION_CODE="$VERSION_CODE"
+WEAR_VERSION_NAME="$VERSION_NAME"
+WEAR_VERSION_CODE="$VERSION_CODE"
+
 # -------------------------------------------------------
 # Check signing config
 # -------------------------------------------------------
@@ -98,6 +105,8 @@ AAB_SIZE=$(du -sh "$AAB_FILE" | cut -f1)
 echo ""
 echo "=================================================="
 echo "✅ Release AAB ready for Google Play"
+echo "   Phone version : ${PHONE_VERSION_NAME} (Build ${PHONE_VERSION_CODE})"
+echo "   Wear OS version : ${WEAR_VERSION_NAME} (Build ${WEAR_VERSION_CODE})"
 echo "   Path : $AAB_FILE"
 echo "   Size : $AAB_SIZE"
 if [ -f "$MAPPING_FILE" ]; then

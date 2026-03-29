@@ -80,6 +80,10 @@ fi
 
 VERSION_NAME="$NEW_VERSION_NAME"
 VERSION_CODE="$NEW_VERSION_CODE"
+PHONE_VERSION_NAME="$VERSION_NAME"
+PHONE_VERSION_CODE="$VERSION_CODE"
+WEAR_VERSION_NAME="$VERSION_NAME"
+WEAR_VERSION_CODE="$VERSION_CODE"
 echo ""
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -135,6 +139,10 @@ NOTES_FILE="$(mktemp)"
 {
     echo "## British Radio Player ${TAG}"
     echo
+    echo "### 📱 Version Matrix"
+    echo "- Phone app: ${PHONE_VERSION_NAME} (Build ${PHONE_VERSION_CODE})"
+    echo "- Wear OS app: ${WEAR_VERSION_NAME} (Build ${WEAR_VERSION_CODE})"
+    echo
     echo "### ✨ UI Redesign & Browsing"
     echo "$UI_ITEMS"
     echo
@@ -154,7 +162,7 @@ NOTES_FILE="$(mktemp)"
     echo "### 📦 Release Artifacts"
     echo "- ${RELEASE_ASSET_NAME}: A single, unified, installable APK for all supported devices."
     echo
-    echo "Release Version: ${TAG} (Build ${VERSION_CODE})"
+    echo "Release Version: ${TAG} (Build ${PHONE_VERSION_CODE})"
     if [[ -n "$PREV_TAG" ]]; then
         echo "Full Changelog: https://github.com/hyliankid14/British-Radio-Player/compare/${PREV_TAG}...${TAG}"
     fi

@@ -18,6 +18,7 @@ data class GitHubReleaseInfo(
 
 object GitHubAppUpdater {
     private const val LATEST_RELEASE_API = "https://api.github.com/repos/hyliankid14/British-Radio-Player/releases/latest"
+    private const val PHONE_RELEASE_APK_NAME = "british-radio-player.apk"
 
     suspend fun fetchLatestRelease(): GitHubReleaseInfo? = withContext(Dispatchers.IO) {
         val connection = (URL(LATEST_RELEASE_API).openConnection() as? HttpURLConnection) ?: return@withContext null
@@ -36,11 +37,30 @@ object GitHubAppUpdater {
             if (normalisedVersion.isBlank()) return@withContext null
 
             val assets = json.optJSONArray("assets") ?: return@withContext null
+
+            // Prefer the canonical phone APK name to avoid accidentally selecting
+            // a Wear OS artefact when multiple APK assets are attached.
+            for (i in 0 until assets.length()) {
+                val asset = assets.optJSONObject(i) ?: continue
+                val name = asset.optString("name", "").trim()
+                if (!name.equals(PHONE_RELEASE_APK_NAME, ignoreCase = true)) continue
+
+                val downloadUrl = asset.optString("browser_download_url", "")
+                if (downloadUrl.isBlank()) continue
+
+                return@withContext GitHubReleaseInfo(
+                    version = normalisedVersion,
+                    apkUrl = downloadUrl,
+                    apkName = name
+                )
+            }
+
+            // Backward-compatible fallback for old releases that may not use the
+            // canonical phone asset name yet.
             for (i in 0 until assets.length()) {
                 val asset = assets.optJSONObject(i) ?: continue
                 val name = asset.optString("name", "")
                 if (!name.endsWith(".apk", ignoreCase = true)) continue
-                // Skip Wear OS APK — only the phone APK is valid for self-update.
                 if (name.contains("wear", ignoreCase = true)) continue
 
                 val downloadUrl = asset.optString("browser_download_url", "")
