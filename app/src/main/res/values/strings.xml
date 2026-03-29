@@ -119,6 +119,7 @@
     <string name="audio_quality_96">Data saver (96 kbps)</string>
     <string name="audio_quality_48">Maximum data saver (48 kbps)</string>
     <string name="vpn_station_warning">BBC may block some traffic routed through VPNs or proxies. Live sports streams may also be unavailable outside the UK.</string>
+    <string name="vpn_warning_dismiss_description">Dismiss VPN warning</string>
 
     <!-- Hour and Minute Arrays -->
     <string-array name="hour_options">

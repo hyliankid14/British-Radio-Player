@@ -77,7 +77,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var staticContentContainer: View
     private lateinit var stationsView: View
     private lateinit var stationsContent: View
-    private lateinit var vpnWarningBanner: TextView
+    private lateinit var vpnWarningBanner: View
     private lateinit var bottomNavigation: BottomNavigationView
     private lateinit var miniPlayer: LinearLayout
     private lateinit var miniPlayerTitle: TextView
@@ -138,6 +138,7 @@ class MainActivity : AppCompatActivity() {
     private var updateDownloadId: Long? = null
     private var updateDownloadReceiver: BroadcastReceiver? = null
     private var vpnStatusCallback: ConnectivityManager.NetworkCallback? = null
+    private var vpnWarningDismissed = false
 
     private val showChangeListener: (CurrentShow) -> Unit = { show ->
         runOnUiThread { updateMiniPlayerFromShow(show) }
@@ -273,6 +274,10 @@ class MainActivity : AppCompatActivity() {
         stationsView = findViewById(R.id.stations_view)
         stationsContent = findViewById(R.id.stations_content)
         vpnWarningBanner = findViewById(R.id.vpn_warning_banner)
+        findViewById<android.widget.ImageButton>(R.id.vpn_warning_dismiss)?.setOnClickListener {
+            vpnWarningDismissed = true
+            updateVpnWarningBanner()
+        }
         updateVpnWarningBanner()
         
         // Try multiple ids because some build/tooling combinations either generate the include id
@@ -492,6 +497,7 @@ class MainActivity : AppCompatActivity() {
         } else {
             bottomNavigation.selectedItemId = R.id.navigation_list
         }
+        vpnWarningDismissed = savedInstanceState?.getBoolean("vpnWarningDismissed") ?: false
 
         updateActionBarTitle()
         
@@ -1126,6 +1132,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun shouldShowVpnWarningBanner(): Boolean {
+        if (vpnWarningDismissed) return false
         if (!NetworkQualityDetector.isVpnActive(this)) return false
 
         return when (currentMode) {
@@ -1143,7 +1150,12 @@ class MainActivity : AppCompatActivity() {
     private fun registerVpnStatusMonitoring() {
         if (vpnStatusCallback != null) return
         vpnStatusCallback = NetworkQualityDetector.registerVpnStatusCallback(this) {
-            runOnUiThread { updateVpnWarningBanner() }
+            runOnUiThread {
+                if (!NetworkQualityDetector.isVpnActive(this)) {
+                    vpnWarningDismissed = false
+                }
+                updateVpnWarningBanner()
+            }
         }
     }
 
@@ -2984,6 +2996,7 @@ class MainActivity : AppCompatActivity() {
         super.onSaveInstanceState(outState)
         outState.putString("currentMode", currentMode)
         outState.putInt("selectedNavId", bottomNavigation.selectedItemId)
+        outState.putBoolean("vpnWarningDismissed", vpnWarningDismissed)
     }
 
     private fun openNowPlaying() {

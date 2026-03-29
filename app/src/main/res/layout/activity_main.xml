@@ -162,19 +162,41 @@
                 android:layout_weight="1"
                 android:orientation="vertical">
 
-                <TextView
+                <LinearLayout
                     android:id="@+id/vpn_warning_banner"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:background="?attr/colorSecondaryContainer"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
                     android:paddingStart="16dp"
-                    android:paddingTop="12dp"
-                    android:paddingEnd="16dp"
-                    android:paddingBottom="12dp"
-                    android:text="@string/vpn_station_warning"
-                    android:textColor="?attr/colorOnSecondaryContainer"
-                    android:textSize="14sp"
-                    android:visibility="gone" />
+                    android:paddingTop="8dp"
+                    android:paddingEnd="8dp"
+                    android:paddingBottom="8dp"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:id="@+id/vpn_warning_text"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:paddingTop="4dp"
+                        android:paddingBottom="4dp"
+                        android:text="@string/vpn_station_warning"
+                        android:textColor="?attr/colorOnSecondaryContainer"
+                        android:textSize="14sp" />
+
+                    <ImageButton
+                        android:id="@+id/vpn_warning_dismiss"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:padding="8dp"
+                        android:src="@drawable/ic_clear"
+                        android:contentDescription="@string/vpn_warning_dismiss_description"
+                        app:tint="?attr/colorOnSecondaryContainer" />
+
+                </LinearLayout>
 
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/stations_list"
