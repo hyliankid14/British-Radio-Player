@@ -1107,6 +1107,7 @@
                 this.currentRadioObjectUrl = null;
                 this.hlsPlayer = null;
                 this.isRadioPlaying = false;
+                this.radioAnalyticsTimer = null;
                 this.currentStationShowLoadPromise = null;
                 this.currentStationShowLoadedAtMs = 0;
                 this.podcasts = [];
@@ -2136,8 +2137,21 @@
                 }
 
                 document.querySelectorAll('audio[data-podcast-id][data-episode-id]').forEach(audio => {
+                    audio._episodeAnalyticsTimer = null;
                     audio.onplay = () => {
-                        this.trackPodcastEpisodePlay(audio.dataset.podcastId, audio.dataset.episodeId);
+                        clearTimeout(audio._episodeAnalyticsTimer);
+                        const podcastId = audio.dataset.podcastId;
+                        const episodeId = audio.dataset.episodeId;
+                        audio._episodeAnalyticsTimer = setTimeout(() => {
+                            if (!audio.paused && audio.dataset.episodeId === episodeId) {
+                                this.trackPodcastEpisodePlay(podcastId, episodeId);
+                            }
+                            audio._episodeAnalyticsTimer = null;
+                        }, 10000);
+                    };
+                    audio.onpause = () => {
+                        clearTimeout(audio._episodeAnalyticsTimer);
+                        audio._episodeAnalyticsTimer = null;
                     };
                 });
             }
@@ -2446,11 +2460,23 @@
                     audio.addEventListener('play', () => {
                         const station = this.getStationById(this.currentRadioStationId);
                         if (station) {
-                            this.trackEvent('web_player_radio_play', {
-                                station_id: station.id,
-                                station_title: station.title
-                            });
+                            clearTimeout(this.radioAnalyticsTimer);
+                            const capturedStationId = station.id;
+                            const capturedStationTitle = station.title;
+                            this.radioAnalyticsTimer = setTimeout(() => {
+                                if (this.isRadioPlaying && this.currentRadioStationId === capturedStationId) {
+                                    this.trackEvent('web_player_radio_play', {
+                                        station_id: capturedStationId,
+                                        station_title: capturedStationTitle
+                                    });
+                                }
+                                this.radioAnalyticsTimer = null;
+                            }, 10000);
                         }
+                    });
+                    audio.addEventListener('pause', () => {
+                        clearTimeout(this.radioAnalyticsTimer);
+                        this.radioAnalyticsTimer = null;
                     });
                 }
 
@@ -2585,20 +2611,31 @@
                 audioElements.forEach((audio, index) => {
                     audio.addEventListener('play', () => {
                         if (this.currentContent) {
-                            const trackData = {
-                                content_type: this.currentContent.type,
-                                content_id: this.currentContent.id,
-                                content_title: this.currentContent.title,
-                                source: 'web_player'
-                            };
+                            clearTimeout(audio._audioAnalyticsTimer);
+                            const capturedContent = this.currentContent;
+                            audio._audioAnalyticsTimer = setTimeout(() => {
+                                if (!audio.paused && this.currentContent?.id === capturedContent.id) {
+                                    const trackData = {
+                                        content_type: capturedContent.type,
+                                        content_id: capturedContent.id,
+                                        content_title: capturedContent.title,
+                                        source: 'web_player'
+                                    };
 
-                            if (this.currentContent.type === 'episode') {
-                                trackData.podcast_id = this.currentContent.podcastId;
-                                trackData.podcast_title = this.currentContent.podcastTitle;
-                            }
+                                    if (capturedContent.type === 'episode') {
+                                        trackData.podcast_id = capturedContent.podcastId;
+                                        trackData.podcast_title = capturedContent.podcastTitle;
+                                    }
 
-                            this.trackEvent('web_player_audio_play', trackData);
+                                    this.trackEvent('web_player_audio_play', trackData);
+                                }
+                                audio._audioAnalyticsTimer = null;
+                            }, 10000);
                         }
+                    });
+                    audio.addEventListener('pause', () => {
+                        clearTimeout(audio._audioAnalyticsTimer);
+                        audio._audioAnalyticsTimer = null;
                     });
                 });
             }
