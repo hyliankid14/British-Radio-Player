@@ -55,20 +55,6 @@ android {
         buildConfigField "String", "DISTRIBUTION_CHANNEL", "\"unknown\""
     }
 
-    productFlavors {
-        github {
-            dimension "distribution"
-            buildConfigField "boolean", "ENABLE_GITHUB_UPDATER", "true"
-            buildConfigField "String", "DISTRIBUTION_CHANNEL", "\"github\""
-        }
-
-        play {
-            dimension "distribution"
-            buildConfigField "boolean", "ENABLE_GITHUB_UPDATER", "false"
-            buildConfigField "String", "DISTRIBUTION_CHANNEL", "\"play\""
-        }
-    }
-
     signingConfigs {
         debug {
             // keystore/debug.keystore is committed to source control so that CI
@@ -76,6 +62,14 @@ android {
             // installs without an uninstall/reinstall cycle.  It uses the standard
             // Android debug credentials and is never used for release builds.
             storeFile rootProject.file("keystore/debug.keystore")
+            storePassword "android"
+            keyAlias "androiddebugkey"
+            keyPassword "android"
+        }
+        github {
+            // GitHub releases use the standard Android SDK debug keystore so that
+            // sideloaded APKs can upgrade in place across machines and CI builds.
+            storeFile file("${System.getProperty('user.home')}/.android/debug.keystore")
             storePassword "android"
             keyAlias "androiddebugkey"
             keyPassword "android"
@@ -90,6 +84,24 @@ android {
         }
     }
 
+    productFlavors {
+        github {
+            dimension "distribution"
+            signingConfig signingConfigs.github
+            buildConfigField "boolean", "ENABLE_GITHUB_UPDATER", "true"
+            buildConfigField "String", "DISTRIBUTION_CHANNEL", "\"github\""
+        }
+
+        play {
+            dimension "distribution"
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
+            buildConfigField "boolean", "ENABLE_GITHUB_UPDATER", "false"
+            buildConfigField "String", "DISTRIBUTION_CHANNEL", "\"play\""
+        }
+    }
+
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
@@ -99,9 +111,6 @@ android {
             applicationIdSuffix ".debug"
         }
         release {
-            if (hasReleaseSigning) {
-                signingConfig signingConfigs.release
-            }
             ndk {
                 // Generate compact native symbol tables for Play Console crash/ANR symbolication.
                 debugSymbolLevel 'SYMBOL_TABLE'
