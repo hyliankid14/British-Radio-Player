@@ -180,17 +180,18 @@ if ! git ls-remote --exit-code --tags origin "$TAG" >/dev/null 2>&1; then
 fi
 
 if gh release view "$TAG" >/dev/null 2>&1; then
-    gh release upload "$TAG" \
-        "$PHONE_APK_OUTPUT_PATH#${PHONE_RELEASE_ASSET_NAME}" \
-        "$WEAR_APK_OUTPUT_PATH#${WEAR_RELEASE_ASSET_NAME}" \
-        --clobber
+    gh release upload "$TAG" "$PHONE_APK_OUTPUT_PATH#${PHONE_RELEASE_ASSET_NAME}" --clobber
+    gh release upload "$TAG" "$WEAR_APK_OUTPUT_PATH#${WEAR_RELEASE_ASSET_NAME}" --clobber
     gh release edit "$TAG" --title "$TAG" --notes-file "$NOTES_FILE"
 else
+    # Create the release with only the phone APK first so it occupies the first
+    # asset slot, then upload the Wear APK second.  GitHub preserves insertion
+    # order in the asset list, so this keeps the phone APK at the top.
     gh release create "$TAG" \
         "$PHONE_APK_OUTPUT_PATH#${PHONE_RELEASE_ASSET_NAME}" \
-        "$WEAR_APK_OUTPUT_PATH#${WEAR_RELEASE_ASSET_NAME}" \
         --title "$TAG" \
         --notes-file "$NOTES_FILE"
+    gh release upload "$TAG" "$WEAR_APK_OUTPUT_PATH#${WEAR_RELEASE_ASSET_NAME}"
 fi
 
 rm -f "$NOTES_FILE"

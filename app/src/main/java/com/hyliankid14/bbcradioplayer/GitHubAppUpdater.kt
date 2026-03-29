@@ -40,6 +40,8 @@ object GitHubAppUpdater {
                 val asset = assets.optJSONObject(i) ?: continue
                 val name = asset.optString("name", "")
                 if (!name.endsWith(".apk", ignoreCase = true)) continue
+                // Skip Wear OS APK — only the phone APK is valid for self-update.
+                if (name.contains("wear", ignoreCase = true)) continue
 
                 val downloadUrl = asset.optString("browser_download_url", "")
                 if (downloadUrl.isBlank()) continue
