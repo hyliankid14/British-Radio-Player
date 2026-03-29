@@ -2514,12 +2514,10 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                             Log.d(TAG, "Updating UI with show title: $currentShowTitle (initial immediate)")
                             // Save song to history at the same time the mini player shows it
                             saveCurrentSongIfNew(stationId)
-                            val nowPlayingImageUrl = finalShow.imageUrl
-                            if (nowPlayingImageUrl?.startsWith("http") == true) {
-                                currentArtworkUri = nowPlayingImageUrl
-                            } else {
-                                currentArtworkUri = null
-                            }
+                            // Reset currentArtworkUri so displayUri won't include an unverified
+                            // URL. loadStationLogoAndUpdateNotification() will set it to the
+                            // confirmed value once the bitmap has been loaded and checked.
+                            currentArtworkUri = null
                             updateMediaMetadata()
                             startForegroundNotification()
                         }
@@ -2547,12 +2545,10 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                                     Log.d(TAG, "Updating UI with show title: $currentShowTitle (delayed)")
                                     // Save song to history at the same time the mini player shows it (after the stream delay)
                                     saveCurrentSongIfNew(stationId)
-                                    val nowPlayingImageUrl = currentShowInfo.imageUrl
-                                    if (!nowPlayingImageUrl.isNullOrEmpty() && nowPlayingImageUrl.startsWith("http")) {
-                                        currentArtworkUri = nowPlayingImageUrl
-                                    } else {
-                                        currentArtworkUri = null
-                                    }
+                                    // Reset currentArtworkUri so displayUri won't include an unverified
+                                    // URL. loadStationLogoAndUpdateNotification() will set it to the
+                                    // confirmed value once the bitmap has been loaded and checked.
+                                    currentArtworkUri = null
                                     updateMediaMetadata()
                                     startForegroundNotification()
                                 }
@@ -2658,9 +2654,13 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
         val displayUri: String = if (isPodcast) {
             (artworkUri ?: preferredPodcastArtwork.takeIf { it.isNotBlank() } ?: currentArtworkUri ?: currentStationLogo).orEmpty()
         } else {
-            // For radio stations, only use show/episode artwork; never fall back to the BBC station
-            // logo so that Android Auto's now playing screen shows the generic icon instead.
-            listOfNotNull(artworkUri, currentShowInfo.imageUrl, currentArtworkUri)
+            // For radio stations, only use artwork that has been verified (loaded and not a grey
+            // placeholder) by loadStationLogoAndUpdateNotification(). currentShowInfo.imageUrl is
+            // excluded here because it is unverified and may point to a grey placeholder; once the
+            // bitmap has been loaded and checked, currentArtworkUri (or the passed artworkUri) will
+            // contain the confirmed URL. Never fall back to the BBC station logo so that Android
+            // Auto's now-playing screen shows the generic station icon instead.
+            listOfNotNull(artworkUri, currentArtworkUri)
                 .firstOrNull { it.isNotEmpty() && it != currentStationLogo }
                 .orEmpty()
         }
