@@ -548,6 +548,12 @@ class PodcastsFragment : Fragment() {
 
             // Commit current query as active search and add to history
             if (current.isNotBlank()) {
+                // Always default to "Most recently updated" when submitting a search query
+                if (currentSort != SORT_MOST_RECENT_EPISODES) {
+                    currentSort = SORT_MOST_RECENT_EPISODES
+                    viewModel.cachedSort = SORT_MOST_RECENT_EPISODES
+                    sortSpinner.setText(SORT_MOST_RECENT_EPISODES, false)
+                }
                 viewModel.setActiveSearch(current)
                 try {
                     searchHistory.add(current)
