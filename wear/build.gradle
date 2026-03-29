@@ -5,6 +5,7 @@ plugins {
 
 def appVersionName = (project.findProperty("APP_VERSION_NAME") ?: "1.5.0").toString()
 def appVersionCode = ((project.findProperty("APP_VERSION_CODE") ?: "42").toString()).toInteger()
+def wearVersionCode = ((project.findProperty("WEAR_VERSION_CODE") ?: "${appVersionCode * 10 + 1}").toString()).toInteger()
 
 def releaseStoreFile = project.findProperty("RELEASE_STORE_FILE") ?: System.getenv("RELEASE_STORE_FILE")
 def releaseStorePassword = project.findProperty("RELEASE_STORE_PASSWORD") ?: System.getenv("RELEASE_STORE_PASSWORD")
@@ -20,7 +21,7 @@ android {
         applicationId = "com.hyliankid14.bbcradioplayer"
         minSdk = 30
         targetSdk = 35
-        versionCode = appVersionCode
+        versionCode = wearVersionCode
         versionName = appVersionName
     }
 

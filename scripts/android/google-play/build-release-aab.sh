@@ -11,7 +11,7 @@ VERSION_CODE=$(grep -E '^APP_VERSION_CODE=' gradle.properties | cut -d'=' -f2-)
 PHONE_VERSION_NAME="$VERSION_NAME"
 PHONE_VERSION_CODE="$VERSION_CODE"
 WEAR_VERSION_NAME="$VERSION_NAME"
-WEAR_VERSION_CODE="$VERSION_CODE"
+WEAR_VERSION_CODE=$(( VERSION_CODE * 10 + 1 ))
 
 # -------------------------------------------------------
 # Check signing config
@@ -32,9 +32,37 @@ for key in RELEASE_STORE_FILE RELEASE_STORE_PASSWORD RELEASE_KEY_ALIAS RELEASE_K
 done
 
 KEYSTORE_FILE=$(grep "^RELEASE_STORE_FILE=" "$GRADLE_PROPS" | cut -d'=' -f2-)
+STORE_PASSWORD=$(grep "^RELEASE_STORE_PASSWORD=" "$GRADLE_PROPS" | cut -d'=' -f2-)
+KEY_ALIAS=$(grep "^RELEASE_KEY_ALIAS=" "$GRADLE_PROPS" | cut -d'=' -f2-)
+KEY_PASSWORD=$(grep "^RELEASE_KEY_PASSWORD=" "$GRADLE_PROPS" | cut -d'=' -f2-)
 if [ ! -f "$KEYSTORE_FILE" ]; then
     echo "❌ Error: Keystore not found at $KEYSTORE_FILE"
     exit 1
+fi
+
+if [ -z "$STORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
+    echo "❌ Error: Signing credentials are incomplete in ~/.gradle/gradle.properties"
+    exit 1
+fi
+
+EXPECTED_SHA1="${EXPECTED_PLAY_UPLOAD_SHA1:-}"
+if [ -n "$EXPECTED_SHA1" ]; then
+    ACTUAL_SHA1=$(keytool -list -v -keystore "$KEYSTORE_FILE" -alias "$KEY_ALIAS" -storepass "$STORE_PASSWORD" -keypass "$KEY_PASSWORD" \
+        | awk -F': ' '/SHA1:/{print $2; exit}')
+    if [ -z "$ACTUAL_SHA1" ]; then
+        echo "❌ Error: Unable to read SHA1 fingerprint for alias '$KEY_ALIAS' in $KEYSTORE_FILE"
+        exit 1
+    fi
+
+    NORM_EXPECTED=$(echo "$EXPECTED_SHA1" | tr '[:lower:]' '[:upper:]' | tr -d '[:space:]')
+    NORM_ACTUAL=$(echo "$ACTUAL_SHA1" | tr '[:lower:]' '[:upper:]' | tr -d '[:space:]')
+    if [ "$NORM_EXPECTED" != "$NORM_ACTUAL" ]; then
+        echo "❌ Error: Release keystore fingerprint mismatch."
+        echo "   Expected SHA1: $NORM_EXPECTED"
+        echo "   Actual SHA1  : $NORM_ACTUAL"
+        echo "   Update ~/.gradle/gradle.properties to point to the correct Play upload keystore."
+        exit 1
+    fi
 fi
 
 if [ ! -x "./gradlew" ]; then
@@ -45,7 +73,14 @@ echo "--------------------------------------------------"
 echo "🔨 Building Release AAB for Google Play"
 echo "--------------------------------------------------"
 
-./gradlew :app:bundlePlayRelease :wear:bundleRelease
+./gradlew \
+    :app:bundlePlayRelease \
+    :wear:bundleRelease \
+    -PWEAR_VERSION_CODE="$WEAR_VERSION_CODE" \
+    -PRELEASE_STORE_FILE="$KEYSTORE_FILE" \
+    -PRELEASE_STORE_PASSWORD="$STORE_PASSWORD" \
+    -PRELEASE_KEY_ALIAS="$KEY_ALIAS" \
+    -PRELEASE_KEY_PASSWORD="$KEY_PASSWORD"
 
 # -------------------------------------------------------
 # Locate the AAB
@@ -58,6 +93,8 @@ WEAR_AAB_FILE=$(find wear/build/outputs/bundle/release -name "*.aab" | sort | he
 WEAR_MAPPING_FILE="wear/build/outputs/mapping/release/mapping.txt"
 WEAR_SYMBOLS_FILE="wear/build/outputs/native-debug-symbols/release/native-debug-symbols.zip"
 WEAR_NATIVE_LIBS_ROOT="wear/build/intermediates/merged_native_libs/release/mergeReleaseNativeLibs/out"
+WEAR_STRIPPED_NATIVE_LIBS_ROOT="wear/build/intermediates/stripped_native_libs/release/stripReleaseDebugSymbols/out"
+WEAR_NATIVE_SYMBOLS_REASON=""
 
 if [ -z "$AAB_FILE" ]; then
     echo "❌ Build failed: No AAB found in app/build/outputs/bundle/playRelease/"
@@ -93,24 +130,39 @@ else
 fi
 
 # Generate Wear native symbols archive when native libs are present.
-if [ -d "$WEAR_NATIVE_LIBS_ROOT/lib" ] && find "$WEAR_NATIVE_LIBS_ROOT/lib" -name "*.so" | grep -q .; then
-    WEAR_SYMBOLS_FILE="wear/build/outputs/native-debug-symbols/release/native-debug-symbols.zip"
-    mkdir -p "$(dirname "$WEAR_SYMBOLS_FILE")"
-    rm -f "$WEAR_SYMBOLS_FILE"
+WEAR_SYMBOLS_FILE="wear/build/outputs/native-debug-symbols/release/native-debug-symbols.zip"
+mkdir -p "$(dirname "$WEAR_SYMBOLS_FILE")"
+rm -f "$WEAR_SYMBOLS_FILE"
 
+package_wear_symbols_from_dir() {
+    local src_dir="$1"
     if command -v zip >/dev/null 2>&1; then
         (
-            cd "$WEAR_NATIVE_LIBS_ROOT/lib"
+            cd "$src_dir"
             zip -rq "$PROJECT_ROOT/$WEAR_SYMBOLS_FILE" .
         )
     else
         (
-            cd "$WEAR_NATIVE_LIBS_ROOT/lib"
+            cd "$src_dir"
             ditto -c -k --sequesterRsrc . "$PROJECT_ROOT/$WEAR_SYMBOLS_FILE"
         )
     fi
+}
+
+if [ -d "$WEAR_NATIVE_LIBS_ROOT/lib" ] && find "$WEAR_NATIVE_LIBS_ROOT/lib" -name "*.so" | grep -q .; then
+    package_wear_symbols_from_dir "$WEAR_NATIVE_LIBS_ROOT/lib"
+elif [ -d "$WEAR_STRIPPED_NATIVE_LIBS_ROOT/lib" ] && find "$WEAR_STRIPPED_NATIVE_LIBS_ROOT/lib" -name "*.so" | grep -q .; then
+    package_wear_symbols_from_dir "$WEAR_STRIPPED_NATIVE_LIBS_ROOT/lib"
 else
-    WEAR_SYMBOLS_FILE=""
+    WEAR_AAB_TMP_DIR="$(mktemp -d)"
+    unzip -oq "$WEAR_AAB_FILE" "base/lib/*" -d "$WEAR_AAB_TMP_DIR" >/dev/null 2>&1 || true
+    if [ -d "$WEAR_AAB_TMP_DIR/base/lib" ] && find "$WEAR_AAB_TMP_DIR/base/lib" -name "*.so" | grep -q .; then
+        package_wear_symbols_from_dir "$WEAR_AAB_TMP_DIR/base/lib"
+    else
+        WEAR_SYMBOLS_FILE=""
+        WEAR_NATIVE_SYMBOLS_REASON="Wear bundle contains no native .so libraries."
+    fi
+    rm -rf "$WEAR_AAB_TMP_DIR"
 fi
 
 # -------------------------------------------------------
@@ -170,6 +222,10 @@ if [ -n "${WEAR_SYMBOLS_FILE:-}" ] && [ -f "$WEAR_SYMBOLS_FILE" ]; then
     echo "   Wear native symbols : $WEAR_SYMBOLS_FILE"
     echo "   Upload wear native-debug-symbols.zip in Play Console to resolve native crash/ANR symbols"
 else
-    echo "   Wear native symbols : Not generated"
+    if [ -n "$WEAR_NATIVE_SYMBOLS_REASON" ]; then
+        echo "   Wear native symbols : Not generated ($WEAR_NATIVE_SYMBOLS_REASON)"
+    else
+        echo "   Wear native symbols : Not generated"
+    fi
 fi
 echo "=================================================="

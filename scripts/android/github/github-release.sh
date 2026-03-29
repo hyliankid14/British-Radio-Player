@@ -86,7 +86,7 @@ VERSION_CODE="$NEW_VERSION_CODE"
 PHONE_VERSION_NAME="$VERSION_NAME"
 PHONE_VERSION_CODE="$VERSION_CODE"
 WEAR_VERSION_NAME="$VERSION_NAME"
-WEAR_VERSION_CODE="$VERSION_CODE"
+WEAR_VERSION_CODE=$(( VERSION_CODE * 10 + 1 ))
 echo ""
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -97,7 +97,10 @@ if [[ ! -x ./gradlew ]]; then
 fi
 
 echo "Building GitHub release APKs for ${TAG} (phone + wear)..."
-./gradlew :app:assembleGithubRelease :wear:assembleRelease
+./gradlew \
+    :app:assembleGithubRelease \
+    :wear:assembleRelease \
+    -PWEAR_VERSION_CODE="$WEAR_VERSION_CODE"
 
 SIGNED_APK="$(find "$APK_OUTPUT_DIR" -type f -name "*.apk" ! -name "*-unsigned.apk" | head -1)"
 if [[ -z "$SIGNED_APK" ]]; then
