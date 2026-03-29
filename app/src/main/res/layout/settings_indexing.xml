@@ -119,14 +119,6 @@
                         android:textAppearance="?attr/textAppearanceBodyMedium" />
 
                     <TextView
-                        android:id="@+id/index_new_podcasts_last_updated"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="6dp"
-                        android:text="@string/index_new_podcasts_updated_default"
-                        android:textAppearance="?attr/textAppearanceBodyMedium" />
-
-                    <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="14dp"

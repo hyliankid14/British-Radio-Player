@@ -491,7 +491,6 @@ class SettingsDetailActivity : AppCompatActivity() {
     private fun setupIndexingSettings() {
         val indexLastRebuilt: TextView = findViewById(R.id.index_last_rebuilt)
         val popularLastUpdated: TextView = findViewById(R.id.index_popular_last_updated)
-        val newPodcastsLastUpdated: TextView = findViewById(R.id.index_new_podcasts_last_updated)
         val indexPodcastCount: TextView = findViewById(R.id.index_podcast_count)
         val indexEpisodeCount: TextView = findViewById(R.id.index_episode_count)
         val indexStore = com.hyliankid14.bbcradioplayer.db.IndexStore.getInstance(this)
@@ -552,11 +551,6 @@ class SettingsDetailActivity : AppCompatActivity() {
                 } catch (_: Exception) {
                     null
                 }
-                val newPodcastSnapshot = try {
-                    remoteIndexClient.fetchNewPodcastSnapshot(skipCache = true)
-                } catch (_: Exception) {
-                    null
-                }
 
                 runOnUiThread {
                     if (!meta?.generatedAt.isNullOrBlank()) {
@@ -569,10 +563,6 @@ class SettingsDetailActivity : AppCompatActivity() {
                     popularLastUpdated.text = formatGeneratedAt(
                         "Most popular updated",
                         popularSnapshot?.snapshotGeneratedAt
-                    )
-                    newPodcastsLastUpdated.text = formatGeneratedAt(
-                        "New Podcasts checked",
-                        newPodcastSnapshot?.snapshotGeneratedAt
                     )
                 }
             }

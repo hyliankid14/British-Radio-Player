@@ -23,7 +23,6 @@
     <string name="index_section_coverage">Indexed content</string>
     <string name="index_last_updated_default">Last updated: —</string>
     <string name="index_popular_updated_default">Most popular updated: —</string>
-    <string name="index_new_podcasts_updated_default">New Podcasts updated: —</string>
     <string name="index_podcast_count_default">— podcasts indexed</string>
     <string name="index_episode_count_default">— episodes indexed</string>
 
