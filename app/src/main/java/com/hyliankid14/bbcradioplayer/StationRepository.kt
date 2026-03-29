@@ -69,7 +69,15 @@ object StationRepository {
         station("radio3unwind", "Radio 3 Unwind", "bbc_radio_three_unwind", category = StationCategory.NATIONAL),
         station("radio4", "Radio 4", "bbc_radio_fourfm", category = StationCategory.NATIONAL),
         station("radio4extra", "Radio 4 Extra", "bbc_radio_four_extra", category = StationCategory.NATIONAL),
-        station("radio5live", "Radio 5 Live", "bbc_radio_five_live", category = StationCategory.NATIONAL),
+        station(
+            "radio5live",
+            "Radio 5 Live",
+            "bbc_radio_five_live",
+            directStreamUrls = listOf(
+                "https://as-hls-ww-live.akamaized.net/pool_89021708/live/ww/bbc_radio_five_live/bbc_radio_five_live.isml/bbc_radio_five_live-audio%3d96000.norewind.m3u8"
+            ),
+            category = StationCategory.NATIONAL
+        ),
         station(
             "radio5livesportsextra",
             "Radio 5 Sports Extra",

@@ -17,7 +17,7 @@ struct DefaultStationRepository: StationRepository {
         Station(id: "radio3unwind", title: "BBC Radio 3 Unwind", serviceId: "bbc_radio_three_unwind", directStreamURL: nil, category: .national),
         Station(id: "radio4", title: "BBC Radio 4", serviceId: "bbc_radio_fourfm", directStreamURL: nil, category: .national),
         Station(id: "radio4extra", title: "BBC Radio 4 Extra", serviceId: "bbc_radio_four_extra", directStreamURL: nil, category: .national),
-        Station(id: "radio5live", title: "BBC Radio 5 Live", serviceId: "bbc_radio_five_live", directStreamURL: URL(string: "https://a.files.bbci.co.uk/ms6/live/3441A116-B12E-4D2F-ACA8-C1984642FA4B/audio/simulcast/hls/uk/audio_syndication_high_sbr_v1/ak/bbc_radio_five_live.m3u8"), category: .national),
+        Station(id: "radio5live", title: "BBC Radio 5 Live", serviceId: "bbc_radio_five_live", directStreamURL: URL(string: "https://as-hls-ww-live.akamaized.net/pool_89021708/live/ww/bbc_radio_five_live/bbc_radio_five_live.isml/bbc_radio_five_live-audio%3d96000.norewind.m3u8"), category: .national),
         Station(id: "radio5livesportsextra", title: "BBC Radio 5 Sports Extra", serviceId: "bbc_radio_five_live_sports_extra", directStreamURL: nil, category: .national),
         Station(id: "radio5livesportsextra2", title: "BBC Radio 5 Sports Extra 2", serviceId: "bbc_radio_five_sports_extra_2", directStreamURL: nil, category: .national),
         Station(id: "radio5livesportsextra3", title: "BBC Radio 5 Sports Extra 3", serviceId: "bbc_radio_five_sports_extra_3", directStreamURL: nil, category: .national),
