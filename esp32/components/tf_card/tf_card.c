@@ -5,11 +5,58 @@
 #include "sdmmc_cmd.h"
 #include "esp_vfs_fat.h"
 #include "esp_log.h"
+#include <dirent.h>
+#include <string.h>
+#include <sys/stat.h>
 
 static const char *TAG    = "tf_card";
 static bool        s_mounted = false;
 static bool        s_spi_bus_inited = false;
 static int         s_spi_bus_host = -1;
+
+#define TF_CARD_LOG_MAX_DEPTH 3
+
+static void log_directory_tree(const char *path, int depth)
+{
+    if (!path || depth > TF_CARD_LOG_MAX_DEPTH) {
+        return;
+    }
+
+    DIR *dir = opendir(path);
+    if (!dir) {
+        ESP_LOGI(TAG, "SD tree: %*s%s [unavailable]", depth * 2, "", path);
+        return;
+    }
+
+    ESP_LOGI(TAG, "SD tree: %*s%s", depth * 2, "", path);
+
+    struct dirent *entry = NULL;
+    while ((entry = readdir(dir)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+
+        char child_path[256];
+        int n = snprintf(child_path, sizeof(child_path), "%s/%s", path, entry->d_name);
+        if (n <= 0 || (size_t)n >= sizeof(child_path)) {
+            continue;
+        }
+
+        struct stat st;
+        if (stat(child_path, &st) != 0) {
+            ESP_LOGI(TAG, "SD tree: %*s%s [stat failed]", (depth + 1) * 2, "", entry->d_name);
+            continue;
+        }
+
+        if (S_ISDIR(st.st_mode)) {
+            log_directory_tree(child_path, depth + 1);
+        } else {
+            ESP_LOGI(TAG, "SD tree: %*s%s (%ld bytes)", (depth + 1) * 2, "", entry->d_name, (long)st.st_size);
+        }
+    }
+
+    closedir(dir);
+}
 
 static esp_err_t mount_via_sdspi_host(const esp_vfs_fat_sdmmc_mount_config_t *mount_cfg, int host_id)
 {
@@ -60,6 +107,7 @@ static esp_err_t mount_via_sdspi_host(const esp_vfs_fat_sdmmc_mount_config_t *mo
     ESP_LOGI(TAG, "TF card mounted via SDSPI at %s (%.1f MB)",
              BSP_SD_MOUNT_POINT,
              (float)((uint64_t)card->csd.capacity * card->csd.sector_size) / (1024 * 1024));
+    log_directory_tree(BSP_SD_MOUNT_POINT, 0);
     return ESP_OK;
 }
 
@@ -108,6 +156,7 @@ esp_err_t tf_card_mount(void)
         ESP_LOGI(TAG, "TF card mounted via SDMMC at %s (%.1f MB)",
                  BSP_SD_MOUNT_POINT,
                  (float)((uint64_t)card->csd.capacity * card->csd.sector_size) / (1024 * 1024));
+        log_directory_tree(BSP_SD_MOUNT_POINT, 0);
         return ESP_OK;
     }
 

@@ -1,6 +1,0 @@
-# BBC podcast subscriptions for the ESP32 build
-# One BBC podcast ID per line. Blank lines and lines starting with # are ignored.
-
-b006qnmr
-p02nq0lx
-b006s5dp

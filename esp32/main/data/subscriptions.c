@@ -1,5 +1,6 @@
 #include "subscriptions.h"
 #include "tf_card.h"
+#include "config.h"
 #include "esp_log.h"
 #include <stdio.h>
 #include <ctype.h>
@@ -15,16 +16,84 @@ static const char *TAG = "subscriptions";
 #define SUBS_IDS_FILE_MAIN BSP_SD_MOUNT_POINT "/main/subscriptions.txt"
 #define SUBS_IDS_FILE_ESP32_MAIN BSP_SD_MOUNT_POINT "/esp32/main/subscriptions.txt"
 
-#define SUBS_LOCAL_FILE "subscriptions.txt"
-#define SUBS_LOCAL_FILE_MAIN "main/subscriptions.txt"
-#define SUBS_LOCAL_FILE_ESP32 "esp32/subscriptions.txt"
-#define SUBS_LOCAL_FILE_ESP32_MAIN "esp32/main/subscriptions.txt"
-
 #define SUBS_DISCOVERY_MAX_DEPTH 4
 
 static subscribed_podcast_t s_subs[SUBSCRIPTIONS_MAX];
 static podcast_t            s_sub_podcasts[SUBSCRIPTIONS_MAX];
 static size_t               s_count = 0;
+
+static bool add_subscription(const char *pid, const char *title, const char *rss_url);
+static void trim_line(char *line);
+
+extern const char _binary_subscriptions_txt_start[];
+extern const char _binary_subscriptions_txt_end[];
+
+static bool is_wokwi_environment(void)
+{
+    return strcmp(WIFI_SSID, "Wokwi-GUEST") == 0;
+}
+
+static bool sd_card_root_is_empty(void)
+{
+    DIR *dir = opendir(BSP_SD_MOUNT_POINT);
+    if (!dir) {
+        return false;
+    }
+
+    struct dirent *entry = NULL;
+    while ((entry = readdir(dir)) != NULL) {
+        if (strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0) {
+            closedir(dir);
+            return false;
+        }
+    }
+
+    closedir(dir);
+    return true;
+}
+
+static esp_err_t load_subscriptions_from_embedded(void)
+{
+    const char *start = _binary_subscriptions_txt_start;
+    const char *end = _binary_subscriptions_txt_end;
+    if (!start || !end || end <= start) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    ESP_LOGI(TAG, "Loading subscriptions from embedded simulator fallback");
+
+    size_t len = (size_t)(end - start);
+    char *buf = malloc(len + 1);
+    if (!buf) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    memcpy(buf, start, len);
+    buf[len] = '\0';
+
+    char *saveptr = NULL;
+    char *line = strtok_r(buf, "\r\n", &saveptr);
+    while (line) {
+        char local[128];
+        strncpy(local, line, sizeof(local) - 1);
+        local[sizeof(local) - 1] = '\0';
+
+        char *comment = strchr(local, '#');
+        if (comment) {
+            *comment = '\0';
+        }
+
+        trim_line(local);
+        if (local[0] != '\0') {
+            add_subscription(local, NULL, NULL);
+        }
+
+        line = strtok_r(NULL, "\r\n", &saveptr);
+    }
+
+    free(buf);
+    return ESP_OK;
+}
 
 static bool is_valid_bbc_pid(const char *pid)
 {
@@ -202,21 +271,10 @@ static esp_err_t load_subscriptions_from_ids_path(const char *path)
     return ESP_OK;
 }
 
-static esp_err_t load_subscriptions_from_ids(void)
+static esp_err_t load_subscriptions_from_known_paths(const char *const *paths, size_t path_count)
 {
-    static const char *paths[] = {
-        SUBS_IDS_FILE,
-        SUBS_IDS_FILE_MAIN,
-        SUBS_IDS_FILE_ALT,
-        SUBS_IDS_FILE_ESP32_MAIN,
-        SUBS_LOCAL_FILE,
-        SUBS_LOCAL_FILE_MAIN,
-        SUBS_LOCAL_FILE_ESP32,
-        SUBS_LOCAL_FILE_ESP32_MAIN,
-    };
-
     esp_err_t first_error = ESP_ERR_NOT_FOUND;
-    for (size_t i = 0; i < sizeof(paths) / sizeof(paths[0]); i++) {
+    for (size_t i = 0; i < path_count; i++) {
         esp_err_t ret = load_subscriptions_from_ids_path(paths[i]);
         if (ret == ESP_OK) {
             return ESP_OK;
@@ -224,6 +282,23 @@ static esp_err_t load_subscriptions_from_ids(void)
         if (ret != ESP_ERR_NOT_FOUND && first_error == ESP_ERR_NOT_FOUND) {
             first_error = ret;
         }
+    }
+
+    return first_error;
+}
+
+static esp_err_t load_subscriptions_from_ids(void)
+{
+    static const char *sd_paths[] = {
+        SUBS_IDS_FILE,
+        SUBS_IDS_FILE_MAIN,
+        SUBS_IDS_FILE_ALT,
+        SUBS_IDS_FILE_ESP32_MAIN,
+    };
+
+    esp_err_t ret = load_subscriptions_from_known_paths(sd_paths, sizeof(sd_paths) / sizeof(sd_paths[0]));
+    if (ret == ESP_OK) {
+        return ESP_OK;
     }
 
     if (tf_card_is_mounted()) {
@@ -234,7 +309,12 @@ static esp_err_t load_subscriptions_from_ids(void)
         }
     }
 
-    return first_error;
+    if (is_wokwi_environment() && tf_card_is_mounted() && sd_card_root_is_empty()) {
+        ESP_LOGI(TAG, "Wokwi empty SD card detected; trying embedded simulator subscriptions.txt");
+        return load_subscriptions_from_embedded();
+    }
+
+    return ret;
 }
 
 esp_err_t subscriptions_load(void)
@@ -247,7 +327,8 @@ esp_err_t subscriptions_load(void)
         ESP_LOGW(TAG, "TF card not mounted at subscriptions load; retrying mount");
         tf_card_mount();
         if (!tf_card_is_mounted()) {
-            ESP_LOGW(TAG, "TF card still not mounted; trying simulator-local subscriptions paths");
+            ESP_LOGW(TAG, "TF card still not mounted — no subscriptions loaded");
+            return ESP_OK;
         }
     }
 
