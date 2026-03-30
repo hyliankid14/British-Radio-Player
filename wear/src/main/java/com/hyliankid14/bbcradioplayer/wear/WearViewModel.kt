@@ -321,17 +321,12 @@ class WearViewModel(application: Application) : AndroidViewModel(application) {
             refreshingUpdatedHints = true
             try {
                 var remaining = subscribedKnown
-                var currentMap = podcastUpdatedAtMap
 
                 while (remaining.isNotEmpty()) {
-                    val missing = remaining.filter { (currentMap[it.id] ?: 0L) <= 0L }
-                    if (missing.isEmpty()) break
+                    val batch = remaining.take(MAX_HINT_REFRESH_COUNT)
+                    podcastUpdatedAtMap = podcastRepository.refreshPodcastUpdatedAtHints(batch)
 
-                    val batch = missing.take(MAX_HINT_REFRESH_COUNT)
-                    currentMap = podcastRepository.refreshPodcastUpdatedAtHints(batch)
-                    podcastUpdatedAtMap = currentMap
-
-                    remaining = missing.drop(batch.size)
+                    remaining = remaining.drop(batch.size)
                     if (remaining.isNotEmpty()) {
                         delay(HINT_REFRESH_BATCH_DELAY_MS)
                     }

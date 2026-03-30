@@ -14,17 +14,27 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.BatteryManager
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
@@ -37,8 +47,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.MusicNote
+import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material.icons.outlined.SkipNext
 import androidx.compose.material.icons.outlined.SkipPrevious
 import androidx.compose.material.icons.automirrored.outlined.VolumeUp
@@ -48,7 +59,18 @@ import com.hyliankid14.bbcradioplayer.wear.data.Station
 import com.hyliankid14.bbcradioplayer.wear.data.StationCategory
 import com.hyliankid14.bbcradioplayer.wear.data.StationArtwork
 import com.hyliankid14.bbcradioplayer.wear.ui.Screen
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import androidx.wear.compose.foundation.AnchorType
+import androidx.wear.compose.foundation.CurvedAlignment
+import androidx.wear.compose.foundation.CurvedDirection
+import androidx.wear.compose.foundation.CurvedLayout
+import androidx.wear.compose.foundation.CurvedModifier
+import androidx.wear.compose.foundation.CurvedTextStyle
+import androidx.wear.compose.foundation.angularGradientBackground as curvedAngularGradientBackground
+import androidx.wear.compose.foundation.background as curvedBackground
+import androidx.wear.compose.foundation.basicCurvedText
+import androidx.wear.compose.foundation.padding as curvedPadding
 import androidx.wear.compose.material.Button
 import androidx.wear.compose.material.ButtonDefaults
 import androidx.wear.compose.material.Chip
@@ -58,6 +80,7 @@ import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Scaffold
 import androidx.wear.compose.material.Text
 import androidx.wear.compose.material.TimeText
+import coil.request.ImageRequest
 import kotlinx.coroutines.delay
 
 @Composable
@@ -87,197 +110,252 @@ fun WearRadioApp(viewModel: WearViewModel = viewModel()) {
     val localStations = remember(viewModel.stations) {
         viewModel.stations.filter { it.category == StationCategory.LOCAL }
     }
+    val batteryPercent = rememberBatteryPercent()
+    val nowPlayingState = viewModel.nowPlaying
+    val currentStationName = remember(nowPlayingState?.stationId) {
+        nowPlayingState?.stationId?.let { id -> viewModel.stations.firstOrNull { it.id == id }?.title }
+    }
+    val bottomArcLabel = when (screen) {
+        Screen.HOME -> "British Radio Player"
+        Screen.STATIONS_MENU -> "Stations"
+        Screen.FAVOURITES -> "Favourites"
+        Screen.STATIONS_NATIONAL -> "National"
+        Screen.STATIONS_REGIONS -> "Regions"
+        Screen.STATIONS_LOCAL -> "Local"
+        Screen.PODCASTS -> "Podcasts"
+        Screen.EPISODES -> selectedPodcast?.title ?: "Episodes"
+        Screen.NOW_PLAYING -> currentStationName ?: "Now Playing"
+    }
 
     MaterialTheme {
-        Scaffold(timeText = { if (screen != Screen.NOW_PLAYING) TimeText() }) {
-            when (screen) {
-                Screen.HOME -> HomeScreen(
-                    onOpenStations = { screen = Screen.STATIONS_MENU },
-                    onOpenPodcasts = { screen = Screen.PODCASTS }
+        Box(modifier = Modifier.fillMaxSize()) {
+            Scaffold(timeText = {
+                if (screen != Screen.NOW_PLAYING) {
+                    TopCurvedTimeBackdrop()
+                }
+                TimeText(
+                    endLinearContent = {
+                        Text("$batteryPercent%", color = Color.White)
+                    },
+                    endCurvedContent = {
+                        basicCurvedText(
+                            text = "$batteryPercent%",
+                            style = CurvedTextStyle(color = Color.White)
+                        )
+                    }
                 )
-
-                Screen.STATIONS_MENU -> StationsMenuScreen(
-                    onOpenFavourites = { screen = Screen.FAVOURITES },
-                    onOpenNationalStations = { screen = Screen.STATIONS_NATIONAL },
-                    onOpenRegionalStations = { screen = Screen.STATIONS_REGIONS },
-                    onOpenLocalStations = { screen = Screen.STATIONS_LOCAL }
-                )
-
-                Screen.FAVOURITES -> {
-                    val stationsById = remember(viewModel.stations) {
-                        viewModel.stations.associateBy { it.id }
-                    }
-                    val favouriteStations by remember(viewModel.favouriteOrder, viewModel.favouriteIds, stationsById) {
-                        derivedStateOf {
-                            viewModel.favouriteOrder.mapNotNull { favouriteId ->
-                                stationsById[favouriteId]?.takeIf { it.id in viewModel.favouriteIds }
-                            }
-                        }
-                    }
-                    val remainingFavouriteStations by remember(viewModel.stations, viewModel.favouriteIds, viewModel.favouriteOrder) {
-                        derivedStateOf {
-                            viewModel.stations.filter { station ->
-                                station.id in viewModel.favouriteIds && station.id !in viewModel.favouriteOrder
-                            }
-                        }
-                    }
-                    val allFavourites = remember(favouriteStations, remainingFavouriteStations) {
-                        favouriteStations + remainingFavouriteStations
-                    }
-                    LaunchedEffect(allFavourites) {
-                        while (true) {
-                            viewModel.prefetchStationShows(allFavourites, limit = 8)
-                            delay(STATION_SHOW_REFRESH_POLL_MS)
-                        }
-                    }
-                    StationListScreen(
-                        title = "Favourites",
-                        stations = allFavourites,
-                        stationShowTitleMap = viewModel.stationLiveTitleMap,
-                        stationShowDetailMap = viewModel.stationLiveDetailMap,
-                        onPlay = {
-                            viewModel.playStation(it, allFavourites)
-                            previousScreenBeforeNowPlaying = Screen.FAVOURITES
-                            screen = Screen.NOW_PLAYING
-                        },
-                        emptyText = "No favourites synced"
+            }) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    when (screen) {
+                    Screen.HOME -> HomeScreen(
+                        onOpenStations = { screen = Screen.STATIONS_MENU },
+                        onOpenPodcasts = { screen = Screen.PODCASTS }
                     )
-                }
 
-                Screen.STATIONS_NATIONAL -> {
-                    LaunchedEffect(nationalStations) {
-                        while (true) {
-                            viewModel.prefetchStationShows(nationalStations, limit = 8)
-                            delay(STATION_SHOW_REFRESH_POLL_MS)
-                        }
-                    }
-                    StationListScreen(
-                        title = "National",
-                        stations = nationalStations,
-                        stationShowTitleMap = viewModel.stationLiveTitleMap,
-                        stationShowDetailMap = viewModel.stationLiveDetailMap,
-                        onPlay = {
-                            viewModel.playStation(it, nationalStations)
-                            previousScreenBeforeNowPlaying = Screen.STATIONS_NATIONAL
-                            screen = Screen.NOW_PLAYING
-                        },
-                        emptyText = "No stations available"
+                    Screen.STATIONS_MENU -> StationsMenuScreen(
+                        onOpenFavourites = { screen = Screen.FAVOURITES },
+                        onOpenNationalStations = { screen = Screen.STATIONS_NATIONAL },
+                        onOpenRegionalStations = { screen = Screen.STATIONS_REGIONS },
+                        onOpenLocalStations = { screen = Screen.STATIONS_LOCAL }
                     )
-                }
 
-                Screen.STATIONS_REGIONS -> {
-                    LaunchedEffect(regionalStations) {
-                        while (true) {
-                            viewModel.prefetchStationShows(regionalStations, limit = 8)
-                            delay(STATION_SHOW_REFRESH_POLL_MS)
+                    Screen.FAVOURITES -> {
+                        val stationsById = remember(viewModel.stations) {
+                            viewModel.stations.associateBy { it.id }
                         }
-                    }
-                    StationListScreen(
-                        title = "Regions",
-                        stations = regionalStations,
-                        stationShowTitleMap = viewModel.stationLiveTitleMap,
-                        stationShowDetailMap = viewModel.stationLiveDetailMap,
-                        onPlay = {
-                            viewModel.playStation(it, regionalStations)
-                            previousScreenBeforeNowPlaying = Screen.STATIONS_REGIONS
-                            screen = Screen.NOW_PLAYING
-                        },
-                        emptyText = "No stations available"
-                    )
-                }
-
-                Screen.STATIONS_LOCAL -> {
-                    LaunchedEffect(localStations) {
-                        while (true) {
-                            viewModel.prefetchStationShows(localStations, limit = 8)
-                            delay(STATION_SHOW_REFRESH_POLL_MS)
-                        }
-                    }
-                    StationListScreen(
-                        title = "Local",
-                        stations = localStations,
-                        stationShowTitleMap = viewModel.stationLiveTitleMap,
-                        stationShowDetailMap = viewModel.stationLiveDetailMap,
-                        onPlay = {
-                            viewModel.playStation(it, localStations)
-                            previousScreenBeforeNowPlaying = Screen.STATIONS_LOCAL
-                            screen = Screen.NOW_PLAYING
-                        },
-                        emptyText = "No stations available"
-                    )
-                }
-
-                Screen.PODCASTS -> {
-                    val subscribedPodcasts by remember(viewModel.podcasts, viewModel.subscribedPodcastIds, viewModel.podcastUpdatedAtMap) {
-                        derivedStateOf {
-                            val known = viewModel.podcasts.filter { it.id in viewModel.subscribedPodcastIds }
-                            val knownIds = known.map { it.id }.toSet()
-                            val sortedKnown = known.sortedWith(
-                                compareByDescending<PodcastSummary> { viewModel.podcastUpdatedAtMap[it.id] ?: 0L }
-                                    .thenBy { it.title.lowercase() }
-                            )
-                            val unresolved = viewModel.subscribedPodcastIds
-                                .filterNot { it in knownIds }
-                                .filterNot(::looksLikeNumericSyntheticId)
-                                .sorted()
-                                .map { id ->
-                                    PodcastSummary(
-                                        id = id,
-                                        title = id,
-                                        description = "",
-                                        rssUrl = "",
-                                        imageUrl = ""
-                                    )
+                        val favouriteStations by remember(viewModel.favouriteOrder, viewModel.favouriteIds, stationsById) {
+                            derivedStateOf {
+                                viewModel.favouriteOrder.mapNotNull { favouriteId ->
+                                    stationsById[favouriteId]?.takeIf { it.id in viewModel.favouriteIds }
                                 }
-                            sortedKnown + unresolved
+                            }
                         }
+                        val remainingFavouriteStations by remember(viewModel.stations, viewModel.favouriteIds, viewModel.favouriteOrder) {
+                            derivedStateOf {
+                                viewModel.stations.filter { station ->
+                                    station.id in viewModel.favouriteIds && station.id !in viewModel.favouriteOrder
+                                }
+                            }
+                        }
+                        val allFavourites = remember(favouriteStations, remainingFavouriteStations) {
+                            favouriteStations + remainingFavouriteStations
+                        }
+                        LaunchedEffect(allFavourites) {
+                            while (true) {
+                                viewModel.prefetchStationShows(allFavourites, limit = 8)
+                                delay(STATION_SHOW_REFRESH_POLL_MS)
+                            }
+                        }
+                        StationListScreen(
+                            stations = allFavourites,
+                            stationShowTitleMap = viewModel.stationLiveTitleMap,
+                            stationShowDetailMap = viewModel.stationLiveDetailMap,
+                            onPlay = {
+                                viewModel.playStation(it, allFavourites)
+                                previousScreenBeforeNowPlaying = Screen.FAVOURITES
+                                screen = Screen.NOW_PLAYING
+                            },
+                            emptyText = "No favourites synced"
+                        )
                     }
-                    PodcastListScreen(
-                        title = "Subscribed Podcasts",
-                        podcasts = subscribedPodcasts,
-                        loading = viewModel.loadingPodcasts,
-                        errorMessage = viewModel.errorMessage,
-                        onRetry = { viewModel.refreshPodcasts() },
-                        onOpenPodcast = { podcast ->
-                            selectedPodcast = podcast
-                            viewModel.openPodcast(podcast)
-                            screen = Screen.EPISODES
+
+                    Screen.STATIONS_NATIONAL -> {
+                        LaunchedEffect(nationalStations) {
+                            while (true) {
+                                viewModel.prefetchStationShows(nationalStations, limit = 8)
+                                delay(STATION_SHOW_REFRESH_POLL_MS)
+                            }
+                        }
+                        StationListScreen(
+                            stations = nationalStations,
+                            stationShowTitleMap = viewModel.stationLiveTitleMap,
+                            stationShowDetailMap = viewModel.stationLiveDetailMap,
+                            onPlay = {
+                                viewModel.playStation(it, nationalStations)
+                                previousScreenBeforeNowPlaying = Screen.STATIONS_NATIONAL
+                                screen = Screen.NOW_PLAYING
+                            },
+                            emptyText = "No stations available"
+                        )
+                    }
+
+                    Screen.STATIONS_REGIONS -> {
+                        LaunchedEffect(regionalStations) {
+                            while (true) {
+                                viewModel.prefetchStationShows(regionalStations, limit = 8)
+                                delay(STATION_SHOW_REFRESH_POLL_MS)
+                            }
+                        }
+                        StationListScreen(
+                            stations = regionalStations,
+                            stationShowTitleMap = viewModel.stationLiveTitleMap,
+                            stationShowDetailMap = viewModel.stationLiveDetailMap,
+                            onPlay = {
+                                viewModel.playStation(it, regionalStations)
+                                previousScreenBeforeNowPlaying = Screen.STATIONS_REGIONS
+                                screen = Screen.NOW_PLAYING
+                            },
+                            emptyText = "No stations available"
+                        )
+                    }
+
+                    Screen.STATIONS_LOCAL -> {
+                        LaunchedEffect(localStations) {
+                            while (true) {
+                                viewModel.prefetchStationShows(localStations, limit = 8)
+                                delay(STATION_SHOW_REFRESH_POLL_MS)
+                            }
+                        }
+                        StationListScreen(
+                            stations = localStations,
+                            stationShowTitleMap = viewModel.stationLiveTitleMap,
+                            stationShowDetailMap = viewModel.stationLiveDetailMap,
+                            onPlay = {
+                                viewModel.playStation(it, localStations)
+                                previousScreenBeforeNowPlaying = Screen.STATIONS_LOCAL
+                                screen = Screen.NOW_PLAYING
+                            },
+                            emptyText = "No stations available"
+                        )
+                    }
+
+                    Screen.PODCASTS -> {
+                        val subscribedPodcasts by remember(viewModel.podcasts, viewModel.subscribedPodcastIds, viewModel.podcastUpdatedAtMap) {
+                            derivedStateOf {
+                                val known = viewModel.podcasts.filter { it.id in viewModel.subscribedPodcastIds }
+                                val knownIds = known.map { it.id }.toSet()
+                                val sortedKnown = known.sortedWith(
+                                    compareByDescending<PodcastSummary> { viewModel.podcastUpdatedAtMap[it.id] ?: 0L }
+                                        .thenBy { it.title.lowercase() }
+                                )
+                                val unresolved = viewModel.subscribedPodcastIds
+                                    .filterNot { it in knownIds }
+                                    .filterNot(::looksLikeNumericSyntheticId)
+                                    .sorted()
+                                    .map { id ->
+                                        PodcastSummary(
+                                            id = id,
+                                            title = id,
+                                            description = "",
+                                            rssUrl = "",
+                                            imageUrl = ""
+                                        )
+                                    }
+                                sortedKnown + unresolved
+                            }
+                        }
+                        PodcastListScreen(
+                            podcasts = subscribedPodcasts,
+                            loading = viewModel.loadingPodcasts,
+                            errorMessage = viewModel.errorMessage,
+                            onRetry = { viewModel.refreshPodcasts() },
+                            onOpenPodcast = { podcast ->
+                                selectedPodcast = podcast
+                                viewModel.openPodcast(podcast)
+                                screen = Screen.EPISODES
+                            }
+                        )
+                    }
+
+                    Screen.EPISODES -> EpisodeListScreen(
+                        podcast = selectedPodcast,
+                        episodes = viewModel.episodes,
+                        playedEpisodeIds = viewModel.playedEpisodeIds,
+                        progressMap = viewModel.episodeProgressMap,
+                        loading = viewModel.loadingEpisodes,
+                        onPlayEpisode = { episode ->
+                            viewModel.playEpisode(episode, selectedPodcast?.imageUrl)
+                            previousScreenBeforeNowPlaying = Screen.EPISODES
+                            screen = Screen.NOW_PLAYING
                         }
                     )
-                }
 
-                Screen.EPISODES -> EpisodeListScreen(
-                    podcast = selectedPodcast,
-                    episodes = viewModel.episodes,
-                    playedEpisodeIds = viewModel.playedEpisodeIds,
-                    progressMap = viewModel.episodeProgressMap,
-                    loading = viewModel.loadingEpisodes,
-                    onPlayEpisode = { episode ->
-                        viewModel.playEpisode(episode, selectedPodcast?.imageUrl)
-                        previousScreenBeforeNowPlaying = Screen.EPISODES
-                        screen = Screen.NOW_PLAYING
+                    Screen.NOW_PLAYING -> {
+                        val np = nowPlayingState
+                        NowPlayingScreen(
+                            nowPlayingTitle = np?.title,
+                            nowPlayingSubtitle = np?.subtitle,
+                            artworkUrl = np?.artworkUrl,
+                            stationId = np?.stationId,
+                            isLive = np?.isLive ?: true,
+                            isPlaying = np?.isPlaying ?: false,
+                            skipPreviousEnabled = viewModel.canSkipPreviousInNowPlaying(),
+                            skipNextEnabled = viewModel.canSkipNextInNowPlaying(),
+                            positionMs = np?.positionMs ?: 0L,
+                            durationMs = np?.durationMs ?: 0L,
+                            onTogglePlayPause = { viewModel.togglePlayPause() },
+                            onSkipPrevious = { viewModel.skipPreviousInNowPlaying() },
+                            onSkipNext = { viewModel.skipNextInNowPlaying() },
+                            onOpenVolumeUi = { viewModel.openVolumeControls() }
+                        )
                     }
-                )
+                    }
+                }
+            }
 
-                Screen.NOW_PLAYING -> {
-                    val np = viewModel.nowPlaying
-                    NowPlayingScreen(
-                        nowPlayingTitle = np?.title,
-                        nowPlayingSubtitle = np?.subtitle,
-                        artworkUrl = np?.artworkUrl,
-                        stationId = np?.stationId,
-                        isLive = np?.isLive ?: true,
-                        isPlaying = np?.isPlaying ?: false,
-                        skipPreviousEnabled = viewModel.canSkipPreviousInNowPlaying(),
-                        skipNextEnabled = viewModel.canSkipNextInNowPlaying(),
-                        positionMs = np?.positionMs ?: 0L,
-                        durationMs = np?.durationMs ?: 0L,
-                        onTogglePlayPause = { viewModel.togglePlayPause() },
-                        onSkipPrevious = { viewModel.skipPreviousInNowPlaying() },
-                        onSkipNext = { viewModel.skipNextInNowPlaying() },
-                        onOpenVolumeUi = { viewModel.openVolumeControls() }
+            if (screen != Screen.NOW_PLAYING && nowPlayingState?.isPlaying == true) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 6.dp)
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.78f))
+                        .clickable {
+                            previousScreenBeforeNowPlaying = screen
+                            screen = Screen.NOW_PLAYING
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.MusicNote,
+                        contentDescription = "Now Playing",
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp)
                     )
                 }
+            } else {
+                BottomCurvedLabel(bottomArcLabel, showBackdrop = true)
             }
         }
     }
@@ -287,18 +365,39 @@ private val ListContentPadding = PaddingValues(start = 14.dp, end = 14.dp, top =
 private val HeaderHorizontalSafePadding = 24.dp
 private const val STATION_SHOW_REFRESH_POLL_MS = 30_000L
 
+private val CurvedBackdropGradient = listOf(
+    Color.Transparent,
+    Color.Black.copy(alpha = 0.12f),
+    Color.Black.copy(alpha = 0.42f),
+    Color.Black.copy(alpha = 0.42f),
+    Color.Black.copy(alpha = 0.12f),
+    Color.Transparent
+)
+
+private val TopCurvedBackdropGradient = listOf(
+    Color.Transparent,
+    Color.Black.copy(alpha = 0.14f),
+    Color.Black.copy(alpha = 0.46f),
+    Color.Black.copy(alpha = 0.46f),
+    Color.Black.copy(alpha = 0.14f),
+    Color.Transparent
+)
+
 @Composable
 private fun HomeScreen(
     onOpenStations: () -> Unit,
     onOpenPodcasts: () -> Unit
 ) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = ListContentPadding,
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 14.dp),
+        contentAlignment = Alignment.Center
     ) {
-        item { RoundSafeHeaderTitle("British Radio Player", maxLines = 2) }
-        item {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
             Chip(
                 onClick = onOpenStations,
                 label = { Text("Stations") },
@@ -306,8 +405,6 @@ private fun HomeScreen(
                 colors = ChipDefaults.primaryChipColors(),
                 modifier = Modifier.fillMaxWidth()
             )
-        }
-        item {
             Chip(
                 onClick = onOpenPodcasts,
                 label = { Text("Podcasts") },
@@ -331,7 +428,6 @@ private fun StationsMenuScreen(
         contentPadding = ListContentPadding,
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        item { RoundSafeHeaderTitle("Stations", maxLines = 2) }
         item {
             Chip(
                 onClick = onOpenFavourites,
@@ -373,7 +469,6 @@ private fun StationsMenuScreen(
 
 @Composable
 private fun StationListScreen(
-    title: String,
     stations: List<Station>,
     stationShowTitleMap: Map<String, String>,
     stationShowDetailMap: Map<String, String>,
@@ -385,7 +480,6 @@ private fun StationListScreen(
         contentPadding = ListContentPadding,
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        item { RoundSafeHeaderTitle(title, maxLines = 2) }
         if (stations.isEmpty()) {
             item {
                 RoundSafeHeaderMessage(emptyText, maxLines = 2)
@@ -429,13 +523,13 @@ private fun looksLikeNumericSyntheticId(id: String): Boolean {
 
 @Composable
 private fun PodcastListScreen(
-    title: String,
     podcasts: List<PodcastSummary>,
     loading: Boolean,
     errorMessage: String?,
     onRetry: () -> Unit,
     onOpenPodcast: (PodcastSummary) -> Unit
 ) {
+    val context = LocalContext.current
     var visibleCount by rememberSaveable { mutableStateOf(8) }
     val visiblePodcasts = podcasts.take(visibleCount.coerceAtMost(podcasts.size))
 
@@ -444,8 +538,6 @@ private fun PodcastListScreen(
         contentPadding = ListContentPadding,
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        item { RoundSafeHeaderTitle(title, maxLines = 2) }
-
         if (loading) {
             item { RoundSafeHeaderMessage("Loading…", maxLines = 1) }
         }
@@ -467,9 +559,47 @@ private fun PodcastListScreen(
         }
 
         items(visiblePodcasts, key = { it.id }) { podcast ->
+            val artworkRequest = remember(podcast.imageUrl) {
+                podcast.imageUrl
+                    .takeIf { it.isNotBlank() }
+                    ?.let { imageUrl ->
+                        ImageRequest.Builder(context)
+                            .data(imageUrl)
+                            .crossfade(false)
+                            .size(56)
+                            .build()
+                    }
+            }
             Chip(
                 onClick = { onOpenPodcast(podcast) },
                 label = { Text(podcast.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                icon = {
+                    if (artworkRequest != null) {
+                        AsyncImage(
+                            model = artworkRequest,
+                            contentDescription = podcast.title,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(CircleShape)
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.26f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.MusicNote,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                },
                 modifier = Modifier.fillMaxWidth(),
                 colors = ChipDefaults.primaryChipColors()
             )
@@ -506,10 +636,6 @@ private fun EpisodeListScreen(
         contentPadding = ListContentPadding,
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        item {
-            RoundSafeHeaderTitle(podcast?.title ?: "Episodes", maxLines = 2)
-        }
-
         if (loading) {
             item { RoundSafeHeaderMessage("Loading…", maxLines = 1) }
         } else if (episodes.isEmpty()) {
@@ -595,6 +721,79 @@ private fun formatPosition(positionMs: Long): String {
 }
 
 @Composable
+private fun rememberBatteryPercent(): Int {
+    val context = LocalContext.current
+    val batteryPercent = remember { mutableIntStateOf(100) }
+    DisposableEffect(context) {
+        val filter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+        context.registerReceiver(null, filter)?.let { intent ->
+            val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+            val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, 100)
+            if (level >= 0 && scale > 0) batteryPercent.intValue = level * 100 / scale
+        }
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context?, intent: Intent?) {
+                val level = intent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+                val scale = intent?.getIntExtra(BatteryManager.EXTRA_SCALE, 100) ?: 100
+                if (level >= 0 && scale > 0) batteryPercent.intValue = level * 100 / scale
+            }
+        }
+        context.registerReceiver(receiver, filter)
+        onDispose { context.unregisterReceiver(receiver) }
+    }
+    return batteryPercent.intValue
+}
+
+@Composable
+private fun BottomCurvedLabel(text: String, showBackdrop: Boolean = true) {
+    if (text.isBlank()) return
+
+    CurvedLayout(
+        modifier = Modifier
+            .fillMaxSize()
+            .offset(y = 28.dp),
+        anchor = 90f,
+        anchorType = AnchorType.Center,
+        radialAlignment = CurvedAlignment.Radial.Outer,
+        angularDirection = CurvedDirection.Angular.Reversed
+    ) {
+        val curvedTextModifier = if (showBackdrop) {
+            CurvedModifier
+                .curvedPadding(35.dp, 0.dp)
+                .curvedAngularGradientBackground(CurvedBackdropGradient)
+        } else {
+            CurvedModifier
+        }
+        basicCurvedText(
+            text = text.take(30),
+            modifier = curvedTextModifier,
+            style = CurvedTextStyle(fontSize = 13.sp, color = Color.White)
+        )
+    }
+}
+
+@Composable
+private fun TopCurvedTimeBackdrop() {
+    CurvedLayout(
+        modifier = Modifier
+            .fillMaxSize()
+            .offset(y = (-5).dp),
+        anchor = 270f,
+        anchorType = AnchorType.Center,
+        radialAlignment = CurvedAlignment.Radial.Outer,
+        angularDirection = CurvedDirection.Angular.Reversed
+    ) {
+        basicCurvedText(
+            text = "MMMMMMMMMM",
+            modifier = CurvedModifier
+                .curvedPadding(8.dp, 0.dp)
+                .curvedAngularGradientBackground(TopCurvedBackdropGradient),
+            style = CurvedTextStyle(color = Color.Transparent)
+        )
+    }
+}
+
+@Composable
 private fun NowPlayingScreen(
     nowPlayingTitle: String?,
     nowPlayingSubtitle: String?,
@@ -612,9 +811,10 @@ private fun NowPlayingScreen(
     onOpenVolumeUi: () -> Unit
 ) {
     var overlayVisible by rememberSaveable { mutableStateOf(false) }
+    var overlayInteractionVersion by rememberSaveable { mutableIntStateOf(0) }
     val blankTapInteraction = remember { MutableInteractionSource() }
 
-    LaunchedEffect(overlayVisible) {
+    LaunchedEffect(overlayVisible, overlayInteractionVersion) {
         if (overlayVisible) {
             delay(3_000L)
             overlayVisible = false
@@ -626,17 +826,20 @@ private fun NowPlayingScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
+        // Station artwork is always the base layer — acts as fallback if the
+        // now-playing artwork URL fails to load or is unavailable.
+        if (!stationId.isNullOrBlank()) {
+            Image(
+                bitmap = remember(stationId) { StationArtwork.createBitmap(stationId, 512).asImageBitmap() },
+                contentDescription = "Station artwork",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
         if (!artworkUrl.isNullOrBlank()) {
             AsyncImage(
                 model = artworkUrl,
                 contentDescription = "Now playing artwork",
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
-        } else if (!stationId.isNullOrBlank()) {
-            Image(
-                bitmap = remember(stationId) { StationArtwork.createBitmap(stationId, 512).asImageBitmap() },
-                contentDescription = "Station artwork",
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
@@ -651,6 +854,9 @@ private fun NowPlayingScreen(
                     indication = null
                 ) {
                     overlayVisible = !overlayVisible
+                    if (overlayVisible) {
+                        overlayInteractionVersion += 1
+                    }
                 }
                 .background(Color.Black.copy(alpha = 0.68f))
         )
@@ -730,7 +936,10 @@ private fun NowPlayingScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Button(
-                            onClick = onSkipPrevious,
+                            onClick = {
+                                overlayInteractionVersion += 1
+                                onSkipPrevious()
+                            },
                             enabled = if (isLive) skipPreviousEnabled else true,
                             modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.secondaryButtonColors()
@@ -741,7 +950,10 @@ private fun NowPlayingScreen(
                             )
                         }
                         Button(
-                            onClick = onSkipNext,
+                            onClick = {
+                                overlayInteractionVersion += 1
+                                onSkipNext()
+                            },
                             enabled = if (isLive) skipNextEnabled else true,
                             modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.secondaryButtonColors()
@@ -758,7 +970,10 @@ private fun NowPlayingScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Button(
-                            onClick = onOpenVolumeUi,
+                            onClick = {
+                                overlayInteractionVersion += 1
+                                onOpenVolumeUi()
+                            },
                             modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.secondaryButtonColors()
                         ) {
@@ -768,7 +983,10 @@ private fun NowPlayingScreen(
                             )
                         }
                         Button(
-                            onClick = onTogglePlayPause,
+                            onClick = {
+                                overlayInteractionVersion += 1
+                                onTogglePlayPause()
+                            },
                             modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.primaryButtonColors()
                         ) {
