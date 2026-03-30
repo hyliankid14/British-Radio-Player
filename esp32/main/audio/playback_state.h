@@ -25,9 +25,10 @@ typedef struct {
     const station_t *station;
 
     /* Populated when type == PLAYBACK_EPISODE */
-    char podcast_title[96];
-    char episode_title[128];
-    char audio_url[256];
+    char    podcast_title[96];
+    char    episode_title[128];
+    char    audio_url[256];
+    int32_t episode_duration_secs;  /* 0 if unknown */
 } playback_state_t;
 
 #ifdef __cplusplus
@@ -51,6 +52,18 @@ esp_err_t playback_toggle(void);
 
 /** Read-only view of current state (thread-safe copy). */
 playback_state_t playback_get_state(void);
+
+/** Play the next station in the list, wrapping around. */
+esp_err_t playback_next_station(void);
+
+/** Play the previous station in the list, wrapping around. */
+esp_err_t playback_prev_station(void);
+
+/** Seek forward (positive) or backward (negative) by delta_secs within the current episode. */
+esp_err_t playback_seek_relative(int delta_secs);
+
+/** Returns current episode position in seconds, or 0 if not an episode. */
+int32_t playback_get_position_secs(void);
 
 #ifdef __cplusplus
 }

@@ -12,7 +12,7 @@
     {
       "type": "board-esp32-s3-devkitc-1",
       "id": "esp",
-      "top": 20,
+      "top": 10,
       "left": 0,
       "attrs": {
         "flashSize": "16",
@@ -24,7 +24,7 @@
       "type": "wokwi-ili9341",
       "id": "lcd",
       "top": 0,
-      "left": 210,
+      "left": 200,
       "attrs": {
         "rotation": "0",
         "freq": "40000000"
@@ -33,36 +33,36 @@
     {
       "type": "wokwi-pushbutton",
       "id": "btn_plus",
-      "top": 360,
+      "top": 325,
       "left": 10,
       "attrs": { "color": "green", "label": "PLUS\n(next)" }
     },
     {
       "type": "wokwi-pushbutton",
       "id": "btn_pwr",
-      "top": 360,
-      "left": 80,
+      "top": 325,
+      "left": 77,
       "attrs": { "color": "red", "label": "PWR\n(back)" }
     },
     {
       "type": "wokwi-pushbutton",
       "id": "btn_boot",
-      "top": 360,
-      "left": 150,
+      "top": 325,
+      "left": 144,
       "attrs": { "color": "blue", "label": "BOOT\n(select)" }
     },
     {
       "type": "wokwi-buzzer",
       "id": "buzz",
-      "top": 435,
-      "left": 230,
+      "top": 410,
+      "left": 20,
       "attrs": { "volume": "1", "mode": "smooth" }
     },
     {
       "type": "wokwi-microsd-card",
       "id": "sd",
-      "top": 430,
-      "left": 320,
+      "top": 405,
+      "left": 100,
       "attrs": {}
     }
   ],
