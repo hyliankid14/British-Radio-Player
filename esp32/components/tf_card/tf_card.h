@@ -11,6 +11,12 @@
 #define BSP_SD_D2    GPIO_NUM_13
 #define BSP_SD_D3    GPIO_NUM_14
 
+/* SDSPI fallback pins (used in Wokwi simulation) */
+#define BSP_SD_SPI_MOSI BSP_SD_CMD
+#define BSP_SD_SPI_MISO BSP_SD_D0
+#define BSP_SD_SPI_SCK  BSP_SD_CLK
+#define BSP_SD_SPI_CS   BSP_SD_D3
+
 #define BSP_SD_MOUNT_POINT  "/sdcard"
 
 #ifdef __cplusplus

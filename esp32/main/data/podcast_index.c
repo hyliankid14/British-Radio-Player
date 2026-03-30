@@ -66,6 +66,8 @@ static const char *TAG = "podcast_index";
     "https://storage.googleapis.com/bbc-radio-player-index-20260317-bc149e38/popular-podcasts.json"
 #define GCS_NEW_URL \
     "https://storage.googleapis.com/bbc-radio-player-index-20260317-bc149e38/new-podcasts.json"
+#define GCS_POPULAR_MAX_JSON 8192
+#define GCS_NEW_MAX_JSON 8192
 
 /* ── Podcast storage in PSRAM ─────────────────────────────────────── */
 #define MAX_PODCASTS  80
@@ -122,33 +124,41 @@ typedef struct {
  *   https://feeds.bbci.co.uk/podcasts/p01234567/rss.xml
  */
 
-static char *fetch_small_json(const char *url, size_t max_len)
+static char *fetch_small_json_once(const char *url, size_t max_len)
 {
     char *buf = podcast_malloc(max_len + 1);
-    if (!buf) return NULL;
+    if (!buf) {
+        ESP_LOGW(TAG, "OOM allocating %zu bytes for %s", max_len + 1, url);
+        return NULL;
+    }
 
     esp_http_client_config_t cfg = {
         .url = url,
-        .timeout_ms = 15000,
-        .buffer_size = 2048,
+        .timeout_ms = 10000,
+        .buffer_size = 1024,
         .crt_bundle_attach = esp_crt_bundle_attach,
     };
     esp_http_client_handle_t c = esp_http_client_init(&cfg);
     if (!c) {
+        ESP_LOGW(TAG, "HTTP client init failed for %s", url);
         free(buf);
         return NULL;
     }
 
     esp_http_client_set_header(c, "Accept-Encoding", "identity");
 
-    if (esp_http_client_open(c, 0) != ESP_OK) {
+    esp_err_t open_err = esp_http_client_open(c, 0);
+    if (open_err != ESP_OK) {
+        ESP_LOGW(TAG, "HTTP open failed for %s: %s", url, esp_err_to_name(open_err));
         esp_http_client_cleanup(c);
         free(buf);
         return NULL;
     }
     (void)esp_http_client_fetch_headers(c);
 
-    if (esp_http_client_get_status_code(c) != 200) {
+    int status = esp_http_client_get_status_code(c);
+    if (status != 200) {
+        ESP_LOGW(TAG, "HTTP status %d for %s", status, url);
         esp_http_client_close(c);
         esp_http_client_cleanup(c);
         free(buf);
@@ -167,11 +177,59 @@ static char *fetch_small_json(const char *url, size_t max_len)
             return NULL;
         }
     }
+    if (r < 0) {
+        ESP_LOGW(TAG, "HTTP read failed for %s", url);
+        esp_http_client_close(c);
+        esp_http_client_cleanup(c);
+        free(buf);
+        return NULL;
+    }
     buf[len] = '\0';
 
     esp_http_client_close(c);
     esp_http_client_cleanup(c);
     return buf;
+}
+
+static bool gcs_https_to_http(const char *url, char *out, size_t out_len)
+{
+    static const char *prefix = "https://storage.googleapis.com/";
+    if (strncmp(url, prefix, strlen(prefix)) != 0) {
+        return false;
+    }
+
+    snprintf(out, out_len, "http://storage.googleapis.com/%s", url + strlen(prefix));
+    return true;
+}
+
+static char *fetch_small_json(const char *url, size_t max_len)
+{
+    char http_url[320];
+    bool has_http_fallback = gcs_https_to_http(url, http_url, sizeof(http_url));
+
+    const char *candidates[2] = { url, http_url };
+    size_t candidate_count = has_http_fallback ? 2 : 1;
+
+    for (size_t c = 0; c < candidate_count; c++) {
+        const char *candidate = candidates[c];
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            char *buf = fetch_small_json_once(candidate, max_len);
+            if (buf) {
+                return buf;
+            }
+
+            if (attempt < 3) {
+                ESP_LOGW(TAG, "Retrying %s (attempt %d/3)", candidate, attempt + 1);
+                vTaskDelay(pdMS_TO_TICKS(300));
+            }
+        }
+
+        if (c == 0 && has_http_fallback) {
+            ESP_LOGW(TAG, "HTTPS fetch failed for %s, retrying over HTTP", url);
+        }
+    }
+
+    return NULL;
 }
 
 static void build_rss_url_from_id(const char *pid, char *out, size_t out_len)
@@ -196,7 +254,7 @@ static esp_err_t load_top_podcasts_from_cloud(void)
     s_count = 0;
 
     ESP_LOGI(TAG, "Fetching popular-podcasts snapshot...");
-    char *pop_json = fetch_small_json(GCS_POPULAR_URL, 65536);
+    char *pop_json = fetch_small_json(GCS_POPULAR_URL, GCS_POPULAR_MAX_JSON);
     if (!pop_json) {
         ESP_LOGE(TAG, "Could not fetch popular-podcasts.json");
         return ESP_FAIL;
@@ -263,7 +321,7 @@ static esp_err_t load_top_podcasts_from_cloud(void)
     ESP_LOGI(TAG, "Loaded %zu popular podcasts", s_count);
 
     /* Load the newest 20 podcasts from cloud index (newest first). */
-    char *new_json = fetch_small_json(GCS_NEW_URL, 32768);
+    char *new_json = fetch_small_json(GCS_NEW_URL, GCS_NEW_MAX_JSON);
     if (new_json) {
         cJSON *new_root = cJSON_Parse(new_json);
         free(new_json);
@@ -370,9 +428,9 @@ podcast_t *podcast_index_random(void)
 /* ── Episode fetcher (downloads individual RSS feed) ───────────────── */
 
 #define MAX_RECENT_EPISODES 6
-#define EPISODE_FETCH_INITIAL_CAP 8192
-#define EPISODE_FETCH_GROWTH 4096
-#define EPISODE_FETCH_MAX_CAP 16384
+#define EPISODE_FETCH_INITIAL_CAP 4096
+#define EPISODE_FETCH_GROWTH 2048
+#define EPISODE_FETCH_MAX_CAP 8192
 
 static esp_err_t parse_rss_episodes(const char *xml, podcast_t *podcast)
 {
@@ -450,12 +508,16 @@ static size_t count_tag_occurrences(const char *buf, const char *tag)
 
 static esp_err_t fetch_episode_feed_prefix(const char *url, http_buf_t *buf)
 {
-    char chunk[2048];
+    char chunk[1024];
     static const char *item_close_tag = "</item>";
+    static const char *item_open_tag = "<item>";
+    bool started_items = false;
+    char carry[8] = {0};
+    size_t carry_len = 0;
 
     esp_http_client_config_t cfg = {
         .url = url,
-        .timeout_ms = 15000,
+        .timeout_ms = 10000,
         .buffer_size = sizeof(chunk),
         .crt_bundle_attach = esp_crt_bundle_attach,
     };
@@ -490,7 +552,35 @@ static esp_err_t fetch_episode_feed_prefix(const char *url, http_buf_t *buf)
             break;
         }
 
-        size_t needed = buf->len + (size_t)read_len + 1;
+        const char *write_ptr = chunk;
+        size_t write_len = (size_t)read_len;
+
+        if (!started_items) {
+            char scan[sizeof(carry) + sizeof(chunk)];
+            memcpy(scan, carry, carry_len);
+            memcpy(scan + carry_len, chunk, (size_t)read_len);
+            size_t scan_len = carry_len + (size_t)read_len;
+
+            char *item_start = strstr(scan, item_open_tag);
+            if (!item_start) {
+                if (scan_len >= sizeof(carry) - 1) {
+                    carry_len = sizeof(carry) - 1;
+                    memcpy(carry, scan + scan_len - carry_len, carry_len);
+                } else {
+                    carry_len = scan_len;
+                    memcpy(carry, scan, carry_len);
+                }
+                vTaskDelay(pdMS_TO_TICKS(2));
+                continue;
+            }
+
+            started_items = true;
+            write_ptr = item_start;
+            write_len = scan_len - (size_t)(item_start - scan);
+            carry_len = 0;
+        }
+
+        size_t needed = buf->len + write_len + 1;
         if (needed > buf->cap) {
             size_t new_cap = buf->cap + EPISODE_FETCH_GROWTH;
             while (new_cap < needed) {
@@ -513,8 +603,8 @@ static esp_err_t fetch_episode_feed_prefix(const char *url, http_buf_t *buf)
             buf->cap = new_cap;
         }
 
-        memcpy(buf->buf + buf->len, chunk, (size_t)read_len);
-        buf->len += (size_t)read_len;
+        memcpy(buf->buf + buf->len, write_ptr, write_len);
+        buf->len += write_len;
         buf->buf[buf->len] = '\0';
 
         if (count_tag_occurrences(buf->buf, item_close_tag) >= MAX_RECENT_EPISODES) {
@@ -522,7 +612,7 @@ static esp_err_t fetch_episode_feed_prefix(const char *url, http_buf_t *buf)
             break;
         }
 
-        vTaskDelay(pdMS_TO_TICKS(1));
+        vTaskDelay(pdMS_TO_TICKS(2));
     }
 
     esp_http_client_close(client);

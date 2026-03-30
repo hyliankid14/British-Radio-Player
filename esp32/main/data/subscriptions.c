@@ -9,8 +9,8 @@
 
 static const char *TAG = "subscriptions";
 
-#define SUBS_JSON_FILE BSP_SD_MOUNT_POINT "/subscriptions.json"
 #define SUBS_IDS_FILE BSP_SD_MOUNT_POINT "/subscriptions.txt"
+#define SUBS_IDS_FILE_ALT BSP_SD_MOUNT_POINT "/esp32/subscriptions.txt"
 
 static subscribed_podcast_t s_subs[SUBSCRIPTIONS_MAX];
 static podcast_t            s_sub_podcasts[SUBSCRIPTIONS_MAX];
@@ -117,12 +117,14 @@ static void trim_line(char *line)
     }
 }
 
-static esp_err_t load_subscriptions_from_ids(void)
+static esp_err_t load_subscriptions_from_ids_path(const char *path)
 {
-    FILE *f = fopen(SUBS_IDS_FILE, "r");
+    FILE *f = fopen(path, "r");
     if (!f) {
         return ESP_ERR_NOT_FOUND;
     }
+
+    ESP_LOGI(TAG, "Loading subscriptions from %s", path);
 
     char line[128];
     while (fgets(line, sizeof(line), f)) {
@@ -143,57 +145,24 @@ static esp_err_t load_subscriptions_from_ids(void)
     return ESP_OK;
 }
 
-static esp_err_t load_subscriptions_from_json(void)
+static esp_err_t load_subscriptions_from_ids(void)
 {
-    FILE *f = fopen(SUBS_JSON_FILE, "r");
-    if (!f) {
-        return ESP_ERR_NOT_FOUND;
+    static const char *paths[] = {
+        SUBS_IDS_FILE,
+        SUBS_IDS_FILE_ALT,
+    };
+
+    esp_err_t first_error = ESP_ERR_NOT_FOUND;
+    for (size_t i = 0; i < sizeof(paths) / sizeof(paths[0]); i++) {
+        esp_err_t ret = load_subscriptions_from_ids_path(paths[i]);
+        if (ret == ESP_OK) {
+            return ESP_OK;
+        }
+        if (ret != ESP_ERR_NOT_FOUND && first_error == ESP_ERR_NOT_FOUND) {
+            first_error = ret;
+        }
     }
-
-    fseek(f, 0, SEEK_END);
-    long fsize = ftell(f);
-    rewind(f);
-
-    char *buf = malloc(fsize + 1);
-    if (!buf) {
-        fclose(f);
-        return ESP_ERR_NO_MEM;
-    }
-
-    fread(buf, 1, fsize, f);
-    buf[fsize] = '\0';
-    fclose(f);
-
-    cJSON *root = cJSON_Parse(buf);
-    free(buf);
-
-    if (!root) {
-        ESP_LOGE(TAG, "Invalid JSON in subscriptions.json");
-        return ESP_FAIL;
-    }
-
-    cJSON *arr = cJSON_GetObjectItemCaseSensitive(root, "subscribed");
-    if (!arr || !cJSON_IsArray(arr)) {
-        ESP_LOGW(TAG, "subscriptions.json missing 'subscribed' array");
-        cJSON_Delete(root);
-        return ESP_OK;
-    }
-
-    cJSON *item;
-    cJSON_ArrayForEach(item, arr) {
-        cJSON *jid  = cJSON_GetObjectItemCaseSensitive(item, "id");
-        cJSON *jtit = cJSON_GetObjectItemCaseSensitive(item, "title");
-        cJSON *jrss = cJSON_GetObjectItemCaseSensitive(item, "rss_url");
-
-        add_subscription(
-            cJSON_IsString(jid) ? jid->valuestring : NULL,
-            cJSON_IsString(jtit) ? jtit->valuestring : NULL,
-            cJSON_IsString(jrss) ? jrss->valuestring : NULL
-        );
-    }
-
-    cJSON_Delete(root);
-    return ESP_OK;
+    return first_error;
 }
 
 esp_err_t subscriptions_load(void)
@@ -209,21 +178,12 @@ esp_err_t subscriptions_load(void)
 
     esp_err_t ids_ret = load_subscriptions_from_ids();
     if (ids_ret == ESP_OK) {
-        ESP_LOGI(TAG, "Loaded subscriptions from subscriptions.txt");
-    } else if (ids_ret != ESP_ERR_NOT_FOUND) {
-        return ids_ret;
-    }
-
-    esp_err_t json_ret = load_subscriptions_from_json();
-    if (json_ret == ESP_OK) {
-        ESP_LOGI(TAG, "Loaded subscriptions from subscriptions.json");
-    } else if (json_ret != ESP_ERR_NOT_FOUND) {
-        return json_ret;
-    }
-
-    if (ids_ret == ESP_ERR_NOT_FOUND && json_ret == ESP_ERR_NOT_FOUND) {
-        ESP_LOGI(TAG, "No subscriptions.txt or subscriptions.json found on TF card");
+        ESP_LOGI(TAG, "Loaded subscriptions from text file");
+    } else if (ids_ret == ESP_ERR_NOT_FOUND) {
+        ESP_LOGI(TAG, "No subscriptions.txt found on TF card");
         return ESP_OK;
+    } else {
+        return ids_ret;
     }
 
     ESP_LOGI(TAG, "Loaded %zu subscriptions", s_count);

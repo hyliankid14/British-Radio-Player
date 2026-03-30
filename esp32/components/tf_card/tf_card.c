@@ -1,11 +1,58 @@
 #include "tf_card.h"
 #include "driver/sdmmc_host.h"
+#include "driver/sdspi_host.h"
+#include "driver/spi_master.h"
 #include "sdmmc_cmd.h"
 #include "esp_vfs_fat.h"
 #include "esp_log.h"
 
 static const char *TAG    = "tf_card";
 static bool        s_mounted = false;
+static bool        s_spi_bus_inited = false;
+
+static esp_err_t mount_via_sdspi(const esp_vfs_fat_sdmmc_mount_config_t *mount_cfg)
+{
+    sdmmc_host_t host = SDSPI_HOST_DEFAULT();
+    host.slot = SPI3_HOST;
+
+    ESP_LOGI(TAG, "Trying SDSPI fallback on host SPI3 (MOSI=%d MISO=%d SCK=%d CS=%d)",
+             BSP_SD_SPI_MOSI, BSP_SD_SPI_MISO, BSP_SD_SPI_SCK, BSP_SD_SPI_CS);
+
+    spi_bus_config_t bus_cfg = {
+        .mosi_io_num = BSP_SD_SPI_MOSI,
+        .miso_io_num = BSP_SD_SPI_MISO,
+        .sclk_io_num = BSP_SD_SPI_SCK,
+        .quadwp_io_num = -1,
+        .quadhd_io_num = -1,
+        .max_transfer_sz = 4000,
+    };
+
+    if (!s_spi_bus_inited) {
+        esp_err_t bus_ret = spi_bus_initialize(host.slot, &bus_cfg, SDSPI_DEFAULT_DMA);
+        if (bus_ret != ESP_OK && bus_ret != ESP_ERR_INVALID_STATE) {
+            ESP_LOGW(TAG, "SDSPI bus init failed (0x%x)", bus_ret);
+            return bus_ret;
+        }
+        s_spi_bus_inited = true;
+    }
+
+    sdspi_device_config_t slot_cfg = SDSPI_DEVICE_CONFIG_DEFAULT();
+    slot_cfg.gpio_cs = BSP_SD_SPI_CS;
+    slot_cfg.host_id = host.slot;
+
+    sdmmc_card_t *card = NULL;
+    esp_err_t ret = esp_vfs_fat_sdspi_mount(BSP_SD_MOUNT_POINT, &host, &slot_cfg,
+                                            mount_cfg, &card);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    s_mounted = true;
+    ESP_LOGI(TAG, "TF card mounted via SDSPI at %s (%.1f MB)",
+             BSP_SD_MOUNT_POINT,
+             (float)((uint64_t)card->csd.capacity * card->csd.sector_size) / (1024 * 1024));
+    return ESP_OK;
+}
 
 esp_err_t tf_card_mount(void)
 {
@@ -31,15 +78,22 @@ esp_err_t tf_card_mount(void)
     sdmmc_card_t *card;
     esp_err_t ret = esp_vfs_fat_sdmmc_mount(BSP_SD_MOUNT_POINT, &host, &slot_cfg,
                                              &mount_cfg, &card);
-    if (ret != ESP_OK) {
-        ESP_LOGW(TAG, "TF card mount failed (0x%x) — continuing without card", ret);
+    if (ret == ESP_OK) {
+        s_mounted = true;
+        ESP_LOGI(TAG, "TF card mounted via SDMMC at %s (%.1f MB)",
+                 BSP_SD_MOUNT_POINT,
+                 (float)((uint64_t)card->csd.capacity * card->csd.sector_size) / (1024 * 1024));
+        return ESP_OK;
+    }
+
+    ESP_LOGW(TAG, "SDMMC mount failed (0x%x), trying SDSPI fallback", ret);
+    esp_err_t spi_ret = mount_via_sdspi(&mount_cfg);
+    if (spi_ret != ESP_OK) {
+        ESP_LOGW(TAG, "TF card mount failed (SDMMC=0x%x, SDSPI=0x%x) — continuing without card",
+                 ret, spi_ret);
         return ESP_OK;   /* non-fatal */
     }
 
-    s_mounted = true;
-    ESP_LOGI(TAG, "TF card mounted at %s (%.1f MB)",
-             BSP_SD_MOUNT_POINT,
-             (float)((uint64_t)card->csd.capacity * card->csd.sector_size) / (1024 * 1024));
     return ESP_OK;
 }
 

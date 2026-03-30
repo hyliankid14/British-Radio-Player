@@ -12,17 +12,6 @@
  *   b006qnmr
  *   p02nq0lx
  * Blank lines and lines starting with # are ignored.
- *
- * The file /sdcard/subscriptions.json has the format:
- *   {
- *     "subscribed": [
- *       { "id": "p01234567", "title": "My Podcast",
- *         "rss_url": "https://feeds.bbci.co.uk/..." }
- *     ]
- *   }
- *
- * To subscribe to a podcast, add its entry to that file manually or via
- * a companion tool (e.g. the Android/iOS app's export feature).
  */
 
 #define SUBSCRIPTIONS_MAX  50

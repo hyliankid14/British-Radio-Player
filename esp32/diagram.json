@@ -57,6 +57,13 @@
       "top": 330,
       "left": 230,
       "attrs": { "volume": "1", "mode": "smooth" }
+    },
+    {
+      "type": "wokwi-microsd-card",
+      "id": "sd",
+      "top": 330,
+      "left": 320,
+      "attrs": {}
     }
   ],
   "connections": [
@@ -77,6 +84,13 @@
     ["btn_boot:2.r",  "esp:GND.4", "black", []],
 
     ["buzz:2",        "esp:3",     "purple", []],
-    ["buzz:1",        "esp:GND.4", "black",  []]
+    ["buzz:1",        "esp:GND.4", "black",  []],
+
+    ["sd:DI",         "esp:15",    "green",  []],
+    ["sd:DO",         "esp:17",    "blue",   []],
+    ["sd:SCK",        "esp:16",    "orange", []],
+    ["sd:CS",         "esp:14",    "yellow", []],
+    ["sd:VCC",        "esp:3V3",   "red",    []],
+    ["sd:GND",        "esp:GND.1", "black",  []]
   ]
 }
