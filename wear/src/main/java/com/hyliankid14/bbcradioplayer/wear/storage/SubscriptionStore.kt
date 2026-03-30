@@ -12,10 +12,7 @@ class SubscriptionStore(context: Context) {
         syncStateFromPrefs()
     }
 
-    fun getSubscribedIds(): Set<String> {
-        syncStateFromPrefs()
-        return subscribedIdsState.value
-    }
+    fun getSubscribedIds(): Set<String> = subscribedIdsState.value
 
     fun replaceAll(ids: Set<String>) {
         prefs.edit()

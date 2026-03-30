@@ -14,20 +14,11 @@ class EpisodeSyncStore(context: Context) {
         syncStateFromPrefs()
     }
 
-    fun getPlayedEpisodeIds(): Set<String> {
-        syncStateFromPrefs()
-        return playedIdsState.value
-    }
+    fun getPlayedEpisodeIds(): Set<String> = playedIdsState.value
 
-    fun getProgressMap(): Map<String, Long> {
-        syncStateFromPrefs()
-        return progressMapState.value
-    }
+    fun getProgressMap(): Map<String, Long> = progressMapState.value
 
-    fun getHistoryEpisodeIds(): List<String> {
-        syncStateFromPrefs()
-        return historyIdsState.value
-    }
+    fun getHistoryEpisodeIds(): List<String> = historyIdsState.value
 
     fun getProgress(episodeId: String): Long = getProgressMap()[episodeId] ?: 0L
 

@@ -516,9 +516,10 @@ private fun StationListScreen(
     }
 }
 
+private val NumericSyntheticIdRegex = Regex("^-?\\d{6,}$")
+
 private fun looksLikeNumericSyntheticId(id: String): Boolean {
-    val trimmed = id.trim()
-    return Regex("^-?\\d{6,}$").matches(trimmed)
+    return NumericSyntheticIdRegex.matches(id.trim())
 }
 
 @Composable

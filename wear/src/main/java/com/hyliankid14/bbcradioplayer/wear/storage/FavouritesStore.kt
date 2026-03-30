@@ -12,15 +12,9 @@ class FavouritesStore(context: Context) {
         syncStateFromPrefs()
     }
 
-    fun getFavouriteIds(): Set<String> {
-        syncStateFromPrefs()
-        return favouriteIdsState.value
-    }
+    fun getFavouriteIds(): Set<String> = favouriteIdsState.value
 
-    fun getFavouriteOrder(): List<String> {
-        syncStateFromPrefs()
-        return favouriteOrderState.value
-    }
+    fun getFavouriteOrder(): List<String> = favouriteOrderState.value
 
     fun toggle(stationId: String): Set<String> {
         val updated = getFavouriteIds().toMutableSet()

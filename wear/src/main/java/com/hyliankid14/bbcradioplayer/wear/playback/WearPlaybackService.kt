@@ -18,14 +18,17 @@ import android.support.v4.media.MediaDescriptionCompat
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
-import com.google.android.exoplayer2.ExoPlayer
-import com.google.android.exoplayer2.MediaItem
-import com.google.android.exoplayer2.PlaybackException
-import com.google.android.exoplayer2.Player
-import com.google.android.exoplayer2.audio.AudioAttributes
-import com.google.android.exoplayer2.source.DefaultMediaSourceFactory
-import com.google.android.exoplayer2.upstream.DefaultDataSource
-import com.google.android.exoplayer2.upstream.DefaultHttpDataSource
+import androidx.annotation.OptIn
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.hyliankid14.bbcradioplayer.wear.MainActivity
 import com.hyliankid14.bbcradioplayer.wear.R
 import com.hyliankid14.bbcradioplayer.wear.WatchAppStateSync
@@ -38,7 +41,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -47,6 +52,7 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
+@OptIn(UnstableApi::class)
 class WearPlaybackService : MediaBrowserServiceCompat() {
     private lateinit var player: ExoPlayer
     private lateinit var mediaSession: MediaSessionCompat
@@ -72,6 +78,7 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
     private var currentServiceId: String? = null
     private var lastProgressSyncAtMs = 0L
     private var lastSavedPositionMs = 0L
+    private var lastFullNotificationUpdateMs = 0L
     private var liveMetadataJob: Job? = null
     private var stationAnalyticsJob: Job? = null
     private var episodeAnalyticsJob: Job? = null
@@ -152,8 +159,8 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
             .build().apply {
             setAudioAttributes(
                 AudioAttributes.Builder()
-                    .setContentType(com.google.android.exoplayer2.C.AUDIO_CONTENT_TYPE_MUSIC)
-                    .setUsage(com.google.android.exoplayer2.C.USAGE_MEDIA)
+                    .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+                    .setUsage(C.USAGE_MEDIA)
                     .build(),
                 true
             )
@@ -182,7 +189,7 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
                     refreshSessionAndNotification()
                 }
 
-                override fun onMediaMetadataChanged(mediaMetadata: com.google.android.exoplayer2.MediaMetadata) {
+                override fun onMediaMetadataChanged(mediaMetadata: androidx.media3.common.MediaMetadata) {
                     if (!currentIsLive) return
                     val titleFromStream = mediaMetadata.title?.toString().orEmpty().trim()
                     if (titleFromStream.isNotBlank() && titleFromStream != currentTitle) {
@@ -370,6 +377,7 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
         currentServiceId = null
         lastProgressSyncAtMs = 0L
         lastSavedPositionMs = 0L
+        lastFullNotificationUpdateMs = 0L
         stopLiveMetadataPolling()
         stationAnalyticsJob?.cancel()
         episodeAnalyticsJob?.cancel()
@@ -391,8 +399,20 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
         persistEpisodeState(force = false)
         mediaSession.setMetadata(buildMetadata())
         mediaSession.setPlaybackState(buildPlaybackState(state))
-        val notification = buildNotification(state)
-        startForeground(NOTIFICATION_ID, notification)
+        startForeground(NOTIFICATION_ID, buildNotification(state))
+        lastFullNotificationUpdateMs = System.currentTimeMillis()
+    }
+
+    private fun tickProgressLightly() {
+        val state = publishState()
+        mediaSession.setPlaybackState(buildPlaybackState(state))
+        val now = System.currentTimeMillis()
+        if (now - lastFullNotificationUpdateMs >= NOTIFICATION_UPDATE_INTERVAL_MS) {
+            lastFullNotificationUpdateMs = now
+            persistEpisodeState(force = false)
+            mediaSession.setMetadata(buildMetadata())
+            startForeground(NOTIFICATION_ID, buildNotification(state))
+        }
     }
 
     private fun updateProgressTicker() {
@@ -407,7 +427,7 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
         }
         progressTickerJob = serviceScope.launch {
             while (isActive && !currentIsLive && player.currentMediaItem != null && player.isPlaying) {
-                refreshSessionAndNotification()
+                tickProgressLightly()
                 delay(1_000L)
             }
         }
@@ -440,20 +460,7 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
         val now = System.currentTimeMillis()
         val progressedEnough = kotlin.math.abs(positionMs - lastSavedPositionMs) >= PROGRESS_SYNC_MIN_DELTA_MS
         val dueForSync = now - lastProgressSyncAtMs >= PROGRESS_SYNC_INTERVAL_MS
-
-        // Keep history metadata fresh so the phone can render correct duration/progress indicators.
-        episodeSyncStore.addHistoryWithMeta(
-            episodeId = episodeId,
-            title = currentTitle,
-            description = currentEpisodeDescription,
-            imageUrl = currentArtwork.orEmpty(),
-            audioUrl = currentEpisodeAudioUrl,
-            pubDate = currentEpisodePubDate,
-            durationMins = durationMins,
-            podcastId = currentPodcastId.orEmpty(),
-            podcastTitle = currentSubtitle,
-            playedAtMs = currentEpisodeStartedAtMs.takeIf { it > 0L } ?: now
-        )
+        val playedAtMs = currentEpisodeStartedAtMs.takeIf { it > 0L } ?: now
 
         if (durationMs > 0L && positionMs >= durationMs - PLAYED_COMPLETION_THRESHOLD_MS) {
             episodeSyncStore.markPlayedWithMeta(
@@ -466,12 +473,24 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
                 durationMins = durationMins,
                 podcastId = currentPodcastId.orEmpty(),
                 podcastTitle = currentSubtitle,
-                playedAtMs = currentEpisodeStartedAtMs.takeIf { it > 0L } ?: now
+                playedAtMs = playedAtMs
             )
         } else if (positionMs > 0L && (force || progressedEnough || dueForSync)) {
+            episodeSyncStore.addHistoryWithMeta(
+                episodeId = episodeId,
+                title = currentTitle,
+                description = currentEpisodeDescription,
+                imageUrl = currentArtwork.orEmpty(),
+                audioUrl = currentEpisodeAudioUrl,
+                pubDate = currentEpisodePubDate,
+                durationMins = durationMins,
+                podcastId = currentPodcastId.orEmpty(),
+                podcastTitle = currentSubtitle,
+                playedAtMs = playedAtMs
+            )
             episodeSyncStore.setProgress(episodeId, positionMs)
             lastSavedPositionMs = positionMs
-        } else if (!force) {
+        } else {
             return
         }
 
@@ -618,9 +637,11 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
         liveMetadataJob = null
     }
 
-    private fun fetchLiveNowPlayingUpdate(serviceId: String): LiveNowPlayingUpdate? {
-        val schedule = fetchCurrentScheduleShow(serviceId)
-        val segment = fetchCurrentSegment(serviceId)
+    private suspend fun fetchLiveNowPlayingUpdate(serviceId: String): LiveNowPlayingUpdate? = coroutineScope {
+        val scheduleDeferred = async { fetchCurrentScheduleShow(serviceId) }
+        val segmentDeferred = async { fetchCurrentSegment(serviceId) }
+        val schedule = scheduleDeferred.await()
+        val segment = segmentDeferred.await()
 
         val showName = schedule?.title.orEmpty().ifBlank { currentTitle }
         val showDetail = schedule?.detail.orEmpty()
@@ -636,7 +657,7 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
             showDetail.ifBlank { showName.ifBlank { "On air now" } }
         }
         val artwork = normaliseUrl(segment?.imageUrl ?: schedule?.imageUrl)
-        return LiveNowPlayingUpdate(title = title, subtitle = subtitle, artworkUrl = artwork)
+        LiveNowPlayingUpdate(title = title, subtitle = subtitle, artworkUrl = artwork)
     }
 
     private fun fetchCurrentScheduleShow(serviceId: String): ScheduleShow? {
@@ -872,6 +893,7 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
         private const val PROGRESS_SYNC_MIN_DELTA_MS = 10_000L
         private const val PLAYED_COMPLETION_THRESHOLD_MS = 15_000L
         private const val ANALYTICS_MIN_PLAY_MS = 10_001L
+        private const val NOTIFICATION_UPDATE_INTERVAL_MS = 5_000L
         private const val LIVE_METADATA_POLL_MS = 45_000L
         private const val TAG = "WearPlaybackService"
     }
