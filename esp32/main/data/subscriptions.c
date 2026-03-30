@@ -5,18 +5,26 @@
 #include <ctype.h>
 #include <string.h>
 #include <stdlib.h>
+#include <dirent.h>
+#include <sys/stat.h>
 
 static const char *TAG = "subscriptions";
 
 #define SUBS_IDS_FILE BSP_SD_MOUNT_POINT "/subscriptions.txt"
 #define SUBS_IDS_FILE_ALT BSP_SD_MOUNT_POINT "/esp32/subscriptions.txt"
+#define SUBS_IDS_FILE_MAIN BSP_SD_MOUNT_POINT "/main/subscriptions.txt"
+#define SUBS_IDS_FILE_ESP32_MAIN BSP_SD_MOUNT_POINT "/esp32/main/subscriptions.txt"
+
+#define SUBS_LOCAL_FILE "subscriptions.txt"
+#define SUBS_LOCAL_FILE_MAIN "main/subscriptions.txt"
+#define SUBS_LOCAL_FILE_ESP32 "esp32/subscriptions.txt"
+#define SUBS_LOCAL_FILE_ESP32_MAIN "esp32/main/subscriptions.txt"
+
+#define SUBS_DISCOVERY_MAX_DEPTH 4
 
 static subscribed_podcast_t s_subs[SUBSCRIPTIONS_MAX];
 static podcast_t            s_sub_podcasts[SUBSCRIPTIONS_MAX];
 static size_t               s_count = 0;
-
-extern const char _binary_subscriptions_txt_start[];
-extern const char _binary_subscriptions_txt_end[];
 
 static bool is_valid_bbc_pid(const char *pid)
 {
@@ -119,6 +127,53 @@ static void trim_line(char *line)
     }
 }
 
+static bool find_subscriptions_file_recursive(const char *dir_path, char *out_path, size_t out_len, int depth)
+{
+    if (!dir_path || !out_path || out_len == 0 || depth > SUBS_DISCOVERY_MAX_DEPTH) {
+        return false;
+    }
+
+    DIR *dir = opendir(dir_path);
+    if (!dir) {
+        return false;
+    }
+
+    struct dirent *entry = NULL;
+    while ((entry = readdir(dir)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+
+        char full_path[256];
+        int n = snprintf(full_path, sizeof(full_path), "%s/%s", dir_path, entry->d_name);
+        if (n <= 0 || (size_t)n >= sizeof(full_path)) {
+            continue;
+        }
+
+        struct stat st;
+        if (stat(full_path, &st) != 0) {
+            continue;
+        }
+
+        if (S_ISREG(st.st_mode) && strcmp(entry->d_name, "subscriptions.txt") == 0) {
+            strncpy(out_path, full_path, out_len - 1);
+            out_path[out_len - 1] = '\0';
+            closedir(dir);
+            return true;
+        }
+
+        if (S_ISDIR(st.st_mode)) {
+            if (find_subscriptions_file_recursive(full_path, out_path, out_len, depth + 1)) {
+                closedir(dir);
+                return true;
+            }
+        }
+    }
+
+    closedir(dir);
+    return false;
+}
+
 static esp_err_t load_subscriptions_from_ids_path(const char *path)
 {
     FILE *f = fopen(path, "r");
@@ -147,53 +202,17 @@ static esp_err_t load_subscriptions_from_ids_path(const char *path)
     return ESP_OK;
 }
 
-static esp_err_t load_subscriptions_from_embedded(void)
-{
-    const char *start = _binary_subscriptions_txt_start;
-    const char *end = _binary_subscriptions_txt_end;
-    if (!start || !end || end <= start) {
-        return ESP_ERR_NOT_FOUND;
-    }
-
-    ESP_LOGI(TAG, "Loading subscriptions from embedded subscriptions.txt");
-
-    size_t len = (size_t)(end - start);
-    char *buf = malloc(len + 1);
-    if (!buf) {
-        return ESP_ERR_NO_MEM;
-    }
-    memcpy(buf, start, len);
-    buf[len] = '\0';
-
-    char *saveptr = NULL;
-    char *line = strtok_r(buf, "\r\n", &saveptr);
-    while (line) {
-        char local[128];
-        strncpy(local, line, sizeof(local) - 1);
-        local[sizeof(local) - 1] = '\0';
-
-        char *comment = strchr(local, '#');
-        if (comment) {
-            *comment = '\0';
-        }
-
-        trim_line(local);
-        if (local[0] != '\0') {
-            add_subscription(local, NULL, NULL);
-        }
-
-        line = strtok_r(NULL, "\r\n", &saveptr);
-    }
-
-    free(buf);
-    return ESP_OK;
-}
-
 static esp_err_t load_subscriptions_from_ids(void)
 {
     static const char *paths[] = {
         SUBS_IDS_FILE,
+        SUBS_IDS_FILE_MAIN,
         SUBS_IDS_FILE_ALT,
+        SUBS_IDS_FILE_ESP32_MAIN,
+        SUBS_LOCAL_FILE,
+        SUBS_LOCAL_FILE_MAIN,
+        SUBS_LOCAL_FILE_ESP32,
+        SUBS_LOCAL_FILE_ESP32_MAIN,
     };
 
     esp_err_t first_error = ESP_ERR_NOT_FOUND;
@@ -206,6 +225,15 @@ static esp_err_t load_subscriptions_from_ids(void)
             first_error = ret;
         }
     }
+
+    if (tf_card_is_mounted()) {
+        char discovered_path[256] = {0};
+        if (find_subscriptions_file_recursive(BSP_SD_MOUNT_POINT, discovered_path, sizeof(discovered_path), 0)) {
+            ESP_LOGI(TAG, "Discovered subscriptions file at %s", discovered_path);
+            return load_subscriptions_from_ids_path(discovered_path);
+        }
+    }
+
     return first_error;
 }
 
@@ -216,20 +244,18 @@ esp_err_t subscriptions_load(void)
     memset(s_sub_podcasts, 0, sizeof(s_sub_podcasts));
 
     if (!tf_card_is_mounted()) {
-        ESP_LOGW(TAG, "TF card not mounted — no subscriptions loaded");
-        return ESP_OK;
+        ESP_LOGW(TAG, "TF card not mounted at subscriptions load; retrying mount");
+        tf_card_mount();
+        if (!tf_card_is_mounted()) {
+            ESP_LOGW(TAG, "TF card still not mounted; trying simulator-local subscriptions paths");
+        }
     }
 
     esp_err_t ids_ret = load_subscriptions_from_ids();
     if (ids_ret == ESP_OK) {
         ESP_LOGI(TAG, "Loaded subscriptions from text file");
     } else if (ids_ret == ESP_ERR_NOT_FOUND) {
-        ESP_LOGI(TAG, "No subscriptions.txt found on TF card");
-        esp_err_t emb_ret = load_subscriptions_from_embedded();
-        if (emb_ret == ESP_OK) {
-            ESP_LOGI(TAG, "Loaded %zu subscriptions", s_count);
-            return ESP_OK;
-        }
+        ESP_LOGI(TAG, "No subscriptions.txt found on TF card (checked known paths and recursive discovery)");
         return ESP_OK;
     } else {
         return ids_ret;

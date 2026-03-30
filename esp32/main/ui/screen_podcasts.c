@@ -135,9 +135,15 @@ static void populate_popular_list(lv_obj_t *list)
 
 static void populate_subscribed_list(lv_obj_t *list)
 {
+    esp_err_t sub_ret = subscriptions_load();
+    if (sub_ret != ESP_OK) {
+        ESP_LOGW(TAG, "subscriptions_load failed: %s", esp_err_to_name(sub_ret));
+    }
+
     size_t count = subscriptions_count();
     if (count == 0) {
         add_info_row(list, "No subscriptions found");
+        add_info_row(list, "Wokwi may not have copied subscriptions.txt to the SD card");
         return;
     }
 

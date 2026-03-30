@@ -64,6 +64,7 @@ may take several minutes.
 > - WiFi connection + HTTP fetching (BBC OPML, GCS rankings)
 > - Station list (all 16 stations shown; select plays an audible tone)
 > - Podcast browsing (Popular / Subscribed / New tabs)
+> - Subscriptions from simulated TF card text file (`subscriptions.txt`)
 > - Button navigation
 > - Audible buzzer output for playback feedback
 >
@@ -105,6 +106,12 @@ p02nq0lx
 ```
 
 Insert the card before powering on.
+
+For Wokwi simulation, place the file in the project as `esp32/subscriptions.txt`
+(or `esp32/main/subscriptions.txt`). If the firmware still reports that no
+subscriptions file was found, open the Wokwi simulator's SD Card contents and
+ensure `subscriptions.txt` is present there as well, because some local VS Code
+simulator runs do not expose workspace files on the SD card automatically.
 
 The older JSON format is still supported as `/subscriptions.json`:
 

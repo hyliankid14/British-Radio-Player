@@ -48,6 +48,4 @@ idf_component_register(
         "shake"
     REQUIRES
         ${main_requires}
-    EMBED_TXTFILES
-        "subscriptions.txt"
 )
