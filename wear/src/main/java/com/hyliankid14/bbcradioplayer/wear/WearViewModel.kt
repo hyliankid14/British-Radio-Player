@@ -85,6 +85,7 @@ class WearViewModel(application: Application) : AndroidViewModel(application) {
     private var refreshingUpdatedHints = false
     private var refreshingPodcasts = false
     private val stationShowsInFlight = mutableSetOf<String>()
+    private val stationLiveFetchedAtMap = mutableMapOf<String, Long>()
 
     init {
         podcasts = podcastRepository.getCachedPodcasts()
@@ -160,12 +161,16 @@ class WearViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun prefetchStationShows(stations: List<Station>, limit: Int = 8) {
+    fun prefetchStationShows(stations: List<Station>, limit: Int = 8, forceRefresh: Boolean = false) {
         if (stations.isEmpty()) return
         val targets = stations
             .filter { station ->
                 station.serviceId.isNotBlank() &&
-                    (stationLiveTitleMap[station.id].isNullOrBlank()) &&
+                    (
+                        stationLiveTitleMap[station.id].isNullOrBlank() ||
+                            forceRefresh ||
+                            isStationLiveDataStale(station.id)
+                        ) &&
                     stationShowsInFlight.add(station.id)
             }
             .take(limit)
@@ -173,20 +178,25 @@ class WearViewModel(application: Application) : AndroidViewModel(application) {
         if (targets.isEmpty()) return
 
         viewModelScope.launch {
-            val updates = withContext(Dispatchers.IO) {
-                targets.associate { station ->
-                    station.id to fetchCurrentShow(station.serviceId)
+            val requestAtMs = System.currentTimeMillis()
+            val updates = try {
+                withContext(Dispatchers.IO) {
+                    targets.associate { station ->
+                        station.id to fetchCurrentShow(station.serviceId)
+                    }
                 }
+            } finally {
+                targets.forEach { stationShowsInFlight.remove(it.id) }
             }
             val titleUpdates = mutableMapOf<String, String>()
             val detailUpdates = mutableMapOf<String, String>()
             updates.forEach { (stationId, show) ->
-                stationShowsInFlight.remove(stationId)
                 if (show != null) {
                     titleUpdates[stationId] = show.title
                     if (show.detail.isNotBlank()) {
                         detailUpdates[stationId] = show.detail
                     }
+                    stationLiveFetchedAtMap[stationId] = requestAtMs
                 }
             }
             if (titleUpdates.isNotEmpty()) {
@@ -398,6 +408,11 @@ class WearViewModel(application: Application) : AndroidViewModel(application) {
         return runCatching { java.time.Instant.parse(rawIso).toEpochMilli() }.getOrDefault(0L)
     }
 
+    private fun isStationLiveDataStale(stationId: String): Boolean {
+        val fetchedAt = stationLiveFetchedAtMap[stationId] ?: return true
+        return (System.currentTimeMillis() - fetchedAt) >= STATION_LIVE_REFRESH_INTERVAL_MS
+    }
+
     private data class LiveShow(
         val title: String,
         val detail: String
@@ -407,5 +422,6 @@ class WearViewModel(application: Application) : AndroidViewModel(application) {
         private const val TAG = "WearViewModel"
         private const val MAX_HINT_REFRESH_COUNT = 10
         private const val HINT_REFRESH_BATCH_DELAY_MS = 200L
+        private const val STATION_LIVE_REFRESH_INTERVAL_MS = 120_000L
     }
 }

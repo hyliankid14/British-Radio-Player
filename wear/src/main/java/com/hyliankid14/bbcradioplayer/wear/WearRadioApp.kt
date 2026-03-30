@@ -125,12 +125,16 @@ fun WearRadioApp(viewModel: WearViewModel = viewModel()) {
                         favouriteStations + remainingFavouriteStations
                     }
                     LaunchedEffect(allFavourites) {
-                        viewModel.prefetchStationShows(allFavourites)
+                        while (true) {
+                            viewModel.prefetchStationShows(allFavourites, limit = 8)
+                            delay(STATION_SHOW_REFRESH_POLL_MS)
+                        }
                     }
                     StationListScreen(
                         title = "Favourites",
                         stations = allFavourites,
                         stationShowTitleMap = viewModel.stationLiveTitleMap,
+                        stationShowDetailMap = viewModel.stationLiveDetailMap,
                         onPlay = {
                             viewModel.playStation(it, allFavourites)
                             previousScreenBeforeNowPlaying = Screen.FAVOURITES
@@ -142,12 +146,16 @@ fun WearRadioApp(viewModel: WearViewModel = viewModel()) {
 
                 Screen.STATIONS_NATIONAL -> {
                     LaunchedEffect(nationalStations) {
-                        viewModel.prefetchStationShows(nationalStations, limit = 8)
+                        while (true) {
+                            viewModel.prefetchStationShows(nationalStations, limit = 8)
+                            delay(STATION_SHOW_REFRESH_POLL_MS)
+                        }
                     }
                     StationListScreen(
                         title = "National",
                         stations = nationalStations,
                         stationShowTitleMap = viewModel.stationLiveTitleMap,
+                        stationShowDetailMap = viewModel.stationLiveDetailMap,
                         onPlay = {
                             viewModel.playStation(it, nationalStations)
                             previousScreenBeforeNowPlaying = Screen.STATIONS_NATIONAL
@@ -159,12 +167,16 @@ fun WearRadioApp(viewModel: WearViewModel = viewModel()) {
 
                 Screen.STATIONS_REGIONS -> {
                     LaunchedEffect(regionalStations) {
-                        viewModel.prefetchStationShows(regionalStations, limit = 8)
+                        while (true) {
+                            viewModel.prefetchStationShows(regionalStations, limit = 8)
+                            delay(STATION_SHOW_REFRESH_POLL_MS)
+                        }
                     }
                     StationListScreen(
                         title = "Regions",
                         stations = regionalStations,
                         stationShowTitleMap = viewModel.stationLiveTitleMap,
+                        stationShowDetailMap = viewModel.stationLiveDetailMap,
                         onPlay = {
                             viewModel.playStation(it, regionalStations)
                             previousScreenBeforeNowPlaying = Screen.STATIONS_REGIONS
@@ -176,12 +188,16 @@ fun WearRadioApp(viewModel: WearViewModel = viewModel()) {
 
                 Screen.STATIONS_LOCAL -> {
                     LaunchedEffect(localStations) {
-                        viewModel.prefetchStationShows(localStations, limit = 8)
+                        while (true) {
+                            viewModel.prefetchStationShows(localStations, limit = 8)
+                            delay(STATION_SHOW_REFRESH_POLL_MS)
+                        }
                     }
                     StationListScreen(
                         title = "Local",
                         stations = localStations,
                         stationShowTitleMap = viewModel.stationLiveTitleMap,
+                        stationShowDetailMap = viewModel.stationLiveDetailMap,
                         onPlay = {
                             viewModel.playStation(it, localStations)
                             previousScreenBeforeNowPlaying = Screen.STATIONS_LOCAL
@@ -269,6 +285,7 @@ fun WearRadioApp(viewModel: WearViewModel = viewModel()) {
 
 private val ListContentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 20.dp, bottom = 14.dp)
 private val HeaderHorizontalSafePadding = 24.dp
+private const val STATION_SHOW_REFRESH_POLL_MS = 30_000L
 
 @Composable
 private fun HomeScreen(
@@ -359,6 +376,7 @@ private fun StationListScreen(
     title: String,
     stations: List<Station>,
     stationShowTitleMap: Map<String, String>,
+    stationShowDetailMap: Map<String, String>,
     onPlay: (Station) -> Unit,
     emptyText: String
 ) {
@@ -375,13 +393,14 @@ private fun StationListScreen(
         } else {
             items(stations, key = { it.id }) { station ->
                 val showTitle = stationShowTitleMap[station.id]
+                val showDetail = stationShowDetailMap[station.id]
                 val stationArtwork = remember(station.id) { StationArtwork.createBitmap(station.id, 72).asImageBitmap() }
                 Chip(
                     onClick = { onPlay(station) },
                     label = { Text(station.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     secondaryLabel = {
                         Text(
-                            showTitle ?: "On air now",
+                            showDetail ?: showTitle ?: "On air now",
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
