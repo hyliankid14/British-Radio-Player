@@ -118,7 +118,7 @@ lv_obj_t *screen_pod_detail_create(podcast_t *podcast)
         if (podcast_episodes_cached(podcast)) {
             lv_async_call(on_episodes_ready, ctx);
         } else {
-            xTaskCreatePinnedToCore(fetch_task, "ep_fetch", 10240, ctx, 3, NULL, 0);
+            xTaskCreate(fetch_task, "ep_fetch", 10240, ctx, 2, NULL);
         }
     }
 

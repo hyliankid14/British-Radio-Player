@@ -242,6 +242,16 @@ static void build_downloads_rss_url_from_id(const char *pid, char *out, size_t o
     snprintf(out, out_len, "https://www.bbc.co.uk/programmes/%s/episodes/downloads.rss", pid);
 }
 
+static bool podcasts_files_https_to_http(const char *url, char *out, size_t out_len)
+{
+    static const char *prefix = "https://podcasts.files.bbci.co.uk/";
+    if (strncmp(url, prefix, strlen(prefix)) != 0) {
+        return false;
+    }
+    snprintf(out, out_len, "http://podcasts.files.bbci.co.uk/%s", url + strlen(prefix));
+    return true;
+}
+
 static esp_err_t load_top_podcasts_from_cloud(void)
 {
     if (!s_podcasts) {
@@ -427,10 +437,10 @@ podcast_t *podcast_index_random(void)
 
 /* ── Episode fetcher (downloads individual RSS feed) ───────────────── */
 
-#define MAX_RECENT_EPISODES 6
-#define EPISODE_FETCH_INITIAL_CAP 4096
-#define EPISODE_FETCH_GROWTH 2048
-#define EPISODE_FETCH_MAX_CAP 8192
+#define MAX_RECENT_EPISODES 3
+#define EPISODE_FETCH_INITIAL_CAP 2048
+#define EPISODE_FETCH_GROWTH 1024
+#define EPISODE_FETCH_MAX_CAP 6144
 
 static esp_err_t parse_rss_episodes(const char *xml, podcast_t *podcast)
 {
@@ -494,26 +504,120 @@ static esp_err_t parse_rss_episodes(const char *xml, podcast_t *podcast)
     return ESP_OK;
 }
 
-static size_t count_tag_occurrences(const char *buf, const char *tag)
+static esp_err_t ensure_http_buf_capacity(http_buf_t *buf, size_t needed, const char *url)
 {
-    size_t count = 0;
-    const char *p = buf;
-    size_t tag_len = strlen(tag);
-    while ((p = strstr(p, tag)) != NULL) {
-        count++;
-        p += tag_len;
+    if (needed <= buf->cap) {
+        return ESP_OK;
     }
-    return count;
+
+    size_t new_cap = buf->cap + EPISODE_FETCH_GROWTH;
+    while (new_cap < needed) {
+        new_cap += EPISODE_FETCH_GROWTH;
+    }
+    if (new_cap > EPISODE_FETCH_MAX_CAP) {
+        new_cap = EPISODE_FETCH_MAX_CAP;
+    }
+    if (needed > new_cap) {
+        ESP_LOGE(TAG, "OOM growing episode buffer for %s to %zu bytes", url, needed);
+        return ESP_ERR_NO_MEM;
+    }
+
+    char *tmp = podcast_realloc(buf->buf, new_cap);
+    if (!tmp) {
+        ESP_LOGE(TAG, "OOM growing episode buffer for %s to %zu bytes", url, new_cap);
+        return ESP_ERR_NO_MEM;
+    }
+    buf->buf = tmp;
+    buf->cap = new_cap;
+    return ESP_OK;
+}
+
+static esp_err_t append_compact_item_xml(const char *item_start, const char *item_end,
+                                         http_buf_t *out, const char *url)
+{
+    char title[EPISODE_TITLE_MAX] = {0};
+    char audio_url[EPISODE_URL_MAX] = {0};
+    char pub_date[32] = {0};
+
+    const char *ts = strstr(item_start, "<title>");
+    const char *te = ts ? strstr(ts, "</title>") : NULL;
+    if (ts && te && te < item_end) {
+        ts += 7;
+        size_t tl = (size_t)(te - ts);
+        if (tl >= sizeof(title)) tl = sizeof(title) - 1;
+        memcpy(title, ts, tl);
+        title[tl] = '\0';
+    }
+
+    const char *enc = strstr(item_start, "<enclosure ");
+    if (enc && enc < item_end) {
+        const char *enc_end = strchr(enc, '>');
+        if (enc_end && enc_end < item_end) {
+            attr_find(enc, enc_end, "url", audio_url, sizeof(audio_url));
+        }
+    }
+
+    const char *ds = strstr(item_start, "<pubDate>");
+    const char *de = ds ? strstr(ds, "</pubDate>") : NULL;
+    if (ds && de && de < item_end) {
+        ds += 9;
+        size_t dl = (size_t)(de - ds);
+        if (dl >= sizeof(pub_date)) dl = sizeof(pub_date) - 1;
+        memcpy(pub_date, ds, dl);
+        pub_date[dl] = '\0';
+    }
+
+    if (audio_url[0] == '\0') {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    char compact[640];
+    int written = snprintf(
+        compact,
+        sizeof(compact),
+        "<item><title>%s</title><enclosure url=\"%s\" /><pubDate>%s</pubDate></item>",
+        title,
+        audio_url,
+        pub_date
+    );
+    if (written <= 0 || (size_t)written >= sizeof(compact)) {
+        return ESP_FAIL;
+    }
+
+    size_t needed = out->len + (size_t)written + 1;
+    esp_err_t cap_err = ensure_http_buf_capacity(out, needed, url);
+    if (cap_err != ESP_OK) {
+        return cap_err;
+    }
+
+    memcpy(out->buf + out->len, compact, (size_t)written);
+    out->len += (size_t)written;
+    out->buf[out->len] = '\0';
+    return ESP_OK;
 }
 
 static esp_err_t fetch_episode_feed_prefix(const char *url, http_buf_t *buf)
 {
     char chunk[1024];
-    static const char *item_close_tag = "</item>";
     static const char *item_open_tag = "<item>";
+    static const char *item_close_tag = "</item>";
+    size_t item_close_tag_len = strlen(item_close_tag);
     bool started_items = false;
     char carry[8] = {0};
     size_t carry_len = 0;
+    size_t extracted = 0;
+
+    char *work = podcast_malloc(4096);
+    if (!work) {
+        return ESP_ERR_NO_MEM;
+    }
+    size_t work_len = 0;
+    size_t work_cap = 4096;
+
+    buf->len = 0;
+    if (buf->cap > 0 && buf->buf) {
+        buf->buf[0] = '\0';
+    }
 
     esp_http_client_config_t cfg = {
         .url = url,
@@ -522,13 +626,17 @@ static esp_err_t fetch_episode_feed_prefix(const char *url, http_buf_t *buf)
         .crt_bundle_attach = esp_crt_bundle_attach,
     };
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
-    if (!client) return ESP_FAIL;
+    if (!client) {
+        free(work);
+        return ESP_FAIL;
+    }
 
     esp_http_client_set_header(client, "Accept-Encoding", "identity");
 
     esp_err_t ret = esp_http_client_open(client, 0);
     if (ret != ESP_OK) {
         esp_http_client_cleanup(client);
+        free(work);
         return ret;
     }
 
@@ -538,6 +646,7 @@ static esp_err_t fetch_episode_feed_prefix(const char *url, http_buf_t *buf)
         ESP_LOGE(TAG, "HTTP %d for %s", status, url);
         esp_http_client_close(client);
         esp_http_client_cleanup(client);
+        free(work);
         return ESP_FAIL;
     }
 
@@ -580,34 +689,60 @@ static esp_err_t fetch_episode_feed_prefix(const char *url, http_buf_t *buf)
             carry_len = 0;
         }
 
-        size_t needed = buf->len + write_len + 1;
-        if (needed > buf->cap) {
-            size_t new_cap = buf->cap + EPISODE_FETCH_GROWTH;
-            while (new_cap < needed) {
-                new_cap += EPISODE_FETCH_GROWTH;
+        size_t work_needed = work_len + write_len + 1;
+        if (work_needed > work_cap) {
+            size_t new_cap = work_cap + 1024;
+            while (new_cap < work_needed) {
+                new_cap += 1024;
             }
-            if (new_cap > EPISODE_FETCH_MAX_CAP) {
-                new_cap = EPISODE_FETCH_MAX_CAP;
-            }
-            if (needed > new_cap) {
-                ret = (count_tag_occurrences(buf->buf, item_close_tag) > 0) ? ESP_OK : ESP_ERR_NO_MEM;
+            if (new_cap > 8192) {
+                ret = (extracted > 0) ? ESP_OK : ESP_ERR_NO_MEM;
                 break;
             }
-            char *tmp = podcast_realloc(buf->buf, new_cap);
+            char *tmp = podcast_realloc(work, new_cap);
             if (!tmp) {
-                ESP_LOGE(TAG, "OOM growing episode buffer for %s to %zu bytes", url, new_cap);
-                ret = ESP_ERR_NO_MEM;
+                ret = (extracted > 0) ? ESP_OK : ESP_ERR_NO_MEM;
                 break;
             }
-            buf->buf = tmp;
-            buf->cap = new_cap;
+            work = tmp;
+            work_cap = new_cap;
         }
 
-        memcpy(buf->buf + buf->len, write_ptr, write_len);
-        buf->len += write_len;
-        buf->buf[buf->len] = '\0';
+        memcpy(work + work_len, write_ptr, write_len);
+        work_len += write_len;
+        work[work_len] = '\0';
 
-        if (count_tag_occurrences(buf->buf, item_close_tag) >= MAX_RECENT_EPISODES) {
+        while (extracted < MAX_RECENT_EPISODES) {
+            char *item_start = strstr(work, item_open_tag);
+            if (!item_start) {
+                break;
+            }
+
+            char *item_end = strstr(item_start, item_close_tag);
+            if (!item_end) {
+                break;
+            }
+            item_end += item_close_tag_len;
+
+            esp_err_t app_ret = append_compact_item_xml(item_start, item_end, buf, url);
+            if (app_ret == ESP_OK) {
+                extracted++;
+            } else if (app_ret == ESP_ERR_NO_MEM) {
+                ret = (extracted > 0) ? ESP_OK : ESP_ERR_NO_MEM;
+                break;
+            }
+
+            size_t consumed = (size_t)(item_end - work);
+            memmove(work, work + consumed, work_len - consumed);
+            work_len -= consumed;
+            work[work_len] = '\0';
+        }
+
+        if (ret != ESP_OK) {
+            break;
+        }
+
+        if (extracted >= MAX_RECENT_EPISODES) {
             ret = ESP_OK;
             break;
         }
@@ -617,6 +752,12 @@ static esp_err_t fetch_episode_feed_prefix(const char *url, http_buf_t *buf)
 
     esp_http_client_close(client);
     esp_http_client_cleanup(client);
+
+    free(work);
+
+    if (ret == ESP_OK && extracted == 0) {
+        return ESP_ERR_NOT_FOUND;
+    }
     return ret;
 }
 
@@ -653,6 +794,34 @@ esp_err_t podcast_fetch_episodes(podcast_t *podcast)
     }
 
     if (ret != ESP_OK) {
+        char http_url[PODCAST_URL_MAX];
+        if (podcasts_files_https_to_http(podcast->rss_url, http_url, sizeof(http_url))) {
+            ESP_LOGI(TAG, "Retrying episodes for %s over HTTP via %s after %s",
+                     podcast->id, http_url, esp_err_to_name(ret));
+
+            memset(buf.buf, 0, buf.cap);
+            buf.len = 0;
+
+            esp_err_t http_ret = fetch_episode_feed_prefix(http_url, &buf);
+            if (http_ret == ESP_OK) {
+                http_ret = parse_rss_episodes(buf.buf, podcast);
+                if (http_ret == ESP_OK) {
+                    ESP_LOGI(TAG, "Loaded %zu episodes for %s via HTTP", podcast->_episode_count, podcast->id);
+                    ret = ESP_OK;
+                } else {
+                    ESP_LOGW(TAG, "HTTP episode parse failed for %s: %s",
+                             podcast->id, esp_err_to_name(http_ret));
+                    ret = http_ret;
+                }
+            } else {
+                ESP_LOGW(TAG, "HTTP episode fetch failed for %s: %s",
+                         podcast->id, esp_err_to_name(http_ret));
+                ret = http_ret;
+            }
+        }
+    }
+
+    if (ret != ESP_OK && ret != ESP_ERR_HTTP_CONNECT && ret != ESP_ERR_NO_MEM) {
         char fallback_url[PODCAST_URL_MAX];
         build_downloads_rss_url_from_id(podcast->id, fallback_url, sizeof(fallback_url));
         ESP_LOGI(TAG, "Retrying episodes for %s via %s", podcast->id, fallback_url);

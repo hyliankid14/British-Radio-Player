@@ -1,6 +1,5 @@
 #include "subscriptions.h"
 #include "tf_card.h"
-#include "cJSON.h"
 #include "esp_log.h"
 #include <stdio.h>
 #include <ctype.h>
@@ -15,6 +14,9 @@ static const char *TAG = "subscriptions";
 static subscribed_podcast_t s_subs[SUBSCRIPTIONS_MAX];
 static podcast_t            s_sub_podcasts[SUBSCRIPTIONS_MAX];
 static size_t               s_count = 0;
+
+extern const char _binary_subscriptions_txt_start[];
+extern const char _binary_subscriptions_txt_end[];
 
 static bool is_valid_bbc_pid(const char *pid)
 {
@@ -145,6 +147,48 @@ static esp_err_t load_subscriptions_from_ids_path(const char *path)
     return ESP_OK;
 }
 
+static esp_err_t load_subscriptions_from_embedded(void)
+{
+    const char *start = _binary_subscriptions_txt_start;
+    const char *end = _binary_subscriptions_txt_end;
+    if (!start || !end || end <= start) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    ESP_LOGI(TAG, "Loading subscriptions from embedded subscriptions.txt");
+
+    size_t len = (size_t)(end - start);
+    char *buf = malloc(len + 1);
+    if (!buf) {
+        return ESP_ERR_NO_MEM;
+    }
+    memcpy(buf, start, len);
+    buf[len] = '\0';
+
+    char *saveptr = NULL;
+    char *line = strtok_r(buf, "\r\n", &saveptr);
+    while (line) {
+        char local[128];
+        strncpy(local, line, sizeof(local) - 1);
+        local[sizeof(local) - 1] = '\0';
+
+        char *comment = strchr(local, '#');
+        if (comment) {
+            *comment = '\0';
+        }
+
+        trim_line(local);
+        if (local[0] != '\0') {
+            add_subscription(local, NULL, NULL);
+        }
+
+        line = strtok_r(NULL, "\r\n", &saveptr);
+    }
+
+    free(buf);
+    return ESP_OK;
+}
+
 static esp_err_t load_subscriptions_from_ids(void)
 {
     static const char *paths[] = {
@@ -181,6 +225,11 @@ esp_err_t subscriptions_load(void)
         ESP_LOGI(TAG, "Loaded subscriptions from text file");
     } else if (ids_ret == ESP_ERR_NOT_FOUND) {
         ESP_LOGI(TAG, "No subscriptions.txt found on TF card");
+        esp_err_t emb_ret = load_subscriptions_from_embedded();
+        if (emb_ret == ESP_OK) {
+            ESP_LOGI(TAG, "Loaded %zu subscriptions", s_count);
+            return ESP_OK;
+        }
         return ESP_OK;
     } else {
         return ids_ret;

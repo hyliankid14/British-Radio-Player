@@ -33,35 +33,35 @@
     {
       "type": "wokwi-pushbutton",
       "id": "btn_plus",
-      "top": 340,
+      "top": 360,
       "left": 10,
       "attrs": { "color": "green", "label": "PLUS\n(next)" }
     },
     {
       "type": "wokwi-pushbutton",
       "id": "btn_pwr",
-      "top": 340,
+      "top": 360,
       "left": 80,
       "attrs": { "color": "red", "label": "PWR\n(back)" }
     },
     {
       "type": "wokwi-pushbutton",
       "id": "btn_boot",
-      "top": 340,
+      "top": 360,
       "left": 150,
       "attrs": { "color": "blue", "label": "BOOT\n(select)" }
     },
     {
       "type": "wokwi-buzzer",
       "id": "buzz",
-      "top": 330,
+      "top": 435,
       "left": 230,
       "attrs": { "volume": "1", "mode": "smooth" }
     },
     {
       "type": "wokwi-microsd-card",
       "id": "sd",
-      "top": 330,
+      "top": 430,
       "left": 320,
       "attrs": {}
     }
