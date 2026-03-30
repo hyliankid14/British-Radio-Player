@@ -23,16 +23,18 @@ lv_obj_t *screen_stations_create(void)
 {
     lv_obj_t *scr = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(scr, UI_COLOR_DARK_BG, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(scr, 0, LV_PART_MAIN);
 
     ui_create_header(scr, "BBC Radio", true);
 
     lv_obj_t *list = lv_list_create(scr);
-    lv_obj_set_size(list, LV_PCT(100), LV_PCT(100) - 36);
-    lv_obj_align(list, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_set_size(list, 240, 204);
+    lv_obj_align(list, LV_ALIGN_TOP_MID, 0, 36);
     lv_obj_set_style_bg_color(list, UI_COLOR_DARK_BG, LV_PART_MAIN);
     lv_obj_set_style_border_width(list, 0, LV_PART_MAIN);
     lv_obj_set_style_radius(list, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(list, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_top(list, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_row(list, 2, LV_PART_MAIN);
 
     size_t count = stations_count();

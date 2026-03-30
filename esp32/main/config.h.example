@@ -17,7 +17,8 @@
 #define GCS_BASE_URL "https://storage.googleapis.com/" GCS_BUCKET
 
 /* BBC OPML feed ---------------------------------------------------------- */
-#define BBC_OPML_URL "https://www.bbc.co.uk/radio/opml/bbc_podcast_opml.xml"
+/* The original bbc.co.uk URL redirects to this HTTP endpoint. */
+#define BBC_OPML_URL "http://podcasts.files.bbci.co.uk/podcasts.opml"
 
 /* TF card mount point ---------------------------------------------------- */
 #define SD_MOUNT_POINT "/sdcard"

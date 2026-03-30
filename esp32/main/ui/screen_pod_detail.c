@@ -43,7 +43,7 @@ static void on_episodes_ready(void *arg)
         lv_obj_set_style_text_color(btn, UI_COLOR_TEXT,    LV_PART_MAIN);
         ui_mark_selectable(btn);
         lv_obj_set_user_data(btn, (void *)(uintptr_t)i);
-        lv_obj_add_event_cb(btn, on_episode_clicked, LV_EVENT_CLICKED, ctx);
+        lv_obj_add_event_cb(btn, on_episode_clicked, LV_EVENT_CLICKED, ctx->podcast);
     }
     ui_refresh_navigation();
     free(ctx);
@@ -52,17 +52,17 @@ static void on_episodes_ready(void *arg)
 static void on_episode_clicked(lv_event_t *e)
 {
     lv_obj_t     *btn = lv_event_get_target(e);
-    detail_ctx_t *ctx = (detail_ctx_t *)lv_event_get_user_data(e);
-    if (!ctx) return;
+    podcast_t *podcast = (podcast_t *)lv_event_get_user_data(e);
+    if (!podcast) return;
 
     size_t    count;
-    episode_t *eps = podcast_get_episodes(ctx->podcast, &count);
+    episode_t *eps = podcast_get_episodes(podcast, &count);
     if (!eps) return;
 
     uintptr_t idx = (uintptr_t)lv_obj_get_user_data(btn);
     if (idx >= count) return;
 
-    esp_err_t err = playback_play_episode(ctx->podcast, &eps[idx]);
+    esp_err_t err = playback_play_episode(podcast, &eps[idx]);
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "Could not play episode %s", eps[idx].title);
         return;
@@ -75,7 +75,13 @@ static void on_episode_clicked(lv_event_t *e)
 static void fetch_task(void *arg)
 {
     detail_ctx_t *ctx = (detail_ctx_t *)arg;
-    podcast_fetch_episodes(ctx->podcast);
+    esp_err_t err = podcast_fetch_episodes(ctx->podcast);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "podcast_fetch_episodes failed for %s: %s",
+                 ctx->podcast->id, esp_err_to_name(err));
+    } else {
+        ESP_LOGI(TAG, "podcast_fetch_episodes succeeded for %s", ctx->podcast->id);
+    }
     lv_async_call(on_episodes_ready, ctx);
     vTaskDelete(NULL);
 }
@@ -84,16 +90,20 @@ lv_obj_t *screen_pod_detail_create(podcast_t *podcast)
 {
     lv_obj_t *scr = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(scr, UI_COLOR_DARK_BG, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(scr, 0, LV_PART_MAIN);
 
     char hdr_title[72];
     snprintf(hdr_title, sizeof(hdr_title), "%.68s", podcast->title);
     ui_create_header(scr, hdr_title, true);
 
     lv_obj_t *list = lv_list_create(scr);
-    lv_obj_set_size(list, LV_PCT(100), LV_PCT(100) - 36);
-    lv_obj_align(list, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_set_size(list, 240, 204);
+    lv_obj_align(list, LV_ALIGN_TOP_LEFT, 0, 36);
     lv_obj_set_style_bg_color(list, UI_COLOR_DARK_BG, LV_PART_MAIN);
     lv_obj_set_style_border_width(list, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(list, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(list, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(list, 2, LV_PART_MAIN);
 
     lv_obj_t *spinner = lv_spinner_create(scr, 1000, 60);
     lv_obj_set_size(spinner, 50, 50);
@@ -108,7 +118,7 @@ lv_obj_t *screen_pod_detail_create(podcast_t *podcast)
         if (podcast_episodes_cached(podcast)) {
             lv_async_call(on_episodes_ready, ctx);
         } else {
-            xTaskCreate(fetch_task, "ep_fetch", 6144, ctx, 5, NULL);
+            xTaskCreate(fetch_task, "ep_fetch", 10240, ctx, 5, NULL);
         }
     }
 

@@ -8,7 +8,7 @@ Features:
 - Browse and stream all 16 national BBC Radio stations (live HLS)
 - Browse Popular / Subscribed / New podcasts
 - Shake to play a random podcast episode (real hardware only)
-- TF card for offline subscription list (`subscriptions.json`)
+- TF card for offline subscription list (`subscriptions.txt` or `subscriptions.json`)
 
 ---
 
@@ -95,7 +95,18 @@ idf.py -p /dev/ttyUSB0 flash monitor
 
 ### SD card (subscriptions)
 
-Format a TF card as FAT32. Create `/subscriptions.json`:
+Format a TF card as FAT32. The simplest option is `/subscriptions.txt` with one
+BBC podcast ID per line:
+
+```text
+# One BBC podcast ID per line
+b006qnmr
+p02nq0lx
+```
+
+Insert the card before powering on.
+
+The older JSON format is still supported as `/subscriptions.json`:
 
 ```json
 {
@@ -108,8 +119,6 @@ Format a TF card as FAT32. Create `/subscriptions.json`:
   ]
 }
 ```
-
-Insert the card before powering on.
 
 ---
 

@@ -1,11 +1,14 @@
 #include "podcast_index.h"
-#include "podcast_rankings.h"
 #include "esp_http_client.h"
 #include "esp_crt_bundle.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
+#include "esp_err.h"
 #include "cJSON.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 #include <time.h>
 
@@ -27,86 +30,87 @@ static void *podcast_realloc(void *ptr, size_t bytes)
     return p;
 }
 
-/* strnstr is not available in ESP-IDF newlib; provide a portable version */
-static const char *str_in_mem(const char *haystack, size_t hay_len,
-                               const char *needle)
+/* Extract attr_name="..." from a bounded tag range. */
+static const char *attr_find(const char *tag_start, const char *tag_end,
+                             const char *attr_name, char *out, size_t out_len)
 {
-    size_t nlen = strlen(needle);
-    if (nlen == 0) return haystack;
-    if (hay_len < nlen) return NULL;
-    for (size_t i = 0; i <= hay_len - nlen; i++) {
-        if (memcmp(haystack + i, needle, nlen) == 0)
-            return haystack + i;
+    size_t name_len = strlen(attr_name);
+    const char *p = tag_start;
+    while (p < tag_end) {
+        const char *m = strstr(p, attr_name);
+        if (!m || m >= tag_end) return NULL;
+        p = m + name_len;
+        if (p >= tag_end || *p != '=') {
+            p = m + 1;
+            continue;
+        }
+        p++;
+        char quote = *p++;
+        if (quote != '"' && quote != '\'') continue;
+        const char *val_start = p;
+        const char *val_end = memchr(p, quote, (size_t)(tag_end - p));
+        if (!val_end) return NULL;
+        size_t val_len = (size_t)(val_end - val_start);
+        if (val_len >= out_len) val_len = out_len - 1;
+        memcpy(out, val_start, val_len);
+        out[val_len] = '\0';
+        return out;
     }
     return NULL;
 }
 
 static const char *TAG = "podcast_index";
 
-/* ── BBC OPML feed ─────────────────────────────────────────────────── */
-#define BBC_OPML_URL "https://www.bbc.co.uk/radio/opml/bbc_podcast_opml.xml"
+/* ── Cloud snapshots (small payloads) ─────────────────────────────── */
+#define GCS_POPULAR_URL \
+    "https://storage.googleapis.com/bbc-radio-player-index-20260317-bc149e38/popular-podcasts.json"
+#define GCS_NEW_URL \
+    "https://storage.googleapis.com/bbc-radio-player-index-20260317-bc149e38/new-podcasts.json"
 
 /* ── Podcast storage in PSRAM ─────────────────────────────────────── */
-#define MAX_PODCASTS  600
+#define MAX_PODCASTS  80
+#define MAX_NEW_PODCASTS 20
 
 static podcast_t *s_podcasts  = NULL;
 static size_t     s_count     = 0;
 static bool       s_ready     = false;
 
-/* ── HTTP helper: download URL into a heap buffer ─────────────────── */
+static bool is_valid_bbc_pid(const char *pid)
+{
+    if (!pid) return false;
+    size_t len = strlen(pid);
+    if (len != 8) return false;
+
+    if (!((pid[0] >= 'a' && pid[0] <= 'z') || (pid[0] >= 'A' && pid[0] <= 'Z'))) {
+        return false;
+    }
+
+    for (size_t i = 1; i < len; i++) {
+        char c = pid[i];
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static int find_podcast_index_by_id(const char *pid)
+{
+    for (size_t i = 0; i < s_count; i++) {
+        if (strncmp(s_podcasts[i].id, pid, PODCAST_ID_MAX) == 0) {
+            return (int)i;
+        }
+    }
+    return -1;
+}
+
+/* ── HTTP buffer used by bounded fetch helpers ────────────────────── */
 
 typedef struct {
     char  *buf;
     size_t len;
     size_t cap;
 } http_buf_t;
-
-static esp_err_t http_event_handler(esp_http_client_event_t *evt)
-{
-    http_buf_t *b = (http_buf_t *)evt->user_data;
-    if (evt->event_id == HTTP_EVENT_ON_DATA && b) {
-        size_t needed = b->len + evt->data_len + 1;
-        if (needed > b->cap) {
-            size_t new_cap = needed + 65536;   /* grow in 64 KB chunks */
-            char *tmp = podcast_realloc(b->buf, new_cap);
-            if (!tmp) {
-                ESP_LOGE(TAG, "OOM — realloc failed for %zu bytes", new_cap);
-                return ESP_FAIL;
-            }
-            b->buf = tmp;
-            b->cap = new_cap;
-        }
-        memcpy(b->buf + b->len, evt->data, evt->data_len);
-        b->len += evt->data_len;
-        b->buf[b->len] = '\0';
-    }
-    return ESP_OK;
-}
-
-static esp_err_t http_get(const char *url, http_buf_t *out)
-{
-    esp_http_client_config_t cfg = {
-        .url            = url,
-        .event_handler  = http_event_handler,
-        .user_data      = out,
-        .timeout_ms     = 15000,
-        .buffer_size    = 4096,
-        .crt_bundle_attach = esp_crt_bundle_attach,
-    };
-    esp_http_client_handle_t client = esp_http_client_init(&cfg);
-    if (!client) return ESP_FAIL;
-
-    esp_err_t ret = esp_http_client_perform(client);
-    if (ret == ESP_OK) {
-        int status = esp_http_client_get_status_code(client);
-        if (status != 200) {
-            ESP_LOGE(TAG, "HTTP %d for %s", status, url);
-            ret = ESP_FAIL;
-        }
-    }
-    esp_http_client_cleanup(client);
-    return ret;
-}
 
 /* ── Minimal OPML parser ──────────────────────────────────────────── */
 /*
@@ -118,86 +122,214 @@ static esp_err_t http_get(const char *url, http_buf_t *out)
  *   https://feeds.bbci.co.uk/podcasts/p01234567/rss.xml
  */
 
-static const char *attr_find(const char *tag_start, const char *tag_end,
-                              const char *attr_name, char *out, size_t out_len)
+static char *fetch_small_json(const char *url, size_t max_len)
 {
-    size_t name_len = strlen(attr_name);
-    const char *p = tag_start;
-    while (p < tag_end) {
-        /* Find attr_name=" */
-        p = strstr(p, attr_name);
-        if (!p || p >= tag_end) return NULL;
-        p += name_len;
-        if (p >= tag_end || *p != '=') { p++; continue; }
-        p++;   /* skip '=' */
-        char quote = *p++;
-        if (quote != '"' && quote != '\'') continue;
-        const char *val_start = p;
-        const char *val_end   = memchr(p, quote, (size_t)(tag_end - p));
-        if (!val_end) return NULL;
-        size_t val_len = (size_t)(val_end - val_start);
-        if (val_len >= out_len) val_len = out_len - 1;
-        memcpy(out, val_start, val_len);
-        out[val_len] = '\0';
-        return out;
+    char *buf = podcast_malloc(max_len + 1);
+    if (!buf) return NULL;
+
+    esp_http_client_config_t cfg = {
+        .url = url,
+        .timeout_ms = 15000,
+        .buffer_size = 2048,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+    };
+    esp_http_client_handle_t c = esp_http_client_init(&cfg);
+    if (!c) {
+        free(buf);
+        return NULL;
     }
-    return NULL;
+
+    esp_http_client_set_header(c, "Accept-Encoding", "identity");
+
+    if (esp_http_client_open(c, 0) != ESP_OK) {
+        esp_http_client_cleanup(c);
+        free(buf);
+        return NULL;
+    }
+    (void)esp_http_client_fetch_headers(c);
+
+    if (esp_http_client_get_status_code(c) != 200) {
+        esp_http_client_close(c);
+        esp_http_client_cleanup(c);
+        free(buf);
+        return NULL;
+    }
+
+    size_t len = 0;
+    int r;
+    while ((r = esp_http_client_read(c, buf + len, (int)(max_len - len))) > 0) {
+        len += (size_t)r;
+        if (len >= max_len) {
+            ESP_LOGE(TAG, "JSON response too large for %s", url);
+            esp_http_client_close(c);
+            esp_http_client_cleanup(c);
+            free(buf);
+            return NULL;
+        }
+    }
+    buf[len] = '\0';
+
+    esp_http_client_close(c);
+    esp_http_client_cleanup(c);
+    return buf;
 }
 
-static void extract_pid_from_rss(const char *rss_url, char *pid_out, size_t pid_len)
+static void build_rss_url_from_id(const char *pid, char *out, size_t out_len)
 {
-    /* e.g. https://feeds.bbci.co.uk/podcasts/p01234567/rss.xml */
-    pid_out[0] = '\0';
-    const char *p = strstr(rss_url, "/podcasts/");
-    if (!p) return;
-    p += strlen("/podcasts/");
-    const char *end = strchr(p, '/');
-    size_t len = end ? (size_t)(end - p) : strlen(p);
-    if (len >= pid_len) len = pid_len - 1;
-    memcpy(pid_out, p, len);
-    pid_out[len] = '\0';
+    snprintf(out, out_len, "https://podcasts.files.bbci.co.uk/%s.rss", pid);
 }
 
-static esp_err_t parse_opml(const char *xml, size_t xml_len)
+static void build_downloads_rss_url_from_id(const char *pid, char *out, size_t out_len)
+{
+    snprintf(out, out_len, "https://www.bbc.co.uk/programmes/%s/episodes/downloads.rss", pid);
+}
+
+static esp_err_t load_top_podcasts_from_cloud(void)
 {
     if (!s_podcasts) {
         s_podcasts = podcast_malloc(MAX_PODCASTS * sizeof(podcast_t));
-        if (!s_podcasts) { ESP_LOGE(TAG, "OOM allocating podcast array"); return ESP_ERR_NO_MEM; }
+        if (!s_podcasts) {
+            ESP_LOGE(TAG, "OOM allocating podcast array");
+            return ESP_ERR_NO_MEM;
+        }
     }
     s_count = 0;
 
-    const char *p = xml;
-    while (s_count < MAX_PODCASTS) {
-        /* Find start of an <outline ... type="rss" ... > tag   */
-        const char *tag = strstr(p, "<outline ");
-        if (!tag) break;
-
-        const char *tag_end = strchr(tag, '>');
-        if (!tag_end) break;
-
-        /* Only process RSS outlines */
-        size_t tag_len = (size_t)(tag_end - tag);
-        if (str_in_mem(tag, tag_len, "type=\"rss\"") ||
-            str_in_mem(tag, tag_len, "xmlUrl=")) {
-
-            podcast_t *pod = &s_podcasts[s_count];
-            memset(pod, 0, sizeof(*pod));
-
-            char text[PODCAST_TITLE_MAX];
-            char rss[PODCAST_URL_MAX];
-
-            if (attr_find(tag, tag_end, "text",   text, sizeof(text)) &&
-                attr_find(tag, tag_end, "xmlUrl", rss,  sizeof(rss))) {
-                strncpy(pod->title,   text, PODCAST_TITLE_MAX - 1);
-                strncpy(pod->rss_url, rss,  PODCAST_URL_MAX  - 1);
-                extract_pid_from_rss(rss, pod->id, PODCAST_ID_MAX);
-                s_count++;
-            }
-        }
-        p = tag_end + 1;
+    ESP_LOGI(TAG, "Fetching popular-podcasts snapshot...");
+    char *pop_json = fetch_small_json(GCS_POPULAR_URL, 65536);
+    if (!pop_json) {
+        ESP_LOGE(TAG, "Could not fetch popular-podcasts.json");
+        return ESP_FAIL;
     }
 
-    ESP_LOGI(TAG, "Parsed %zu podcasts from OPML", s_count);
+    cJSON *pop_root = cJSON_Parse(pop_json);
+    free(pop_json);
+    if (!pop_root) {
+        ESP_LOGE(TAG, "Could not parse popular-podcasts JSON");
+        return ESP_FAIL;
+    }
+
+    cJSON *popular = cJSON_GetObjectItemCaseSensitive(pop_root, "popular_podcasts");
+    if (!popular) {
+        popular = cJSON_GetObjectItemCaseSensitive(pop_root, "ranks");
+    }
+    if (!popular && cJSON_IsArray(pop_root)) {
+        popular = pop_root;
+    }
+
+    cJSON *item;
+    cJSON_ArrayForEach(item, popular) {
+        if (s_count >= MAX_PODCASTS) break;
+
+        const char *pid = NULL;
+        const char *title = NULL;
+
+        if (cJSON_IsObject(item)) {
+            cJSON *jid = cJSON_GetObjectItemCaseSensitive(item, "id");
+            cJSON *jname = cJSON_GetObjectItemCaseSensitive(item, "name");
+            cJSON *jtitle = cJSON_GetObjectItemCaseSensitive(item, "title");
+            if (cJSON_IsString(jid) && jid->valuestring) {
+                pid = jid->valuestring;
+            }
+            if (cJSON_IsString(jname) && jname->valuestring) {
+                title = jname->valuestring;
+            } else if (cJSON_IsString(jtitle) && jtitle->valuestring) {
+                title = jtitle->valuestring;
+            }
+        } else if (cJSON_IsString(item) && item->valuestring) {
+            pid = item->valuestring;
+        }
+
+        if (!is_valid_bbc_pid(pid)) continue;
+
+        podcast_t *pod = &s_podcasts[s_count];
+        memset(pod, 0, sizeof(*pod));
+
+        strncpy(pod->id, pid, PODCAST_ID_MAX - 1);
+        strncpy(pod->title, (title && title[0]) ? title : pid, PODCAST_TITLE_MAX - 1);
+        build_rss_url_from_id(pod->id, pod->rss_url, PODCAST_URL_MAX);
+        pod->popularity_rank = (int)(s_count + 1);
+        pod->is_new = false;
+        pod->new_rank = 0;
+        s_count++;
+    }
+    cJSON_Delete(pop_root);
+
+    if (s_count == 0) {
+        ESP_LOGW(TAG, "No podcasts in popular snapshot");
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "Loaded %zu popular podcasts", s_count);
+
+    /* Load the newest 20 podcasts from cloud index (newest first). */
+    char *new_json = fetch_small_json(GCS_NEW_URL, 32768);
+    if (new_json) {
+        cJSON *new_root = cJSON_Parse(new_json);
+        free(new_json);
+        if (new_root) {
+            cJSON *new_items = cJSON_GetObjectItemCaseSensitive(new_root, "new_podcasts");
+            if (!new_items) {
+                new_items = cJSON_GetObjectItemCaseSensitive(new_root, "ids");
+            }
+            if (!new_items && cJSON_IsArray(new_root)) {
+                new_items = new_root;
+            }
+
+            int new_rank = 0;
+            cJSON *entry;
+            cJSON_ArrayForEach(entry, new_items) {
+                if (new_rank >= MAX_NEW_PODCASTS) {
+                    break;
+                }
+
+                const char *pid = NULL;
+                const char *title = NULL;
+
+                if (cJSON_IsObject(entry)) {
+                    cJSON *jid = cJSON_GetObjectItemCaseSensitive(entry, "id");
+                    cJSON *jtitle = cJSON_GetObjectItemCaseSensitive(entry, "title");
+                    if (cJSON_IsString(jid) && jid->valuestring) {
+                        pid = jid->valuestring;
+                    }
+                    if (cJSON_IsString(jtitle) && jtitle->valuestring) {
+                        title = jtitle->valuestring;
+                    }
+                } else if (cJSON_IsString(entry) && entry->valuestring) {
+                    pid = entry->valuestring;
+                }
+
+                if (!is_valid_bbc_pid(pid)) {
+                    continue;
+                }
+
+                int idx = find_podcast_index_by_id(pid);
+                if (idx >= 0) {
+                    s_podcasts[idx].is_new = true;
+                    s_podcasts[idx].new_rank = ++new_rank;
+                    if (title && title[0]) {
+                        strncpy(s_podcasts[idx].title, title, PODCAST_TITLE_MAX - 1);
+                    }
+                    continue;
+                }
+
+                if (s_count >= MAX_PODCASTS) {
+                    break;
+                }
+
+                podcast_t *pod = &s_podcasts[s_count];
+                memset(pod, 0, sizeof(*pod));
+                strncpy(pod->id, pid, PODCAST_ID_MAX - 1);
+                strncpy(pod->title, (title && title[0]) ? title : pid, PODCAST_TITLE_MAX - 1);
+                build_rss_url_from_id(pod->id, pod->rss_url, PODCAST_URL_MAX);
+                pod->is_new = true;
+                pod->new_rank = ++new_rank;
+                s_count++;
+            }
+            cJSON_Delete(new_root);
+        }
+    }
+
     return ESP_OK;
 }
 
@@ -205,28 +337,10 @@ static esp_err_t parse_opml(const char *xml, size_t xml_len)
 
 esp_err_t podcast_index_fetch(void)
 {
-    ESP_LOGI(TAG, "Fetching BBC OPML feed...");
+    ESP_LOGI(TAG, "Fetching top podcasts from cloud index...");
 
-    http_buf_t buf = {
-        .buf = podcast_malloc(65536),
-        .len = 0,
-        .cap = 65536,
-    };
-    if (!buf.buf) return ESP_ERR_NO_MEM;
-
-    esp_err_t ret = http_get(BBC_OPML_URL, &buf);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to fetch OPML");
-        free(buf.buf);
-        return ret;
-    }
-
-    ret = parse_opml(buf.buf, buf.len);
-    free(buf.buf);
+    esp_err_t ret = load_top_podcasts_from_cloud();
     if (ret != ESP_OK) return ret;
-
-    /* Apply popularity / new-podcast rankings */
-    podcast_rankings_apply(s_podcasts, s_count);
 
     s_ready = true;
     return ESP_OK;
@@ -255,9 +369,14 @@ podcast_t *podcast_index_random(void)
 
 /* ── Episode fetcher (downloads individual RSS feed) ───────────────── */
 
+#define MAX_RECENT_EPISODES 6
+#define EPISODE_FETCH_INITIAL_CAP 8192
+#define EPISODE_FETCH_GROWTH 4096
+#define EPISODE_FETCH_MAX_CAP 16384
+
 static esp_err_t parse_rss_episodes(const char *xml, podcast_t *podcast)
 {
-#define MAX_EPS 30
+#define MAX_EPS MAX_RECENT_EPISODES
     episode_t *eps = podcast_malloc(MAX_EPS * sizeof(episode_t));
     if (!eps) return ESP_ERR_NO_MEM;
     size_t n = 0;
@@ -307,26 +426,173 @@ static esp_err_t parse_rss_episodes(const char *xml, podcast_t *podcast)
         p = item_end + 7;
     }
 
+    if (n == 0) {
+        free(eps);
+        return ESP_ERR_NOT_FOUND;
+    }
+
     podcast->_episodes      = eps;
     podcast->_episode_count = n;
     return ESP_OK;
 }
 
+static size_t count_tag_occurrences(const char *buf, const char *tag)
+{
+    size_t count = 0;
+    const char *p = buf;
+    size_t tag_len = strlen(tag);
+    while ((p = strstr(p, tag)) != NULL) {
+        count++;
+        p += tag_len;
+    }
+    return count;
+}
+
+static esp_err_t fetch_episode_feed_prefix(const char *url, http_buf_t *buf)
+{
+    char chunk[2048];
+    static const char *item_close_tag = "</item>";
+
+    esp_http_client_config_t cfg = {
+        .url = url,
+        .timeout_ms = 15000,
+        .buffer_size = sizeof(chunk),
+        .crt_bundle_attach = esp_crt_bundle_attach,
+    };
+    esp_http_client_handle_t client = esp_http_client_init(&cfg);
+    if (!client) return ESP_FAIL;
+
+    esp_http_client_set_header(client, "Accept-Encoding", "identity");
+
+    esp_err_t ret = esp_http_client_open(client, 0);
+    if (ret != ESP_OK) {
+        esp_http_client_cleanup(client);
+        return ret;
+    }
+
+    (void)esp_http_client_fetch_headers(client);
+    int status = esp_http_client_get_status_code(client);
+    if (status != 200) {
+        ESP_LOGE(TAG, "HTTP %d for %s", status, url);
+        esp_http_client_close(client);
+        esp_http_client_cleanup(client);
+        return ESP_FAIL;
+    }
+
+    while (1) {
+        int read_len = esp_http_client_read(client, chunk, sizeof(chunk));
+        if (read_len < 0) {
+            ret = ESP_FAIL;
+            break;
+        }
+        if (read_len == 0) {
+            ret = ESP_OK;
+            break;
+        }
+
+        size_t needed = buf->len + (size_t)read_len + 1;
+        if (needed > buf->cap) {
+            size_t new_cap = buf->cap + EPISODE_FETCH_GROWTH;
+            while (new_cap < needed) {
+                new_cap += EPISODE_FETCH_GROWTH;
+            }
+            if (new_cap > EPISODE_FETCH_MAX_CAP) {
+                new_cap = EPISODE_FETCH_MAX_CAP;
+            }
+            if (needed > new_cap) {
+                ret = (count_tag_occurrences(buf->buf, item_close_tag) > 0) ? ESP_OK : ESP_ERR_NO_MEM;
+                break;
+            }
+            char *tmp = podcast_realloc(buf->buf, new_cap);
+            if (!tmp) {
+                ESP_LOGE(TAG, "OOM growing episode buffer for %s to %zu bytes", url, new_cap);
+                ret = ESP_ERR_NO_MEM;
+                break;
+            }
+            buf->buf = tmp;
+            buf->cap = new_cap;
+        }
+
+        memcpy(buf->buf + buf->len, chunk, (size_t)read_len);
+        buf->len += (size_t)read_len;
+        buf->buf[buf->len] = '\0';
+
+        if (count_tag_occurrences(buf->buf, item_close_tag) >= MAX_RECENT_EPISODES) {
+            ret = ESP_OK;
+            break;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+
+    esp_http_client_close(client);
+    esp_http_client_cleanup(client);
+    return ret;
+}
+
 esp_err_t podcast_fetch_episodes(podcast_t *podcast)
 {
-    if (podcast->_episodes) return ESP_OK;  /* already cached */
+    if (podcast->_episodes && podcast->_episode_count > 0) return ESP_OK;  /* already cached */
+
+    if (podcast->_episodes && podcast->_episode_count == 0) {
+        free(podcast->_episodes);
+        podcast->_episodes = NULL;
+    }
+
+    ESP_LOGI(TAG, "Fetching episodes for %s from %s", podcast->id, podcast->rss_url);
 
     http_buf_t buf = {
-        .buf = podcast_malloc(131072),
+        .buf = podcast_malloc(EPISODE_FETCH_INITIAL_CAP),
         .len = 0,
-        .cap = 131072,
+        .cap = EPISODE_FETCH_INITIAL_CAP,
     };
     if (!buf.buf) return ESP_ERR_NO_MEM;
 
-    esp_err_t ret = http_get(podcast->rss_url, &buf);
+    esp_err_t ret = fetch_episode_feed_prefix(podcast->rss_url, &buf);
     if (ret == ESP_OK) {
         ret = parse_rss_episodes(buf.buf, podcast);
+        if (ret == ESP_OK) {
+            ESP_LOGI(TAG, "Loaded %zu episodes for %s", podcast->_episode_count, podcast->id);
+        } else {
+            ESP_LOGW(TAG, "Episode parse failed for %s (%s): %s",
+                     podcast->id, podcast->rss_url, esp_err_to_name(ret));
+        }
+    } else {
+        ESP_LOGW(TAG, "Episode fetch failed for %s (%s): %s",
+                 podcast->id, podcast->rss_url, esp_err_to_name(ret));
     }
+
+    if (ret != ESP_OK) {
+        char fallback_url[PODCAST_URL_MAX];
+        build_downloads_rss_url_from_id(podcast->id, fallback_url, sizeof(fallback_url));
+        ESP_LOGI(TAG, "Retrying episodes for %s via %s", podcast->id, fallback_url);
+
+        memset(buf.buf, 0, buf.cap);
+        buf.len = 0;
+
+        esp_err_t fallback_ret = fetch_episode_feed_prefix(fallback_url, &buf);
+        if (fallback_ret == ESP_OK) {
+            fallback_ret = parse_rss_episodes(buf.buf, podcast);
+            if (fallback_ret == ESP_OK) {
+                ESP_LOGI(TAG, "Loaded %zu episodes for %s via fallback", podcast->_episode_count, podcast->id);
+                ret = ESP_OK;
+            } else {
+                ESP_LOGW(TAG, "Fallback episode parse failed for %s: %s",
+                         podcast->id, esp_err_to_name(fallback_ret));
+                ret = fallback_ret;
+            }
+        } else {
+            ESP_LOGW(TAG, "Fallback episode fetch failed for %s: %s",
+                     podcast->id, esp_err_to_name(fallback_ret));
+            ret = fallback_ret;
+        }
+    }
+
+    if (ret != ESP_OK) {
+        podcast->_episodes = NULL;
+        podcast->_episode_count = 0;
+    }
+
     free(buf.buf);
     return ret;
 }

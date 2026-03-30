@@ -51,6 +51,7 @@ lv_obj_t *screen_now_playing_create(void)
 {
     lv_obj_t *scr = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(scr, UI_COLOR_DARK_BG, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(scr, 0, LV_PART_MAIN);
     lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
 
     ui_create_header(scr, "Now Playing", true);

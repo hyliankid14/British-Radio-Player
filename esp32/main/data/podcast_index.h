@@ -24,6 +24,7 @@ typedef struct {
     char rss_url[PODCAST_URL_MAX];
     int  popularity_rank;          /* 0 = unknown, 1 = most popular   */
     bool is_new;
+    int  new_rank;                 /* 0 = not in newest set, 1 = newest */
     /* Episode cache (populated lazily by podcast_fetch_episodes) */
     void  *_episodes;             /* episode_t*, or NULL if not yet fetched */
     size_t _episode_count;
