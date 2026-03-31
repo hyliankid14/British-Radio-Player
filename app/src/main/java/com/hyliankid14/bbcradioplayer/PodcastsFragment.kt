@@ -455,6 +455,31 @@ class PodcastsFragment : Fragment() {
         }
     }
 
+    private fun setupSearchContextSortSpinner(view: View, emptyState: TextView, recyclerView: RecyclerView) {
+        val sortSpinner = view.findViewById<com.google.android.material.textfield.MaterialAutoCompleteTextView>(
+            R.id.search_sort_spinner
+        ) ?: return
+        val sortOptions = listOf(
+            SORT_MOST_RECENT_EPISODES,
+            SORT_OLDEST_EPISODES,
+            SORT_MOST_POPULAR,
+            SORT_ALPHABETICAL
+        )
+        val sortAdapter = NoFilterArrayAdapter(requireContext(), R.layout.dropdown_item_large, sortOptions)
+        sortAdapter.setDropDownViewResource(R.layout.dropdown_item_large)
+        sortSpinner.setAdapter(sortAdapter)
+        // Default: newest to oldest
+        sortSpinner.setText(SORT_MOST_RECENT_EPISODES, false)
+        sortSpinner.setOnItemClickListener { parent, _, position, _ ->
+            val selected = parent?.getItemAtPosition(position) as? String ?: return@setOnItemClickListener
+            val normalized = normalizeSortValue(selected)
+            if (normalized == currentSort) return@setOnItemClickListener
+            currentSort = normalized
+            android.util.Log.d("PodcastsFragment", "Search sort changed to: $currentSort")
+            applyFilters(emptyState, recyclerView)
+        }
+    }
+
     private fun rebuildFilterSpinners(emptyState: TextView, recyclerView: RecyclerView) {
         val view = view ?: return
         val genreSpinner = view.findViewById<com.google.android.material.textfield.MaterialAutoCompleteTextView>(R.id.genre_filter_spinner)
@@ -594,7 +619,10 @@ class PodcastsFragment : Fragment() {
                 requireActivity().onBackPressedDispatcher.onBackPressed()
             }
             titleBar.menu.clear()
-            view.findViewById<com.google.android.material.appbar.AppBarLayout>(R.id.podcasts_header_appbar).visibility = View.GONE
+            // Show the AppBarLayout with only the search sort bar (hide the browse header content)
+            view.findViewById<com.google.android.material.appbar.AppBarLayout>(R.id.podcasts_header_appbar).visibility = View.VISIBLE
+            view.findViewById<View>(R.id.podcasts_content).visibility = View.GONE
+            view.findViewById<View>(R.id.search_sort_bar).visibility = View.VISIBLE
             currentSort = SORT_MOST_RECENT_EPISODES
             // Do not update viewModel.cachedSort in search context mode — it stores the browse
             // tab selection, and overwriting it here would cause the wrong tab to be restored
@@ -698,6 +726,9 @@ class PodcastsFragment : Fragment() {
         val filtersContainer: View = view.findViewById(R.id.filters_container)
         if (!searchContextMode) {
             setupPodcastsTabs(view, emptyState, recyclerView)
+        } else {
+            // Wire up the search-context sort spinner (always visible at the top of results)
+            setupSearchContextSortSpinner(view, emptyState, recyclerView)
         }
 
         searchEditText.addTextChangedListener(object : TextWatcher {
@@ -968,11 +999,15 @@ class PodcastsFragment : Fragment() {
             analyticsPopularRanks = viewModel.cachedPopularRanks
             analyticsPopularTitleRanks = viewModel.cachedPopularTitleRanks
             currentFilter = if (searchContextMode) PodcastFilter() else viewModel.cachedFilter
-            // Restore sort: use cached sort if available, otherwise use default
-            currentSort = if (viewModel.cachedSort.isNotEmpty()) {
-                normalizeSortValue(viewModel.cachedSort)
-            } else {
-                SORT_MOST_POPULAR
+            // Restore sort: use cached sort if available, otherwise use default.
+            // In search context mode always use SORT_MOST_RECENT_EPISODES (set above) — never
+            // inherit the browse tab's sort from the shared ViewModel.
+            if (!searchContextMode) {
+                currentSort = if (viewModel.cachedSort.isNotEmpty()) {
+                    normalizeSortValue(viewModel.cachedSort)
+                } else {
+                    SORT_MOST_POPULAR
+                }
             }
 
             // Always rebuild genres from the cached podcasts so the spinner stays populated
@@ -2813,6 +2848,7 @@ class PodcastsFragment : Fragment() {
         return when (sort) {
             SORT_MOST_RECENT_EPISODES,
             SORT_MOST_RECENT_EPISODES_LEGACY -> SORT_MOST_RECENT_EPISODES
+            SORT_OLDEST_EPISODES -> SORT_OLDEST_EPISODES
             SORT_NEW_PODCASTS,
             SORT_NEW_PODCASTS_LEGACY -> SORT_NEW_PODCASTS
             SORT_ALPHABETICAL -> SORT_ALPHABETICAL
@@ -2854,6 +2890,10 @@ class PodcastsFragment : Fragment() {
             )
             SORT_MOST_RECENT_EPISODES -> podcasts.sortedWith(
                 compareByDescending<Podcast> { latestEpisodeEpoch(it) }
+                    .thenBy { it.title }
+            )
+            SORT_OLDEST_EPISODES -> podcasts.sortedWith(
+                compareBy<Podcast> { latestEpisodeEpoch(it).let { e -> if (e == Long.MIN_VALUE) Long.MAX_VALUE else e } }
                     .thenBy { it.title }
             )
             SORT_NEW_PODCASTS -> podcasts
@@ -2898,6 +2938,7 @@ class PodcastsFragment : Fragment() {
         private const val SORT_NEW_PODCASTS = "New Podcasts"
         private const val SORT_NEW_PODCASTS_LEGACY = "Most recently added podcasts"
         private const val SORT_ALPHABETICAL = "Alphabetical (A-Z)"
+        private const val SORT_OLDEST_EPISODES = "Oldest to newest"
         private const val TAB_POPULAR = 0
         private const val TAB_LAST_UPDATED = 1
         private const val TAB_NEW_PODCASTS = 2

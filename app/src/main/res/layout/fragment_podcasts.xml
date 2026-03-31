@@ -231,6 +231,40 @@
             </LinearLayout>
 
                 </LinearLayout>
+
+            <!-- Search context sort bar: visible only when showing search results (replaces the browse header) -->
+            <LinearLayout
+                android:id="@+id/search_sort_bar"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone"
+                android:background="?attr/colorSurfaceContainer"
+                android:paddingHorizontal="12dp"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp">
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:id="@+id/search_sort_filter_layout"
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    app:boxStrokeColor="?attr/colorOutline"
+                    app:endIconMode="dropdown_menu"
+                    app:hintEnabled="true"
+                    android:hint="Sort"
+                    app:boxBackgroundColor="?attr/colorSurface">
+
+                    <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                        android:id="@+id/search_sort_spinner"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="none"
+                        android:textColor="?attr/colorOnSurface"
+                        android:padding="8dp" />
+                </com.google.android.material.textfield.TextInputLayout>
+            </LinearLayout>
+
             </com.google.android.material.appbar.AppBarLayout>
 
             <!-- Podcasts RecyclerView (primary scroller) -->
