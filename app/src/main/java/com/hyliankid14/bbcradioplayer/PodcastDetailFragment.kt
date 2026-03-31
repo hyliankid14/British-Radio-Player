@@ -332,16 +332,15 @@ class PodcastDetailFragment : Fragment() {
         episodesRecycler = null
         loadingIndicator = null
         emptyState = null
-        // Reset action bar state. Only hide the action bar if we're returning to the Podcasts fragment
+        // Reset action bar state. Always hide here — the destination fragment manages its own
+        // toolbar (PodcastsFragment, PodcastSearchFragment, etc.). If the landing page needs
+        // the action bar shown (e.g. static content), syncActionBarVisibility() in the back
+        // stack listener will correct it immediately after.
         val appCompat = activity as? AppCompatActivity
         appCompat?.supportActionBar?.apply {
             setDisplayHomeAsUpEnabled(false)
             setDisplayShowHomeEnabled(false)
-        }
-        val current = (activity as? AppCompatActivity)?.supportFragmentManager?.findFragmentById(R.id.fragment_container)
-        if (current is PodcastsFragment) {
-            // Hide action bar since PodcastsFragment has its own title bar
-            (activity as? AppCompatActivity)?.supportActionBar?.hide()
+            hide()
         }
     }
 

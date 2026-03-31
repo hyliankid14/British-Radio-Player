@@ -439,6 +439,11 @@ class NowPlayingActivity : AppCompatActivity() {
     private fun navigateBackToPodcastDetail() {
         // If opened from the saved-episodes or history list, return to that list rather than the podcast root
         val backSource = intent.getStringExtra("back_source")
+        if (backSource == "search_results") {
+            // Opened from search results — just return to the calling screen (search-context PodcastsFragment)
+            finish()
+            return
+        }
         if (backSource == "saved_episodes" || backSource == "history") {
             val favTab = if (backSource == "saved_episodes") "saved" else "history"
             val returnIntent = Intent(this, MainActivity::class.java).apply {

@@ -338,7 +338,7 @@ class MainActivity : AppCompatActivity() {
                         suppressBottomNavSelection = true
                         try { bottomNavigation.selectedItemId = R.id.navigation_favorites } catch (_: Exception) { }
                         suppressBottomNavSelection = false
-                        showFavorites()
+                        try { showFavorites() } catch (_: Exception) { }
                         return
                     }
                     if (returnToSavedSearchesOnBack && top is PodcastDetailFragment) {
@@ -351,7 +351,7 @@ class MainActivity : AppCompatActivity() {
                         suppressBottomNavSelection = false
                         try { getPreferences(android.content.Context.MODE_PRIVATE).edit()
                             .putInt("last_fav_tab_id", R.id.fav_tab_searches).apply() } catch (_: Exception) { }
-                        showFavorites()
+                        try { showFavorites() } catch (_: Exception) { }
                         return
                     }
                     if (returnToSavedSearchesOnBack && top is PodcastsFragment && top.isSearchContextMode()) {
@@ -362,7 +362,7 @@ class MainActivity : AppCompatActivity() {
                         suppressBottomNavSelection = false
                         try { getPreferences(android.content.Context.MODE_PRIVATE).edit()
                             .putInt("last_fav_tab_id", R.id.fav_tab_searches).apply() } catch (_: Exception) { }
-                        showFavorites()
+                        try { showFavorites() } catch (_: Exception) { }
                         return
                     }
                     if (returnToSavedSearchesOnBack && top is PodcastsFragment
@@ -374,7 +374,7 @@ class MainActivity : AppCompatActivity() {
                         // Persist the searches sub-tab as the active tab before restoring Favorites
                         try { getPreferences(android.content.Context.MODE_PRIVATE).edit()
                             .putInt("last_fav_tab_id", R.id.fav_tab_searches).apply() } catch (_: Exception) { }
-                        showFavorites()
+                        try { showFavorites() } catch (_: Exception) { }
                         return
                     }
                     if (returnToSavedSearchesOnBack && top is PodcastSearchFragment) {
@@ -385,7 +385,21 @@ class MainActivity : AppCompatActivity() {
                         suppressBottomNavSelection = false
                         try { getPreferences(android.content.Context.MODE_PRIVATE).edit()
                             .putInt("last_fav_tab_id", R.id.fav_tab_searches).apply() } catch (_: Exception) { }
-                        showFavorites()
+                        try { showFavorites() } catch (_: Exception) { }
+                        return
+                    }
+                    // Fallback: if returnToSavedSearchesOnBack is still set but the fragment is in an
+                    // unexpected state (e.g. the transaction hasn't committed yet, or top is null),
+                    // still navigate back to the Saved Searches list rather than closing the activity.
+                    if (returnToSavedSearchesOnBack) {
+                        returnToSavedSearchesOnBack = false
+                        try { supportFragmentManager.popBackStack(null, androidx.fragment.app.FragmentManager.POP_BACK_STACK_INCLUSIVE) } catch (_: Exception) { }
+                        suppressBottomNavSelection = true
+                        try { bottomNavigation.selectedItemId = R.id.navigation_favorites } catch (_: Exception) { }
+                        suppressBottomNavSelection = false
+                        try { getPreferences(android.content.Context.MODE_PRIVATE).edit()
+                            .putInt("last_fav_tab_id", R.id.fav_tab_searches).apply() } catch (_: Exception) { }
+                        try { showFavorites() } catch (_: Exception) { }
                         return
                     }
                     if (returnToScheduleOnBack && top is PodcastDetailFragment) {
@@ -406,7 +420,7 @@ class MainActivity : AppCompatActivity() {
                         }
                         // Restore the page the user was on before navigating into the schedule, so
                         // pressing back from ScheduleActivity returns to the correct screen.
-                        if (originMode == "favorites") showFavorites() else showAllStations()
+                        try { if (originMode == "favorites") showFavorites() else showAllStations() } catch (_: Exception) { }
                         return
                     }
                 } catch (_: Exception) { }
@@ -1258,25 +1272,29 @@ class MainActivity : AppCompatActivity() {
 
         // Ensure the favorites-related containers are near the top of the parent column so they appear
         // above other content when the Favorites view is selected.
-        val parent = favoritesPodcastsContainer.parent as? android.view.ViewGroup
-        parent?.let {
-            try {
-                it.removeView(favoritesPodcastsContainer)
-                it.addView(favoritesPodcastsContainer, 1)
-            } catch (_: Exception) { /* best-effort */ }
-            try {
-                it.removeView(savedContainer)
-                it.addView(savedContainer, 2)
-            } catch (_: Exception) { /* best-effort */ }
-            try {
-                it.removeView(savedSearchesContainer)
-                it.addView(savedSearchesContainer, 3)
-            } catch (_: Exception) { /* best-effort */ }
-            try {
-                it.removeView(historyContainer)
-                it.addView(historyContainer, 4)
-            } catch (_: Exception) { /* best-effort */ }
-        }
+        try {
+            favoritesPodcastsContainer?.let { pc ->
+                val parent = pc.parent as? android.view.ViewGroup
+                parent?.let {
+                    try {
+                        it.removeView(pc)
+                        it.addView(pc, 1)
+                    } catch (_: Exception) { /* best-effort */ }
+                    try {
+                        it.removeView(savedContainer)
+                        it.addView(savedContainer, 2)
+                    } catch (_: Exception) { /* best-effort */ }
+                    try {
+                        it.removeView(savedSearchesContainer)
+                        it.addView(savedSearchesContainer, 3)
+                    } catch (_: Exception) { /* best-effort */ }
+                    try {
+                        it.removeView(historyContainer)
+                        it.addView(historyContainer, 4)
+                    } catch (_: Exception) { /* best-effort */ }
+                }
+            }
+        } catch (_: Exception) { /* best-effort */ }
 
         // Ensure only the last-accessed favorites group is visible immediately (avoid flicker / defaulting)
         try {
@@ -1442,10 +1460,12 @@ class MainActivity : AppCompatActivity() {
         // Load subscribed podcasts into Favorites section — do not force visibility unless the Subscribed tab was last-selected
         val subscribedIds = PodcastSubscriptions.getSubscribedIds(this)
         if (subscribedIds.isNotEmpty()) {
-            favoritesPodcastsRecycler.layoutManager = LinearLayoutManager(this)
-            // Start hidden; the toggle/tab will reveal this when appropriate
-            favoritesPodcastsRecycler.visibility = View.GONE
-            favoritesPodcastsRecycler.isNestedScrollingEnabled = false
+            try {
+                favoritesPodcastsRecycler?.layoutManager = LinearLayoutManager(this)
+                // Start hidden; the toggle/tab will reveal this when appropriate
+                favoritesPodcastsRecycler?.visibility = View.GONE
+                favoritesPodcastsRecycler?.isNestedScrollingEnabled = false
+            } catch (_: Exception) { }
 
             // If the subscribed tab is already visible, show a loading indicator immediately
             val subscribedTabAlreadyActive = (currentMode == "favorites" && isButtonChecked(R.id.fav_tab_subscribed))
@@ -1769,12 +1789,12 @@ class MainActivity : AppCompatActivity() {
                 // Hide recent songs views so they don't persist into the blank space below favourite stations
                 try { findViewById<View>(R.id.recent_songs_list).visibility = View.GONE } catch (_: Exception) { }
                 try { findViewById<View>(R.id.recent_songs_empty).visibility = View.GONE } catch (_: Exception) { }
-                findViewById<View>(R.id.favorites_podcasts_container).visibility = View.GONE
+                try { findViewById<View>(R.id.favorites_podcasts_container).visibility = View.GONE } catch (_: Exception) { }
                 try { findViewById<TextView>(R.id.favorites_podcasts_empty).visibility = View.GONE } catch (_: Exception) { }
-                findViewById<View>(R.id.saved_episodes_container).visibility = View.GONE
+                try { findViewById<View>(R.id.saved_episodes_container).visibility = View.GONE } catch (_: Exception) { }
                 try { findViewById<TextView>(R.id.saved_episodes_empty).visibility = View.GONE } catch (_: Exception) { }
-                findViewById<View>(R.id.saved_searches_container).visibility = View.GONE
-                findViewById<View>(R.id.favorites_history_container).visibility = View.GONE
+                try { findViewById<View>(R.id.saved_searches_container).visibility = View.GONE } catch (_: Exception) { }
+                try { findViewById<View>(R.id.favorites_history_container).visibility = View.GONE } catch (_: Exception) { }
                 try { findViewById<TextView>(R.id.favorites_history_empty).visibility = View.GONE } catch (_: Exception) { }
                 try { findViewById<RecyclerView>(R.id.favorites_history_recycler).visibility = View.GONE } catch (_: Exception) { }
                 updateVpnWarningBanner()
@@ -1783,11 +1803,11 @@ class MainActivity : AppCompatActivity() {
                 supportActionBar?.title = "Subscribed Podcasts"
                 stationsList.visibility = View.GONE
                 try { findViewById<TextView>(R.id.favorite_stations_empty).visibility = View.GONE } catch (_: Exception) { }
-                findViewById<View>(R.id.favorites_podcasts_container).visibility = View.VISIBLE
-                findViewById<View>(R.id.saved_episodes_container).visibility = View.GONE
+                try { findViewById<View>(R.id.favorites_podcasts_container).visibility = View.VISIBLE } catch (_: Exception) { }
+                try { findViewById<View>(R.id.saved_episodes_container).visibility = View.GONE } catch (_: Exception) { }
                 try { findViewById<TextView>(R.id.saved_episodes_empty).visibility = View.GONE } catch (_: Exception) { }
-                findViewById<View>(R.id.saved_searches_container).visibility = View.GONE
-                findViewById<View>(R.id.favorites_history_container).visibility = View.GONE
+                try { findViewById<View>(R.id.saved_searches_container).visibility = View.GONE } catch (_: Exception) { }
+                try { findViewById<View>(R.id.favorites_history_container).visibility = View.GONE } catch (_: Exception) { }
                 try { findViewById<TextView>(R.id.favorites_history_empty).visibility = View.GONE } catch (_: Exception) { }
                 try { findViewById<RecyclerView>(R.id.saved_episodes_recycler).visibility = View.GONE } catch (_: Exception) { }
 
@@ -1901,12 +1921,12 @@ class MainActivity : AppCompatActivity() {
                 supportActionBar?.title = "Saved Episodes"
                 stationsList.visibility = View.GONE
                 try { findViewById<TextView>(R.id.favorite_stations_empty).visibility = View.GONE } catch (_: Exception) { }
-                findViewById<View>(R.id.favorites_podcasts_container).visibility = View.GONE
+                try { findViewById<View>(R.id.favorites_podcasts_container).visibility = View.GONE } catch (_: Exception) { }
                 try { findViewById<TextView>(R.id.favorites_podcasts_empty).visibility = View.GONE } catch (_: Exception) { }
-                findViewById<View>(R.id.saved_episodes_container).visibility = View.VISIBLE
+                try { findViewById<View>(R.id.saved_episodes_container).visibility = View.VISIBLE } catch (_: Exception) { }
                 try { findViewById<RecyclerView>(R.id.saved_episodes_recycler).visibility = View.VISIBLE } catch (_: Exception) { }
-                findViewById<View>(R.id.saved_searches_container).visibility = View.GONE
-                findViewById<View>(R.id.favorites_history_container).visibility = View.GONE
+                try { findViewById<View>(R.id.saved_searches_container).visibility = View.GONE } catch (_: Exception) { }
+                try { findViewById<View>(R.id.favorites_history_container).visibility = View.GONE } catch (_: Exception) { }
                 try { findViewById<TextView>(R.id.favorites_history_empty).visibility = View.GONE } catch (_: Exception) { }
                 try { findViewById<RecyclerView>(R.id.favorites_history_recycler).visibility = View.GONE } catch (_: Exception) { }
                 try { refreshSavedEpisodesSection() } catch (_: Exception) { }
@@ -1915,13 +1935,13 @@ class MainActivity : AppCompatActivity() {
                 supportActionBar?.title = "Saved Searches"
                 stationsList.visibility = View.GONE
                 try { findViewById<TextView>(R.id.favorite_stations_empty).visibility = View.GONE } catch (_: Exception) { }
-                findViewById<View>(R.id.favorites_podcasts_container).visibility = View.GONE
+                try { findViewById<View>(R.id.favorites_podcasts_container).visibility = View.GONE } catch (_: Exception) { }
                 try { findViewById<TextView>(R.id.favorites_podcasts_empty).visibility = View.GONE } catch (_: Exception) { }
-                findViewById<View>(R.id.saved_episodes_container).visibility = View.GONE
+                try { findViewById<View>(R.id.saved_episodes_container).visibility = View.GONE } catch (_: Exception) { }
                 try { findViewById<TextView>(R.id.saved_episodes_empty).visibility = View.GONE } catch (_: Exception) { }
-                findViewById<View>(R.id.saved_searches_container).visibility = View.VISIBLE
+                try { findViewById<View>(R.id.saved_searches_container).visibility = View.VISIBLE } catch (_: Exception) { }
                 try { findViewById<TextView>(R.id.saved_searches_title).visibility = View.GONE } catch (_: Exception) { }
-                findViewById<View>(R.id.favorites_history_container).visibility = View.GONE
+                try { findViewById<View>(R.id.favorites_history_container).visibility = View.GONE } catch (_: Exception) { }
                 try { findViewById<TextView>(R.id.favorites_history_empty).visibility = View.GONE } catch (_: Exception) { }
                 try { findViewById<RecyclerView>(R.id.saved_episodes_recycler).visibility = View.GONE } catch (_: Exception) { }
                 try { findViewById<RecyclerView>(R.id.favorites_history_recycler).visibility = View.GONE } catch (_: Exception) { }
@@ -1931,12 +1951,12 @@ class MainActivity : AppCompatActivity() {
                 supportActionBar?.title = "History"
                 stationsList.visibility = View.GONE
                 try { findViewById<TextView>(R.id.favorite_stations_empty).visibility = View.GONE } catch (_: Exception) { }
-                findViewById<View>(R.id.favorites_podcasts_container).visibility = View.GONE
+                try { findViewById<View>(R.id.favorites_podcasts_container).visibility = View.GONE } catch (_: Exception) { }
                 try { findViewById<TextView>(R.id.favorites_podcasts_empty).visibility = View.GONE } catch (_: Exception) { }
-                findViewById<View>(R.id.saved_episodes_container).visibility = View.GONE
+                try { findViewById<View>(R.id.saved_episodes_container).visibility = View.GONE } catch (_: Exception) { }
                 try { findViewById<TextView>(R.id.saved_episodes_empty).visibility = View.GONE } catch (_: Exception) { }
-                findViewById<View>(R.id.saved_searches_container).visibility = View.GONE
-                findViewById<View>(R.id.favorites_history_container).visibility = View.VISIBLE
+                try { findViewById<View>(R.id.saved_searches_container).visibility = View.GONE } catch (_: Exception) { }
+                try { findViewById<View>(R.id.favorites_history_container).visibility = View.VISIBLE } catch (_: Exception) { }
                 try { findViewById<RecyclerView>(R.id.favorites_history_recycler).visibility = View.VISIBLE } catch (_: Exception) { }
                 // Always refresh the history contents when the tab becomes active
                 try { refreshHistorySection(); findViewById<RecyclerView>(R.id.favorites_history_recycler).scrollToPosition(0) } catch (_: Exception) { }
@@ -2031,9 +2051,14 @@ class MainActivity : AppCompatActivity() {
 
         val fm = supportFragmentManager
 
-        // If we're already showing the Podcasts list with no detail on top, do nothing (avoid flicker)
+        // If we're already showing the browse Podcasts list with no detail on top, reset any
+        // stale search state (e.g. after returning from Favorites where a saved search was run)
+        // so the default browse view is shown.
+        // NOTE: a search-context PodcastsFragment (isSearchContextMode() == true) must NOT be
+        // given the early-return shortcut — it needs to be replaced by the browse fragment below.
         val existingVisible = fm.findFragmentById(R.id.fragment_container)
-        if (existingVisible is PodcastsFragment && fm.backStackEntryCount == 0) {
+        if (existingVisible is PodcastsFragment && !existingVisible.isSearchContextMode() && fm.backStackEntryCount == 0) {
+            existingVisible.resetToDefaultBrowse()
             return
         }
 
@@ -2042,10 +2067,15 @@ class MainActivity : AppCompatActivity() {
             try { fm.popBackStack() } catch (_: Exception) { }
         }
 
-        // Ensure a PodcastsFragment exists in the container
+        // Ensure a browse PodcastsFragment exists in the container.
+        // If a search-context fragment is currently showing (e.g. from a saved-search opened via
+        // Favorites → Saved Searches), it will be replaced here by the browse fragment.
+        val searchContextShowing = (existingVisible as? PodcastsFragment)?.isSearchContextMode() == true
         val existing = fm.findFragmentByTag("podcasts_fragment") as? PodcastsFragment
-        if (existing == null) {
-            val podcastsFragment = PodcastsFragment()
+        if (existing == null || searchContextShowing) {
+            // Reuse the browse PF if it's still a distinct object (wasn't the search-context PF
+            // itself). In practice existing is null here because replace() destroyed the browse PF.
+            val podcastsFragment = if (existing != null && existing !== existingVisible) existing else PodcastsFragment()
             fm.beginTransaction().apply {
                 replace(R.id.fragment_container, podcastsFragment, "podcasts_fragment")
                 commit()

@@ -21,14 +21,15 @@ class SearchHistory(private val context: Context) {
         val raw = prefs.getString(KEY, "") ?: ""
         val list = if (raw.isBlank()) mutableListOf() else raw.split(SEP).toMutableList()
 
-        // If there's already a longer entry that starts with this query, don't add the
-        // shorter/prefix query (prevents suggestions like "barbers", "barbersh" when
-        // the user previously searched "barbershop").
-        if (list.any { it.startsWith(q, ignoreCase = true) }) return
-
-        // Remove any existing case-insensitive duplicates
+        // Remove any existing case-insensitive duplicates first so we can re-prepend the entry
+        // (this also handles the "re-run existing search → move to top" case).
         val existingIndex = list.indexOfFirst { it.equals(q, ignoreCase = true) }
         if (existingIndex >= 0) list.removeAt(existingIndex)
+
+        // If there's a *longer* entry that already starts with this query (and it's not an exact
+        // match, handled above), don't add the shorter prefix query — prevents suggestions like
+        // "barbers", "barbersh" when the user previously searched "barbershop".
+        if (list.any { it.startsWith(q, ignoreCase = true) }) return
 
         // Remove any shorter entries that are prefixes of the new, longer query so the
         // longer query replaces noisy partial entries (e.g. remove "barbers" when
