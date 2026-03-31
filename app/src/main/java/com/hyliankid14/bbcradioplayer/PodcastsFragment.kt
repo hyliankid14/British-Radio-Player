@@ -326,6 +326,16 @@ class PodcastsFragment : Fragment() {
     private fun iconForGenre(genre: String): Int {
         val g = genre.lowercase(Locale.getDefault())
         return when {
+            // Sports (specific)
+            g.contains("boxing") || g.contains("mma") -> R.drawable.ic_sports_mma
+            g.contains("cricket") -> R.drawable.ic_sports_cricket
+            g.contains("football") || g.contains("soccer") -> R.drawable.ic_sports_soccer
+            g.contains("tennis") -> R.drawable.ic_sports_tennis
+            g.contains("golf") -> R.drawable.ic_sports_golf
+            g.contains("cycling") || g.contains("bike") -> R.drawable.ic_directions_bike
+            g.contains("rowing") -> R.drawable.ic_rowing
+            g.contains("sailing") -> R.drawable.ic_sailing
+            g.contains("motorsport") || g.contains("formula") || g.contains("racing") -> R.drawable.ic_sports_motorsports
             // Music — all subgenres
             g.contains("music") || g.contains("song") || g.contains("concert") ||
             g.contains("pop") || g.contains("rock") || g.contains("jazz") ||
@@ -336,7 +346,7 @@ class PodcastsFragment : Fragment() {
             g.contains("history") || g.contains("archive") || g.contains("heritage") ||
             g.contains("classic & period") || g.contains("period drama") ||
             g.contains("nostalgia") || g.contains("vintage") -> R.drawable.ic_history
-            // Sport
+            // Sport (generic)
             g.contains("sport") || g.contains("football") || g.contains("cricket") ||
             g.contains("rugby") || g.contains("tennis") || g.contains("boxing") ||
             g.contains("athletics") || g.contains("cycling") || g.contains("golf") ||
@@ -344,6 +354,8 @@ class PodcastsFragment : Fragment() {
             // News, Current Affairs & Documentary
             g.contains("news") || g.contains("politic") || g.contains("current affairs") ||
             g.contains("bulletin") || g.contains("documentary") -> R.drawable.ic_article
+            // Civics & political processes
+            g.contains("political") || g.contains("election") || g.contains("vote") -> R.drawable.ic_ballot
             // Business & Finance
             g.contains("business") || g.contains("finance") || g.contains("econom") ||
             g.contains("money") || g.contains("career") || g.contains("entrepreneur") -> R.drawable.ic_work_outline
@@ -375,7 +387,7 @@ class PodcastsFragment : Fragment() {
             g.contains("interview") || g.contains("activit") || g.contains("social") ||
             g.contains("society") -> R.drawable.ic_forum
             // Travel & World
-            g.contains("travel") || g.contains("world") || g.contains("geography") -> R.drawable.ic_flight
+            g.contains("travel") || g.contains("world") || g.contains("geography") -> R.drawable.ic_travel_explore
             // Religion, Philosophy & Ethics
             g.contains("philos") || g.contains("religi") || g.contains("spirit") ||
             g.contains("faith") || g.contains("ethic") -> R.drawable.ic_church
