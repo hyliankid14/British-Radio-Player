@@ -253,7 +253,20 @@ class PodcastsFragment : Fragment() {
             override fun onTabReselected(tab: TabLayout.Tab) {}
         })
 
-        tabs.getTabAt(TAB_POPULAR)?.select()
+        // Restore the previously selected tab from the saved sort, defaulting to Popular.
+        // Also set currentSort explicitly here so it is always in sync with the tab even when
+        // select() does not fire the listener (e.g. the tab was already at that position).
+        val savedSort = viewModel.cachedSort
+        val resolvedSort = normalizeSortValue(savedSort.ifEmpty { SORT_MOST_POPULAR })
+        currentSort = resolvedSort
+        val targetTabIdx = when (resolvedSort) {
+            SORT_MOST_POPULAR -> TAB_POPULAR
+            SORT_MOST_RECENT_EPISODES -> TAB_LAST_UPDATED
+            SORT_NEW_PODCASTS -> TAB_NEW_PODCASTS
+            SORT_ALPHABETICAL -> TAB_AZ
+            else -> TAB_POPULAR
+        }
+        tabs.getTabAt(targetTabIdx)?.select()
     }
 
     private fun selectTabForSort(sort: String) {
@@ -433,7 +446,9 @@ class PodcastsFragment : Fragment() {
                 return@setOnItemClickListener
             }
             currentSort = selected
-            viewModel.cachedSort = currentSort
+            if (!searchContextMode) {
+                viewModel.cachedSort = currentSort
+            }
             android.util.Log.d("PodcastsFragment", "Sort changed to: $currentSort, calling applyFilters")
             // Re-apply sort against any existing cached search (do NOT clear cache here).
             applyFilters(emptyState, recyclerView)
@@ -581,7 +596,9 @@ class PodcastsFragment : Fragment() {
             titleBar.menu.clear()
             view.findViewById<com.google.android.material.appbar.AppBarLayout>(R.id.podcasts_header_appbar).visibility = View.GONE
             currentSort = SORT_MOST_RECENT_EPISODES
-            viewModel.cachedSort = currentSort
+            // Do not update viewModel.cachedSort in search context mode — it stores the browse
+            // tab selection, and overwriting it here would cause the wrong tab to be restored
+            // when the user navigates back to the main Podcasts browse screen.
         } else {
             setupTitleBarActions(titleBar)
         }
@@ -1515,6 +1532,12 @@ class PodcastsFragment : Fragment() {
             sensorManager?.unregisterListener(shakeListener)
         } else {
             registerShakeListener()
+            // When the browse fragment is un-hidden (e.g. after pressing back from a podcast
+            // detail), ensure the activity action bar is hidden. The fragment manages its own
+            // title bar and must not show both simultaneously.
+            if (!searchContextMode) {
+                (activity as? androidx.appcompat.app.AppCompatActivity)?.supportActionBar?.hide()
+            }
         }
     }
 
@@ -1539,6 +1562,12 @@ class PodcastsFragment : Fragment() {
     override fun onResume() {
         super.onResume()
         registerShakeListener()
+        // Ensure the activity action bar is hidden in browse mode — the fragment owns its title bar.
+        // This guards against timing windows where the action bar was shown for a podcast detail
+        // and not yet hidden when this fragment comes back to the foreground.
+        if (!searchContextMode) {
+            (activity as? androidx.appcompat.app.AppCompatActivity)?.supportActionBar?.hide()
+        }
         android.util.Log.d("PodcastsFragment", "onResume: activeSearchQuery='${viewModel.activeSearchQuery.value}' searchQuery='${searchQuery}' allPodcasts.size=${allPodcasts.size}")
         
         // Refresh the adapter's subscription cache to reflect any changes
