@@ -31,7 +31,8 @@ class SearchResultsAdapter(
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     sealed class Item {
-        data class Section(val title: String) : Item()
+        /** [count] is the number of results in this section; -1 means the count is not yet known. */
+        data class Section(val title: String, val count: Int = -1) : Item()
         data class PodcastItem(val podcast: Podcast) : Item()
         data class EpisodeItem(val episode: Episode, val podcast: Podcast) : Item()
         data class Hint(val message: String, val onGoToSettings: () -> Unit) : Item()
@@ -52,15 +53,15 @@ class SearchResultsAdapter(
     private fun rebuildItems(titleMatches: List<Podcast>, descMatches: List<Podcast>, episodeMatches: List<Pair<Episode, Podcast>>) {
         items.clear()
         if (titleMatches.isNotEmpty()) {
-            items.add(Item.Section("Podcast Name"))
+            items.add(Item.Section("Podcast Name", titleMatches.size))
             titleMatches.forEach { items.add(Item.PodcastItem(it)) }
         }
         if (descMatches.isNotEmpty()) {
-            items.add(Item.Section("Podcast Description"))
+            items.add(Item.Section("Podcast Description", descMatches.size))
             descMatches.forEach { items.add(Item.PodcastItem(it)) }
         }
         if (episodeMatches.isNotEmpty()) {
-            items.add(Item.Section("Episode"))
+            items.add(Item.Section("Episode", episodeMatches.size))
             episodeMatches.forEach { (ep, p) -> items.add(Item.EpisodeItem(ep, p)) }
         }
     }
@@ -79,7 +80,7 @@ class SearchResultsAdapter(
         // Remove any existing Section("Episode") header
         items.removeAll { it is Item.Section && it.title == "Episode" }
         if (newEpisodeMatches.isNotEmpty()) {
-            items.add(Item.Section("Episode"))
+            items.add(Item.Section("Episode", newEpisodeMatches.size))
             newEpisodeMatches.forEach { (ep, p) -> items.add(Item.EpisodeItem(ep, p)) }
         }
         notifyDataSetChanged()
@@ -107,15 +108,23 @@ class SearchResultsAdapter(
         removeIndexHint()
 
         var sectionIndex = items.indexOfFirst { it is Item.Section && it.title == "Episode" }
-        if (sectionIndex == -1) {
+        val sectionIsNew = sectionIndex == -1
+        if (sectionIsNew) {
             sectionIndex = items.size
-            items.add(Item.Section("Episode"))
+            items.add(Item.Section("Episode", filtered.size))
             notifyItemInserted(sectionIndex)
         }
 
         val insertStart = items.size
         filtered.forEach { (ep, p) -> items.add(Item.EpisodeItem(ep, p)) }
         notifyItemRangeInserted(insertStart, filtered.size)
+
+        // Refresh the section header count when appending to an existing section.
+        if (!sectionIsNew) {
+            val existingCount = (items[sectionIndex] as? Item.Section)?.count?.takeIf { it >= 0 } ?: 0
+            items[sectionIndex] = Item.Section("Episode", existingCount + filtered.size)
+            notifyItemChanged(sectionIndex)
+        }
     }
 
     /**
@@ -208,7 +217,7 @@ class SearchResultsAdapter(
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         when (val it = items[position]) {
-            is Item.Section -> (holder as SectionViewHolder).bind(it.title)
+            is Item.Section -> (holder as SectionViewHolder).bind(it)
             is Item.PodcastItem -> (holder as PodcastViewHolder).bind(it.podcast)
             is Item.EpisodeItem -> (holder as EpisodeViewHolder).bind(it.episode, it.podcast)
             is Item.Hint -> (holder as HintViewHolder).bind(it)
@@ -228,8 +237,8 @@ class SearchResultsAdapter(
 
     inner class SectionViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         private val title: TextView = itemView.findViewById(R.id.section_title)
-        fun bind(text: String) {
-            title.text = text
+        fun bind(section: Item.Section) {
+            title.text = if (section.count >= 0) "${section.title} (${section.count})" else section.title
         }
     }
 
