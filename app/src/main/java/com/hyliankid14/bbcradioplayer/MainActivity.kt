@@ -2051,11 +2051,13 @@ class MainActivity : AppCompatActivity() {
 
         val fm = supportFragmentManager
 
-        // If we're already showing the Podcasts list with no detail on top, reset any stale
-        // search state (e.g. after returning from Favorites where a saved search was run) so
-        // the default browse view is shown.
+        // If we're already showing the browse Podcasts list with no detail on top, reset any
+        // stale search state (e.g. after returning from Favorites where a saved search was run)
+        // so the default browse view is shown.
+        // NOTE: a search-context PodcastsFragment (isSearchContextMode() == true) must NOT be
+        // given the early-return shortcut — it needs to be replaced by the browse fragment below.
         val existingVisible = fm.findFragmentById(R.id.fragment_container)
-        if (existingVisible is PodcastsFragment && fm.backStackEntryCount == 0) {
+        if (existingVisible is PodcastsFragment && !existingVisible.isSearchContextMode() && fm.backStackEntryCount == 0) {
             existingVisible.resetToDefaultBrowse()
             return
         }
@@ -2065,10 +2067,15 @@ class MainActivity : AppCompatActivity() {
             try { fm.popBackStack() } catch (_: Exception) { }
         }
 
-        // Ensure a PodcastsFragment exists in the container
+        // Ensure a browse PodcastsFragment exists in the container.
+        // If a search-context fragment is currently showing (e.g. from a saved-search opened via
+        // Favorites → Saved Searches), it will be replaced here by the browse fragment.
+        val searchContextShowing = (existingVisible as? PodcastsFragment)?.isSearchContextMode() == true
         val existing = fm.findFragmentByTag("podcasts_fragment") as? PodcastsFragment
-        if (existing == null) {
-            val podcastsFragment = PodcastsFragment()
+        if (existing == null || searchContextShowing) {
+            // Reuse the browse PF if it's still a distinct object (wasn't the search-context PF
+            // itself). In practice existing is null here because replace() destroyed the browse PF.
+            val podcastsFragment = if (existing != null && existing !== existingVisible) existing else PodcastsFragment()
             fm.beginTransaction().apply {
                 replace(R.id.fragment_container, podcastsFragment, "podcasts_fragment")
                 commit()
