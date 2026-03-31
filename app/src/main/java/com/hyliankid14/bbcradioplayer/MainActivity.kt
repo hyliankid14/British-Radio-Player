@@ -208,6 +208,19 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun restoreTopAppBarState() {
+        val toolbar = findViewById<com.google.android.material.appbar.MaterialToolbar?>(R.id.top_app_bar) ?: return
+        toolbar.visibility = View.VISIBLE
+        toolbar.alpha = 1f
+        toolbar.translationY = 0f
+
+        // Re-apply section-specific bar state after wake/focus changes.
+        if (currentMode != "podcasts") {
+            supportActionBar?.show()
+        }
+        syncActionBarVisibility()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         // Apply theme before creating the view
         val theme = ThemePreference.getTheme(this)
@@ -2872,6 +2885,9 @@ class MainActivity : AppCompatActivity() {
         // Restore view when returning from settings
         PlaybackStateHelper.onShowChange(showChangeListener)
         startPlaybackStateUpdates()
+
+        // Defensive restore for OEM/device wake paths that leave the app bar hidden.
+        window.decorView.post { restoreTopAppBarState() }
         
         // Clear show cache and refresh the current view to prevent stale show names
         refreshCurrentView()
@@ -2914,6 +2930,13 @@ class MainActivity : AppCompatActivity() {
             }
         } catch (_: Exception) { }
         updateVpnWarningBanner()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            window.decorView.post { restoreTopAppBarState() }
+        }
     }
 
     private fun refreshSavedSearchesSection() {

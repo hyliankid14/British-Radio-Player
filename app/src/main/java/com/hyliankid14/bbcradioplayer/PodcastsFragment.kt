@@ -1628,6 +1628,36 @@ class PodcastsFragment : Fragment() {
         sensorManager?.registerListener(shakeListener, sensor, android.hardware.SensorManager.SENSOR_DELAY_UI)
     }
 
+    private fun restoreHeaderBarState() {
+        val root = view ?: return
+        val headerAppBar = root.findViewById<com.google.android.material.appbar.AppBarLayout>(R.id.podcasts_header_appbar)
+        val podcastsContent = root.findViewById<View>(R.id.podcasts_content)
+        val searchSortBar = root.findViewById<View>(R.id.search_sort_bar)
+        val titleBar = root.findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.podcasts_title_bar)
+
+        titleBar.visibility = View.VISIBLE
+        headerAppBar.visibility = View.VISIBLE
+
+        if (searchContextMode) {
+            podcastsContent.visibility = View.GONE
+            searchSortBar.visibility = View.VISIBLE
+            return
+        }
+
+        podcastsContent.visibility = View.VISIBLE
+        searchSortBar.visibility = View.GONE
+
+        // Only force expansion when already at the top; preserve the user's scroll position otherwise.
+        val recycler = root.findViewById<RecyclerView>(R.id.podcasts_recycler)
+        val layoutManager = recycler.layoutManager as? LinearLayoutManager
+        val firstVisible = layoutManager?.findFirstVisibleItemPosition() ?: RecyclerView.NO_POSITION
+        val firstViewTop = layoutManager?.findViewByPosition(firstVisible)?.top ?: 0
+        val isAtTop = firstVisible <= 0 && firstViewTop >= 0
+        if (isAtTop) {
+            headerAppBar.setExpanded(true, false)
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         registerShakeListener()
@@ -1636,6 +1666,7 @@ class PodcastsFragment : Fragment() {
         // windows where the action bar was shown for a podcast detail and not yet hidden when this
         // fragment comes back to the foreground.
         (activity as? androidx.appcompat.app.AppCompatActivity)?.supportActionBar?.hide()
+        view?.post { restoreHeaderBarState() }
         android.util.Log.d("PodcastsFragment", "onResume: activeSearchQuery='${viewModel.activeSearchQuery.value}' searchQuery='${searchQuery}' allPodcasts.size=${allPodcasts.size}")
         
         // Refresh the adapter's subscription cache to reflect any changes
