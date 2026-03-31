@@ -2273,7 +2273,7 @@ class PodcastsFragment : Fragment() {
                 // PHASE 1: Quick podcast title/description matches from FTS index
                 val indexPodcastResults = withContext(Dispatchers.IO) {
                     val localResults = try {
-                        com.hyliankid14.bbcradioplayer.db.IndexStore.getInstance(requireContext()).searchPodcasts(qFts, 100)
+                        com.hyliankid14.bbcradioplayer.db.IndexStore.getInstance(requireContext()).searchPodcasts(qFts, 500)
                     } catch (e: Exception) {
                         android.util.Log.w("PodcastsFragment", "FTS podcast search failed: ${e.message}")
                         emptyList()
@@ -2283,7 +2283,7 @@ class PodcastsFragment : Fragment() {
                         localResults
                     } else {
                         try {
-                            remoteIndexClient.searchPodcasts(qFts, 100)
+                            remoteIndexClient.searchPodcasts(qFts, 500)
                         } catch (e: Exception) {
                             android.util.Log.w("PodcastsFragment", "Remote podcast search failed: ${e.message}")
                             emptyList()
@@ -2583,7 +2583,21 @@ class PodcastsFragment : Fragment() {
                                     val remote = com.hyliankid14.bbcradioplayer.RemoteIndexClient(requireContext())
                                     if (cloudSearchAvailable) {
                                         try {
-                                            return@run remote.searchEpisodes(qFts, 500, 0)
+                                            // Paginate the remote episode search so older results are
+                                            // included. Each page fetches 1,000 episodes; we stop when
+                                            // a page returns fewer results than the page size (meaning
+                                            // we've reached the end) or when we hit the 10-page cap
+                                            // (10,000 episodes max) to stay performant.
+                                            val pageSize = 1000
+                                            val maxPages = 10
+                                            val all = mutableListOf<com.hyliankid14.bbcradioplayer.db.EpisodeFts>()
+                                            for (page in 0 until maxPages) {
+                                                if (!coroutineContext.isActive) break
+                                                val batch = remote.searchEpisodes(qFts, pageSize, page * pageSize)
+                                                all.addAll(batch)
+                                                if (batch.size < pageSize) break
+                                            }
+                                            return@run all
                                         } catch (e: Exception) {
                                             android.util.Log.w("PodcastsFragment", "Remote episode search (full) failed: ${e.message}")
                                         }
