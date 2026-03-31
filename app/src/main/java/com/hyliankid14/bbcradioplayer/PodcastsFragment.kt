@@ -340,7 +340,7 @@ class PodcastsFragment : Fragment() {
             g.contains("sport") || g.contains("football") || g.contains("cricket") ||
             g.contains("rugby") || g.contains("tennis") || g.contains("boxing") ||
             g.contains("athletics") || g.contains("cycling") || g.contains("golf") ||
-            g.contains("swimming") || g.contains("racing") -> R.drawable.ic_star
+            g.contains("swimming") || g.contains("racing") -> R.drawable.ic_emoji_events
             // News, Current Affairs & Documentary
             g.contains("news") || g.contains("politic") || g.contains("current affairs") ||
             g.contains("bulletin") || g.contains("documentary") -> R.drawable.ic_article
@@ -364,7 +364,7 @@ class PodcastsFragment : Fragment() {
             // Drama, Comedy & Entertainment
             g.contains("comedy") || g.contains("entertain") || g.contains("drama") ||
             g.contains("action") || g.contains("adventure") || g.contains("character") ||
-            g.contains("sitcom") -> R.drawable.ic_play_arrow
+            g.contains("sitcom") -> R.drawable.ic_theater_comedy
             // Health & Wellbeing
             g.contains("health") || g.contains("wellbeing") || g.contains("wellness") ||
             g.contains("fitness") || g.contains("mental") || g.contains("self") ||
@@ -378,10 +378,10 @@ class PodcastsFragment : Fragment() {
             g.contains("travel") || g.contains("world") || g.contains("geography") -> R.drawable.ic_flight
             // Religion, Philosophy & Ethics
             g.contains("philos") || g.contains("religi") || g.contains("spirit") ||
-            g.contains("faith") || g.contains("ethic") -> R.drawable.ic_info
+            g.contains("faith") || g.contains("ethic") -> R.drawable.ic_church
             // Crime & Investigation
             g.contains("crime") || g.contains("detective") || g.contains("investigation") ||
-            g.contains("murder") -> R.drawable.ic_search
+            g.contains("murder") -> R.drawable.ic_local_police
             else -> R.drawable.ic_podcast
         }
     }
