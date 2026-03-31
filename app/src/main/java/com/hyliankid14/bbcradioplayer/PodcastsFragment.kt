@@ -340,7 +340,7 @@ class PodcastsFragment : Fragment() {
             g.contains("sport") || g.contains("football") || g.contains("cricket") ||
             g.contains("rugby") || g.contains("tennis") || g.contains("boxing") ||
             g.contains("athletics") || g.contains("cycling") || g.contains("golf") ||
-            g.contains("swimming") || g.contains("racing") -> R.drawable.ic_star
+            g.contains("swimming") || g.contains("racing") -> R.drawable.ic_emoji_events
             // News, Current Affairs & Documentary
             g.contains("news") || g.contains("politic") || g.contains("current affairs") ||
             g.contains("bulletin") || g.contains("documentary") -> R.drawable.ic_article
@@ -364,7 +364,7 @@ class PodcastsFragment : Fragment() {
             // Drama, Comedy & Entertainment
             g.contains("comedy") || g.contains("entertain") || g.contains("drama") ||
             g.contains("action") || g.contains("adventure") || g.contains("character") ||
-            g.contains("sitcom") -> R.drawable.ic_play_arrow
+            g.contains("sitcom") -> R.drawable.ic_theater_comedy
             // Health & Wellbeing
             g.contains("health") || g.contains("wellbeing") || g.contains("wellness") ||
             g.contains("fitness") || g.contains("mental") || g.contains("self") ||
@@ -378,10 +378,10 @@ class PodcastsFragment : Fragment() {
             g.contains("travel") || g.contains("world") || g.contains("geography") -> R.drawable.ic_flight
             // Religion, Philosophy & Ethics
             g.contains("philos") || g.contains("religi") || g.contains("spirit") ||
-            g.contains("faith") || g.contains("ethic") -> R.drawable.ic_info
+            g.contains("faith") || g.contains("ethic") -> R.drawable.ic_church
             // Crime & Investigation
             g.contains("crime") || g.contains("detective") || g.contains("investigation") ||
-            g.contains("murder") -> R.drawable.ic_search
+            g.contains("murder") -> R.drawable.ic_local_police
             else -> R.drawable.ic_podcast
         }
     }
@@ -1162,6 +1162,18 @@ class PodcastsFragment : Fragment() {
 
                 if (immediate.isNotEmpty()) {
                     android.util.Log.d("PodcastsFragment", "Showing ${immediate.size} local podcasts immediately (needsRefresh=$needsRefresh)")
+                    // Pre-populate cachedUpdates from the cloud/local bounds cache so that the
+                    // "Last Updated" sort is meaningful during Step 1, before the full date-bounds
+                    // scan (Step 3) completes.  Mirrors how cachedEarliestUpdates is pre-populated
+                    // for the "New Podcasts" sort.
+                    val immediateLatest = withContext(Dispatchers.IO) {
+                        repository.getAvailableCloudLatestUpdatesNow(immediate)
+                            .ifEmpty { repository.getAvailableUpdatesNow(immediate) }
+                    }
+                    if (immediateLatest.isNotEmpty()) {
+                        cachedUpdates = immediateLatest
+                        viewModel.cachedUpdates = cachedUpdates
+                    }
                     cachedNewlyAddedPodcastEpochs = immediateNewlyAdded
                     viewModel.cachedNewlyAddedPodcastEpochs = immediateNewlyAdded
                     displayPodcasts(immediate, immediateEarliest, loadingIndicator, emptyState, recyclerView, genreSpinner, sortSpinner)
@@ -1189,6 +1201,16 @@ class PodcastsFragment : Fragment() {
                                 .ifEmpty { repository.getAvailableEarliestUpdatesNow(fresh) },
                             repository.getAvailableNewPodcastEpochsNow(fresh)
                         )
+                    }
+                    // Pre-populate cachedUpdates from cached bounds for Step 2 as well, so the
+                    // Last Updated sort is correct before Step 3 fetches the full date bounds.
+                    val freshLatest = withContext(Dispatchers.IO) {
+                        repository.getAvailableCloudLatestUpdatesNow(fresh)
+                            .ifEmpty { repository.getAvailableUpdatesNow(fresh) }
+                    }
+                    if (freshLatest.isNotEmpty()) {
+                        cachedUpdates = freshLatest
+                        viewModel.cachedUpdates = cachedUpdates
                     }
                     cachedNewlyAddedPodcastEpochs = freshNewlyAdded
                     viewModel.cachedNewlyAddedPodcastEpochs = freshNewlyAdded
@@ -1637,8 +1659,11 @@ class PodcastsFragment : Fragment() {
 
         if (podcastsTabLayout?.selectedTabPosition == TAB_GENRE) {
             view?.let { showGenreList(it) }
+            // Genre list is fully self-contained — nothing else in onResume needs to run for it.
+            // Falling through would reach applyFilters() which swaps the adapter back to podcastAdapter.
+            return
         }
-        
+
         // Super fast-path: if we have a cached adapter from before view destruction, restore it immediately
         val rv = view?.findViewById<RecyclerView>(R.id.podcasts_recycler)
         if (cachedSearchAdapter != null && rv != null) {
@@ -2714,9 +2739,9 @@ class PodcastsFragment : Fragment() {
                                     searchAdapter?.appendEpisodeMatches(toAppendNow)
                                 }
                             } else {
-                                // For alphabetical or popularity sort, replace the entire episode list
-                                // with the properly sorted full results to avoid showing two separate
-                                // sorted segments (quick batch + new episodes appended).
+                                // For oldest-to-newest, alphabetical, or popularity sort, replace the
+                                // entire episode list with the properly sorted full results to avoid
+                                // showing two separate sorted segments (quick batch + new episodes appended).
                                 val initialBatchToDisplay = mergedAll.take(INITIAL_EPISODE_DISPLAY_LIMIT)
                                 if (initialBatchToDisplay.size > quickEps.size) {
                                     // Only update if we have more episodes to show
@@ -2724,6 +2749,10 @@ class PodcastsFragment : Fragment() {
                                     android.util.Log.d("PodcastsFragment", "Replaced episode list with ${initialBatchToDisplay.size} sorted episodes (sort='$currentSort')")
                                 }
                             }
+
+                            // Tell the adapter the authoritative total so the section header shows
+                            // the real result count (not just the initial paged subset).
+                            searchAdapter?.setEpisodeTotalCount(mergedAll.size)
 
                             // Wire remaining results into scroll-pagination.
                             val initialBatch = mergedAll.take(INITIAL_EPISODE_DISPLAY_LIMIT)

@@ -802,6 +802,15 @@ class PodcastRepository(private val context: Context) {
             .filterValues { it > 0L }
     }
 
+    fun getAvailableCloudLatestUpdatesNow(podcasts: List<Podcast>): Map<String, Long> {
+        val requestedIds = podcasts.map { it.id }.toSet()
+        if (requestedIds.isEmpty()) return emptyMap()
+        return readCloudPodcastBoundsCache()
+            .filterKeys { it in requestedIds }
+            .mapValues { it.value.latestEpisodeEpoch }
+            .filterValues { it > 0L }
+    }
+
     private fun readPodcastDateBoundsCache(): MutableMap<String, CachedPodcastDateBounds> {
         if (!updatesCacheFile.exists()) return mutableMapOf()
         return try {

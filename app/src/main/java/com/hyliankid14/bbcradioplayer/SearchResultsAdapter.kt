@@ -31,13 +31,17 @@ class SearchResultsAdapter(
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     sealed class Item {
-        data class Section(val title: String) : Item()
+        /** [count] is the number of results in this section; -1 means the count is not yet known. */
+        data class Section(val title: String, val count: Int = -1) : Item()
         data class PodcastItem(val podcast: Podcast) : Item()
         data class EpisodeItem(val episode: Episode, val podcast: Podcast) : Item()
         data class Hint(val message: String, val onGoToSettings: () -> Unit) : Item()
     }
 
     private var items: MutableList<Item> = mutableListOf()
+
+    /** Authoritative total episode count set once the full FTS scan completes; -1 if not yet known. */
+    private var episodeTotalCount: Int = -1
 
     init {
         if (prebuiltItems != null) {
@@ -52,14 +56,15 @@ class SearchResultsAdapter(
     private fun rebuildItems(titleMatches: List<Podcast>, descMatches: List<Podcast>, episodeMatches: List<Pair<Episode, Podcast>>) {
         items.clear()
         if (titleMatches.isNotEmpty()) {
-            items.add(Item.Section("Podcast Name"))
+            items.add(Item.Section("Podcast Name", titleMatches.size))
             titleMatches.forEach { items.add(Item.PodcastItem(it)) }
         }
         if (descMatches.isNotEmpty()) {
-            items.add(Item.Section("Podcast Description"))
+            items.add(Item.Section("Podcast Description", descMatches.size))
             descMatches.forEach { items.add(Item.PodcastItem(it)) }
         }
         if (episodeMatches.isNotEmpty()) {
+            // Count is -1 until setEpisodeTotalCount() provides the authoritative total.
             items.add(Item.Section("Episode"))
             episodeMatches.forEach { (ep, p) -> items.add(Item.EpisodeItem(ep, p)) }
         }
@@ -78,11 +83,28 @@ class SearchResultsAdapter(
         items.removeAll { it is Item.EpisodeItem }
         // Remove any existing Section("Episode") header
         items.removeAll { it is Item.Section && it.title == "Episode" }
+        episodeTotalCount = -1  // Reset; caller will provide the total via setEpisodeTotalCount.
         if (newEpisodeMatches.isNotEmpty()) {
+            // Count is -1 until setEpisodeTotalCount() provides the authoritative total.
             items.add(Item.Section("Episode"))
             newEpisodeMatches.forEach { (ep, p) -> items.add(Item.EpisodeItem(ep, p)) }
         }
         notifyDataSetChanged()
+    }
+
+    /**
+     * Sets the authoritative total episode result count for the section header.
+     * Call this once the full FTS scan completes so the header shows the real total
+     * rather than only the number of episodes loaded so far.
+     * Must be called on the main thread.
+     */
+    fun setEpisodeTotalCount(total: Int) {
+        episodeTotalCount = total
+        val sectionIndex = items.indexOfFirst { it is Item.Section && it.title == "Episode" }
+        if (sectionIndex >= 0) {
+            items[sectionIndex] = Item.Section("Episode", total)
+            notifyItemChanged(sectionIndex)
+        }
     }
 
     fun appendItems(more: List<Item>) {
@@ -107,8 +129,10 @@ class SearchResultsAdapter(
         removeIndexHint()
 
         var sectionIndex = items.indexOfFirst { it is Item.Section && it.title == "Episode" }
-        if (sectionIndex == -1) {
+        val sectionIsNew = sectionIndex == -1
+        if (sectionIsNew) {
             sectionIndex = items.size
+            // Count is -1 until setEpisodeTotalCount() provides the authoritative total.
             items.add(Item.Section("Episode"))
             notifyItemInserted(sectionIndex)
         }
@@ -116,6 +140,8 @@ class SearchResultsAdapter(
         val insertStart = items.size
         filtered.forEach { (ep, p) -> items.add(Item.EpisodeItem(ep, p)) }
         notifyItemRangeInserted(insertStart, filtered.size)
+        // Section header count is intentionally not updated here; it stays hidden (-1) until
+        // setEpisodeTotalCount() is called with the full FTS result count.
     }
 
     /**
@@ -208,7 +234,7 @@ class SearchResultsAdapter(
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         when (val it = items[position]) {
-            is Item.Section -> (holder as SectionViewHolder).bind(it.title)
+            is Item.Section -> (holder as SectionViewHolder).bind(it)
             is Item.PodcastItem -> (holder as PodcastViewHolder).bind(it.podcast)
             is Item.EpisodeItem -> (holder as EpisodeViewHolder).bind(it.episode, it.podcast)
             is Item.Hint -> (holder as HintViewHolder).bind(it)
@@ -228,8 +254,8 @@ class SearchResultsAdapter(
 
     inner class SectionViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         private val title: TextView = itemView.findViewById(R.id.section_title)
-        fun bind(text: String) {
-            title.text = text
+        fun bind(section: Item.Section) {
+            title.text = if (section.count >= 0) "${section.title} (${section.count})" else section.title
         }
     }
 
@@ -293,6 +319,13 @@ class SearchResultsAdapter(
                 else -> "…"
             }
             durationView?.text = durText
+
+            // Re-check download state now that the episode may have a real audio URL.
+            if (DownloadedEpisodes.isDownloaded(itemView.context, episode)) {
+                downloadIcon?.visibility = View.VISIBLE
+            } else {
+                downloadIcon?.visibility = View.GONE
+            }
 
             playButton?.isEnabled = true
             playButton?.alpha = 1.0f
