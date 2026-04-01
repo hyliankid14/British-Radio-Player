@@ -26,14 +26,16 @@ import android.graphics.Canvas
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import com.google.android.exoplayer2.ExoPlayer
-import com.google.android.exoplayer2.Player
-import com.google.android.exoplayer2.PlaybackException
-import com.google.android.exoplayer2.MediaItem as ExoMediaItem
-import com.google.android.exoplayer2.MediaMetadata
-import com.google.android.exoplayer2.upstream.DefaultDataSource
+import androidx.annotation.OptIn
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.common.Player
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.MediaItem as ExoMediaItem
+import androidx.media3.common.MediaMetadata
+import androidx.media3.datasource.DefaultDataSource
 import com.hyliankid14.bbcradioplayer.PodcastSubscriptions
-import com.google.android.exoplayer2.audio.AudioAttributes as ExoAudioAttributes
+import androidx.media3.common.AudioAttributes as ExoAudioAttributes
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -45,6 +47,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
+@OptIn(UnstableApi::class)
 class RadioService : MediaBrowserServiceCompat() {
     private lateinit var mediaSession: MediaSessionCompat
     private var player: ExoPlayer? = null
@@ -1490,8 +1493,7 @@ class RadioService : MediaBrowserServiceCompat() {
             // Route local/content URIs through DefaultDataSource and keep secure HTTP handling for network streams.
             val secureDataSourceFactory = SecureHttpDataSource()
             val appDataSourceFactory = DefaultDataSource.Factory(this, secureDataSourceFactory)
-            val mediaSourceFactory = com.google.android.exoplayer2.source.DefaultMediaSourceFactory(this)
-                .setDataSourceFactory(appDataSourceFactory)
+            val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(appDataSourceFactory)
             
             player = ExoPlayer.Builder(this)
                 .setMediaSourceFactory(mediaSourceFactory)
@@ -1499,8 +1501,8 @@ class RadioService : MediaBrowserServiceCompat() {
                 // Configure audio attributes for music playback
                 setAudioAttributes(
                     ExoAudioAttributes.Builder()
-                        .setUsage(com.google.android.exoplayer2.C.USAGE_MEDIA)
-                        .setContentType(com.google.android.exoplayer2.C.AUDIO_CONTENT_TYPE_MUSIC)
+                        .setUsage(androidx.media3.common.C.USAGE_MEDIA)
+                        .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MUSIC)
                         .build(),
                     true
                 )

@@ -1,10 +1,12 @@
 package com.hyliankid14.bbcradioplayer
 
 import android.net.Uri
-import com.google.android.exoplayer2.C
-import com.google.android.exoplayer2.upstream.DataSource
-import com.google.android.exoplayer2.upstream.DataSpec
-import com.google.android.exoplayer2.upstream.HttpDataSource
+import androidx.annotation.OptIn
+import androidx.media3.common.C
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.HttpDataSource
 import java.io.IOException
 import java.io.InputStream
 import java.net.HttpURLConnection
@@ -14,6 +16,7 @@ import java.net.URL
  * Custom HttpDataSource that upgrades all HTTP URLs (including redirects) to HTTPS.
  * This prevents cleartext traffic issues with BBC podcast redirects.
  */
+@OptIn(UnstableApi::class)
 class SecureHttpDataSource : DataSource.Factory {
     
     override fun createDataSource(): DataSource {
@@ -137,7 +140,7 @@ class SecureHttpDataSource : DataSource.Factory {
 
         override fun getResponseCode(): Int = responseCode
 
-        override fun addTransferListener(transferListener: com.google.android.exoplayer2.upstream.TransferListener) {}
+        override fun addTransferListener(transferListener: androidx.media3.datasource.TransferListener) {}
 
         override fun setRequestProperty(name: String, value: String) {
             synchronized(requestProperties) { requestProperties[name] = value }
