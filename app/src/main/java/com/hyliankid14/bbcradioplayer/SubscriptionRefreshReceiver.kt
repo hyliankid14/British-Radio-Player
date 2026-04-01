@@ -3,6 +3,7 @@ package com.hyliankid14.bbcradioplayer
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -90,10 +91,74 @@ class SubscriptionRefreshReceiver : BroadcastReceiver() {
                 }
 
                 SavedSearchManager.checkForUpdates(context)
+
+                // Check for new podcasts added to the catalogue and notify if enabled.
+                if (IndexPreference.isNewPodcastNotificationsEnabled(context)) {
+                    checkAndNotifyNewPodcasts(context)
+                }
             } catch (_: Exception) {
                 // swallow - this is a best-effort background job
             } finally {
                 pendingResult.finish()
+            }
+        }
+    }
+
+    companion object {
+        private const val TAG = "SubscriptionRefreshReceiver"
+
+        /**
+         * Fetches the lightweight new-podcasts snapshot from the server and fires a
+         * notification for any podcasts that are genuinely new since the last check.
+         *
+         * On the very first call the current snapshot is used only to seed the
+         * "already seen" set so the user is not flooded with notifications for
+         * all existing podcasts at once.
+         */
+        fun checkAndNotifyNewPodcasts(context: Context) {
+            try {
+                val snapshot = RemoteIndexClient(context).fetchNewPodcastSnapshot(skipCache = false)
+                if (snapshot == null) {
+                    Log.d(TAG, "checkAndNotifyNewPodcasts: snapshot unavailable, skipping")
+                    return
+                }
+
+                val lastGeneratedAt = IndexPreference.getLastNewPodcastSnapshotGeneratedAt(context)
+
+                if (lastGeneratedAt == null) {
+                    // First time: seed all current podcast IDs as already-notified so the
+                    // user does not receive a burst of notifications for pre-existing podcasts.
+                    snapshot.firstSeenEpochs.keys.forEach { podcastId ->
+                        IndexPreference.markNewPodcastNotified(context, podcastId)
+                    }
+                    IndexPreference.setLastNewPodcastSnapshotGeneratedAt(context, snapshot.snapshotGeneratedAt)
+                    Log.d(TAG, "checkAndNotifyNewPodcasts: first run — seeded ${snapshot.firstSeenEpochs.size} podcast IDs")
+                    return
+                }
+
+                if (lastGeneratedAt == snapshot.snapshotGeneratedAt) {
+                    Log.d(TAG, "checkAndNotifyNewPodcasts: snapshot unchanged (generatedAt=$lastGeneratedAt), nothing to notify")
+                    return
+                }
+
+                // Snapshot has been updated — notify for any podcast not yet seen.
+                var notified = 0
+                for (podcastId in snapshot.firstSeenEpochs.keys) {
+                    if (IndexPreference.hasNotifiedForNewPodcast(context, podcastId)) continue
+                    val podcastTitle = snapshot.titles[podcastId] ?: ""
+                    if (podcastTitle.isBlank()) {
+                        Log.d(TAG, "checkAndNotifyNewPodcasts: title missing for podcast $podcastId")
+                    }
+                    PodcastEpisodeNotifier.notifyNewPodcastAdded(context, podcastId, podcastTitle)
+                    IndexPreference.markNewPodcastNotified(context, podcastId)
+                    Log.d(TAG, "Notified new podcast added to catalogue: $podcastId")
+                    notified++
+                }
+                Log.d(TAG, "checkAndNotifyNewPodcasts: notified $notified new podcast(s), snapshotGeneratedAt=${snapshot.snapshotGeneratedAt}")
+
+                IndexPreference.setLastNewPodcastSnapshotGeneratedAt(context, snapshot.snapshotGeneratedAt)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to check for new podcast catalogue entries: ${e.message}")
             }
         }
     }

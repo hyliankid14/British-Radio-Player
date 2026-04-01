@@ -64,6 +64,7 @@ class RemoteIndexClient(private val context: Context) {
 
     data class NewPodcastSnapshot(
         val firstSeenEpochs: Map<String, Long>,
+        val titles: Map<String, String> = emptyMap(),
         val snapshotGeneratedAt: String,
         val fromCache: Boolean = false
     )
@@ -907,12 +908,15 @@ class RemoteIndexClient(private val context: Context) {
             val generatedAt = response.optString("generated_at", "")
             val entries = response.optJSONArray("new_podcasts") ?: JSONArray()
             val firstSeenEpochs = linkedMapOf<String, Long>()
+            val titles = linkedMapOf<String, String>()
             for (i in 0 until entries.length()) {
                 val item = entries.optJSONObject(i) ?: continue
                 val id = item.optString("id", "").trim()
                 val epoch = item.optLong("first_seen_epoch_ms", 0L)
                 if (id.isBlank() || epoch <= 0L || firstSeenEpochs.containsKey(id)) continue
                 firstSeenEpochs[id] = epoch
+                val title = item.optString("title", "").trim()
+                if (title.isNotBlank()) titles[id] = title
             }
 
             if (firstSeenEpochs.isEmpty()) {
@@ -921,6 +925,7 @@ class RemoteIndexClient(private val context: Context) {
 
             val snapshot = NewPodcastSnapshot(
                 firstSeenEpochs = firstSeenEpochs,
+                titles = titles,
                 snapshotGeneratedAt = generatedAt
             )
             saveNewPodcastSnapshotCache(snapshot)
@@ -1000,15 +1005,18 @@ class RemoteIndexClient(private val context: Context) {
             val generatedAt = json.optString("generated_at", "")
             val arr = json.optJSONArray("new_podcasts") ?: return null
             val epochs = linkedMapOf<String, Long>()
+            val titles = linkedMapOf<String, String>()
             for (i in 0 until arr.length()) {
                 val item = arr.optJSONObject(i) ?: continue
                 val id = item.optString("id", "").trim()
                 val epoch = item.optLong("first_seen_epoch_ms", 0L)
                 if (id.isBlank() || epoch <= 0L || epochs.containsKey(id)) continue
                 epochs[id] = epoch
+                val title = item.optString("title", "").trim()
+                if (title.isNotBlank()) titles[id] = title
             }
             if (epochs.isEmpty()) return null
-            NewPodcastSnapshot(firstSeenEpochs = epochs, snapshotGeneratedAt = generatedAt)
+            NewPodcastSnapshot(firstSeenEpochs = epochs, titles = titles, snapshotGeneratedAt = generatedAt)
         } catch (e: Exception) {
             Log.d(TAG, "Failed to read new podcasts snapshot cache: ${e.message}")
             null
@@ -1024,6 +1032,8 @@ class RemoteIndexClient(private val context: Context) {
                 val item = JSONObject()
                 item.put("id", id)
                 item.put("first_seen_epoch_ms", epoch)
+                val title = snapshot.titles[id]
+                if (!title.isNullOrBlank()) item.put("title", title)
                 arr.put(item)
             }
             val root = JSONObject()

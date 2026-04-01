@@ -10,6 +10,7 @@ object IndexPreference {
     private const val KEY_WIFI_ONLY = "index_wifi_only"
     private const val KEY_NEW_PODCAST_NOTIFICATIONS_ENABLED = "new_podcast_notifications_enabled"
     private const val KEY_NOTIFIED_NEW_PODCAST_IDS = "notified_new_podcast_ids"
+    private const val KEY_LAST_NEW_PODCAST_SNAPSHOT_GENERATED_AT = "last_new_podcast_snapshot_generated_at"
 
     // 0 = disabled, otherwise number of days.  Default is 0 (off) so new
     // installs do not automatically download the index until the user schedules it.
@@ -80,5 +81,15 @@ object IndexPreference {
         // Keep this bounded so preferences do not grow indefinitely.
         val trimmed = if (current.size > 500) current.toList().takeLast(500).toSet() else current
         prefs.edit().putStringSet(KEY_NOTIFIED_NEW_PODCAST_IDS, trimmed).apply()
+    }
+
+    fun getLastNewPodcastSnapshotGeneratedAt(context: Context): String? {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return prefs.getString(KEY_LAST_NEW_PODCAST_SNAPSHOT_GENERATED_AT, null)
+    }
+
+    fun setLastNewPodcastSnapshotGeneratedAt(context: Context, generatedAt: String) {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        prefs.edit().putString(KEY_LAST_NEW_PODCAST_SNAPSHOT_GENERATED_AT, generatedAt).apply()
     }
 }

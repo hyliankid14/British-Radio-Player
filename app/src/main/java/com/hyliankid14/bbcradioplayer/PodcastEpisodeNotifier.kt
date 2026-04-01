@@ -51,21 +51,25 @@ object PodcastEpisodeNotifier {
     }
 
     fun notifyNewPodcastAdded(context: Context, podcast: Podcast) {
-        if (podcast.id.isBlank()) return
+        notifyNewPodcastAdded(context, podcast.id, podcast.title)
+    }
+
+    fun notifyNewPodcastAdded(context: Context, podcastId: String, podcastTitle: String) {
+        if (podcastId.isBlank()) return
         if (!areNotificationsAllowed(context)) return
 
         ensureChannel(context)
 
-        val title = podcast.title.ifBlank { "New podcast" }
+        val title = podcastTitle.ifBlank { "New podcast" }
         val text = "New podcast added"
 
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra("open_podcast_id", podcast.id)
+            putExtra("open_podcast_id", podcastId)
         }
         val pendingIntent = PendingIntent.getActivity(
             context,
-            ("new_" + podcast.id).hashCode(),
+            ("new_" + podcastId).hashCode(),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -79,7 +83,7 @@ object PodcastEpisodeNotifier {
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .build()
 
-        val id = 20_000 + abs(podcast.id.hashCode() % 10_000)
+        val id = 20_000 + abs(podcastId.hashCode() % 10_000)
         NotificationManagerCompat.from(context).notify(id, notification)
     }
 
