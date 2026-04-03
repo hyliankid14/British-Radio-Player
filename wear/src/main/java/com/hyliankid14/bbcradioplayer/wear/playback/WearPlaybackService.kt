@@ -83,6 +83,7 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
     private var stationAnalyticsJob: Job? = null
     private var episodeAnalyticsJob: Job? = null
     private var progressTickerJob: Job? = null
+    private var lastTrackedEpisodeAnalyticsId: String? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -239,7 +240,14 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
                     currentSubtitle = intent.getStringExtra(EXTRA_SUBTITLE).orEmpty()
                     currentArtwork = intent.getStringExtra(EXTRA_ARTWORK_URL)
                     currentIsLive = intent.getBooleanExtra(EXTRA_IS_LIVE, false)
-                    currentEpisodeId = intent.getStringExtra(EXTRA_EPISODE_ID)
+                    val newEpisodeId = intent.getStringExtra(EXTRA_EPISODE_ID)
+                    val resumePositionMs = intent.getLongExtra(EXTRA_START_POSITION_MS, 0L)
+                    // Clear analytics tracking when starting a new episode or restarting from
+                    // the beginning so that the 10-second timer fires again as a new play.
+                    if (newEpisodeId != currentEpisodeId || resumePositionMs == 0L) {
+                        lastTrackedEpisodeAnalyticsId = null
+                    }
+                    currentEpisodeId = newEpisodeId
                     currentPodcastId = intent.getStringExtra(EXTRA_PODCAST_ID)
                     currentEpisodeDescription = intent.getStringExtra(EXTRA_DESCRIPTION).orEmpty()
                     currentEpisodePubDate = intent.getStringExtra(EXTRA_PUB_DATE).orEmpty()
@@ -273,7 +281,6 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
                         podcastTitle = currentSubtitle
                     )
                     playCurrentCandidate()
-                    val resumePositionMs = intent.getLongExtra(EXTRA_START_POSITION_MS, 0L)
                     if (resumePositionMs > 0L) {
                         player.seekTo(resumePositionMs)
                         lastSavedPositionMs = resumePositionMs
@@ -587,6 +594,8 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
         episodeAnalyticsJob?.cancel()
         stationAnalyticsJob?.cancel()
         if (podcastId.isBlank() || episodeId.isBlank()) return
+        // Do not schedule if this episode has already been counted in this session.
+        if (lastTrackedEpisodeAnalyticsId == episodeId) return
         episodeAnalyticsJob = serviceScope.launch {
             delay(ANALYTICS_MIN_PLAY_MS)
             if (isActive && !currentIsLive && player.isPlaying && currentEpisodeId == episodeId) {
@@ -596,6 +605,7 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
                     episodeTitle = episodeTitle,
                     podcastTitle = podcastTitle
                 )
+                lastTrackedEpisodeAnalyticsId = episodeId
             }
         }
     }

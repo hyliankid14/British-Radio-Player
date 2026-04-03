@@ -66,6 +66,7 @@ final class AudioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
     private var currentAnalyticsSent = false
     var onNextRequested: (() -> Void)?
     var onPreviousRequested: (() -> Void)?
+    var onEpisodeCompleted: ((Episode) -> Void)?
 
     var hasActiveItem: Bool {
         currentStation != nil || currentEpisode != nil
@@ -410,6 +411,17 @@ final class AudioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
                     self?.isPlaying = false
                     self?.refreshNowPlayingInfo()
                 }
+            }
+        }
+
+        NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: item,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, let episode = self.currentEpisode else { return }
+                self.onEpisodeCompleted?(episode)
             }
         }
 

@@ -1558,48 +1558,61 @@ class RadioService : MediaBrowserServiceCompat() {
                             val currentEpisode = PlaybackStateHelper.getCurrentEpisodeId()
                             val podcastId = currentPodcastId
                             if (!podcastId.isNullOrEmpty() && !currentEpisode.isNullOrEmpty()) {
-                                serviceScope.launch {
-                                    try {
-                                        val repo = PodcastRepository(this@RadioService)
-                                        val allPods = withContext(Dispatchers.IO) { repo.fetchPodcasts(false) }
-                                        val podcast = allPods.find { it.id == podcastId }
-                                        if (podcast != null) {
-                                            val allEpisodes = withContext(Dispatchers.IO) { repo.fetchEpisodes(podcast) }
-
-                                            val currentEp = allEpisodes.find { it.id == currentEpisode }
-                                            if (currentEp == null) {
-                                                Log.w(TAG, "Current episode not found in feed for autoplay: $currentEpisode")
-                                            } else {
-                                                val currentEpoch = EpisodeDateParser.parsePubDateToEpoch(currentEp.pubDate)
-                                                // Build list of episodes with valid epoch greater than currentEpoch
-                                                val candidates = allEpisodes.mapNotNull { ep ->
-                                                    val epEpoch = EpisodeDateParser.parsePubDateToEpoch(ep.pubDate)
-                                                    if (epEpoch > 0L && currentEpoch > 0L && epEpoch > currentEpoch) Pair(ep, epEpoch) else null
-                                                }
-                                                val next = candidates.minByOrNull { it.second }?.first
-                                                if (next != null) {
-                                                    Log.d(TAG, "Autoplaying next episode chronologically: ${next.title} (id=${next.id})")
-                                                    // Check isStopped here: the user may have pressed Stop while we were
-                                                    // fetching episodes in the background. playPodcastEpisode() resets
-                                                    // isStopped = false, which would restart playback the user explicitly stopped.
-                                                    if (isStopped) {
-                                                        Log.d(TAG, "Autoplay aborted: user stopped playback while fetching next episode")
+                                val autoplayPref = PlaybackPreference.getAutoplayNextEpisode(this@RadioService)
+                                if (autoplayPref == PlaybackPreference.AUTOPLAY_NEXT_NONE) {
+                                    Log.d(TAG, "Autoplay disabled by user preference")
+                                } else {
+                                    serviceScope.launch {
+                                        try {
+                                            val repo = PodcastRepository(this@RadioService)
+                                            val allPods = withContext(Dispatchers.IO) { repo.fetchPodcasts(false) }
+                                            val podcast = allPods.find { it.id == podcastId }
+                                            if (podcast != null) {
+                                                // Check subscription requirement
+                                                if (autoplayPref == PlaybackPreference.AUTOPLAY_NEXT_SUBSCRIPTIONS) {
+                                                    val subscribed = PodcastSubscriptions.getSubscribedIds(this@RadioService)
+                                                    if (!subscribed.contains(podcastId)) {
+                                                        Log.d(TAG, "Autoplay skipped: podcast not subscribed (preference=subscriptions_only)")
                                                         return@launch
                                                     }
-                                                    val playIntent = Intent().apply {
-                                                        putExtra(EXTRA_PODCAST_TITLE, podcast.title)
-                                                        putExtra(EXTRA_PODCAST_IMAGE, podcast.imageUrl)
-                                                    }
-                                                    playPodcastEpisode(next, playIntent)
-                                                } else {
-                                                    Log.d(TAG, "No newer episode found to autoplay for podcast: $podcastId")
                                                 }
+                                                val allEpisodes = withContext(Dispatchers.IO) { repo.fetchEpisodes(podcast) }
+
+                                                val currentEp = allEpisodes.find { it.id == currentEpisode }
+                                                if (currentEp == null) {
+                                                    Log.w(TAG, "Current episode not found in feed for autoplay: $currentEpisode")
+                                                } else {
+                                                    val currentEpoch = EpisodeDateParser.parsePubDateToEpoch(currentEp.pubDate)
+                                                    // Build list of episodes with valid epoch greater than currentEpoch
+                                                    val candidates = allEpisodes.mapNotNull { ep ->
+                                                        val epEpoch = EpisodeDateParser.parsePubDateToEpoch(ep.pubDate)
+                                                        if (epEpoch > 0L && currentEpoch > 0L && epEpoch > currentEpoch) Pair(ep, epEpoch) else null
+                                                    }
+                                                    val next = candidates.minByOrNull { it.second }?.first
+                                                    if (next != null) {
+                                                        Log.d(TAG, "Autoplaying next episode chronologically: ${next.title} (id=${next.id})")
+                                                        // Check isStopped here: the user may have pressed Stop while we were
+                                                        // fetching episodes in the background. playPodcastEpisode() resets
+                                                        // isStopped = false, which would restart playback the user explicitly stopped.
+                                                        if (isStopped) {
+                                                            Log.d(TAG, "Autoplay aborted: user stopped playback while fetching next episode")
+                                                            return@launch
+                                                        }
+                                                        val playIntent = Intent().apply {
+                                                            putExtra(EXTRA_PODCAST_TITLE, podcast.title)
+                                                            putExtra(EXTRA_PODCAST_IMAGE, podcast.imageUrl)
+                                                        }
+                                                        playPodcastEpisode(next, playIntent)
+                                                    } else {
+                                                        Log.d(TAG, "No newer episode found to autoplay for podcast: $podcastId")
+                                                    }
+                                                }
+                                            } else {
+                                                Log.w(TAG, "Podcast not found while attempting to autoplay: $podcastId")
                                             }
-                                        } else {
-                                            Log.w(TAG, "Podcast not found while attempting to autoplay: $podcastId")
+                                        } catch (e: Exception) {
+                                            Log.w(TAG, "Failed to autoplay next episode: ${e.message}")
                                         }
-                                    } catch (e: Exception) {
-                                        Log.w(TAG, "Failed to autoplay next episode: ${e.message}")
                                     }
                                 }
                             }

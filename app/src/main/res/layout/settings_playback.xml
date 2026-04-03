@@ -161,6 +161,45 @@
                 android:padding="12dp" />
         </LinearLayout>
 
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Automatically play next episode when completed"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:layout_marginTop="24dp"
+            android:layout_marginBottom="8dp" />
+
+        <RadioGroup
+            android:id="@+id/autoplay_next_episode_radio_group"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginBottom="8dp">
+
+            <RadioButton
+                android:id="@+id/radio_autoplay_all"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="All podcasts"
+                android:padding="12dp" />
+
+            <RadioButton
+                android:id="@+id/radio_autoplay_subscriptions"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Subscriptions only"
+                android:padding="12dp" />
+
+            <RadioButton
+                android:id="@+id/radio_autoplay_none"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="None"
+                android:padding="12dp" />
+
+        </RadioGroup>
+
     </LinearLayout>
 
 </ScrollView>

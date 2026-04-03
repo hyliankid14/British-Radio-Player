@@ -68,6 +68,12 @@ private struct PlaybackSettingsSubView: View {
                     Text(mode.displayName).tag(mode)
                 }
             }
+
+            Picker("Automatically play next episode", selection: $settingsStore.autoplayNextEpisode) {
+                ForEach(AutoplayNextEpisode.allCases, id: \.self) { option in
+                    Text(option.displayName).tag(option)
+                }
+            }
         }
         .navigationTitle("Playback")
     }

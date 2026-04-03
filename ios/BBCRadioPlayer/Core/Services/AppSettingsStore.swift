@@ -74,6 +74,23 @@ enum AutoDownloadLimit: Int, CaseIterable, Identifiable {
     }
 }
 
+enum AutoplayNextEpisode: String, CaseIterable {
+    case allPodcasts = "all_podcasts"
+    case subscriptionsOnly = "subscriptions_only"
+    case none = "none"
+
+    var displayName: String {
+        switch self {
+        case .allPodcasts:
+            return "All podcasts"
+        case .subscriptionsOnly:
+            return "Subscriptions only"
+        case .none:
+            return "None"
+        }
+    }
+}
+
 final class AppSettingsStore: ObservableObject {
     @Published var playbackQuality: PlaybackQuality {
         didSet { defaults.set(playbackQuality.rawValue, forKey: playbackQualityKey) }
@@ -121,6 +138,10 @@ final class AppSettingsStore: ObservableObject {
         didSet { defaults.set(autoDownloadLimit.rawValue, forKey: autoDownloadLimitKey) }
     }
 
+    @Published var autoplayNextEpisode: AutoplayNextEpisode {
+        didSet { defaults.set(autoplayNextEpisode.rawValue, forKey: autoplayNextEpisodeKey) }
+    }
+
     private let defaults: UserDefaults
     private let playbackQualityKey = "playback_quality"
     private let appThemeKey = "app_theme"
@@ -132,6 +153,7 @@ final class AppSettingsStore: ObservableObject {
     private let autoDownloadSavedEpisodesKey = "auto_download_saved_episodes"
     private let autoDownloadSubscribedPodcastsKey = "auto_download_subscribed_podcasts"
     private let autoDownloadLimitKey = "auto_download_limit"
+    private let autoplayNextEpisodeKey = "autoplay_next_episode"
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -145,6 +167,7 @@ final class AppSettingsStore: ObservableObject {
         self.autoDownloadSavedEpisodes = defaults.object(forKey: autoDownloadSavedEpisodesKey) as? Bool ?? false
         self.autoDownloadSubscribedPodcasts = defaults.object(forKey: autoDownloadSubscribedPodcastsKey) as? Bool ?? false
         self.autoDownloadLimit = AutoDownloadLimit(rawValue: defaults.integer(forKey: autoDownloadLimitKey)) ?? .one
+        self.autoplayNextEpisode = AutoplayNextEpisode(rawValue: defaults.string(forKey: autoplayNextEpisodeKey) ?? "none") ?? .none
     }
 }
 

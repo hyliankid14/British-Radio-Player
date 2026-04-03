@@ -317,6 +317,21 @@ class SettingsDetailActivity : AppCompatActivity() {
         shakeRandomPodcastCheckbox.setOnCheckedChangeListener { _, isChecked ->
             PlaybackPreference.setShakeRandomPodcastEnabled(this, isChecked)
         }
+
+        val autoplayNextGroup: RadioGroup = findViewById(R.id.autoplay_next_episode_radio_group)
+        when (PlaybackPreference.getAutoplayNextEpisode(this)) {
+            PlaybackPreference.AUTOPLAY_NEXT_ALL -> autoplayNextGroup.check(R.id.radio_autoplay_all)
+            PlaybackPreference.AUTOPLAY_NEXT_SUBSCRIPTIONS -> autoplayNextGroup.check(R.id.radio_autoplay_subscriptions)
+            else -> autoplayNextGroup.check(R.id.radio_autoplay_none)
+        }
+        autoplayNextGroup.setOnCheckedChangeListener { _, checkedId ->
+            val value = when (checkedId) {
+                R.id.radio_autoplay_all -> PlaybackPreference.AUTOPLAY_NEXT_ALL
+                R.id.radio_autoplay_subscriptions -> PlaybackPreference.AUTOPLAY_NEXT_SUBSCRIPTIONS
+                else -> PlaybackPreference.AUTOPLAY_NEXT_NONE
+            }
+            PlaybackPreference.setAutoplayNextEpisode(this, value)
+        }
     }
 
     private fun setupSubscriptionsSettings() {
@@ -704,6 +719,9 @@ class SettingsDetailActivity : AppCompatActivity() {
                 if (name == "playback_prefs" && !obj.has("shake_random_podcast")) {
                     obj.put("shake_random_podcast", PlaybackPreference.isShakeRandomPodcastEnabled(this))
                 }
+                if (name == "playback_prefs" && !obj.has("autoplay_next_episode")) {
+                    obj.put("autoplay_next_episode", PlaybackPreference.getAutoplayNextEpisode(this))
+                }
                 if (name == "index_prefs") {
                     if (!obj.has("index_interval_days")) obj.put("index_interval_days", IndexPreference.getIntervalDays(this))
                     if (obj.has("last_reindex_time")) obj.remove("last_reindex_time")
@@ -803,6 +821,9 @@ class SettingsDetailActivity : AppCompatActivity() {
                 }
                 if (pp.has("shake_random_podcast")) {
                     PlaybackPreference.setShakeRandomPodcastEnabled(this, pp.optBoolean("shake_random_podcast", false))
+                }
+                if (pp.has("autoplay_next_episode")) {
+                    PlaybackPreference.setAutoplayNextEpisode(this, pp.optString("autoplay_next_episode", PlaybackPreference.AUTOPLAY_NEXT_NONE))
                 }
             }
             if (root.has("index_prefs")) {

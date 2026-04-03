@@ -2138,13 +2138,17 @@
 
                 document.querySelectorAll('audio[data-podcast-id][data-episode-id]').forEach(audio => {
                     audio._episodeAnalyticsTimer = null;
+                    audio._episodeAnalyticsTracked = false;
                     audio.onplay = () => {
+                        // Do not re-track if already counted for this episode session.
+                        if (audio._episodeAnalyticsTracked) return;
                         clearTimeout(audio._episodeAnalyticsTimer);
                         const podcastId = audio.dataset.podcastId;
                         const episodeId = audio.dataset.episodeId;
                         audio._episodeAnalyticsTimer = setTimeout(() => {
                             if (!audio.paused && audio.dataset.episodeId === episodeId) {
                                 this.trackPodcastEpisodePlay(podcastId, episodeId);
+                                audio._episodeAnalyticsTracked = true;
                             }
                             audio._episodeAnalyticsTimer = null;
                         }, 10000);
@@ -2152,6 +2156,13 @@
                     audio.onpause = () => {
                         clearTimeout(audio._episodeAnalyticsTimer);
                         audio._episodeAnalyticsTimer = null;
+                    };
+                    audio.onseeked = () => {
+                        // Restarting from the beginning (within first 3 seconds) allows
+                        // a new play to be counted, matching the rule on other platforms.
+                        if (audio.currentTime < 3) {
+                            audio._episodeAnalyticsTracked = false;
+                        }
                     };
                 });
             }

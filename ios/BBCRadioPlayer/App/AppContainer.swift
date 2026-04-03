@@ -114,6 +114,9 @@ final class AppContainer: ObservableObject {
         resolvedAudioPlayerService.onPreviousRequested = { [weak self] in
             self?.radioViewModel.playPreviousStation()
         }
+        resolvedAudioPlayerService.onEpisodeCompleted = { [weak self] episode in
+            self?.handleEpisodeCompleted(episode)
+        }
         resolvedAudioPlayerService.updatePodcastArtworkMode(appSettingsStore.podcastArtworkMode)
         resolvedAudioPlayerService.updateAnalyticsService(privacyAnalytics)
 
@@ -188,5 +191,53 @@ final class AppContainer: ObservableObject {
             podcastRepository: podcastRepository,
             limit: appSettingsStore.autoDownloadLimit.rawValue
         )
+    }
+
+    private func handleEpisodeCompleted(_ episode: Episode) {
+        let pref = appSettingsStore.autoplayNextEpisode
+        guard pref != .none else { return }
+        if pref == .subscriptionsOnly, !favoritesStore.isSubscribed(podcastID: episode.podcastID) {
+            return
+        }
+        Task {
+            do {
+                let allPods = try await podcastRepository.fetchPodcasts(forceRefresh: false)
+                guard let podcast = allPods.first(where: { $0.id == episode.podcastID }) else { return }
+                let allEpisodes = try await podcastRepository.fetchEpisodes(for: podcast)
+                let currentEpoch = parsePubDateToEpoch(episode.pubDate)
+                let candidates: [(Episode, Int64)] = allEpisodes.compactMap { ep in
+                    let epEpoch = parsePubDateToEpoch(ep.pubDate)
+                    guard epEpoch > 0, currentEpoch > 0, epEpoch > currentEpoch else { return nil }
+                    return (ep, epEpoch)
+                }
+                guard let next = candidates.min(by: { $0.1 < $1.1 })?.0 else { return }
+                guard audioPlayerService.currentEpisode?.id == episode.id || audioPlayerService.currentEpisode == nil else { return }
+                audioPlayerService.play(
+                    episode: next,
+                    podcastTitle: podcast.title,
+                    podcastArtworkURL: podcast.imageURL
+                )
+            } catch {
+                // Silently ignore network errors — autoplay is best-effort
+            }
+        }
+    }
+
+    private func parsePubDateToEpoch(_ pubDate: String) -> Int64 {
+        let formatters: [DateFormatter] = {
+            let f1 = DateFormatter()
+            f1.locale = Locale(identifier: "en_US_POSIX")
+            f1.dateFormat = "EEE, dd MMM yyyy HH:mm:ss Z"
+            let f2 = DateFormatter()
+            f2.locale = Locale(identifier: "en_US_POSIX")
+            f2.dateFormat = "EEE, dd MMM yyyy HH:mm:ss z"
+            return [f1, f2]
+        }()
+        for formatter in formatters {
+            if let date = formatter.date(from: pubDate) {
+                return Int64(date.timeIntervalSince1970)
+            }
+        }
+        return 0
     }
 }

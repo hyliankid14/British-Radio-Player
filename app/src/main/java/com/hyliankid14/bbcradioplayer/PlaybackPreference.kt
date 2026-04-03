@@ -11,9 +11,14 @@ object PlaybackPreference {
     private const val KEY_HIDE_PLAYED_PODCAST_DETAIL_PREFIX = "hide_played_podcast_detail_"
     private const val KEY_SHAKE_RANDOM_PODCAST = "shake_random_podcast"
     private const val KEY_PODCAST_ARTWORK_SOURCE = "podcast_artwork_source"
+    private const val KEY_AUTOPLAY_NEXT_EPISODE = "autoplay_next_episode"
 
     const val ARTWORK_SOURCE_EPISODE = "episode"
     const val ARTWORK_SOURCE_PODCAST = "podcast"
+
+    const val AUTOPLAY_NEXT_ALL = "all_podcasts"
+    const val AUTOPLAY_NEXT_SUBSCRIPTIONS = "subscriptions_only"
+    const val AUTOPLAY_NEXT_NONE = "none"
 
     fun setLastStationId(context: Context, stationId: String) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -89,5 +94,19 @@ object PlaybackPreference {
     fun getPodcastArtworkSource(context: Context): String {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         return prefs.getString(KEY_PODCAST_ARTWORK_SOURCE, ARTWORK_SOURCE_EPISODE) ?: ARTWORK_SOURCE_EPISODE
+    }
+
+    fun setAutoplayNextEpisode(context: Context, value: String) {
+        val resolved = when (value) {
+            AUTOPLAY_NEXT_ALL, AUTOPLAY_NEXT_SUBSCRIPTIONS -> value
+            else -> AUTOPLAY_NEXT_NONE
+        }
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putString(KEY_AUTOPLAY_NEXT_EPISODE, resolved).apply()
+    }
+
+    fun getAutoplayNextEpisode(context: Context): String {
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_AUTOPLAY_NEXT_EPISODE, AUTOPLAY_NEXT_NONE) ?: AUTOPLAY_NEXT_NONE
     }
 }
