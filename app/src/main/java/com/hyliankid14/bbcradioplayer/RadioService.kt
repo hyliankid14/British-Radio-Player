@@ -1542,16 +1542,7 @@ class RadioService : MediaBrowserServiceCompat() {
                             else -> {}
                         }
 
-                        if (state == PlaybackStateCompat.STATE_PLAYING) {
-                            if (stationAnalyticsPending && !stationAnalyticsScheduled && stationAnalyticsRunnable != null) {
-                                handler.postDelayed(stationAnalyticsRunnable!!, ANALYTICS_MIN_PLAY_MS)
-                                stationAnalyticsScheduled = true
-                            }
-                            if (episodeAnalyticsPending && !episodeAnalyticsScheduled && episodeAnalyticsRunnable != null) {
-                                handler.postDelayed(episodeAnalyticsRunnable!!, ANALYTICS_MIN_PLAY_MS)
-                                episodeAnalyticsScheduled = true
-                            }
-                        } else if (state == PlaybackStateCompat.STATE_PAUSED || state == PlaybackStateCompat.STATE_STOPPED) {
+                        if (state == PlaybackStateCompat.STATE_STOPPED) {
                             if (stationAnalyticsScheduled) {
                                 stationAnalyticsRunnable?.let { handler.removeCallbacks(it) }
                                 stationAnalyticsScheduled = false
@@ -1639,6 +1630,33 @@ class RadioService : MediaBrowserServiceCompat() {
                             }
                         }
                         handler.postDelayed(playerReconnectRunnable!!, 3000) // Wait 3 seconds before reconnecting
+                    }
+
+                    override fun onIsPlayingChanged(isPlaying: Boolean) {
+                        // Use the actual isPlaying state (not just playbackState) to drive the
+                        // analytics timer.  onPlaybackStateChanged does not fire on a simple
+                        // pause/resume when the ExoPlayer remains in STATE_READY, so without this
+                        // handler the 10-second timer would keep ticking through paused periods and
+                        // fire based on wall-clock time rather than actual listen time.
+                        if (isPlaying) {
+                            if (stationAnalyticsPending && !stationAnalyticsScheduled && stationAnalyticsRunnable != null) {
+                                handler.postDelayed(stationAnalyticsRunnable!!, ANALYTICS_MIN_PLAY_MS)
+                                stationAnalyticsScheduled = true
+                            }
+                            if (episodeAnalyticsPending && !episodeAnalyticsScheduled && episodeAnalyticsRunnable != null) {
+                                handler.postDelayed(episodeAnalyticsRunnable!!, ANALYTICS_MIN_PLAY_MS)
+                                episodeAnalyticsScheduled = true
+                            }
+                        } else {
+                            if (stationAnalyticsScheduled) {
+                                stationAnalyticsRunnable?.let { handler.removeCallbacks(it) }
+                                stationAnalyticsScheduled = false
+                            }
+                            if (episodeAnalyticsScheduled) {
+                                episodeAnalyticsRunnable?.let { handler.removeCallbacks(it) }
+                                episodeAnalyticsScheduled = false
+                            }
+                        }
                     }
                 })
             }
@@ -3414,30 +3432,34 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                     if (restartFromBeginning && lastTrackedEpisodeAnalyticsId == episode.id) {
                         lastTrackedEpisodeAnalyticsId = null
                     }
+                }
 
-                    // Cancel any pending episode analytics before scheduling a new one
-                    episodeAnalyticsRunnable?.let { handler.removeCallbacks(it); episodeAnalyticsRunnable = null }
-                    episodeAnalyticsPending = false
-                    episodeAnalyticsScheduled = false
+                // Cancel any pending episode analytics before scheduling a new one.
+                // This applies regardless of resumePos so that resuming an episode in a
+                // fresh service session (e.g. Android Auto reconnect) is also counted.
+                episodeAnalyticsRunnable?.let { handler.removeCallbacks(it); episodeAnalyticsRunnable = null }
+                episodeAnalyticsPending = false
+                episodeAnalyticsScheduled = false
 
-                    // Track episode play analytics only once per episode start, and only after >10s.
-                    // Resuming the same episode should not emit duplicate play events.
-                    if (lastTrackedEpisodeAnalyticsId != episode.id) {
-                        episodeAnalyticsRunnable = Runnable {
-                            serviceScope.launch(Dispatchers.IO) {
-                                val analytics = PrivacyAnalytics(this@RadioService)
-                                if (analytics.isEnabled()) {
-                                    analytics.trackEpisodePlay(episode.podcastId, episode.id, episode.title, podcastTitle)
-                                    lastTrackedEpisodeAnalyticsId = episode.id
-                                }
+                // Track episode play analytics only once per episode session, and only after
+                // >10s of actual playback time.  The timer is driven by onIsPlayingChanged so
+                // paused time is excluded.  Resuming the same episode (lastTrackedEpisodeAnalyticsId
+                // == episode.id) skips re-tracking to avoid duplicate events within a session.
+                if (lastTrackedEpisodeAnalyticsId != episode.id) {
+                    episodeAnalyticsRunnable = Runnable {
+                        serviceScope.launch(Dispatchers.IO) {
+                            val analytics = PrivacyAnalytics(this@RadioService)
+                            if (analytics.isEnabled()) {
+                                analytics.trackEpisodePlay(episode.podcastId, episode.id, episode.title, podcastTitle)
+                                lastTrackedEpisodeAnalyticsId = episode.id
                             }
-                            episodeAnalyticsPending = false
-                            episodeAnalyticsScheduled = false
-                            episodeAnalyticsRunnable = null
                         }
-                        episodeAnalyticsPending = true
+                        episodeAnalyticsPending = false
                         episodeAnalyticsScheduled = false
+                        episodeAnalyticsRunnable = null
                     }
+                    episodeAnalyticsPending = true
+                    episodeAnalyticsScheduled = false
                 }
             }
             // Ensure MediaSession metadata contains the podcast artwork URI immediately so UI/mini-player
