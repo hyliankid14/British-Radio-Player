@@ -128,6 +128,11 @@ class RadioService : MediaBrowserServiceCompat() {
     private var lastAndroidAutoClientUid: Int? = null
     private var lastAndroidAutoRefreshMs: Long = 0L
     private var lastAndroidAutoAutoplayMs: Long = 0L
+    // Set to true while the Android Auto auto-resume coroutine is in flight (network lookup
+    // before playPodcastEpisode is called).  Prevents a race where the head unit's automatic
+    // onPlay() callback triggers a second, duplicate replayEpisodeById() before the first
+    // coroutine has a chance to call playPodcastEpisode() and claim the player.
+    @Volatile private var pendingAndroidAutoAutoResume: Boolean = false
 
     // Service-level episode cache for Android Auto pagination.
     // Keyed by podcast ID; populated on first episode load so subsequent page requests
@@ -598,6 +603,12 @@ class RadioService : MediaBrowserServiceCompat() {
 
         if (canAutoResume) {
             Log.d(TAG, "Android Auto reconnect detected (client=$clientName, uid=$clientUid). Auto-playing last media: $lastMediaId")
+            // Mark the async resume as in-flight *before* the handler.post so that any
+            // onPlay() callback arriving on the main thread while the network lookup runs
+            // will not launch a second, duplicate playPodcastEpisode() call.
+            if (lastMediaId?.startsWith("podcast_episode_") == true) {
+                pendingAndroidAutoAutoResume = true
+            }
             handler.post {
                 lastMediaId?.let { id ->
                     when {
@@ -700,6 +711,12 @@ class RadioService : MediaBrowserServiceCompat() {
                                     }
                                 } catch (e: Exception) {
                                     Log.e(TAG, "Error auto-playing podcast episode $episodeId", e)
+                                } finally {
+                                    // Always clear the in-flight flag so subsequent play requests
+                                    // are no longer blocked (whether we succeeded, failed, or the
+                                    // episode was not found).  playPodcastEpisode() clears it on
+                                    // success; this finally handles all other exit paths.
+                                    pendingAndroidAutoAutoResume = false
                                 }
                             }
                         }
@@ -1710,6 +1727,17 @@ class RadioService : MediaBrowserServiceCompat() {
         val lastMediaId = PlaybackPreference.getLastMediaId(this)
         val currentEpisodeId = PlaybackStateHelper.getCurrentEpisodeId()
         Log.d(TAG, "handlePlayRequest: player not resumable (source=$source, isStopped=$isStopped, state=$playerState), restarting from current/last media")
+
+        // If the Android Auto auto-resume coroutine is still running (doing its network
+        // lookup before calling playPodcastEpisode), don't also launch a replayEpisodeById
+        // coroutine.  The two would race and the later one would restart the episode a few
+        // seconds after the first one starts playing, producing the audible "skip back to
+        // resume position" glitch reported when connecting to Android Auto.
+        if (pendingAndroidAutoAutoResume) {
+            Log.d(TAG, "handlePlayRequest: Android Auto auto-resume already in progress, skipping duplicate restart (source=$source)")
+            return
+        }
+
         when {
             !currentEpisodeId.isNullOrEmpty() -> replayEpisodeById(currentEpisodeId)
             lastMediaId?.startsWith("podcast_episode_") == true ->
@@ -3198,6 +3226,9 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
     private fun playPodcastEpisode(episode: Episode, intent: Intent?) {
         try {
             isStopped = false
+            // Clear the Android Auto auto-resume in-flight flag: actual playback is now
+            // starting, so any pending onPlay() handlers should proceed normally.
+            pendingAndroidAutoAutoResume = false
             playerReconnectRunnable?.let { handler.removeCallbacks(it); playerReconnectRunnable = null }
             if (!mediaSession.isActive) mediaSession.isActive = true
 
@@ -3244,7 +3275,7 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                 episodeTitle = episode.title,
                 description = episode.description,
                 imageUrl = preferredArtwork,
-                segmentStartMs = 0L,
+                segmentStartMs = null,
                 segmentDurationMs = null
             )
             PlaybackStateHelper.setCurrentStation(syntheticStation)
