@@ -9,6 +9,9 @@ name: Export popular podcasts to GCS
 # Required GitHub Secrets:
 #   ANALYTICS_ENDPOINT  — base URL of the analytics server, e.g.
 #                         https://raspberrypi.tailc23afa.ts.net:8443
+#   TAILSCALE_OAUTH_CLIENT_ID / TAILSCALE_OAUTH_SECRET — required only when
+#                         ANALYTICS_ENDPOINT is a private Tailscale host
+#                         (*.ts.net)
 #   GCS_BUCKET          — name of the GCS bucket, e.g.
 #                         bbc-radio-player-index-20260317-bc149e38
 #   GCP_WORKLOAD_IDENTITY_PROVIDER — full provider resource name, e.g.
@@ -30,17 +33,54 @@ jobs:
   export:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      ANALYTICS_ENDPOINT: ${{ secrets.ANALYTICS_ENDPOINT }}
+      GCS_BUCKET: ${{ secrets.GCS_BUCKET }}
+      GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      TAILSCALE_OAUTH_CLIENT_ID: ${{ secrets.TAILSCALE_OAUTH_CLIENT_ID }}
+      TAILSCALE_OAUTH_SECRET: ${{ secrets.TAILSCALE_OAUTH_SECRET }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Fetch stats from analytics server
-        env:
-          ANALYTICS_ENDPOINT: ${{ secrets.ANALYTICS_ENDPOINT }}
+      - name: Preflight required secrets
         run: |
+          set -euo pipefail
+
+          required=(ANALYTICS_ENDPOINT GCS_BUCKET GCP_WORKLOAD_IDENTITY_PROVIDER GCP_SERVICE_ACCOUNT)
+          for key in "${required[@]}"; do
+            if [ -z "${!key:-}" ]; then
+              echo "Missing required GitHub secret: ${key}" >&2
+              exit 1
+            fi
+          done
+
+          if [[ "${ANALYTICS_ENDPOINT}" == *".ts.net"* ]]; then
+            if [ -z "${TAILSCALE_OAUTH_CLIENT_ID:-}" ] || [ -z "${TAILSCALE_OAUTH_SECRET:-}" ]; then
+              echo "ANALYTICS_ENDPOINT points at Tailscale (*.ts.net) but Tailscale OAuth secrets are missing." >&2
+              echo "Add TAILSCALE_OAUTH_CLIENT_ID and TAILSCALE_OAUTH_SECRET to repository secrets." >&2
+              exit 1
+            fi
+          fi
+
+      - name: Connect runner to Tailscale
+        if: contains(env.ANALYTICS_ENDPOINT, '.ts.net')
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ env.TAILSCALE_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ env.TAILSCALE_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Fetch stats from analytics server
+        run: |
+          set -euo pipefail
           echo "Fetching popular podcasts from ${ANALYTICS_ENDPOINT}/stats?days=30"
           curl -f \
+            --retry 3 \
+            --retry-all-errors \
+            --retry-delay 2 \
             --connect-timeout 15 \
             --max-time 60 \
             "${ANALYTICS_ENDPOINT}/stats?days=30" \

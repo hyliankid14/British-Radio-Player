@@ -261,19 +261,24 @@ Add the following secrets to the GitHub repository
 | Secret | Value |
 |---|---|
 | `ANALYTICS_ENDPOINT` | Base URL of your home analytics server, e.g. `https://raspberrypi.tailc23afa.ts.net:8443` |
+| `TAILSCALE_OAUTH_CLIENT_ID` | Optional, required when `ANALYTICS_ENDPOINT` is a private Tailscale hostname (`*.ts.net`) |
+| `TAILSCALE_OAUTH_SECRET` | Optional, required when `ANALYTICS_ENDPOINT` is a private Tailscale hostname (`*.ts.net`) |
 | `GCS_BUCKET` | Name of the GCS bucket, e.g. `bbc-radio-player-index-20260317-bc149e38` |
-| `GCS_SA_KEY` | JSON key for a service account with `roles/storage.objectAdmin` on the bucket |
+| `GCP_WORKLOAD_IDENTITY_PROVIDER` | Full Workload Identity Provider resource name, e.g. `projects/123456789/locations/global/workloadIdentityPools/github-actions/providers/github` |
+| `GCP_SERVICE_ACCOUNT` | Service account email with `roles/storage.objectAdmin` on the bucket |
 
 The same service account used for the index builder (`bbc-index-builder`) can
 be reused — it already has the necessary bucket permissions.
 
-To download its key:
+If you have not configured GitHub OIDC federation yet, do that first so the
+workflow can exchange GitHub's OIDC token for short-lived Google credentials
+without storing long-lived JSON keys.
 
-```bash
-gcloud iam service-accounts keys create /tmp/sa-key.json \
-  --iam-account=bbc-index-builder@YOUR_PROJECT.iam.gserviceaccount.com
-cat /tmp/sa-key.json   # paste the contents into the GCS_SA_KEY secret
-```
+If your analytics host is private in Tailscale, create a Tailscale OAuth client
+for GitHub Actions and add `TAILSCALE_OAUTH_CLIENT_ID` and
+`TAILSCALE_OAUTH_SECRET` secrets.
+
+Legacy key-based auth (not recommended) is no longer used by the workflow.
 
 ### Configure the app
 
