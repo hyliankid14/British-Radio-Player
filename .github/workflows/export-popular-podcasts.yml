@@ -9,6 +9,11 @@ name: Export popular podcasts to GCS
 # Required GitHub Secrets:
 #   ANALYTICS_ENDPOINT  — base URL of the analytics server, e.g.
 #                         https://raspberrypi.tailc23afa.ts.net:8443
+#   TS_OAUTH_CLIENT_ID  — Tailscale OAuth client ID used to connect the runner
+#                         to the Tailscale network so it can reach the analytics
+#                         server (create under Settings → OAuth clients)
+#   TS_OAUTH_SECRET     — Tailscale OAuth client secret corresponding to
+#                         TS_OAUTH_CLIENT_ID
 #   GCS_BUCKET          — name of the GCS bucket, e.g.
 #                         bbc-radio-player-index-20260317-bc149e38
 #   GCP_WORKLOAD_IDENTITY_PROVIDER — full provider resource name, e.g.
@@ -34,6 +39,12 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
 
       - name: Fetch stats from analytics server
         env:
