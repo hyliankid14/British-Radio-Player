@@ -322,6 +322,11 @@ def _extract_event_datetime_parts(date_value, timestamp_value):
     return '', '', None
 
 
+def _is_truthy_query_flag(value):
+    """Return True when a query parameter represents an enabled flag."""
+    return str(value or '').strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
 def _resolve_index_display_status(server_counts):
     """
     Resolve effective index status for UI/API display.
@@ -638,6 +643,11 @@ def get_stats():
             date_filter = " AND date >= ?"
             params.append(since_date)
 
+        exclude_debug_versions = _is_truthy_query_flag(request.args.get('exclude_debug', '0'))
+        debug_filter = ""
+        if exclude_debug_versions:
+            debug_filter = " AND (app_version IS NULL OR LOWER(app_version) NOT LIKE '%debug%')"
+
         # Most popular stations
         c.execute(f'''
             SELECT
@@ -647,6 +657,7 @@ def get_stats():
             FROM events
             WHERE event_type = 'station_play'
             {date_filter}
+            {debug_filter}
             AND station_id IS NOT NULL
             GROUP BY station_id
             ORDER BY plays DESC
@@ -668,6 +679,7 @@ def get_stats():
             FROM events
             WHERE (event_type IN ('episode_play', 'web_player_podcast_view', 'web_player_episode_view', 'web_player_audio_play'))
             {date_filter}
+            {debug_filter}
             AND podcast_id IS NOT NULL
             GROUP BY podcast_id
             ORDER BY plays DESC
@@ -713,6 +725,7 @@ def get_stats():
             FROM events
             WHERE (event_type IN ('episode_play', 'web_player_episode_view', 'web_player_audio_play'))
             {date_filter}
+            {debug_filter}
             AND episode_id IS NOT NULL
             GROUP BY episode_id, podcast_id
             ORDER BY plays DESC
@@ -721,11 +734,14 @@ def get_stats():
         popular_episodes = [dict(row) for row in c.fetchall()]
         
         # Total events count by event type (all time)
-        c.execute('''
+        total_events_query = '''
             SELECT event_type, COUNT(*) as total
             FROM events
-            GROUP BY event_type
-        ''')
+        '''
+        if exclude_debug_versions:
+            total_events_query += " WHERE (app_version IS NULL OR LOWER(app_version) NOT LIKE '%debug%')"
+        total_events_query += ' GROUP BY event_type'
+        c.execute(total_events_query)
         event_totals = {row['event_type']: row['total'] for row in c.fetchall()}
         
         conn.close()
@@ -736,6 +752,7 @@ def get_stats():
             'popular_episodes': popular_episodes,
             'event_totals': event_totals,
             'range_days': days_value if days_value is not None else 'all',
+            'exclude_debug_versions': exclude_debug_versions,
             'generated_at': datetime.now().isoformat()
         })
         
@@ -762,12 +779,20 @@ def export_csv():
             except ValueError:
                 days_value = 30
 
-        date_filter = ""
+        where_clauses = []
         params = []
         if days_value is not None:
             since_date = (datetime.now() - timedelta(days=days_value)).strftime('%Y-%m-%d')
-            date_filter = " WHERE date >= ?"
+            where_clauses.append('date >= ?')
             params.append(since_date)
+
+        exclude_debug_versions = _is_truthy_query_flag(request.args.get('exclude_debug', '0'))
+        if exclude_debug_versions:
+            where_clauses.append("(app_version IS NULL OR LOWER(app_version) NOT LIKE '%debug%')")
+
+        where_filter = ''
+        if where_clauses:
+            where_filter = ' WHERE ' + ' AND '.join(where_clauses)
 
         c.execute(f'''
             SELECT
@@ -784,7 +809,7 @@ def export_csv():
                 app_version,
                 platform
             FROM events
-            {date_filter}
+            {where_filter}
             ORDER BY id DESC
         ''', params)
 
@@ -1272,6 +1297,9 @@ def index():
                 .filters {{ display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }}
                 .filters button {{ border: 1px solid #cfd4d9; background: #fff; border-radius: 10px; padding: 8px 12px; cursor: pointer; font-size: 13px; }}
                 .filters button.active {{ border-color: #1f6feb; background: #e7f0ff; color: #0b4db7; font-weight: 600; }}
+                .toggle-row {{ display: flex; align-items: center; gap: 8px; margin-top: 12px; }}
+                .toggle-row input {{ width: 16px; height: 16px; }}
+                .toggle-row label {{ font-size: 13px; color: #444; cursor: pointer; }}
                 .table-wrapper {{ overflow-x: auto; margin-top: 8px; }}
                 table {{ width: 100%; border-collapse: collapse; }}
                 th, td {{ text-align: left; padding: 8px 10px; border-bottom: 1px solid #eef1f4; }}
@@ -1303,6 +1331,7 @@ def index():
                     .panel {{ background: #252525; border-color: #3a3a3a; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }}
                     .filters button {{ border-color: #404040; background: #2a2a2a; color: #e0e0e0; }}
                     .filters button.active {{ border-color: #64b5f6; background: #1a3a52; color: #64b5f6; }}
+                    .toggle-row label {{ color: #d0d0d0; }}
                     th {{ color: #a0a0a0; }}
                     td {{ border-bottom-color: #333; }}
                     .muted {{ color: #a0a0a0; }}
@@ -1329,6 +1358,10 @@ def index():
                         <button data-days="all">All time</button>
                     </div>
                     <div class="muted" id="rangeLabel">Showing last 30 days</div>
+                    <div class="toggle-row">
+                        <input type="checkbox" id="excludeDebugToggle" />
+                        <label for="excludeDebugToggle">Exclude debug app versions from analytics</label>
+                    </div>
                     <div style="margin-top: 10px;">
                         <a id="exportCsv" href="/export.csv?days=30">Download CSV for this range</a>
                     </div>
@@ -1409,10 +1442,48 @@ def index():
             </div>
 
             <script>
+                const DEBUG_TOGGLE_STORAGE_KEY = 'analytics.excludeDebugVersions';
+
                 function formatRange(days) {{
                     if (days === 'all') return 'Showing all time';
                     if (days === '1') return 'Showing last 24 hours';
                     return 'Showing last ' + days + ' days';
+                }}
+
+                function getExcludeDebugToggle() {{
+                    return document.getElementById('excludeDebugToggle');
+                }}
+
+                function getExcludeDebugState() {{
+                    const toggle = getExcludeDebugToggle();
+                    return Boolean(toggle && toggle.checked);
+                }}
+
+                function setExcludeDebugState(value) {{
+                    const toggle = getExcludeDebugToggle();
+                    if (!toggle) return;
+                    toggle.checked = Boolean(value);
+                }}
+
+                function getStoredExcludeDebugState() {{
+                    try {{
+                        return localStorage.getItem(DEBUG_TOGGLE_STORAGE_KEY) === '1';
+                    }} catch (_) {{
+                        return false;
+                    }}
+                }}
+
+                function storeExcludeDebugState(value) {{
+                    try {{
+                        localStorage.setItem(DEBUG_TOGGLE_STORAGE_KEY, value ? '1' : '0');
+                    }} catch (_) {{
+                        // Ignore storage failures (e.g. private browsing restrictions).
+                    }}
+                }}
+
+                function activeDaysSelection() {{
+                    const active = document.querySelector('#filters button.active');
+                    return active ? active.dataset.days : '30';
                 }}
 
                 function renderTable(tableId, rows, columns) {{
@@ -1439,17 +1510,25 @@ def index():
                     }});
                 }}
 
-                function setExportLink(days) {{
+                function setExportLink(days, excludeDebug) {{
                     const link = document.getElementById('exportCsv');
                     if (!link) return;
-                    link.href = '/export.csv?days=' + encodeURIComponent(days);
+                    const params = new URLSearchParams({{ days: String(days) }});
+                    if (excludeDebug) {{
+                        params.set('exclude_debug', '1');
+                    }}
+                    link.href = '/export.csv?' + params.toString();
                 }}
 
-                async function loadStats(days) {{
-                    const res = await fetch('/stats?days=' + encodeURIComponent(days));
+                async function loadStats(days, excludeDebug) {{
+                    const params = new URLSearchParams({{ days: String(days) }});
+                    if (excludeDebug) {{
+                        params.set('exclude_debug', '1');
+                    }}
+                    const res = await fetch('/stats?' + params.toString());
                     const data = await res.json();
                     document.getElementById('rangeLabel').textContent = formatRange(String(days));
-                    setExportLink(days);
+                    setExportLink(days, excludeDebug);
                     renderTable('stationsTable', data.popular_stations || [], ['name', 'plays']);
                     renderTable('podcastsTable', data.popular_podcasts || [], ['name', 'plays']);
                     renderTable('episodesTable', data.popular_episodes || [], ['name', 'podcast_name', 'plays']);
@@ -1460,11 +1539,21 @@ def index():
                     btn.addEventListener('click', () => {{
                         buttons.forEach(b => b.classList.remove('active'));
                         btn.classList.add('active');
-                        loadStats(btn.dataset.days);
+                        loadStats(btn.dataset.days, getExcludeDebugState());
                     }});
                 }});
 
-                loadStats('30');
+                const excludeDebugToggle = getExcludeDebugToggle();
+                setExcludeDebugState(getStoredExcludeDebugState());
+                if (excludeDebugToggle) {{
+                    excludeDebugToggle.addEventListener('change', () => {{
+                        const enabled = getExcludeDebugState();
+                        storeExcludeDebugState(enabled);
+                        loadStats(activeDaysSelection(), enabled);
+                    }});
+                }}
+
+                loadStats('30', getExcludeDebugState());
             </script>
         </body>
         </html>
