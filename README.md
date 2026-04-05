@@ -34,31 +34,43 @@ interface with useful features for listeners.
 
 ### Radio & Android Auto
 - Browse the full BBC station catalogue (national, regional, local) and
-  podcast collections.
+  podcast collections with BBC-branding-free generic station artwork.
 - Rich metadata includes show name, current track and artwork on phone and in
   your car.
-- Favorite stations/episodes, resume playback automatically when you connect
+- Favourite stations/episodes, resume playback automatically when you connect
   to Android Auto, and control playback from your head unit.
+- Stops playback cleanly when the app is swiped away from recents.
 
 ### Podcasts
 - Search and subscribe to BBC podcasts; save or download individual episodes.
-- Notifications for new episodes, configurable refresh intervals, and
-  background indexing to keep the list current.
+- Per-podcast new-episode notifications, configurable refresh intervals, and
+  background cloud-index sync (Google Cloud Storage) to keep the list
+  current without draining data.
+- Analytics-powered “Most Popular” sort using a GCS snapshot updated every
+  6 hours; “New Podcasts” sort tracks podcasts added since your first install.
 - Progress is tracked; episodes resume where you left off and the next one
   can autoplay. Downloaded episodes play offline and can auto‑delete.
+- Hide played episodes toggle; collapsible played-episodes section.
 
 ### Downloads & History
 - Automatic downloads with Wi‑Fi‑only and per‑podcast limits (1‑10 episodes).
 - Batch management and a 20‑item playback history that shows progress and
   supports replaying episodes.
+- Recently Played Songs tab with streaming service deep-links.
+
+### Wear OS
+- Companion Wear OS app bundled in every release as a separate APK.
+- Playback controls and episode metadata on your watch.
 
 ### Interface & Settings
-- Material 3 light/dark theme with purple accent and adaptive layouts for
-  phones/tablets.
-- Drag‑and‑drop favorites, persistent mini player and a full Now Playing
+- Material 3 light/dark theme with purple accent, edge-to-edge display, and
+  adaptive layouts for phones and tablets.
+- Drag‑and‑drop favourites, persistent mini player and a full Now Playing
   screen with artwork, share button and seekbar.
-- Audio quality switching, export/import of preferences, and flexible
-  podcast/Android Auto options.
+- Audio quality switching (with network-based recommendations),
+  export/import of preferences, and flexible podcast/Android Auto options.
+- VPN-detected warning banner; shake-to-shuffle gesture.
+- Powered by AndroidX Media3 for rock-solid HLS streaming.
 
 ## Quick start
 
@@ -110,32 +122,32 @@ Notes:
 
 ## Requirements
 
-- Android API 21+ (Lollipop) with API 33+ recommended
-- Kotlin 1.9 or later
-- ExoPlayer 2.18+, Material 3 Components, WorkManager for background tasks
+- Android API 21+ (Lollipop) with API 33+ recommended; Wear OS requires API 30+
+- Kotlin 1.9 or later
+- AndroidX Media3 1.4+ (replaces legacy ExoPlayer), Material 3 Components, WorkManager for background tasks
 
 ## Changelog
-- **v1.4.0** (Mar 2026): podcast improvements, playback and station updates, and interface refinements.
-- **v1.3.0**: Improved indexing system, faster performance, Android Auto enhancements, Widget support and various fixes.
-- **v1.2.2**: podcast improvements, playback and station updates, and interface refinements.
-- **v1.2.0**: Added alarm feature and various UI improvements
-- **v1.1.0**: Added alternative BBC Radio 5 Live and Sports Extra links (credit u/Cool-Bus2696), auto updater and various fixes
-- **v1.0.12** (Mar 2026): New icon (credit u/mrnedryerson), added BBC Radio 1 Anthems, Radio 3 Unwind, UI tweaks
-- **v1.0.7**: dual GitHub APK variants (Android Auto + No-Google), release automation, and metadata sync improvements
-- **v1.0.3**: further improvements and bug fixes
-- **v1.0.1** (Feb 2026): major release with stability improvements and bug fixes
-- **v0.12.0**: added next-show info, intelligent color theming, refactored date handling and indexing, improved playback options, UI tweaks
-
-- **v0.11.0**: saved searches, full podcast descriptions, playback
-  enhancements
-- **v0.10.0**: episode download system, backup/restore
-- **v0.9.7**: APK signing & build tweaks
-- **v0.9.6**: GitHub release automation, JDK 21 requirement,
-  audio focus fixes
-- **v0.9.5**: improved podcast search and UI responsiveness
-- **v0.9**: episode sharing with URL shortening and web player integration
-- earlier releases added podcasts, sharing, history, notifications, and
-  Android Auto support
+- **v1.6.2** (Apr 2026): Migrate to AndroidX Media3 ExoPlayer; fix duplicate analytics events; add option to exclude debug builds from analytics; enforce 10-second listen threshold before counting podcast plays; stop playback on swipe-to-dismiss; fix Android Auto podcast resume; extend recent searches limit to 30.
+- **v1.6.1**: Search overhaul — result counts in section headers, podcast genre search, loading indicator, improved back navigation, and stale download-icon fix. New-podcast catalogue notifications fixed. TF card subscription fallback and SDSPI mount support (ESP32 companion).
+- **v1.6.0**: Wear OS companion app added (separate APK bundled in every release); improved build and signing pipeline for phone + Wear simultaneous releases.
+- **v1.5.6**: Shake-to-shuffle detection; Radio 5 Live stream URL updated to prioritised lsn.lv UK streams; VPN warning banner (dismissible); artwork fallback improvements; auto-update check for GitHub releases; per-podcast new-episode notifications.
+- **v1.5.5**: Edge-to-edge display on all activities; stations reorganised into national / regional / local categories; popular podcasts cache TTL aligned with 6-hour GCS snapshot cadence; BBC-branding-free generic station artwork; fixed “Most popular” sort not reflecting updated analytics.
+- **v1.5.4**: Podcast index summary caching for fast “New Podcasts” and “Most Popular” sorts; GCS popularity snapshot (uploaded every 6 hours); improved artwork loading across all screens.
+- **v1.5.3**: Stuck-download recovery on startup; BBC Radio 5 Sports Extra added; audio-quality dropdown with network-based recommendations.
+- **v1.5.0–v1.5.2**: Rebrand to **British Radio Player** for Google Play; podcast index migrated to Google Cloud Storage + Cloud Function; cloud-search replaces local indexing; iOS app core added; Recently Played Songs tab with streaming service deep-links; word-boundary search matching; schedule viewer with podcast link; saved-search back-navigation fixes.
+- **v1.4.0** (Mar 2026): Podcast improvements, playback and station updates, and interface refinements.
+- **v1.3.0**: Improved indexing system, faster performance, Android Auto enhancements, widget support and various fixes.
+- **v1.2.2**: Podcast improvements, playback and station updates, and interface refinements.
+- **v1.2.0**: Added alarm feature and various UI improvements.
+- **v1.1.0**: Added alternative BBC Radio 5 Live and Sports Extra links (credit u/Cool-Bus2696), auto updater and various fixes.
+- **v1.0.12** (Mar 2026): New icon (credit u/mrnedryerson), added BBC Radio 1 Anthems, Radio 3 Unwind, UI tweaks.
+- **v1.0.7**: Dual GitHub APK variants (Android Auto + No-Google), release automation, and metadata sync improvements.
+- **v1.0.1** (Feb 2026): Major release with stability improvements and bug fixes.
+- **v0.12.0**: Next-show info, intelligent colour theming, refactored date handling and indexing, improved playback options, UI tweaks.
+- **v0.11.0**: Saved searches, full podcast descriptions, playback enhancements.
+- **v0.10.0**: Episode download system, backup/restore.
+- **v0.9–v0.9.7**: Episode sharing with URL shortening and web player integration; GitHub release automation; JDK 21 requirement; audio focus fixes.
+- Earlier releases added podcasts, sharing, history, notifications, and Android Auto support.
 
 ## Contributing
 
