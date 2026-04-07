@@ -2,6 +2,8 @@ package com.hyliankid14.bbcradioplayer
 
 private const val STREAM_BASE = "https://lsn.lv/bbcradio.m3u8"
 private const val LOGO_BASE = "https://sounds.files.bbci.co.uk/3.11.1/services"
+private const val BBC_HLS_UK = "https://a.files.bbci.co.uk/media/live/manifesto/audio/simulcast/hls/uk/sbr_high/ak"
+private const val BBC_HLS_NONUK = "https://a.files.bbci.co.uk/media/live/manifesto/audio/simulcast/hls/nonuk/sbr_low/ak"
 
 data class Station(
     val id: String,
@@ -28,6 +30,11 @@ data class Station(
             for (bitrate in bitrates) {
                 candidates += "$STREAM_BASE?station=$sid&bitrate=$bitrate"
             }
+        }
+        // BBC direct HLS streams as final fallbacks (UK high-quality then non-UK lower-quality)
+        for (sid in streamServiceIds.filter { it.isNotBlank() }) {
+            candidates += "$BBC_HLS_UK/$sid.m3u8"
+            candidates += "$BBC_HLS_NONUK/$sid.m3u8"
         }
         return candidates.distinct()
     }
@@ -91,7 +98,7 @@ object StationRepository {
                 "bbc_radio_five_sports_extra"
             ),
             directStreamUrls = listOf(
-                "http://as-hls-uk-live.akamaized.net/pool_47700285/live/uk/bbc_radio_five_live_sports_extra/bbc_radio_five_live_sports_extra.isml/bbc_radio_five_live_sports_extra-audio%3d96000.norewind.m3u8"
+                "https://as-hls-uk-live.akamaized.net/pool_47700285/live/uk/bbc_radio_five_live_sports_extra/bbc_radio_five_live_sports_extra.isml/bbc_radio_five_live_sports_extra-audio%3d96000.norewind.m3u8"
             ),
             category = StationCategory.NATIONAL
         ),

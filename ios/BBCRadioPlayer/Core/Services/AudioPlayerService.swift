@@ -65,6 +65,8 @@ final class AudioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
     private var analyticsDelayTask: Task<Void, Never>?
     private var currentAnalyticsSignature: String?
     private var currentAnalyticsSent = false
+    private var stationStreamCandidates: [URL] = []
+    private var stationStreamCandidateIndex: Int = 0
     var onNextRequested: (() -> Void)?
     var onPreviousRequested: (() -> Void)?
     var onEpisodeCompleted: ((Episode) -> Void)?
@@ -106,9 +108,11 @@ final class AudioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
 
     func play(station: Station, quality: PlaybackQuality) {
         let effectiveQuality = resolveQuality(quality)
-        guard let url = station.streamURL(quality: effectiveQuality) else {
-            return
-        }
+        let candidates = station.streamCandidates(quality: effectiveQuality)
+        guard !candidates.isEmpty else { return }
+
+        stationStreamCandidates = candidates
+        stationStreamCandidateIndex = 0
 
         currentStation = station
         currentEpisode = nil
@@ -117,7 +121,7 @@ final class AudioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
         currentStationShowTitle = ""
         nowPlayingArtworkURL = station.logoURL
         configureAudioSession()
-        startPlayback(url: url)
+        startPlayback(url: candidates[0])
         configureNowPlaying(title: station.title, subtitle: "Live radio")
         scheduleStationAnalytics(station)
         refreshRemoteCommandAvailability()
@@ -244,6 +248,17 @@ final class AudioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
     private func resolveQuality(_ quality: PlaybackQuality) -> PlaybackQuality {
         guard quality == .auto else { return quality }
         return isOnWiFi ? .high : .low
+    }
+
+    private func tryNextStationStreamCandidate() {
+        let nextIndex = stationStreamCandidateIndex + 1
+        guard nextIndex < stationStreamCandidates.count else {
+            isPlaying = false
+            refreshNowPlayingInfo()
+            return
+        }
+        stationStreamCandidateIndex = nextIndex
+        startPlayback(url: stationStreamCandidates[nextIndex])
     }
 
     private func startNetworkMonitoring() {
@@ -412,8 +427,13 @@ final class AudioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
         itemStatusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
             Task { @MainActor in
                 if item.status == .failed {
-                    self?.isPlaying = false
-                    self?.refreshNowPlayingInfo()
+                    guard let self else { return }
+                    if self.currentStation != nil {
+                        self.tryNextStationStreamCandidate()
+                    } else {
+                        self.isPlaying = false
+                        self.refreshNowPlayingInfo()
+                    }
                 }
             }
         }

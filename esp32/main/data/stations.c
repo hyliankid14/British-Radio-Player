@@ -79,7 +79,7 @@ static const station_t s_stations[] = {
         "radio5sportsextra", "Radio 5 Sports Extra",
         "bbc_radio_five_live_sports_extra",
         /* Use Akamai direct URL for reliability */
-        "http://as-hls-uk-live.akamaized.net/pool_47700285/live/uk/bbc_radio_five_live_sports_extra/"
+        "https://as-hls-uk-live.akamaized.net/pool_47700285/live/uk/bbc_radio_five_live_sports_extra/"
         "bbc_radio_five_live_sports_extra.isml/"
         "bbc_radio_five_live_sports_extra-audio%3d96000.norewind.m3u8",
         LOGO("bbc_radio_five_live_sports_extra"),

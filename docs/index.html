@@ -1297,9 +1297,15 @@
 
             async resolveStationPlayableUrl(serviceId, highQuality = true) {
                 const stationUrl = this.buildStationStreamUrl(serviceId, highQuality);
+                const bbcUkUrl = `https://a.files.bbci.co.uk/media/live/manifesto/audio/simulcast/hls/uk/sbr_high/ak/${encodeURIComponent(serviceId)}.m3u8`;
+                const bbcNonUkUrl = `https://a.files.bbci.co.uk/media/live/manifesto/audio/simulcast/hls/nonuk/sbr_low/ak/${encodeURIComponent(serviceId)}.m3u8`;
                 const endpoints = [
                     stationUrl,
-                    `https://api.allorigins.win/raw?url=${encodeURIComponent(stationUrl)}`
+                    `https://api.allorigins.win/raw?url=${encodeURIComponent(stationUrl)}`,
+                    bbcUkUrl,
+                    `https://api.allorigins.win/raw?url=${encodeURIComponent(bbcUkUrl)}`,
+                    bbcNonUkUrl,
+                    `https://api.allorigins.win/raw?url=${encodeURIComponent(bbcNonUkUrl)}`
                 ];
 
                 for (const endpoint of endpoints) {
@@ -1359,27 +1365,49 @@
                         || audio.canPlayType('application/x-mpegURL');
 
                     if (window.Hls && window.Hls.isSupported() && !canNativePlayHls) {
-                        this.hlsPlayer = new window.Hls({
-                            enableWorker: true,
-                            lowLatencyMode: false
-                        });
-                        this.hlsPlayer.loadSource(resolvedUrl);
-                        this.hlsPlayer.attachMedia(audio);
-                        this.hlsPlayer.on(window.Hls.Events.MANIFEST_PARSED, () => {
-                            this.setRadioStatus(`Ready: ${station.title}`);
-                            if (shouldAutoplay) {
-                                audio.play().catch(() => {
-                                    this.setRadioStatus('Tap play to start audio.');
-                                });
-                                this.isRadioPlaying = true;
-                                this.updateRadioPlayButton();
+                        // Build a list of candidate URLs so Hls.js can fall back on fatal error.
+                        // Exclude the primary resolved URL to avoid duplicating it in the fallback list.
+                        const fallbackCandidates = [
+                            `https://a.files.bbci.co.uk/media/live/manifesto/audio/simulcast/hls/uk/sbr_high/ak/${encodeURIComponent(station.serviceId)}.m3u8`,
+                            `https://a.files.bbci.co.uk/media/live/manifesto/audio/simulcast/hls/nonuk/sbr_low/ak/${encodeURIComponent(station.serviceId)}.m3u8`
+                        ].filter(u => u !== resolvedUrl);
+                        let fallbackIndex = 0;
+
+                        const loadHlsSource = (url) => {
+                            if (this.hlsPlayer) {
+                                this.hlsPlayer.destroy();
+                                this.hlsPlayer = null;
                             }
-                        });
-                        this.hlsPlayer.on(window.Hls.Events.ERROR, (_event, data) => {
-                            if (data?.fatal) {
-                                this.setRadioStatus('Stream error. Try another station.');
-                            }
-                        });
+                            this.hlsPlayer = new window.Hls({
+                                enableWorker: true,
+                                lowLatencyMode: false
+                            });
+                            this.hlsPlayer.loadSource(url);
+                            this.hlsPlayer.attachMedia(audio);
+                            this.hlsPlayer.on(window.Hls.Events.MANIFEST_PARSED, () => {
+                                this.setRadioStatus(`Ready: ${station.title}`);
+                                if (shouldAutoplay) {
+                                    audio.play().catch(() => {
+                                        this.setRadioStatus('Tap play to start audio.');
+                                    });
+                                    this.isRadioPlaying = true;
+                                    this.updateRadioPlayButton();
+                                }
+                            });
+                            this.hlsPlayer.on(window.Hls.Events.ERROR, (_event, data) => {
+                                if (data?.fatal) {
+                                    if (fallbackIndex < fallbackCandidates.length) {
+                                        const next = fallbackCandidates[fallbackIndex++];
+                                        this.setRadioStatus('Stream error, trying fallback...');
+                                        loadHlsSource(next);
+                                    } else {
+                                        this.setRadioStatus('Stream error. Try another station.');
+                                    }
+                                }
+                            });
+                        };
+
+                        loadHlsSource(resolvedUrl);
                     } else {
                         audio.src = resolvedUrl;
                         audio.load();

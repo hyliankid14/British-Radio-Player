@@ -19,6 +19,11 @@ data class Station(
                 candidates += "https://lsn.lv/bbcradio.m3u8?station=$sid&bitrate=$bitrate"
             }
         }
+        // BBC direct HLS streams as final fallbacks (UK high-quality then non-UK lower-quality)
+        for (sid in streamServiceIds.filter { it.isNotBlank() }) {
+            candidates += "https://a.files.bbci.co.uk/media/live/manifesto/audio/simulcast/hls/uk/sbr_high/ak/$sid.m3u8"
+            candidates += "https://a.files.bbci.co.uk/media/live/manifesto/audio/simulcast/hls/nonuk/sbr_low/ak/$sid.m3u8"
+        }
         return candidates.distinct()
     }
 }

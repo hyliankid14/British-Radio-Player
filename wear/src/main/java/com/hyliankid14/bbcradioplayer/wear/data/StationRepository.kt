@@ -46,7 +46,7 @@ object StationRepository {
             "Radio 5 Sports Extra",
             "bbc_radio_five_live_sports_extra",
             streamServiceIds = listOf("bbc_radio_five_live_sports_extra", "bbc_radio_five_sports_extra"),
-            directStreamUrls = listOf("http://as-hls-uk-live.akamaized.net/pool_47700285/live/uk/bbc_radio_five_live_sports_extra/bbc_radio_five_live_sports_extra.isml/bbc_radio_five_live_sports_extra-audio%3d96000.norewind.m3u8"),
+            directStreamUrls = listOf("https://as-hls-uk-live.akamaized.net/pool_47700285/live/uk/bbc_radio_five_live_sports_extra/bbc_radio_five_live_sports_extra.isml/bbc_radio_five_live_sports_extra-audio%3d96000.norewind.m3u8"),
             category = StationCategory.NATIONAL
         ),
         station("radio6", "Radio 6 Music", "bbc_6music", category = StationCategory.NATIONAL),
