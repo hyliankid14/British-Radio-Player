@@ -20,6 +20,12 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 # --- Main task stack ---
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 
+# ESP-ADF on IDF 5.x uses legacy FreeRTOS type/API aliases.
+CONFIG_FREERTOS_ENABLE_BACKWARD_COMPATIBILITY=y
+
+# ADF audio_board defaults to Lyrat; force an ESP32-S3 board profile for this target.
+CONFIG_ESP32_S3_KORVO2_V3_BOARD=y
+
 # --- WiFi ---
 CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=16
 CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=64
@@ -45,6 +51,3 @@ CONFIG_LV_COLOR_DEPTH=16
 CONFIG_LV_COLOR_16_SWAP=y
 CONFIG_LV_MEM_CUSTOM=y
 
-# --- BBC Radio Player: stub audio for Wokwi ---
-# Set to 'n' and rebuild with ADF for real hardware audio.
-CONFIG_BBC_AUDIO_STUB=y

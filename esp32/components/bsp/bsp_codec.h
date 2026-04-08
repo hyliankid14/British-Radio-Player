@@ -40,6 +40,13 @@ bool bsp_codec_is_ready(void);
  */
 esp_err_t bsp_codec_write(const void *data, size_t bytes, size_t *written);
 
+/**
+ * Reconfigure I2S clock when the decoded stream's sample rate / channel count
+ * differs from the default (44100 Hz stereo 16-bit).
+ * Safe to call multiple times; no-op if settings are unchanged.
+ */
+esp_err_t bsp_codec_set_sample_info(uint32_t sample_rate, uint8_t channels, uint8_t bits_per_sample);
+
 #ifdef __cplusplus
 }
 #endif

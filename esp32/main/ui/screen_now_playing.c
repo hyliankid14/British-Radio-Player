@@ -149,7 +149,7 @@ lv_obj_t *screen_now_playing_create(void)
     /* BBC-red decorative bar */
     lv_obj_t *deco_bar = lv_obj_create(scr);
     lv_obj_set_size(deco_bar, LV_PCT(100), 4);
-    lv_obj_align(deco_bar, LV_ALIGN_TOP_MID, 0, 36);
+    lv_obj_align(deco_bar, LV_ALIGN_TOP_MID, 0, UI_HEADER_HEIGHT);
     lv_obj_set_style_bg_color(deco_bar, UI_COLOR_BBC_RED, LV_PART_MAIN);
     lv_obj_set_style_border_width(deco_bar, 0, LV_PART_MAIN);
 
@@ -162,7 +162,7 @@ lv_obj_t *screen_now_playing_create(void)
     lv_obj_set_style_text_font(s_lbl_live, &lv_font_montserrat_14, LV_PART_MAIN);
     lv_obj_set_style_radius(s_lbl_live, 4, LV_PART_MAIN);
     lv_obj_set_style_pad_all(s_lbl_live, 3, LV_PART_MAIN);
-    lv_obj_align(s_lbl_live, LV_ALIGN_TOP_RIGHT, -8, 50);
+    lv_obj_align(s_lbl_live, LV_ALIGN_TOP_RIGHT, -8, UI_HEADER_HEIGHT + 14);
 
     /* Station / episode title */
     s_lbl_title = lv_label_create(scr);

@@ -2,14 +2,14 @@
 
 #include <stddef.h>
 
-#define STATIONS_MAX  16    /* national stations only */
+#define STATIONS_MAX  17    /* national stations + one internet test stream */
 
 typedef struct {
     const char *id;         /* short key, e.g. "radio1" */
     const char *title;      /* display name             */
-    const char *service_id; /* BBC service ID           */
-    const char *stream_url; /* lsn.lv HLS URL (128kbps) */
-    const char *logo_url;   /* BBC CDN logo PNG URL     */
+    const char *service_id; /* service identifier        */
+    const char *stream_url; /* stream URL (HLS/MP3/AAC) */
+    const char *logo_url;   /* station logo URL          */
 } station_t;
 
 #ifdef __cplusplus

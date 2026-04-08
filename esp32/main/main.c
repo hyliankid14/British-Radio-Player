@@ -14,39 +14,16 @@
 #include "bsp_touch.h"
 #include "bsp_imu.h"
 #include "lvgl_port.h"
-#include "tf_card.h"
 
 #include "data/stations.h"
-#include "data/podcast_index.h"
-#include "data/subscriptions.h"
 #include "audio/playback_state.h"
 #include "audio/bbc_audio.h"
-#include "shake/shake_detector.h"
 #include "ui/ui_manager.h"
-#include "ui/screen_home.h"
-#include "ui/screen_podcasts.h"
+#include "ui/screen_stations.h"
 
 #include "config.h"   /* copy config.h.example → config.h and fill in credentials */
 
 static const char *TAG = "main";
-
-static void serial_input_task(void *arg)
-{
-    while (true) {
-        int ch = fgetc(stdin);
-        if (ch == EOF) {
-            vTaskDelay(pdMS_TO_TICKS(20));
-            continue;
-        }
-        if (ch == '\r' || ch == '\n') {
-            continue;
-        }
-
-        ESP_LOGI(TAG, "Serial RX: '%c' (0x%02X)",
-                 isprint((unsigned char)ch) ? ch : '.',
-                 (unsigned int)(unsigned char)ch);
-    }
-}
 
 /* ── WiFi ─────────────────────────────────────────────────────────────── */
 #define WIFI_CONNECTED_BIT BIT0
@@ -124,30 +101,6 @@ static bool wifi_connect(void)
     return ok;
 }
 
-/* ── Podcast index background task ───────────────────────────────────── */
-static void podcast_fetch_task(void *arg)
-{
-    /* podcast_index_fetch() internally calls podcast_rankings_apply() */
-    podcast_index_fetch();
-    /* Notify any open podcast screen */
-    lv_async_call(screen_podcasts_refresh, NULL);
-    vTaskDelete(NULL);
-}
-
-/* ── Shake callback ───────────────────────────────────────────────────── */
-static void on_shake(void)
-{
-    podcast_t *p = podcast_index_random();
-    if (!p) return;
-    ESP_LOGI(TAG, "Shake! Random podcast: %s", p->title);
-    podcast_fetch_episodes(p);
-    size_t count;
-    episode_t *eps = podcast_get_episodes(p, &count);
-    if (eps && count > 0) {
-        playback_play_episode(p, &eps[0]);
-    }
-}
-
 /* ── Entry point ─────────────────────────────────────────────────────── */
 void app_main(void)
 {
@@ -157,6 +110,9 @@ void app_main(void)
         ESP_ERROR_CHECK(nvs_flash_erase());
         ESP_ERROR_CHECK(nvs_flash_init());
     }
+
+    /* Latch battery power on for standalone operation. */
+    ESP_ERROR_CHECK(bsp_power_manager_init());
 
     /* I2C bus (shared by touch, IMU, codec) */
     i2c_master_bus_handle_t i2c_bus = bsp_i2c_init();
@@ -176,18 +132,12 @@ void app_main(void)
     esp_lcd_touch_handle_t touch = NULL;
     bsp_touch_init(i2c_bus, &touch);
 
-    /* Audio codec init is skipped in Wokwi to avoid I2S bring-up hangs. */
-    ESP_LOGI(TAG, "Skipping codec init in emulator startup path");
+    /* Audio codec initialisation for real hardware speaker output. */
+    ESP_ERROR_CHECK(bsp_codec_init(i2c_bus));
 
     /* LVGL port */
     lv_disp_t *disp = NULL;
     ESP_ERROR_CHECK(bsp_lvgl_port_init(panel, io, touch, &disp));
-
-    /* TF card for subscriptions (non-fatal) */
-    tf_card_mount();
-
-    /* Subscriptions from TF card */
-    subscriptions_load();
 
     /* Playback state init */
     playback_state_init();
@@ -195,34 +145,25 @@ void app_main(void)
     /* Audio subsystem (ADF decode on hardware when available, tone fallback otherwise) */
     bbc_audio_init();
 
-    /* Show home screen */
+    /* Show radio station screen directly (radio-only mode). */
     if (bsp_lvgl_port_lock(100)) {
-        ESP_LOGI(TAG, "Creating home screen");
+        ESP_LOGI(TAG, "Creating stations screen");
         ui_manager_init();
-        lv_obj_t *home = screen_home_create();
-        ui_push_screen(home, LV_SCR_LOAD_ANIM_NONE);
+        lv_obj_t *stations = screen_stations_create();
+        ui_push_screen(stations, LV_SCR_LOAD_ANIM_NONE);
         lv_refr_now(NULL);
-        ESP_LOGI(TAG, "Home screen loaded");
+        ESP_LOGI(TAG, "Stations screen loaded");
         bsp_lvgl_port_unlock();
     } else {
-        ESP_LOGW(TAG, "Could not acquire LVGL lock for home screen");
+        ESP_LOGW(TAG, "Could not acquire LVGL lock for stations screen");
     }
 
     /* WiFi */
     bool wifi_ok = wifi_connect();
 
-    /* Start podcast index download in background (only if WiFi connected) */
-    if (wifi_ok) {
-        xTaskCreate(podcast_fetch_task, "pod_fetch", 8192, NULL, 4, NULL);
-    } else {
-        ESP_LOGW(TAG, "No WiFi – podcast index not available");
+    if (!wifi_ok) {
+        ESP_LOGW(TAG, "No WiFi – live stations unavailable");
     }
-
-    /* Shake to play random podcast */
-    shake_detector_start(on_shake);
-
-    /* Helpful in Wokwi: confirms terminal input path is working. */
-    xTaskCreate(serial_input_task, "serial_rx", 4096, NULL, 2, NULL);
 
     ESP_LOGI(TAG, "BBC Radio Player ready");
 }

@@ -6,14 +6,14 @@
 #include "driver/gpio.h"
 #include "driver/ledc.h"
 
-/* ── ILI9341 LCD (4-wire SPI in Wokwi) ───────────────────────────── */
+/* ── Waveshare LCD (ST7789, 4-wire SPI) ─────────────────────────── */
 #define BSP_LCD_SPI_HOST        SPI2_HOST
 #define BSP_LCD_PIXEL_CLK_HZ    (40 * 1000 * 1000)
 
 #define BSP_LCD_MOSI            GPIO_NUM_39
 #define BSP_LCD_SCLK            GPIO_NUM_38
 #define BSP_LCD_CS              GPIO_NUM_21
-#define BSP_LCD_DC              GPIO_NUM_7
+#define BSP_LCD_DC              GPIO_NUM_45
 #define BSP_LCD_RST             GPIO_NUM_40
 #define BSP_LCD_BL              GPIO_NUM_46
 

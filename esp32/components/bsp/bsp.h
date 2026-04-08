@@ -10,6 +10,7 @@
 #include "bsp_touch.h"
 #include "bsp_imu.h"
 #include "bsp_codec.h"
+#include "bsp_power_manager.h"
 
 /* ── Shared I2C bus ─────────────────────────────────────────────── */
 #include "driver/i2c_master.h"

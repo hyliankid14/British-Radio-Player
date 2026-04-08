@@ -1,20 +1,25 @@
 #include "bbc_audio.h"
 #include "bsp_codec.h"
-#include "driver/ledc.h"
+#include "driver/gpio.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_crt_bundle.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include <ctype.h>
+#include <inttypes.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
 #if BBC_HAS_ADF
-#include "audio_element.h"
-#include "audio_pipeline.h"
-#include "http_stream.h"
-#include "raw_stream.h"
-#include "aac_decoder.h"
-#include "mp3_decoder.h"
+#include "esp_http_client.h"
+#endif
+#if BBC_HAS_ADF
+#include "esp_audio_simple_dec.h"
+#include "impl/esp_ts_dec.h"
+#include "impl/esp_aac_dec.h"
+#include "impl/esp_mp3_dec.h"
 #endif
 
 static const char *TAG = "audio_pipeline";
@@ -26,181 +31,644 @@ static TaskHandle_t s_hw_tone_task = NULL;
 static volatile uint32_t s_hw_tone_freq = 0;
 static bool s_use_adf = false;
 
-#define AUDIO_STUB_BUZZER_GPIO GPIO_NUM_3
+#ifdef BBC_FORCE_TONE_PLAYBACK
+#undef BBC_FORCE_TONE_PLAYBACK
+#endif
+#define BBC_FORCE_TONE_PLAYBACK 0
+
 #define AUDIO_TONE_FRAME_SAMPLES 256
 #define AUDIO_TONE_AMPLITUDE     10000
-static bool s_buzzer_ready = false;
+#define HTTP_CHUNK_BYTES         4096
+#define PLAYLIST_BUF_BYTES       4096
+#define PCM_BUF_BYTES            8192
+#define PENDING_BUF_BYTES        65536
+#define PENDING_BUF_BYTES_FALLBACK 16384
 
 #if BBC_HAS_ADF
 typedef struct {
-    audio_pipeline_handle_t pipeline;
-    audio_element_handle_t http;
-    audio_element_handle_t decoder;
-    audio_element_handle_t raw;
     TaskHandle_t pcm_task;
-    bool use_aac;
+    int64_t last_seq;
+    uint32_t task_gen_id;
 } adf_state_t;
 
 static adf_state_t s_adf = {0};
 
-static bool str_contains(const char *haystack, const char *needle)
+static bool url_is_absolute(const char *url)
 {
-    return haystack && needle && strstr(haystack, needle) != NULL;
+    return url && (strncmp(url, "http://", 7) == 0 || strncmp(url, "https://", 8) == 0);
 }
 
-static bool should_use_aac_decoder(const char *url, bool is_live)
+static void make_absolute_url(const char *base_url, const char *ref, char *out, size_t out_len)
 {
-    if (is_live) {
-        return true;
+    if (!out || out_len == 0) {
+        return;
     }
-    return str_contains(url, ".aac") || str_contains(url, ".m3u8") ||
-           str_contains(url, "format=aac") || str_contains(url, "type=aac");
+    out[0] = '\0';
+    if (!ref || ref[0] == '\0') {
+        return;
+    }
+    if (url_is_absolute(ref)) {
+        strlcpy(out, ref, out_len);
+        return;
+    }
+
+    /* Handle root-relative references: "/path/file.ts" */
+    if (base_url && ref[0] == '/') {
+        const char *scheme = strstr(base_url, "://");
+        if (scheme) {
+            const char *host_start = scheme + 3;
+            const char *host_end = strchr(host_start, '/');
+            size_t origin_len = host_end ? (size_t)(host_end - base_url) : strlen(base_url);
+            if (origin_len >= out_len) {
+                origin_len = out_len - 1;
+            }
+            memcpy(out, base_url, origin_len);
+            out[origin_len] = '\0';
+            strlcat(out, ref, out_len);
+            return;
+        }
+    }
+
+    const char *slash = base_url ? strrchr(base_url, '/') : NULL;
+    if (!slash) {
+        strlcpy(out, ref, out_len);
+        return;
+    }
+
+    size_t base_len = (size_t)(slash - base_url + 1);
+    if (base_len >= out_len) {
+        base_len = out_len - 1;
+    }
+    memcpy(out, base_url, base_len);
+    out[base_len] = '\0';
+    strlcat(out, ref, out_len);
 }
 
-static int http_stream_evt(http_stream_event_msg_t *msg)
+typedef struct {
+    char   *buf;
+    size_t  buf_len;
+    size_t  total;
+} http_text_ctx_t;
+
+static bool http_read_text(const char *url, char *buf, size_t buf_len)
 {
-    if (msg == NULL) {
-        return ESP_OK;
+    static esp_http_client_handle_t s_playlist_client = NULL;
+    if (!url || !buf || buf_len < 16) {
+        return false;
     }
-    if (msg->event_id == HTTP_STREAM_RESOLVE_ALL_TRACKS) {
-        return ESP_OK;
+
+    if (!s_playlist_client) {
+        esp_http_client_config_t cfg = {
+            .url = url,
+            .method = HTTP_METHOD_GET,
+            .timeout_ms = 8000,
+            .crt_bundle_attach = esp_crt_bundle_attach,
+            .buffer_size = HTTP_CHUNK_BYTES,
+            .max_redirection_count = 5,
+        };
+        s_playlist_client = esp_http_client_init(&cfg);
+        if (!s_playlist_client) {
+            ESP_LOGE(TAG, "Playlist client init failed");
+            return false;
+        }
     }
-    if (msg->event_id == HTTP_STREAM_FINISH_TRACK) {
-        return http_stream_next_track(msg->el);
+
+    http_text_ctx_t ctx = { .buf = buf, .buf_len = buf_len, .total = 0 };
+    buf[0] = '\0';
+    /* Ensure m3u8 text is returned uncompressed for line parser simplicity. */
+    esp_http_client_set_url(s_playlist_client, url);
+    esp_http_client_set_method(s_playlist_client, HTTP_METHOD_GET);
+    esp_http_client_set_header(s_playlist_client, "Accept-Encoding", "identity");
+    esp_http_client_set_header(s_playlist_client, "User-Agent", "BBC-Radio-Player/esp32");
+
+    esp_err_t err = esp_http_client_open(s_playlist_client, 0);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Playlist open err=%d", (int)err);
+        esp_http_client_cleanup(s_playlist_client);
+        s_playlist_client = NULL;
+        return false;
     }
-    if (msg->event_id == HTTP_STREAM_FINISH_PLAYLIST) {
-        return http_stream_fetch_again(msg->el);
+
+    if (esp_http_client_fetch_headers(s_playlist_client) < 0) {
+        ESP_LOGW(TAG, "Playlist fetch headers failed");
+        esp_http_client_close(s_playlist_client);
+        esp_http_client_cleanup(s_playlist_client);
+        s_playlist_client = NULL;
+        return false;
     }
-    return ESP_OK;
+
+    while (ctx.total + 1 < ctx.buf_len) {
+        int n = esp_http_client_read(s_playlist_client, ctx.buf + ctx.total,
+                                     (int)(ctx.buf_len - ctx.total - 1));
+        if (n <= 0) {
+            break;
+        }
+        ctx.total += (size_t)n;
+    }
+
+    int status = esp_http_client_get_status_code(s_playlist_client);
+    esp_http_client_close(s_playlist_client);
+    buf[ctx.total] = '\0';
+
+    if (status < 200 || status >= 300) {
+        ESP_LOGW(TAG, "Playlist HTTP status=%d", status);
+        esp_http_client_cleanup(s_playlist_client);
+        s_playlist_client = NULL;
+        return false;
+    }
+    if (ctx.total < 8 || strstr(buf, "#EXTM3U") == NULL) {
+        ESP_LOGW(TAG, "Playlist text invalid (%u bytes): %.64s", (unsigned)ctx.total, buf);
+        esp_http_client_cleanup(s_playlist_client);
+        s_playlist_client = NULL;
+        return false;
+    }
+    return ctx.total > 0;
+}
+
+static int parse_media_sequence(const char *playlist)
+{
+    const char *p = strstr(playlist, "#EXT-X-MEDIA-SEQUENCE:");
+    if (!p) {
+        return 0;
+    }
+    p += strlen("#EXT-X-MEDIA-SEQUENCE:");
+    return atoi(p);
+}
+
+static int parse_playlist_entries(const char *playlist, char entries[][256], int max_entries)
+{
+    int count = 0;
+    const char *p = playlist;
+    bool expect_uri = false;
+    while (p && *p && count < max_entries) {
+        const char *line_end = strchr(p, '\n');
+        size_t len = line_end ? (size_t)(line_end - p) : strlen(p);
+
+        while (len > 0 && (p[len - 1] == '\r' || p[len - 1] == '\n')) {
+            len--;
+        }
+
+        const char *line = p;
+        while (len > 0 && isspace((unsigned char)*line)) {
+            line++;
+            len--;
+        }
+
+        bool is_comment = (len > 0 && line[0] == '#');
+        if (is_comment) {
+            if (strncmp(line, "#EXTINF", 7) == 0 || strncmp(line, "#EXT-X-STREAM-INF", 17) == 0) {
+                expect_uri = true;
+            }
+        }
+
+        if (len > 0 && !is_comment && (expect_uri || strstr(line, ".ts") || strstr(line, ".m3u8") || strstr(line, ".aac"))) {
+            size_t copy_len = len < 255 ? len : 255;
+            memcpy(entries[count], line, copy_len);
+            entries[count][copy_len] = '\0';
+            count++;
+            expect_uri = false;
+        }
+
+        if (!line_end) {
+            break;
+        }
+        p = line_end + 1;
+    }
+    return count;
+}
+
+static size_t decode_pending_bytes(esp_audio_simple_dec_handle_t dec,
+                                   uint8_t *pending,
+                                   size_t *pending_len,
+                                   bool eos,
+                                   uint8_t **pcm_buf,
+                                   uint32_t *pcm_size,
+                                   bool *sample_info_logged,
+                                   size_t *bytes_written_out)
+{
+        size_t decoded_total = 0;
+        size_t written_total = 0;
+    static int s_decode_error_logs = 0;
+    esp_audio_simple_dec_raw_t raw = {
+        .buffer = pending,
+        .len = (uint32_t)*pending_len,
+        .eos = eos,
+        .consumed = 0,
+    };
+
+    while (raw.len) {
+        esp_audio_simple_dec_out_t out = {
+            .buffer = *pcm_buf,
+            .len = *pcm_size,
+            .decoded_size = 0,
+            .needed_size = 0,
+        };
+
+        esp_audio_err_t ret = esp_audio_simple_dec_process(dec, &raw, &out);
+        if (ret == ESP_AUDIO_ERR_BUFF_NOT_ENOUGH) {
+            uint32_t need = out.needed_size ? out.needed_size : (*pcm_size * 2);
+            uint8_t *new_buf = realloc(*pcm_buf, need);
+            if (!new_buf) {
+                break;
+            }
+            *pcm_buf = new_buf;
+            *pcm_size = need;
+            continue;
+        }
+        if (ret != ESP_AUDIO_ERR_OK) {
+            if (s_decode_error_logs < 12) {
+                ESP_LOGW(TAG, "Decoder process ret=%d len=%"PRIu32" consumed=%"PRIu32,
+                         (int)ret, raw.len, raw.consumed);
+                s_decode_error_logs++;
+            }
+            break;
+        }
+
+        if (!*sample_info_logged && out.decoded_size > 0) {
+            esp_audio_simple_dec_info_t info = {0};
+            if (esp_audio_simple_dec_get_info(dec, &info) == ESP_AUDIO_ERR_OK) {
+                int bits = info.bits_per_sample ? info.bits_per_sample : 16;
+                bsp_codec_set_sample_info((int)info.sample_rate, info.channel, bits);
+                ESP_LOGI(TAG, "Decoded stream: %"PRIu32" Hz, %d ch, %d bit",
+                         info.sample_rate, info.channel, bits);
+                *sample_info_logged = true;
+            }
+        }
+        if (out.decoded_size > 0) {
+            size_t written = 0;
+            bsp_codec_write(*pcm_buf, out.decoded_size, &written);
+            decoded_total += out.decoded_size;
+            written_total += written;
+        }
+        if (raw.consumed == 0 && out.decoded_size == 0) {
+            break;
+        }
+        if (raw.consumed > raw.len) {
+            raw.len = 0;
+        } else {
+            raw.len -= raw.consumed;
+            raw.buffer += raw.consumed;
+        }
+    }
+
+    if (raw.len && raw.buffer != pending) {
+        memmove(pending, raw.buffer, raw.len);
+    }
+    *pending_len = raw.len;
+    if (bytes_written_out) {
+        *bytes_written_out += written_total;
+    }
+    return decoded_total;
+}
+
+static void stream_segment_encoded(const char *segment_url,
+                                   esp_audio_simple_dec_handle_t dec,
+                                   uint8_t *chunk_buf,
+                                   uint8_t **pcm_buf,
+                                   uint32_t *pcm_size,
+                                   bool *sample_info_logged,
+                                   uint8_t *pending,
+                                   size_t pending_cap)
+{
+    static esp_http_client_handle_t s_segment_client = NULL;
+    if (!s_segment_client) {
+        esp_http_client_config_t cfg = {
+            .url = segment_url,
+            .method = HTTP_METHOD_GET,
+            .timeout_ms = 8000,
+            .crt_bundle_attach = esp_crt_bundle_attach,
+            .buffer_size = HTTP_CHUNK_BYTES,
+            .max_redirection_count = 5,
+        };
+        s_segment_client = esp_http_client_init(&cfg);
+        if (!s_segment_client) {
+            ESP_LOGW(TAG, "Segment client init failed: %.96s", segment_url);
+            return;
+        }
+    }
+
+    esp_http_client_set_url(s_segment_client, segment_url);
+    esp_http_client_set_method(s_segment_client, HTTP_METHOD_GET);
+    esp_http_client_set_header(s_segment_client, "User-Agent", "BBC-Radio-Player/esp32");
+    esp_http_client_set_header(s_segment_client, "Accept-Encoding", "identity");
+
+    esp_err_t open_err = esp_http_client_open(s_segment_client, 0);
+    if (open_err != ESP_OK) {
+        ESP_LOGW(TAG, "Segment open failed err=%d: %.96s", (int)open_err, segment_url);
+        esp_http_client_cleanup(s_segment_client);
+        s_segment_client = NULL;
+        return;
+    }
+    /* Consume HTTP response headers before reading the body. */
+    if (esp_http_client_fetch_headers(s_segment_client) < 0) {
+        ESP_LOGW(TAG, "Segment fetch_headers failed: %.80s", segment_url);
+        esp_http_client_close(s_segment_client);
+        esp_http_client_cleanup(s_segment_client);
+        s_segment_client = NULL;
+        return;
+    }
+    int seg_status = esp_http_client_get_status_code(s_segment_client);
+    if (seg_status < 200 || seg_status >= 300) {
+        ESP_LOGW(TAG, "Segment HTTP status %d: %.80s", seg_status, segment_url);
+        esp_http_client_close(s_segment_client);
+        esp_http_client_cleanup(s_segment_client);
+        s_segment_client = NULL;
+        return;
+    }
+
+    if (!pending || pending_cap < 2048) {
+        ESP_LOGW(TAG, "Pending decode buffer unavailable");
+        esp_http_client_close(s_segment_client);
+        return;
+    }
+    size_t pending_len = 0;
+
+    size_t read_total = 0;
+    size_t decoded_total = 0;
+    size_t written_total = 0;
+    uint32_t current_gen = s_adf.task_gen_id;
+    while (s_playing && s_use_adf && current_gen == s_adf.task_gen_id) {
+        int n = esp_http_client_read(s_segment_client, (char *)chunk_buf, HTTP_CHUNK_BYTES);
+        if (n <= 0) {
+            if (n < 0) {
+                ESP_LOGW(TAG, "Segment read err=%d url=%.80s", n, segment_url);
+                esp_http_client_cleanup(s_segment_client);
+                s_segment_client = NULL;
+            }
+            break;
+        }
+        read_total += (size_t)n;
+        if (pending_len + (size_t)n > pending_cap) {
+            /* Drain decoder first to avoid dropping compressed data unnecessarily. */
+            decoded_total += decode_pending_bytes(dec, pending, &pending_len, false,
+                                                  pcm_buf, pcm_size, sample_info_logged,
+                                                  &written_total);
+        }
+        if (pending_len + (size_t)n > pending_cap) {
+            /* Keep recent tail and trim only what cannot fit. */
+            size_t keep = pending_cap / 2;
+            if (pending_len > keep) {
+                memmove(pending, pending + (pending_len - keep), keep);
+                pending_len = keep;
+            }
+        }
+        if (pending_len + (size_t)n > pending_cap) {
+            size_t room = pending_cap - pending_len;
+            if (room == 0) {
+                ESP_LOGW(TAG, "Pending decode buffer saturated (%u bytes), skipping chunk", (unsigned)pending_cap);
+                continue;
+            }
+            ESP_LOGW(TAG, "Pending decode buffer nearly full (%u), clipping chunk %u->%u",
+                     (unsigned)pending_cap, (unsigned)n, (unsigned)room);
+            n = (int)room;
+        }
+        memcpy(pending + pending_len, chunk_buf, (size_t)n);
+        pending_len += (size_t)n;
+        decoded_total += decode_pending_bytes(dec, pending, &pending_len, false,
+                                              pcm_buf, pcm_size, sample_info_logged,
+                                              &written_total);
+    }
+
+    esp_http_client_close(s_segment_client);
+
+    /* Flush decoder at end of segment/file. */
+    decoded_total += decode_pending_bytes(dec, pending, &pending_len, true,
+                                          pcm_buf, pcm_size, sample_info_logged,
+                                          &written_total);
+    if (decoded_total == 0) {
+        ESP_LOGW(TAG, "Segment silent read=%u pending=%u written=%u url=%.96s",
+                 (unsigned)read_total, (unsigned)pending_len, (unsigned)written_total,
+                 segment_url);
+    } else {
+        ESP_LOGI(TAG, "Segment ok read=%u decoded=%u written=%u",
+                 (unsigned)read_total, (unsigned)decoded_total, (unsigned)written_total);
+    }
+}
+
+static bool url_looks_like_m3u8(const char *url)
+{
+    if (!url) {
+        return false;
+    }
+    return strstr(url, ".m3u8") != NULL || strstr(url, "lsn.lv/bbcradio.m3u8") != NULL;
+}
+
+static esp_audio_simple_dec_type_t pick_decoder_type(const char *url)
+{
+    if (url_looks_like_m3u8(url)) {
+        return ESP_AUDIO_SIMPLE_DEC_TYPE_TS;
+    }
+    if (url && (strstr(url, ".mp3") || strstr(url, "-mp3") || strstr(url, "mp3") || strstr(url, "audio/mpeg"))) {
+        return ESP_AUDIO_SIMPLE_DEC_TYPE_MP3;
+    }
+    return ESP_AUDIO_SIMPLE_DEC_TYPE_AAC;
 }
 
 static void adf_pcm_task(void *arg)
 {
     (void)arg;
-    char *buf = malloc(4096);
-    if (!buf) {
-        ESP_LOGE(TAG, "ADF PCM task out of memory");
+    uint32_t my_gen_id = s_adf.task_gen_id;
+    ESP_LOGI(TAG, "Stream task started with gen_id=%"PRIu32, my_gen_id);
+
+    static bool decoders_registered = false;
+    if (!decoders_registered) {
+        esp_ts_dec_register();
+        esp_aac_dec_register();
+        esp_mp3_dec_register();
+        decoders_registered = true;
+    }
+
+    /* Exit if this task is stale (new stream already started). */
+    if (my_gen_id != s_adf.task_gen_id) {
+        ESP_LOGW(TAG, "Stream task gen_id mismatch (mine=%"PRIu32" current=%"PRIu32"), exiting", my_gen_id, s_adf.task_gen_id);
         s_adf.pcm_task = NULL;
         vTaskDelete(NULL);
         return;
     }
 
-    while (s_use_adf && s_playing && s_adf.raw != NULL) {
-        int read_len = raw_stream_read(s_adf.raw, buf, 4096);
-        if (read_len > 0) {
-            size_t written = 0;
-            bsp_codec_write(buf, (size_t)read_len, &written);
-            continue;
-        }
-        vTaskDelay(pdMS_TO_TICKS(10));
+    esp_audio_simple_dec_type_t dec_type = pick_decoder_type(s_current_url);
+    esp_ts_dec_cfg_t ts_cfg = { .aac_plus_enable = false };
+    esp_audio_simple_dec_cfg_t dec_cfg = {
+        .dec_type = dec_type,
+        .dec_cfg  = (dec_type == ESP_AUDIO_SIMPLE_DEC_TYPE_TS) ? &ts_cfg : NULL,
+        .cfg_size = (dec_type == ESP_AUDIO_SIMPLE_DEC_TYPE_TS) ? sizeof(ts_cfg) : 0,
+    };
+    esp_audio_simple_dec_handle_t dec = NULL;
+    if (esp_audio_simple_dec_open(&dec_cfg, &dec) != ESP_AUDIO_ERR_OK) {
+        ESP_LOGE(TAG, "Simple decoder open failed (type=%d)", (int)dec_type);
+        s_adf.pcm_task = NULL;
+        vTaskDelete(NULL);
+        return;
     }
 
-    free(buf);
-    s_adf.pcm_task = NULL;
+    uint8_t *in_buf = malloc(HTTP_CHUNK_BYTES);
+    uint32_t pcm_size = PCM_BUF_BYTES;
+    uint8_t *pcm_buf = malloc(pcm_size);
+    size_t pending_cap = PENDING_BUF_BYTES;
+    uint8_t *pending_buf = heap_caps_malloc(pending_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!pending_buf) {
+        pending_cap = PENDING_BUF_BYTES_FALLBACK;
+        pending_buf = malloc(pending_cap);
+    }
+    char *playlist_buf = malloc(PLAYLIST_BUF_BYTES);
+    char *media_playlist_url = malloc(512);
+    char last_segment_url[512] = {0};
+    char (*entry_buf)[256] = malloc(sizeof(char[8][256]));
+    if (!in_buf || !pcm_buf || !pending_buf || !playlist_buf || !media_playlist_url || !entry_buf) {
+        ESP_LOGE(TAG, "Stream task alloc failed");
+        free(in_buf);
+        free(pcm_buf);
+        free(pending_buf);
+        free(playlist_buf);
+        free(media_playlist_url);
+        free(entry_buf);
+        esp_audio_simple_dec_close(dec);
+        s_adf.pcm_task = NULL;
+        vTaskDelete(NULL);
+        return;
+    }
+
+    bool sample_info_logged = false;
+    s_adf.last_seq = -1;
+    strlcpy(media_playlist_url, s_current_url, 512);
+    ESP_LOGI(TAG, "Worker buffers: in=%u pcm=%u pending=%u internal_free=%u largest_internal=%u",
+             (unsigned)HTTP_CHUNK_BYTES,
+             (unsigned)pcm_size,
+             (unsigned)pending_cap,
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    ESP_LOGI(TAG, "Direct stream task started (type=%d): %.120s", (int)dec_type, media_playlist_url);
+
+    while (s_playing && s_use_adf && my_gen_id == s_adf.task_gen_id) {
+        if (dec_type != ESP_AUDIO_SIMPLE_DEC_TYPE_TS) {
+            /* Podcast and direct-file playback path (MP3/AAC): stream bytes directly. */
+            stream_segment_encoded(media_playlist_url, dec, in_buf, &pcm_buf, &pcm_size,
+                                   &sample_info_logged, pending_buf, pending_cap);
+            break;
+        }
+
+        if (!http_read_text(media_playlist_url, playlist_buf, PLAYLIST_BUF_BYTES)) {
+            ESP_LOGW(TAG, "Playlist fetch failed: %.120s", media_playlist_url);
+            vTaskDelay(pdMS_TO_TICKS(2000));
+            continue;
+        }
+
+        if (strstr(playlist_buf, "#EXT-X-STREAM-INF") != NULL) {
+            int n = parse_playlist_entries(playlist_buf, entry_buf, 8);
+            if (n > 0) {
+                char next_url[512];
+                make_absolute_url(media_playlist_url, entry_buf[0], next_url, sizeof(next_url));
+                ESP_LOGI(TAG, "Selected variant playlist: %.120s", next_url);
+                strlcpy(media_playlist_url, next_url, 512);
+            }
+            vTaskDelay(pdMS_TO_TICKS(200));
+            continue;
+        }
+
+        int seq = parse_media_sequence(playlist_buf);
+        int seg_count = parse_playlist_entries(playlist_buf, entry_buf, 8);
+        ESP_LOGI(TAG, "Playlist seq=%d entries=%d", seq, seg_count);
+        if (seg_count == 0) {
+            ESP_LOGW(TAG, "No playlist entries (seq=%d): %.120s", seq, playlist_buf);
+            vTaskDelay(pdMS_TO_TICKS(600));
+            continue;
+        }
+
+        /* Catch up through unseen segments to reduce playback gaps/stutter. */
+        int newest = seg_count - 1;
+        int start = newest;
+        if (last_segment_url[0] == '\0') {
+            /* First pass: prebuffer from one segment behind if available. */
+            start = newest - 1;
+            if (start < 0) {
+                start = 0;
+            }
+        } else {
+            int found = -1;
+            for (int i = 0; i < seg_count; i++) {
+                char candidate[512];
+                make_absolute_url(media_playlist_url, entry_buf[i], candidate, sizeof(candidate));
+                if (strcmp(candidate, last_segment_url) == 0) {
+                    found = i;
+                    break;
+                }
+            }
+            start = (found >= 0) ? (found + 1) : (newest - 1);
+            if (start < 0) {
+                start = 0;
+            }
+        }
+
+        for (int i = start; i <= newest && s_playing && s_use_adf && my_gen_id == s_adf.task_gen_id; i++) {
+            char seg_url[512];
+            make_absolute_url(media_playlist_url, entry_buf[i], seg_url, sizeof(seg_url));
+            if (strcmp(seg_url, last_segment_url) == 0) {
+                continue;
+            }
+            ESP_LOGI(TAG, "Fetching segment i=%d/%d url=%.96s", i, newest, seg_url);
+            stream_segment_encoded(seg_url, dec, in_buf, &pcm_buf, &pcm_size,
+                                   &sample_info_logged, pending_buf, pending_cap);
+            strlcpy(last_segment_url, seg_url, sizeof(last_segment_url));
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(250));
+    }
+
+    ESP_LOGW(TAG, "Cleaning up stream task resources (decoding=true, gen_id match=%d)", my_gen_id == s_adf.task_gen_id);
+    free(in_buf);
+    free(pcm_buf);
+    free(pending_buf);
+    free(playlist_buf);
+    free(media_playlist_url);
+    free(entry_buf);
+    ESP_LOGW(TAG, "Direct stream task exiting (playing=%d use_adf=%d gen_id=%"PRIu32")", s_playing, s_use_adf, my_gen_id);
+    vTaskDelay(pdMS_TO_TICKS(50));
+    if (my_gen_id == s_adf.task_gen_id) {
+        s_adf.pcm_task = NULL;
+    }
     vTaskDelete(NULL);
 }
 
 static void adf_stop_locked(void)
 {
-    if (s_adf.pipeline != NULL) {
-        audio_pipeline_stop(s_adf.pipeline);
-        audio_pipeline_wait_for_stop(s_adf.pipeline);
-        audio_pipeline_terminate(s_adf.pipeline);
-    }
-
     if (s_adf.pcm_task != NULL) {
-        vTaskDelete(s_adf.pcm_task);
-        s_adf.pcm_task = NULL;
+        ESP_LOGW(TAG, "Stopping stream task, waiting for decoder close...");
+        for (int i = 0; i < 80 && s_adf.pcm_task != NULL; ++i) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+        if (s_adf.pcm_task != NULL) {
+            ESP_LOGW(TAG, "Direct stream task did not exit in time, force deleting");
+            vTaskDelete(s_adf.pcm_task);
+            s_adf.pcm_task = NULL;
+        }
+        vTaskDelay(pdMS_TO_TICKS(200));
     }
-
-    if (s_adf.pipeline != NULL && s_adf.http != NULL) {
-        audio_pipeline_unregister(s_adf.pipeline, s_adf.http);
-    }
-    if (s_adf.pipeline != NULL && s_adf.decoder != NULL) {
-        audio_pipeline_unregister(s_adf.pipeline, s_adf.decoder);
-    }
-    if (s_adf.pipeline != NULL && s_adf.raw != NULL) {
-        audio_pipeline_unregister(s_adf.pipeline, s_adf.raw);
-    }
-
-    if (s_adf.pipeline != NULL) {
-        audio_pipeline_deinit(s_adf.pipeline);
-    }
-    if (s_adf.http != NULL) {
-        audio_element_deinit(s_adf.http);
-    }
-    if (s_adf.decoder != NULL) {
-        audio_element_deinit(s_adf.decoder);
-    }
-    if (s_adf.raw != NULL) {
-        audio_element_deinit(s_adf.raw);
-    }
-
-    memset(&s_adf, 0, sizeof(s_adf));
 }
 
 static esp_err_t adf_start_stream(const char *url, bool is_live)
 {
+    (void)is_live;
     adf_stop_locked();
+    vTaskDelay(pdMS_TO_TICKS(300));
+    s_adf.task_gen_id++;
+    ESP_LOGI(TAG, "Incremented gen_id to %"PRIu32, s_adf.task_gen_id);
 
-    audio_pipeline_cfg_t pipeline_cfg = DEFAULT_AUDIO_PIPELINE_CONFIG();
-    s_adf.pipeline = audio_pipeline_init(&pipeline_cfg);
-    if (s_adf.pipeline == NULL) {
-        ESP_LOGE(TAG, "ADF pipeline init failed");
-        return ESP_FAIL;
-    }
+    ESP_LOGI(TAG, "Starting direct stream worker: %.80s", url);
+    ESP_LOGI(TAG, "Free heap: %"PRIu32, esp_get_free_heap_size());
+    gpio_set_level(BSP_PA_CTRL, 1);   /* Ensure PA is enabled for real stream playback */
 
-    http_stream_cfg_t http_cfg = HTTP_STREAM_CFG_DEFAULT();
-    http_cfg.type = AUDIO_STREAM_READER;
-    http_cfg.event_handle = http_stream_evt;
-    http_cfg.enable_playlist_parser = true;
-    s_adf.http = http_stream_init(&http_cfg);
-
-    s_adf.use_aac = should_use_aac_decoder(url, is_live);
-    if (s_adf.use_aac) {
-        aac_decoder_cfg_t cfg = DEFAULT_AAC_DECODER_CONFIG();
-        s_adf.decoder = aac_decoder_init(&cfg);
-    } else {
-        mp3_decoder_cfg_t cfg = DEFAULT_MP3_DECODER_CONFIG();
-        s_adf.decoder = mp3_decoder_init(&cfg);
-    }
-
-    raw_stream_cfg_t raw_cfg = RAW_STREAM_CFG_DEFAULT();
-    raw_cfg.type = AUDIO_STREAM_WRITER;
-    s_adf.raw = raw_stream_init(&raw_cfg);
-
-    if (s_adf.http == NULL || s_adf.decoder == NULL || s_adf.raw == NULL) {
-        ESP_LOGE(TAG, "ADF element init failed");
-        adf_stop_locked();
-        return ESP_FAIL;
-    }
-
-    audio_pipeline_register(s_adf.pipeline, s_adf.http, "http");
-    audio_pipeline_register(s_adf.pipeline, s_adf.decoder, s_adf.use_aac ? "aac" : "mp3");
-    audio_pipeline_register(s_adf.pipeline, s_adf.raw, "raw");
-
-    const char *link_tag[3] = {"http", s_adf.use_aac ? "aac" : "mp3", "raw"};
-    if (audio_pipeline_link(s_adf.pipeline, &link_tag[0], 3) != ESP_OK) {
-        ESP_LOGE(TAG, "ADF pipeline link failed");
-        adf_stop_locked();
-        return ESP_FAIL;
-    }
-
-    audio_element_set_uri(s_adf.http, url);
-    if (audio_pipeline_run(s_adf.pipeline) != ESP_OK) {
-        ESP_LOGE(TAG, "ADF pipeline run failed");
-        adf_stop_locked();
-        return ESP_FAIL;
-    }
-
-    BaseType_t rc = xTaskCreatePinnedToCore(adf_pcm_task, "adf_pcm", 6144, NULL, 5, &s_adf.pcm_task, 1);
+    /* Mark stream mode active before creating worker so it doesn't exit early. */
+    s_use_adf = true;
+    BaseType_t rc = xTaskCreatePinnedToCore(adf_pcm_task, "stream_worker", 10240,
+                                            NULL, 5, &s_adf.pcm_task, 1);
     if (rc != pdPASS) {
-        ESP_LOGE(TAG, "ADF PCM task create failed");
-        adf_stop_locked();
+        uint32_t free_heap = esp_get_free_heap_size();
+        uint32_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+        s_use_adf = false;
+        ESP_LOGE(TAG, "Direct stream worker task create failed (free=%"PRIu32" largest=%"PRIu32")",
+                 free_heap, largest);
         return ESP_FAIL;
     }
-
-    ESP_LOGI(TAG, "ADF stream started (%s)", s_adf.use_aac ? "AAC/HLS" : "MP3");
     return ESP_OK;
 }
 #endif
@@ -271,71 +739,21 @@ static void hardware_tone_task(void *arg)
 
 static void stub_buzzer_init(void)
 {
-    ledc_timer_config_t timer_cfg = {
-        .speed_mode = LEDC_LOW_SPEED_MODE,
-        .duty_resolution = LEDC_TIMER_10_BIT,
-        .timer_num = LEDC_TIMER_1,
-        .freq_hz = 440,
-        .clk_cfg = LEDC_AUTO_CLK,
-    };
-    esp_err_t err = ledc_timer_config(&timer_cfg);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Buzzer timer init failed: %s", esp_err_to_name(err));
-        return;
-    }
-
-    ledc_channel_config_t ch_cfg = {
-        .gpio_num = AUDIO_STUB_BUZZER_GPIO,
-        .speed_mode = LEDC_LOW_SPEED_MODE,
-        .channel = LEDC_CHANNEL_1,
-        .intr_type = LEDC_INTR_DISABLE,
-        .timer_sel = LEDC_TIMER_1,
-        .duty = 0,
-        .hpoint = 0,
-    };
-    err = ledc_channel_config(&ch_cfg);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Buzzer channel init failed: %s", esp_err_to_name(err));
-        return;
-    }
-    s_buzzer_ready = true;
-    ESP_LOGI(TAG, "Buzzer ready on GPIO%d", AUDIO_STUB_BUZZER_GPIO);
+    /* Waveshare ESP32-S3-Touch-LCD-1.54 has no discrete buzzer GPIO.
+     * Fallback tones on real hardware are routed through ES8311 + PA + speaker.
+     */
+    ESP_LOGI(TAG, "GPIO buzzer disabled for this board; using speaker tone fallback");
 }
 
 static void stub_buzzer_set(bool on, bool is_live)
 {
-    if (!s_buzzer_ready) {
-        return;
-    }
-    uint32_t freq = s_hw_tone_freq ? s_hw_tone_freq : audio_tone_frequency(s_current_url, is_live);
-    ESP_LOGI(TAG, "Buzzer: %s freq=%luHz", on ? "ON" : "OFF", (unsigned long)freq);
-    if (on) {
-        ledc_set_freq(LEDC_LOW_SPEED_MODE, LEDC_TIMER_1, freq);
-    }
-    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, on ? 768 : 0);
-    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1);
+    (void)on;
+    (void)is_live;
 }
 
 static void stub_buzzer_self_test(void)
 {
-    if (!s_buzzer_ready) {
-        return;
-    }
-
-    ESP_LOGI(TAG, "Buzzer self-test start");
-    ledc_set_freq(LEDC_LOW_SPEED_MODE, LEDC_TIMER_1, 880);
-    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, 768);
-    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1);
-    vTaskDelay(pdMS_TO_TICKS(120));
-
-    ledc_set_freq(LEDC_LOW_SPEED_MODE, LEDC_TIMER_1, 1319);
-    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, 768);
-    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1);
-    vTaskDelay(pdMS_TO_TICKS(120));
-
-    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, 0);
-    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1);
-    ESP_LOGI(TAG, "Buzzer self-test end");
+    /* No GPIO buzzer self-test on this hardware. */
 }
 
 static void hardware_audio_self_test(void)
@@ -345,8 +763,16 @@ static void hardware_audio_self_test(void)
     }
 
     ESP_LOGI(TAG, "Hardware audio self-test start");
+    bsp_codec_set_volume(35);
+    vTaskDelay(pdMS_TO_TICKS(80));
+
+    /* Brief boot tone at low volume to confirm audio path is alive. */
+    gpio_set_level(BSP_PA_CTRL, 1);   /* PA active-HIGH: enable */
     hardware_tone_write(880, 120);
-    hardware_tone_write(1319, 120);
+    vTaskDelay(pdMS_TO_TICKS(40));
+    hardware_tone_write(1108, 80);
+
+    bsp_codec_set_volume(70);
     ESP_LOGI(TAG, "Hardware audio self-test end");
 }
 
@@ -359,8 +785,7 @@ esp_err_t bbc_audio_init(void)
         xTaskCreatePinnedToCore(hardware_tone_task, "audio_tone", 4096, NULL, 4, &s_hw_tone_task, 1);
     }
     bsp_codec_set_volume(70);
-    ESP_LOGI(TAG, "Audio pipeline ready (Wokwi buzzer on GPIO%d, hardware codec %s, ADF %s)",
-             AUDIO_STUB_BUZZER_GPIO,
+    ESP_LOGI(TAG, "Audio pipeline ready (speaker fallback, hardware codec %s, ADF %s)",
              bsp_codec_is_ready() ? "enabled" : "unavailable",
 #if BBC_HAS_ADF
              "enabled");
@@ -375,23 +800,33 @@ esp_err_t bbc_audio_play_url(const char *url, bool is_live)
     strncpy(s_current_url, url, sizeof(s_current_url) - 1);
     s_current_url[sizeof(s_current_url) - 1] = '\0';
 
+    /* Set requested playback state before ADF task starts.
+     * adf_pcm_task checks s_playing in its run loop.
+     */
+    s_playing = true;
+    s_is_live = is_live;
+    s_hw_tone_freq = audio_tone_frequency(url, is_live);
+
     s_use_adf = false;
 #if BBC_HAS_ADF
     if (bsp_codec_is_ready()) {
         if (adf_start_stream(url, is_live) == ESP_OK) {
-            s_use_adf = true;
+            ESP_LOGI(TAG, "Using real stream audio output");
         } else {
-            ESP_LOGW(TAG, "ADF stream start failed, falling back to tone playback");
+            s_use_adf = false;
+            ESP_LOGW(TAG, "ADF stream start failed");
+            if (is_live) {
+                return ESP_FAIL;
+            }
+            ESP_LOGW(TAG, "Falling back to tone playback for non-live content");
         }
     }
 #endif
 
-    s_playing = true;
-    s_is_live = is_live;
-    s_hw_tone_freq = audio_tone_frequency(url, is_live);
     ESP_LOGI(TAG, "Playing %s: %.80s...", is_live ? "live stream" : "episode", url);
 
     if (!s_use_adf) {
+        gpio_set_level(BSP_PA_CTRL, 1);   /* PA active-HIGH: enable for tone playback */
         stub_buzzer_set(true, is_live);
         if (s_hw_tone_task != NULL) {
             xTaskNotifyGive(s_hw_tone_task);
@@ -403,23 +838,23 @@ esp_err_t bbc_audio_play_url(const char *url, bool is_live)
 
 esp_err_t bbc_audio_stop(void)
 {
-    s_playing = false;
     ESP_LOGI(TAG, "Stopped");
 
 #if BBC_HAS_ADF
     if (s_use_adf) {
+        s_use_adf = false;
+        vTaskDelay(pdMS_TO_TICKS(50));
+        s_playing = false;
         adf_stop_locked();
+        return ESP_OK;
     }
 #endif
 
-    if (!s_use_adf) {
-        stub_buzzer_set(false, s_is_live);
-        if (s_hw_tone_task != NULL) {
-            xTaskNotifyGive(s_hw_tone_task);
-        }
+    s_playing = false;
+    stub_buzzer_set(false, s_is_live);
+    if (s_hw_tone_task != NULL) {
+        xTaskNotifyGive(s_hw_tone_task);
     }
-
-    s_use_adf = false;
     return ESP_OK;
 }
 
@@ -428,13 +863,17 @@ esp_err_t bbc_audio_toggle(void)
     if (s_is_live) return ESP_OK;  /* live streams cannot be paused */
 
 #if BBC_HAS_ADF
-    if (s_use_adf && s_adf.pipeline != NULL) {
+    if (s_use_adf) {
         if (s_playing) {
-            audio_pipeline_pause(s_adf.pipeline);
+            s_playing = false;
+            adf_stop_locked();
         } else {
-            audio_pipeline_resume(s_adf.pipeline);
+            s_playing = true;
+            s_use_adf = true;
+            if (adf_start_stream(s_current_url, false) != ESP_OK) {
+                s_use_adf = false;
+            }
         }
-        s_playing = !s_playing;
         ESP_LOGI(TAG, "%s", s_playing ? "Resumed" : "Paused");
         return ESP_OK;
     }

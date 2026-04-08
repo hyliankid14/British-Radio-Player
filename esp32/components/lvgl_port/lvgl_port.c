@@ -26,7 +26,7 @@ esp_err_t bsp_lvgl_port_init(esp_lcd_panel_handle_t    panel_handle,
         .monochrome    = false,
         .rotation = {
             .swap_xy  = false,
-            .mirror_x = true,
+            .mirror_x = false,
             .mirror_y = false,
         },
         .flags = {

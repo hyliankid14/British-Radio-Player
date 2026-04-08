@@ -2,13 +2,15 @@
 
 #include "lvgl.h"
 
+#define UI_HEADER_HEIGHT 52
+
 /**
  * Initialise the UI manager.  Must be called inside lvgl_port_lock().
- * Registers the three hardware buttons for focus-based navigation so
- * Wokwi (and real hardware without touch) can navigate the UI:
- *   PLUS  short-press → move focus to next clickable widget
- *   PWR   short-press → back
- *   BOOT  short-press → activate focused widget
+ * Registers the three hardware buttons:
+ *   +/KEY short-press   → volume up
+ *   BOOT/- short-press  → volume down
+ *   PWR short-press     → sleep display
+ *   PWR hold            → power off (with message)
  */
 void ui_manager_init(void);
 

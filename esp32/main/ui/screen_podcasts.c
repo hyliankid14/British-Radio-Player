@@ -223,13 +223,15 @@ static lv_obj_t *create_category_screen(pod_category_t category)
     ui_create_header(scr, category_title(category), true);
 
     lv_obj_t *list = lv_list_create(scr);
-    lv_obj_set_size(list, 240, 204);
-    lv_obj_align(list, LV_ALIGN_TOP_LEFT, 0, 36);
+    lv_obj_set_size(list, 240, 240 - UI_HEADER_HEIGHT);
+    lv_obj_align(list, LV_ALIGN_TOP_MID, 0, UI_HEADER_HEIGHT);
     lv_obj_set_style_bg_color(list, UI_COLOR_DARK_BG, LV_PART_MAIN);
     lv_obj_set_style_border_width(list, 0, LV_PART_MAIN);
     lv_obj_set_style_radius(list, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(list, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_row(list, 2, LV_PART_MAIN);
+    /* Disable horizontal scrolling/panning */
+    lv_obj_set_scroll_dir(list, LV_DIR_VER);
 
     lv_obj_t *spinner = lv_spinner_create(scr, 1000, 60);
     lv_obj_set_size(spinner, 50, 50);
@@ -269,13 +271,15 @@ lv_obj_t *screen_podcasts_create(void)
     ui_create_header(scr, "Podcasts", true);
 
     lv_obj_t *list = lv_list_create(scr);
-    lv_obj_set_size(list, 240, 204);
-    lv_obj_align(list, LV_ALIGN_TOP_LEFT, 0, 36);
+    lv_obj_set_size(list, 240, 240 - UI_HEADER_HEIGHT);
+    lv_obj_align(list, LV_ALIGN_TOP_LEFT, 0, UI_HEADER_HEIGHT);
     lv_obj_set_style_bg_color(list, UI_COLOR_DARK_BG, LV_PART_MAIN);
     lv_obj_set_style_border_width(list, 0, LV_PART_MAIN);
     lv_obj_set_style_radius(list, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(list, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_row(list, 2, LV_PART_MAIN);
+    /* Disable horizontal scrolling/panning */
+    lv_obj_set_scroll_dir(list, LV_DIR_VER);
 
     add_category_btn(list, LV_SYMBOL_LIST, "Popular", POD_CAT_POPULAR);
     add_category_btn(list, LV_SYMBOL_OK, "Subscribed", POD_CAT_SUBSCRIBED);
