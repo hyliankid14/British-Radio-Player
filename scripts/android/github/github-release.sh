@@ -42,6 +42,41 @@ write_prop() {
     sed -i '' "s/^${key}=.*/${key}=${value}/" "$PROPS_FILE"
 }
 
+resolve_tag_commit() {
+    local tag="$1"
+    git rev-list -n 1 "$tag"
+}
+
+resolve_remote_tag_commit() {
+    local tag="$1"
+    local remote_commit
+
+    remote_commit="$(git ls-remote --tags origin "refs/tags/${tag}^{}" | awk '{print $1}' | head -1)"
+    if [[ -z "$remote_commit" ]]; then
+        remote_commit="$(git ls-remote --tags origin "refs/tags/${tag}" | awk '{print $1}' | head -1)"
+    fi
+
+    echo "$remote_commit"
+}
+
+ensure_new_release_tag_available() {
+    local tag="$1"
+
+    if git rev-parse "$tag" >/dev/null 2>&1; then
+        echo "Error: ${tag} already exists at $(resolve_tag_commit "$tag")."
+        echo "Choose a new APP_VERSION_NAME before creating a new release commit."
+        exit 1
+    fi
+
+    local remote_tag_commit
+    remote_tag_commit="$(resolve_remote_tag_commit "$tag")"
+    if [[ -n "$remote_tag_commit" ]]; then
+        echo "Error: remote tag ${tag} already exists at ${remote_tag_commit}."
+        echo "Choose a new APP_VERSION_NAME before creating a new release commit."
+        exit 1
+    fi
+}
+
 require_cmd gh
 require_cmd git
 
@@ -73,6 +108,12 @@ NEW_VERSION_NAME="${INPUT_NAME:-$VERSION_NAME}"
 read -rp "New build code   [${NEXT_CODE}]: " INPUT_CODE
 NEW_VERSION_CODE="${INPUT_CODE:-$NEXT_CODE}"
 
+TAG="v${NEW_VERSION_NAME}"
+
+if [[ "$NEW_VERSION_NAME" != "$VERSION_NAME" || "$NEW_VERSION_CODE" != "$VERSION_CODE" ]]; then
+    ensure_new_release_tag_available "$TAG"
+fi
+
 if [[ "$NEW_VERSION_NAME" != "$VERSION_NAME" || "$NEW_VERSION_CODE" != "$VERSION_CODE" ]]; then
     write_prop APP_VERSION_NAME "$NEW_VERSION_NAME"
     write_prop APP_VERSION_CODE "$NEW_VERSION_CODE"
@@ -90,13 +131,12 @@ WEAR_VERSION_CODE=$(( VERSION_CODE * 10 + 1 ))
 echo ""
 # ─────────────────────────────────────────────────────────────────────────────
 
-TAG="v${VERSION_NAME}"
 RELEASE_COMMIT="$(git rev-parse HEAD)"
 
 echo "Release commit: ${RELEASE_COMMIT}"
 
 if git rev-parse "$TAG" >/dev/null 2>&1; then
-    TAG_COMMIT="$(git rev-list -n 1 "$TAG")"
+    TAG_COMMIT="$(resolve_tag_commit "$TAG")"
     if [[ "$TAG_COMMIT" != "$RELEASE_COMMIT" ]]; then
         echo "Error: ${TAG} already exists at ${TAG_COMMIT}, but current HEAD is ${RELEASE_COMMIT}."
         echo "Refusing to publish with a stale tag."
@@ -106,10 +146,7 @@ if git rev-parse "$TAG" >/dev/null 2>&1; then
 fi
 
 if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
-    REMOTE_TAG_COMMIT="$(git ls-remote --tags origin "refs/tags/${TAG}^{}" | awk '{print $1}' | head -1)"
-    if [[ -z "$REMOTE_TAG_COMMIT" ]]; then
-        REMOTE_TAG_COMMIT="$(git ls-remote --tags origin "refs/tags/${TAG}" | awk '{print $1}' | head -1)"
-    fi
+    REMOTE_TAG_COMMIT="$(resolve_remote_tag_commit "$TAG")"
     if [[ -n "$REMOTE_TAG_COMMIT" && "$REMOTE_TAG_COMMIT" != "$RELEASE_COMMIT" ]]; then
         echo "Error: remote tag ${TAG} points to ${REMOTE_TAG_COMMIT}, but current HEAD is ${RELEASE_COMMIT}."
         echo "Refusing to update release for a different commit."
