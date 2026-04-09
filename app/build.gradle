@@ -193,7 +193,7 @@ dependencies {
     implementation 'androidx.work:work-runtime-ktx:2.8.1'
 
     // Google ML Kit on-device language identification (used for podcast language filtering)
-    implementation 'com.google.mlkit:language-id:17.0.5'
+    implementation 'com.google.mlkit:language-id:17.0.6'
     implementation 'com.google.android.gms:play-services-wearable:18.2.0'
 
     // (Room temporarily disabled due to Gradle/Kapt compatibility; will re-enable after resolving plugin issue)

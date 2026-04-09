@@ -6,6 +6,62 @@ PROJECT_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || (c
 
 cd "$PROJECT_ROOT"
 
+OBJDUMP_BIN="$(command -v objdump || true)"
+
+verify_16kb_page_support_in_aab() {
+    local aab_file="$1"
+    local label="$2"
+
+    if [ -z "$OBJDUMP_BIN" ]; then
+        echo "⚠️  Warning: objdump not found; skipping 16 KB native page-size verification for ${label}."
+        return
+    fi
+
+    local tmp_dir
+    tmp_dir="$(mktemp -d)"
+    trap 'rm -rf "$tmp_dir"' RETURN
+
+    unzip -oq "$aab_file" "base/lib/arm64-v8a/*.so" -d "$tmp_dir" >/dev/null 2>&1 || true
+
+    if ! find "$tmp_dir/base/lib/arm64-v8a" -type f -name "*.so" 2>/dev/null | grep -q .; then
+        echo "ℹ️  No arm64 native libraries found in ${label}; skipping 16 KB check."
+        return
+    fi
+
+    local failed=0
+    while IFS= read -r so_file; do
+        local load_lines
+        load_lines="$($OBJDUMP_BIN -x "$so_file" | awk '/^[[:space:]]*LOAD /')"
+        if [ -z "$load_lines" ]; then
+            echo "❌ Error: Unable to parse LOAD segments for ${so_file}"
+            failed=1
+            continue
+        fi
+
+        while IFS= read -r load_line; do
+            [ -z "$load_line" ] && continue
+            local align_pow
+            align_pow="$(echo "$load_line" | sed -nE 's/.*align 2\*\*([0-9]+).*/\1/p')"
+            if [ -z "$align_pow" ]; then
+                echo "❌ Error: Missing align value in ${so_file}: $load_line"
+                failed=1
+                continue
+            fi
+            if [ "$align_pow" -lt 14 ]; then
+                echo "❌ Error: ${so_file} has LOAD align 2**${align_pow} (< 2**14)."
+                failed=1
+            fi
+        done <<< "$load_lines"
+    done < <(find "$tmp_dir/base/lib/arm64-v8a" -type f -name "*.so" | sort)
+
+    if [ "$failed" -ne 0 ]; then
+        echo "❌ ${label} failed 16 KB native page-size validation."
+        exit 1
+    fi
+
+    echo "✅ ${label} passed 16 KB native page-size validation (arm64 LOAD align >= 2**14)."
+}
+
 VERSION_NAME=$(grep -E '^APP_VERSION_NAME=' gradle.properties | cut -d'=' -f2-)
 VERSION_CODE=$(grep -E '^APP_VERSION_CODE=' gradle.properties | cut -d'=' -f2-)
 PHONE_VERSION_NAME="$VERSION_NAME"
@@ -105,6 +161,9 @@ if [ -z "$WEAR_AAB_FILE" ]; then
     echo "❌ Build failed: No Wear AAB found in wear/build/outputs/bundle/release/"
     exit 1
 fi
+
+verify_16kb_page_support_in_aab "$AAB_FILE" "Phone AAB"
+verify_16kb_page_support_in_aab "$WEAR_AAB_FILE" "Wear AAB"
 
 # Always generate a Play-compatible symbols archive from merged native libs.
 # Play Console expects ABI folders at zip root (arm64-v8a/, x86_64/, ...), not lib/.
