@@ -278,29 +278,32 @@
                 android:clipToPadding="false"
                 android:background="?attr/colorSurface"
                 app:layout_behavior="@string/appbar_scrolling_view_behavior" />
+
+            <!-- Loading Indicator (overlays content area, below tabs) -->
+            <ProgressBar
+                android:id="@+id/loading_progress"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:visibility="gone"
+                app:layout_behavior="@string/appbar_scrolling_view_behavior" />
+
+            <!-- Empty State (overlays content area, below tabs) -->
+            <TextView
+                android:id="@+id/empty_state_text"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:text="No podcasts found"
+                android:gravity="center"
+                android:paddingHorizontal="32dp"
+                android:lineSpacingExtra="4dp"
+                android:textSize="16sp"
+                android:textColor="?attr/colorOnSurface"
+                android:background="?attr/colorSurfaceContainer"
+                android:visibility="gone"
+                app:layout_behavior="@string/appbar_scrolling_view_behavior" />
+
     </androidx.coordinatorlayout.widget.CoordinatorLayout>
-
-    <!-- Loading Indicator (overlays center) -->
-    <ProgressBar
-        android:id="@+id/loading_progress"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center"
-        android:visibility="gone" />
-
-    <!-- Empty State (overlays center) -->
-    <TextView
-        android:id="@+id/empty_state_text"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:text="No podcasts found"
-        android:gravity="center"
-        android:paddingHorizontal="32dp"
-        android:lineSpacingExtra="4dp"
-        android:textSize="16sp"
-        android:textColor="?attr/colorOnSurface"
-        android:background="?attr/colorSurfaceContainer"
-        android:visibility="gone" />
 
     <LinearLayout
         android:id="@+id/search_results_loading_container"

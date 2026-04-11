@@ -692,8 +692,10 @@ class PodcastRepository(private val context: Context) {
                             firstSeenEpochs = trimmedFromCloud
                         )
                     )
-                    return@withContext trimmedFromCloud
                 }
+                // The cloud snapshot is the authoritative source for new podcasts — return
+                // immediately rather than falling through to the expensive full-index download.
+                return@withContext trimmedFromCloud
             }
         } catch (e: Exception) {
             Log.w("PodcastRepository", "Failed to fetch cloud New Podcasts snapshot", e)
