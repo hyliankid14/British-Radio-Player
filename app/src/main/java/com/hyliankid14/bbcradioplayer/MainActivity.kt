@@ -3168,17 +3168,19 @@ class MainActivity : AppCompatActivity() {
             miniPlayerTitle.text = station.title
             
             // Display compact subtitle as: "Show name - Show description" (or fallback).
+            val isBuffering = PlaybackStateHelper.getIsBuffering()
             val showName = show.title.ifEmpty { station.title }
             val hasSongData = !show.secondary.isNullOrEmpty() || !show.tertiary.isNullOrEmpty()
             val showDesc = PlaybackStateHelper.getCurrentShow().episodeTitle?.takeIf { it.isNotEmpty() }
                 ?: show.secondary?.takeIf { it.isNotEmpty() }
                 ?: show.getFormattedTitle().takeIf { it.isNotEmpty() }
                 ?: ""
-            val newTitle = when {
+            val resolvedTitle = when {
                 hasSongData -> show.getFormattedTitle() // Artist - Track only
                 showName.isNotEmpty() && showDesc.isNotEmpty() && showDesc != showName -> "$showName - $showDesc"
                 else -> showDesc.ifEmpty { showName }
             }
+            val newTitle = if (isBuffering) getString(R.string.loading_stream) else resolvedTitle
             if (miniPlayerSubtitle.text.toString() != newTitle) {
                 miniPlayerSubtitle.text = newTitle
                 miniPlayerSubtitle.isSelected = true // Trigger marquee/scroll
@@ -3299,7 +3301,8 @@ class MainActivity : AppCompatActivity() {
             ?: show.secondary?.takeIf { it.isNotEmpty() }
             ?: show.getFormattedTitle().takeIf { it.isNotEmpty() }
             ?: ""
-        val newTitle = if (showName.isNotEmpty() && showDesc.isNotEmpty() && showDesc != showName) "$showName - $showDesc" else (showDesc.ifEmpty { showName })
+        val resolvedTitle = if (showName.isNotEmpty() && showDesc.isNotEmpty() && showDesc != showName) "$showName - $showDesc" else (showDesc.ifEmpty { showName })
+        val newTitle = if (PlaybackStateHelper.getIsBuffering()) getString(R.string.loading_stream) else resolvedTitle
         if (miniPlayerSubtitle.text.toString() != newTitle) {
             miniPlayerSubtitle.text = newTitle
             miniPlayerSubtitle.isSelected = true

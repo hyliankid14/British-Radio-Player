@@ -1540,8 +1540,15 @@ class RadioService : MediaBrowserServiceCompat() {
                         
                         // Update helper for mini player
                         when (state) {
-                            PlaybackStateCompat.STATE_PLAYING -> PlaybackStateHelper.setIsPlaying(true)
-                            PlaybackStateCompat.STATE_PAUSED, PlaybackStateCompat.STATE_STOPPED -> PlaybackStateHelper.setIsPlaying(false)
+                            PlaybackStateCompat.STATE_PLAYING -> {
+                                PlaybackStateHelper.setIsPlaying(true)
+                                PlaybackStateHelper.setIsBuffering(false)
+                            }
+                            PlaybackStateCompat.STATE_BUFFERING -> PlaybackStateHelper.setIsBuffering(true)
+                            PlaybackStateCompat.STATE_PAUSED, PlaybackStateCompat.STATE_STOPPED -> {
+                                PlaybackStateHelper.setIsPlaying(false)
+                                PlaybackStateHelper.setIsBuffering(false)
+                            }
                             else -> {}
                         }
 

@@ -6,6 +6,7 @@ package com.hyliankid14.bbcradioplayer
 object PlaybackStateHelper {
     private var currentStation: Station? = null
     private var isPlaying: Boolean = false
+    private var isBuffering: Boolean = false
     private var currentShow: CurrentShow = CurrentShow("BBC Radio")
     private var currentEpisodeId: String? = null
     // Track the actual media/playback URI that the player is currently using (helps saved-episode resolution)
@@ -50,6 +51,12 @@ object PlaybackStateHelper {
     }
     
     fun getIsPlaying(): Boolean = isPlaying
+
+    fun setIsBuffering(buffering: Boolean) {
+        isBuffering = buffering
+    }
+
+    fun getIsBuffering(): Boolean = isBuffering
     
     fun setCurrentShow(show: CurrentShow) {
         android.util.Log.d("PlaybackStateHelper", "setCurrentShow called: title='${show.title}', listeners count=${showChangeListeners.size}")
