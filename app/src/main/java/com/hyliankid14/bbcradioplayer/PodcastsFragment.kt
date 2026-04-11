@@ -127,6 +127,7 @@ class PodcastsFragment : Fragment() {
         if (container != null && messageView != null) {
             messageView.text = message
             container.visibility = View.VISIBLE
+            container.findViewById<ProgressBar>(R.id.loading_horizontal_progress)?.progress = 0
             emptyState.visibility = View.GONE
         } else {
             loadingIndicator.visibility = View.VISIBLE
@@ -148,6 +149,11 @@ class PodcastsFragment : Fragment() {
         if (emptyState.text.toString() in ACTIVE_LOADING_MESSAGES) {
             emptyState.visibility = View.GONE
         }
+    }
+
+    private fun updateLoadingProgress(percent: Int) {
+        if (!isAdded) return
+        view?.findViewById<ProgressBar>(R.id.loading_horizontal_progress)?.progress = percent
     }
 
     private fun showLoadingMoreSearchResultsIndicator() {
@@ -1135,6 +1141,7 @@ class PodcastsFragment : Fragment() {
                         )
 
                         if (isAdded && allPodcasts.isNotEmpty() && normalizeSortValue(currentSort) == SORT_MOST_POPULAR) {
+                            updateLoadingProgress(PROGRESS_POPULAR_INITIAL_FETCHED)
                             applyFilters(emptyState, recyclerView)
                         }
 
@@ -1160,6 +1167,7 @@ class PodcastsFragment : Fragment() {
                                     "Updated popularity ranks from network: ids=${freshRanks.idRanks.size}, titles=${freshRanks.titleRanks.size}"
                                 )
                                 if (isAdded && allPodcasts.isNotEmpty() && normalizeSortValue(currentSort) == SORT_MOST_POPULAR) {
+                                    updateLoadingProgress(PROGRESS_POPULAR_REFRESH_FETCHED)
                                     applyFilters(emptyState, recyclerView)
                                 }
                             }
@@ -1184,6 +1192,8 @@ class PodcastsFragment : Fragment() {
                         knownNewlyAdded
                     )
                 }
+
+                updateLoadingProgress(PROGRESS_LOAD_CACHE_CHECKED)
 
                 if (immediate.isNotEmpty()) {
                     android.util.Log.d("PodcastsFragment", "Showing ${immediate.size} local podcasts immediately (needsRefresh=$needsRefresh)")
@@ -1210,6 +1220,7 @@ class PodcastsFragment : Fragment() {
                     // forceRefresh=false: use the network only when the TTL has expired
                     val fresh = withContext(Dispatchers.IO) { repository.fetchPodcasts(forceRefresh = false) }
                     android.util.Log.d("PodcastsFragment", "Network refresh: loaded ${fresh.size} podcasts")
+                    updateLoadingProgress(PROGRESS_LOAD_NETWORK_FETCHED)
 
                     if (fresh.isEmpty()) {
                         if (allPodcasts.isEmpty()) {
@@ -1545,9 +1556,11 @@ class PodcastsFragment : Fragment() {
                         }
                         .ifEmpty { repository.getAvailableEarliestUpdatesNow(allPodcasts) }
                 }
+                updateLoadingProgress(PROGRESS_NEW_BOUNDS_FETCHED)
                 val resolvedNewlyAdded = withContext(Dispatchers.IO) {
                     repository.fetchNewlyAddedPodcastEpochs(allPodcasts)
                 }
+                updateLoadingProgress(PROGRESS_NEW_EPOCHS_FETCHED)
 
                 var finalEarliest = resolvedEarliest
                 var finalNewlyAdded = resolvedNewlyAdded
@@ -1566,9 +1579,11 @@ class PodcastsFragment : Fragment() {
                             }
                             .ifEmpty { repository.getAvailableEarliestUpdatesNow(allPodcasts) }
                     }
+                    updateLoadingProgress(PROGRESS_NEW_RETRY_BOUNDS_FETCHED)
                     finalNewlyAdded = withContext(Dispatchers.IO) {
                         repository.fetchNewlyAddedPodcastEpochs(allPodcasts, forceRefresh = true)
                     }
+                    updateLoadingProgress(PROGRESS_NEW_RETRY_COMPLETE)
                 }
 
                 cachedEarliestUpdates = finalEarliest
@@ -3110,6 +3125,15 @@ class PodcastsFragment : Fragment() {
         private const val LOADING_PODCASTS_MESSAGE = "Loading podcasts...\nChecking saved data and syncing with the BBC catalogue."
         private const val LOADING_POPULAR_PODCASTS_MESSAGE = "Loading Most popular...\nFetching the latest rankings from the cloud index."
         private const val LOADING_NEW_PODCASTS_MESSAGE = "Loading New Podcasts...\nFetching the latest additions from the cloud index."
+        // Progress milestones for the horizontal progress bar (0–100)
+        private const val PROGRESS_LOAD_CACHE_CHECKED = 33
+        private const val PROGRESS_LOAD_NETWORK_FETCHED = 66
+        private const val PROGRESS_POPULAR_INITIAL_FETCHED = 50
+        private const val PROGRESS_POPULAR_REFRESH_FETCHED = 100
+        private const val PROGRESS_NEW_BOUNDS_FETCHED = 40
+        private const val PROGRESS_NEW_EPOCHS_FETCHED = 70
+        private const val PROGRESS_NEW_RETRY_BOUNDS_FETCHED = 85
+        private const val PROGRESS_NEW_RETRY_COMPLETE = 100
         private const val SORT_MOST_POPULAR = "Most popular"
         private const val SORT_MOST_RECENT_EPISODES = "Newest to oldest"
         private const val SORT_MOST_RECENT_EPISODES_LEGACY = "Most recent"
