@@ -122,16 +122,29 @@ class PodcastsFragment : Fragment() {
         emptyState: TextView,
         message: String
     ) {
-        loadingIndicator.visibility = View.VISIBLE
-        emptyState.text = message
-        emptyState.visibility = View.VISIBLE
+        val container = loadingIndicator.parent as? ViewGroup
+        val messageView = container?.findViewById<TextView>(R.id.loading_message_text)
+        if (container != null && messageView != null) {
+            messageView.text = message
+            container.visibility = View.VISIBLE
+            emptyState.visibility = View.GONE
+        } else {
+            loadingIndicator.visibility = View.VISIBLE
+            emptyState.text = message
+            emptyState.visibility = View.VISIBLE
+        }
     }
 
     private fun hideLoadingFeedback(
         loadingIndicator: ProgressBar,
         emptyState: TextView
     ) {
-        loadingIndicator.visibility = View.GONE
+        val container = loadingIndicator.parent as? ViewGroup
+        if (container != null) {
+            container.visibility = View.GONE
+        } else {
+            loadingIndicator.visibility = View.GONE
+        }
         if (emptyState.text.toString() in ACTIVE_LOADING_MESSAGES) {
             emptyState.visibility = View.GONE
         }
