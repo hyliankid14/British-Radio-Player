@@ -67,7 +67,14 @@ VERSION_CODE=$(grep -E '^APP_VERSION_CODE=' gradle.properties | cut -d'=' -f2-)
 PHONE_VERSION_NAME="$VERSION_NAME"
 PHONE_VERSION_CODE="$VERSION_CODE"
 WEAR_VERSION_NAME="$VERSION_NAME"
-WEAR_VERSION_CODE=$(( VERSION_CODE * 10 + 1 ))
+DEFAULT_WEAR_VERSION_CODE=$(( VERSION_CODE * 10 + 1 ))
+WEAR_VERSION_CODE="${WEAR_VERSION_CODE_OVERRIDE:-$DEFAULT_WEAR_VERSION_CODE}"
+
+if ! [[ "$WEAR_VERSION_CODE" =~ ^[0-9]+$ ]]; then
+    echo "❌ Error: Wear version code must be numeric. Received '$WEAR_VERSION_CODE'."
+    echo "   Set WEAR_VERSION_CODE_OVERRIDE to a valid integer, for example: WEAR_VERSION_CODE_OVERRIDE=612"
+    exit 1
+fi
 
 # -------------------------------------------------------
 # Check signing config

@@ -15,7 +15,10 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.text.HtmlCompat
+import androidx.core.view.MenuHost
+import androidx.core.view.MenuProvider
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.Lifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
@@ -44,11 +47,6 @@ class PodcastDetailFragment : Fragment() {
                 episodesAdapter?.refreshPlayedState()
             }
         }
-    }
-
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        setHasOptionsMenu(true)
     }
 
     override fun onCreateView(
@@ -237,6 +235,32 @@ class PodcastDetailFragment : Fragment() {
                 if (scrollY > showThresholdPx) fab.show() else fab.hide()
             }
         }
+        (requireActivity() as MenuHost).addMenuProvider(object : MenuProvider {
+            override fun onCreateMenu(menu: Menu, menuInflater: MenuInflater) {
+                menuInflater.inflate(R.menu.podcast_detail_menu, menu)
+            }
+            override fun onPrepareMenu(menu: Menu) {
+                menu.findItem(R.id.action_toggle_episode_sort)?.title = getEpisodeSortMenuTitle()
+                menu.findItem(R.id.action_hide_played_episodes)?.isChecked = hidePlayedEpisodes
+            }
+            override fun onMenuItemSelected(menuItem: MenuItem): Boolean {
+                return when (menuItem.itemId) {
+                    android.R.id.home -> {
+                        requireActivity().onBackPressedDispatcher.onBackPressed()
+                        true
+                    }
+                    R.id.action_toggle_episode_sort -> {
+                        toggleEpisodeSortOrder()
+                        true
+                    }
+                    R.id.action_hide_played_episodes -> {
+                        toggleHidePlayedEpisodes(menuItem)
+                        true
+                    }
+                    else -> false
+                }
+            }
+        }, viewLifecycleOwner, Lifecycle.State.STARTED)
     }
 
     private fun maybeLoadMoreIfContentShort() {
@@ -265,17 +289,6 @@ class PodcastDetailFragment : Fragment() {
             }
         }
         requireActivity().invalidateOptionsMenu()
-    }
-
-    override fun onCreateOptionsMenu(menu: Menu, inflater: MenuInflater) {
-        inflater.inflate(R.menu.podcast_detail_menu, menu)
-        super.onCreateOptionsMenu(menu, inflater)
-    }
-
-    override fun onPrepareOptionsMenu(menu: Menu) {
-        super.onPrepareOptionsMenu(menu)
-        menu.findItem(R.id.action_toggle_episode_sort)?.title = getEpisodeSortMenuTitle()
-        menu.findItem(R.id.action_hide_played_episodes)?.isChecked = hidePlayedEpisodes
     }
 
     private fun openEpisodePreview(episode: Episode) {
@@ -341,24 +354,6 @@ class PodcastDetailFragment : Fragment() {
             setDisplayHomeAsUpEnabled(false)
             setDisplayShowHomeEnabled(false)
             hide()
-        }
-    }
-
-    override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        return when (item.itemId) {
-            android.R.id.home -> {
-                requireActivity().onBackPressedDispatcher.onBackPressed()
-                true
-            }
-            R.id.action_toggle_episode_sort -> {
-                toggleEpisodeSortOrder()
-                true
-            }
-            R.id.action_hide_played_episodes -> {
-                toggleHidePlayedEpisodes(item)
-                true
-            }
-            else -> super.onOptionsItemSelected(item)
         }
     }
 

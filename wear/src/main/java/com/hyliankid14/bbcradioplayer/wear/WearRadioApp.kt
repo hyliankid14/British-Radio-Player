@@ -3,8 +3,6 @@ package com.hyliankid14.bbcradioplayer.wear
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -67,6 +65,10 @@ import androidx.wear.compose.foundation.CurvedDirection
 import androidx.wear.compose.foundation.CurvedLayout
 import androidx.wear.compose.foundation.CurvedModifier
 import androidx.wear.compose.foundation.CurvedTextStyle
+import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
+import androidx.wear.compose.foundation.lazy.ScalingLazyColumnDefaults
+import androidx.wear.compose.foundation.lazy.items
+import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
 import androidx.wear.compose.foundation.angularGradientBackground as curvedAngularGradientBackground
 import androidx.wear.compose.foundation.background as curvedBackground
 import androidx.wear.compose.foundation.basicCurvedText
@@ -77,6 +79,7 @@ import androidx.wear.compose.material.Chip
 import androidx.wear.compose.material.ChipDefaults
 import androidx.wear.compose.material.Icon
 import androidx.wear.compose.material.MaterialTheme
+import androidx.wear.compose.material.PositionIndicator
 import androidx.wear.compose.material.Scaffold
 import androidx.wear.compose.material.Text
 import androidx.wear.compose.material.TimeText
@@ -116,7 +119,7 @@ fun WearRadioApp(viewModel: WearViewModel = viewModel()) {
         nowPlayingState?.stationId?.let { id -> viewModel.stations.firstOrNull { it.id == id }?.title }
     }
     val bottomArcLabel = when (screen) {
-        Screen.HOME -> "British Radio Player"
+        Screen.HOME -> ""
         Screen.STATIONS_MENU -> "Stations"
         Screen.FAVOURITES -> "Favourites"
         Screen.STATIONS_NATIONAL -> "National"
@@ -361,9 +364,18 @@ fun WearRadioApp(viewModel: WearViewModel = viewModel()) {
     }
 }
 
-private val ListContentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 20.dp, bottom = 14.dp)
-private val HeaderHorizontalSafePadding = 24.dp
+private val ListContentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 16.dp, bottom = 16.dp)
+private val HeaderHorizontalSafePadding = 28.dp
 private const val STATION_SHOW_REFRESH_POLL_MS = 30_000L
+
+private val AggressiveEdgeScaling = ScalingLazyColumnDefaults.scalingParams(
+    edgeScale = 0.45f,
+    edgeAlpha = 0.40f,
+    minElementHeight = 0.15f,
+    maxElementHeight = 0.90f,
+    minTransitionArea = 0.35f,
+    maxTransitionArea = 0.85f
+)
 
 private val CurvedBackdropGradient = listOf(
     Color.Transparent,
@@ -391,7 +403,7 @@ private fun HomeScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 14.dp),
+            .padding(horizontal = 10.dp),
         contentAlignment = Alignment.Center
     ) {
         Column(
@@ -400,15 +412,15 @@ private fun HomeScreen(
         ) {
             Chip(
                 onClick = onOpenStations,
-                label = { Text("Stations") },
-                secondaryLabel = { Text("Favourites and All Stations") },
+                label = { Text("Stations", maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                secondaryLabel = { Text("Favourites and All Stations", maxLines = 2, overflow = TextOverflow.Ellipsis) },
                 colors = ChipDefaults.primaryChipColors(),
                 modifier = Modifier.fillMaxWidth()
             )
             Chip(
                 onClick = onOpenPodcasts,
-                label = { Text("Podcasts") },
-                secondaryLabel = { Text("Subscribed shows") },
+                label = { Text("Podcasts", maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                secondaryLabel = { Text("Subscribed shows", maxLines = 2, overflow = TextOverflow.Ellipsis) },
                 colors = ChipDefaults.primaryChipColors(),
                 modifier = Modifier.fillMaxWidth()
             )
@@ -423,47 +435,55 @@ private fun StationsMenuScreen(
     onOpenRegionalStations: () -> Unit,
     onOpenLocalStations: () -> Unit
 ) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = ListContentPadding,
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        item {
-            Chip(
-                onClick = onOpenFavourites,
-                label = { Text("Favourites") },
-                secondaryLabel = { Text("Synced from phone") },
-                colors = ChipDefaults.primaryChipColors(),
-                modifier = Modifier.fillMaxWidth()
-            )
+    val listState = rememberScalingLazyListState()
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        ScalingLazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = ListContentPadding,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            scalingParams = AggressiveEdgeScaling
+        ) {
+            item {
+                Chip(
+                    onClick = onOpenFavourites,
+                    label = { Text("Favourites", maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                    secondaryLabel = { Text("Synced from phone", maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                    colors = ChipDefaults.primaryChipColors(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            item {
+                Chip(
+                    onClick = onOpenNationalStations,
+                    label = { Text("National", maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                    secondaryLabel = { Text("UK-wide stations", maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                    colors = ChipDefaults.secondaryChipColors(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            item {
+                Chip(
+                    onClick = onOpenRegionalStations,
+                    label = { Text("Regions", maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                    secondaryLabel = { Text("Nations and regions", maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                    colors = ChipDefaults.secondaryChipColors(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            item {
+                Chip(
+                    onClick = onOpenLocalStations,
+                    label = { Text("Local", maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                    secondaryLabel = { Text("Local BBC stations", maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                    colors = ChipDefaults.secondaryChipColors(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
         }
-        item {
-            Chip(
-                onClick = onOpenNationalStations,
-                label = { Text("National") },
-                secondaryLabel = { Text("UK-wide stations") },
-                colors = ChipDefaults.secondaryChipColors(),
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-        item {
-            Chip(
-                onClick = onOpenRegionalStations,
-                label = { Text("Regions") },
-                secondaryLabel = { Text("Nations and regions") },
-                colors = ChipDefaults.secondaryChipColors(),
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-        item {
-            Chip(
-                onClick = onOpenLocalStations,
-                label = { Text("Local") },
-                secondaryLabel = { Text("Local BBC stations") },
-                colors = ChipDefaults.secondaryChipColors(),
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
+
+        PositionIndicator(scalingLazyListState = listState)
     }
 }
 
@@ -475,44 +495,52 @@ private fun StationListScreen(
     onPlay: (Station) -> Unit,
     emptyText: String
 ) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = ListContentPadding,
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        if (stations.isEmpty()) {
-            item {
-                RoundSafeHeaderMessage(emptyText, maxLines = 2)
-            }
-        } else {
-            items(stations, key = { it.id }) { station ->
-                val showTitle = stationShowTitleMap[station.id]
-                val showDetail = stationShowDetailMap[station.id]
-                val stationArtwork = remember(station.id) { StationArtwork.createBitmap(station.id, 72).asImageBitmap() }
-                Chip(
-                    onClick = { onPlay(station) },
-                    label = { Text(station.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                    secondaryLabel = {
-                        Text(
-                            showDetail ?: showTitle ?: "On air now",
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    },
-                    icon = {
-                        Image(
-                            bitmap = stationArtwork,
-                            contentDescription = station.title,
-                            modifier = Modifier
-                                .size(28.dp)
-                                .clip(CircleShape)
-                        )
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ChipDefaults.primaryChipColors()
-                )
+    val listState = rememberScalingLazyListState()
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        ScalingLazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = ListContentPadding,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            scalingParams = AggressiveEdgeScaling
+        ) {
+            if (stations.isEmpty()) {
+                item {
+                    RoundSafeHeaderMessage(emptyText, maxLines = 2)
+                }
+            } else {
+                items(stations, key = { it.id }) { station ->
+                    val showTitle = stationShowTitleMap[station.id]
+                    val showDetail = stationShowDetailMap[station.id]
+                    val stationArtwork = remember(station.id) { StationArtwork.createBitmap(station.id, 72).asImageBitmap() }
+                    Chip(
+                        onClick = { onPlay(station) },
+                        label = { Text(station.title, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                        secondaryLabel = {
+                            Text(
+                                showDetail ?: showTitle ?: "On air now",
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        },
+                        icon = {
+                            Image(
+                                bitmap = stationArtwork,
+                                contentDescription = station.title,
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clip(CircleShape)
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ChipDefaults.primaryChipColors()
+                    )
+                }
             }
         }
+
+        PositionIndicator(scalingLazyListState = listState)
     }
 }
 
@@ -533,90 +561,97 @@ private fun PodcastListScreen(
     val context = LocalContext.current
     var visibleCount by rememberSaveable { mutableStateOf(8) }
     val visiblePodcasts = podcasts.take(visibleCount.coerceAtMost(podcasts.size))
+    val listState = rememberScalingLazyListState()
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = ListContentPadding,
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        if (loading) {
-            item { RoundSafeHeaderMessage("Loading…", maxLines = 1) }
-        }
-
-        if (!loading && errorMessage != null) {
-            item { RoundSafeHeaderMessage(errorMessage, maxLines = 2) }
-            item {
-                Chip(
-                    onClick = onRetry,
-                    label = { Text("Retry") },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ChipDefaults.secondaryChipColors()
-                )
+    Box(modifier = Modifier.fillMaxSize()) {
+        ScalingLazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = ListContentPadding,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            scalingParams = AggressiveEdgeScaling
+        ) {
+            if (loading) {
+                item { RoundSafeHeaderMessage("Loading…", maxLines = 1) }
             }
-        }
 
-        if (!loading && errorMessage == null && podcasts.isEmpty()) {
-            item { RoundSafeHeaderMessage("No podcasts available", maxLines = 1) }
-        }
-
-        items(visiblePodcasts, key = { it.id }) { podcast ->
-            val artworkRequest = remember(podcast.imageUrl) {
-                podcast.imageUrl
-                    .takeIf { it.isNotBlank() }
-                    ?.let { imageUrl ->
-                        ImageRequest.Builder(context)
-                            .data(imageUrl)
-                            .crossfade(false)
-                            .size(56)
-                            .build()
-                    }
+            if (!loading && errorMessage != null) {
+                item { RoundSafeHeaderMessage(errorMessage, maxLines = 2) }
+                item {
+                    Chip(
+                        onClick = onRetry,
+                        label = { Text("Retry", maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ChipDefaults.secondaryChipColors()
+                    )
+                }
             }
-            Chip(
-                onClick = { onOpenPodcast(podcast) },
-                label = { Text(podcast.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                icon = {
-                    if (artworkRequest != null) {
-                        AsyncImage(
-                            model = artworkRequest,
-                            contentDescription = podcast.title,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .size(28.dp)
-                                .clip(CircleShape)
-                        )
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .size(28.dp)
-                                .clip(CircleShape)
-                                .background(Color.Black.copy(alpha = 0.26f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.MusicNote,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(16.dp)
-                            )
+
+            if (!loading && errorMessage == null && podcasts.isEmpty()) {
+                item { RoundSafeHeaderMessage("No podcasts available", maxLines = 1) }
+            }
+
+            items(visiblePodcasts, key = { it.id }) { podcast ->
+                val artworkRequest = remember(podcast.imageUrl) {
+                    podcast.imageUrl
+                        .takeIf { it.isNotBlank() }
+                        ?.let { imageUrl ->
+                            ImageRequest.Builder(context)
+                                .data(imageUrl)
+                                .crossfade(false)
+                                .size(56)
+                                .build()
                         }
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
-                colors = ChipDefaults.primaryChipColors()
-            )
-        }
-
-        if (visibleCount < podcasts.size) {
-            item {
+                }
                 Chip(
-                    onClick = { visibleCount += 8 },
-                    label = { Text("Load more") },
-                    secondaryLabel = { Text("${podcasts.size - visibleCount} remaining") },
+                    onClick = { onOpenPodcast(podcast) },
+                    label = { Text(podcast.title, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                    icon = {
+                        if (artworkRequest != null) {
+                            AsyncImage(
+                                model = artworkRequest,
+                                contentDescription = podcast.title,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clip(CircleShape)
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Black.copy(alpha = 0.26f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.MusicNote,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    },
                     modifier = Modifier.fillMaxWidth(),
-                    colors = ChipDefaults.secondaryChipColors()
+                    colors = ChipDefaults.primaryChipColors()
                 )
             }
+
+            if (visibleCount < podcasts.size) {
+                item {
+                    Chip(
+                        onClick = { visibleCount += 8 },
+                        label = { Text("Load more", maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                        secondaryLabel = { Text("${podcasts.size - visibleCount} remaining", maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ChipDefaults.secondaryChipColors()
+                    )
+                }
+            }
         }
+
+        PositionIndicator(scalingLazyListState = listState)
     }
 }
 
@@ -631,49 +666,56 @@ private fun EpisodeListScreen(
 ) {
     var visibleCount by rememberSaveable(podcast?.id) { mutableStateOf(8) }
     val visibleEpisodes = episodes.take(visibleCount.coerceAtMost(episodes.size))
+    val listState = rememberScalingLazyListState()
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = ListContentPadding,
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        if (loading) {
-            item { RoundSafeHeaderMessage("Loading…", maxLines = 1) }
-        } else if (episodes.isEmpty()) {
-            item { RoundSafeHeaderMessage("No episodes available", maxLines = 1) }
-        } else {
-            items(visibleEpisodes, key = { it.id }) { episode ->
-                val isPlayed = episode.id in playedEpisodeIds
-                val progressMs = progressMap[episode.id] ?: 0L
-                Chip(
-                    onClick = { onPlayEpisode(episode) },
-                    label = { Text(episode.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                    secondaryLabel = {
-                        val secondary = when {
-                            isPlayed -> "Played"
-                            progressMs > 0L -> "Resume at ${formatPosition(progressMs)}"
-                            episode.pubDate.isNotBlank() -> episode.pubDate
-                            else -> "Play episode"
-                        }
-                        Text(text = secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ChipDefaults.primaryChipColors()
-                )
-            }
-
-            if (visibleCount < episodes.size) {
-                item {
+    Box(modifier = Modifier.fillMaxSize()) {
+        ScalingLazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = ListContentPadding,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            scalingParams = AggressiveEdgeScaling
+        ) {
+            if (loading) {
+                item { RoundSafeHeaderMessage("Loading…", maxLines = 1) }
+            } else if (episodes.isEmpty()) {
+                item { RoundSafeHeaderMessage("No episodes available", maxLines = 1) }
+            } else {
+                items(visibleEpisodes, key = { it.id }) { episode ->
+                    val isPlayed = episode.id in playedEpisodeIds
+                    val progressMs = progressMap[episode.id] ?: 0L
                     Chip(
-                        onClick = { visibleCount += 8 },
-                        label = { Text("Load older") },
-                        secondaryLabel = { Text("${episodes.size - visibleCount} remaining") },
+                        onClick = { onPlayEpisode(episode) },
+                        label = { Text(episode.title, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                        secondaryLabel = {
+                            val secondary = when {
+                                isPlayed -> "Played"
+                                progressMs > 0L -> "Resume at ${formatPosition(progressMs)}"
+                                episode.pubDate.isNotBlank() -> episode.pubDate
+                                else -> "Play episode"
+                            }
+                            Text(text = secondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        },
                         modifier = Modifier.fillMaxWidth(),
-                        colors = ChipDefaults.secondaryChipColors()
+                        colors = ChipDefaults.primaryChipColors()
                     )
+                }
+
+                if (visibleCount < episodes.size) {
+                    item {
+                        Chip(
+                            onClick = { visibleCount += 8 },
+                            label = { Text("Load older", maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                            secondaryLabel = { Text("${episodes.size - visibleCount} remaining", maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ChipDefaults.secondaryChipColors()
+                        )
+                    }
                 }
             }
         }
+
+        PositionIndicator(scalingLazyListState = listState)
     }
 }
 
@@ -865,7 +907,7 @@ private fun NowPlayingScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 14.dp, vertical = 14.dp),
+                .padding(horizontal = 22.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp, androidx.compose.ui.Alignment.CenterVertically),
             horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally
         ) {
