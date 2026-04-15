@@ -157,7 +157,10 @@ object ShowInfoFetcher {
     private suspend fun fetchScheduleEntriesFromEss(serviceId: String, date: String?): List<ScheduleEntry> {
         return try {
             val url = if (date != null) {
-                "https://ess.api.bbci.co.uk/schedules?serviceId=$serviceId&mediatypes=audio&date=$date"
+                // Use from/to parameters to fetch a specific day's schedule.
+                // 'date' is in YYYY-MM-DD format; we request midnight-to-midnight UTC for that day.
+                val nextDate = nextDayString(date)
+                "https://ess.api.bbci.co.uk/schedules?serviceId=$serviceId&mediatypes=audio&from=${date}T00:00:00.000Z&to=${nextDate}T00:00:00.000Z"
             } else {
                 "https://ess.api.bbci.co.uk/schedules?serviceId=$serviceId&mediatypes=audio"
             }
@@ -437,6 +440,16 @@ object ShowInfoFetcher {
         } else {
             30_000L
         }
+    }
+
+    /** Given a YYYY-MM-DD string, return the next day in the same format. */
+    private fun nextDayString(date: String): String {
+        val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+        sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
+        val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"))
+        cal.time = sdf.parse(date) ?: return date
+        cal.add(java.util.Calendar.DAY_OF_YEAR, 1)
+        return sdf.format(cal.time)
     }
     
     private fun parseRfc2822Date(dateStr: String): Long {

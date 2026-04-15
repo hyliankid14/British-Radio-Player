@@ -122,8 +122,13 @@ class ScheduleActivity : AppCompatActivity() {
             tabs.addTab(tab, i == todayTabIndex)
         }
 
-        // Scroll tab strip to centre on today
-        tabs.setScrollPosition(todayTabIndex, 0f, false)
+        // After layout is complete, scroll so the Today tab is horizontally centred
+        tabs.post {
+            val tabParent = tabs.getChildAt(0) as? android.view.ViewGroup ?: return@post
+            val todayView = tabParent.getChildAt(todayTabIndex) ?: return@post
+            val scrollTo = todayView.left - (tabs.width - todayView.width) / 2
+            tabs.scrollTo(maxOf(0, scrollTo), 0)
+        }
     }
 
     private fun dateStringFor(cal: Calendar): String {
