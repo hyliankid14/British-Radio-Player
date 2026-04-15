@@ -414,6 +414,10 @@ object ShowInfoFetcher {
      * Parses an ISO 8601 datetime string into milliseconds since epoch.
      * Handles UTC ("Z") suffix and "+HH:MM" / "-HH:MM" timezone offsets.
      * Works on all Android API levels (no dependency on the Java 7+ "X" pattern).
+     *
+     * Conversion formula: UTC = local_time − offset
+     *   For +01:00 (UTC+1): UTC = local − 1 h  → offsetMs is positive, we subtract it.
+     *   For −05:00 (UTC−5): UTC = local + 5 h  → offsetMs is negative, subtracting adds.
      */
     private fun parseIso8601Date(dateStr: String): Long? {
         try {
@@ -425,17 +429,19 @@ object ShowInfoFetcher {
                     utcStr = utcStr.dropLast(1)
                 }
                 utcStr.length >= 6 && (utcStr[utcStr.length - 6] == '+' || utcStr[utcStr.length - 6] == '-') -> {
-                    val sign = if (utcStr[utcStr.length - 6] == '+') 1L else -1L
-                    val hh = utcStr.substring(utcStr.length - 5, utcStr.length - 3).toLong()
-                    val mm = utcStr.substring(utcStr.length - 2).toLong()
-                    // UTC = local − offset: for +01:00, subtract 1 h; for -05:00, add 5 h
+                    val suffix = utcStr.takeLast(6) // e.g. "+01:00"
+                    val sign = if (suffix[0] == '+') 1L else -1L
+                    val hh = suffix.substring(1, 3).toLongOrNull() ?: return null
+                    val mm = suffix.substring(4, 6).toLongOrNull() ?: return null
+                    // UTC = local − offset: positive offset → subtract, negative → add
                     offsetMs = sign * (hh * 60L + mm) * 60_000L
                     utcStr = utcStr.dropLast(6)
                 }
             }
 
             // Drop fractional seconds if present (e.g. ".000")
-            if (utcStr.length > 19 && utcStr[19] == '.') utcStr = utcStr.substring(0, 19)
+            val dotIdx = utcStr.indexOf('.')
+            if (dotIdx > 0) utcStr = utcStr.substring(0, dotIdx)
 
             val sdf = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
             sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
