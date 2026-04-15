@@ -146,12 +146,21 @@ object ShowInfoFetcher {
 
     suspend fun fetchFullSchedule(stationId: String): List<ScheduleEntry> = withContext(Dispatchers.IO) {
         val serviceId = serviceIdMap[stationId] ?: return@withContext emptyList()
-        return@withContext fetchScheduleEntriesFromEss(serviceId)
+        return@withContext fetchScheduleEntriesFromEss(serviceId, null)
     }
 
-    private suspend fun fetchScheduleEntriesFromEss(serviceId: String): List<ScheduleEntry> {
+    suspend fun fetchScheduleForDate(stationId: String, date: String): List<ScheduleEntry> = withContext(Dispatchers.IO) {
+        val serviceId = serviceIdMap[stationId] ?: return@withContext emptyList()
+        return@withContext fetchScheduleEntriesFromEss(serviceId, date)
+    }
+
+    private suspend fun fetchScheduleEntriesFromEss(serviceId: String, date: String?): List<ScheduleEntry> {
         return try {
-            val url = "https://ess.api.bbci.co.uk/schedules?serviceId=$serviceId&mediatypes=audio"
+            val url = if (date != null) {
+                "https://ess.api.bbci.co.uk/schedules?serviceId=$serviceId&mediatypes=audio&date=$date"
+            } else {
+                "https://ess.api.bbci.co.uk/schedules?serviceId=$serviceId&mediatypes=audio"
+            }
             Log.d(TAG, "Fetching full schedule from ESS API: $url")
 
             val connection = java.net.URL(url).openConnection() as java.net.HttpURLConnection
