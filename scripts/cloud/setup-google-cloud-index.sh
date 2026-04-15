@@ -282,12 +282,13 @@ write_local_properties_values() {
     tmp_file="$(mktemp)"
 
     if [ -f "$local_props_path" ]; then
-        grep -Ev '^(GCS_INDEX_URL|GCS_META_URL|CLOUD_FUNCTION_URL)=' "$local_props_path" > "$tmp_file" || true
+        grep -Ev '^(GCS_INDEX_URL|GCS_META_URL|GCS_NEW_PODCASTS_URL|CLOUD_FUNCTION_URL)=' "$local_props_path" > "$tmp_file" || true
     fi
 
     {
         echo "GCS_INDEX_URL=https://storage.googleapis.com/${BUCKET}/podcast-index.json.gz"
         echo "GCS_META_URL=https://storage.googleapis.com/${BUCKET}/podcast-index-meta.json"
+        echo "GCS_NEW_PODCASTS_URL=https://storage.googleapis.com/${BUCKET}/new-podcasts.json"
         echo "CLOUD_FUNCTION_URL=${function_url}"
     } >> "$tmp_file"
 
@@ -421,6 +422,7 @@ Migration complete.
 Static index URLs:
   https://storage.googleapis.com/${BUCKET}/podcast-index.json.gz
   https://storage.googleapis.com/${BUCKET}/podcast-index-meta.json
+  https://storage.googleapis.com/${BUCKET}/new-podcasts.json
 
 Cloud Function URL:
   ${FUNCTION_URL}

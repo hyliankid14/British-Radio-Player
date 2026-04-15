@@ -10,7 +10,7 @@ practical terms.
 
 | Service | Role |
 |---|---|
-| **Google Cloud Storage (GCS)** | Stores the two static index files so the app and Cloud Function can read them |
+| **Google Cloud Storage (GCS)** | Stores static index and snapshot files so the app and Cloud Function can read them |
 | **Cloud Run Job** | Runs the index-builder Python script as a short-lived Docker container |
 | **Container Registry (gcr.io)** | Stores the Docker image built by Cloud Build |
 | **Cloud Build** | Builds and pushes the index-builder Docker image |
@@ -61,13 +61,17 @@ Cloud Run Job  (bbc-index-builder)
     │
     │    3. Sorts all episodes newest-first
     │
-    │    4. Writes two files to /tmp (ephemeral container disk)
+    │    4. Writes files to /tmp (ephemeral container disk)
     │       • podcast-index.json.gz    (~46 MB, gzip level 9)
     │       • podcast-index-meta.json  (~100 bytes — counts + timestamp)
+    │       • new-podcasts.json        (rolling top-50 newly discovered podcasts)
+    │       • new-podcasts-state.json  (internal state used to keep first-seen epochs stable)
     │
-    │    5. Uploads both files to the public GCS bucket
+    │    5. Uploads outputs to the public GCS bucket
     │       gs://YOUR_BUCKET/podcast-index.json.gz
     │       gs://YOUR_BUCKET/podcast-index-meta.json
+    │       gs://YOUR_BUCKET/new-podcasts.json
+    │       gs://YOUR_BUCKET/new-podcasts-state.json
     │
     └──► GCS bucket  (publicly readable, uniform bucket-level access)
 ```
@@ -108,12 +112,13 @@ level 9, and written to `/tmp/podcast-index.json.gz`.  A tiny companion file
 `podcast-index-meta.json` (containing only the count fields and `generated_at`)
 is also written.
 
-Both files are uploaded to GCS.  Key upload details:
+The generated files are uploaded to GCS.  Key upload details:
 * The index blob uses `Content-Type: application/octet-stream` and explicitly
   clears `Content-Encoding` so GCS does not transparently decompress it
   (which would break the Cloud Function's own decompression step).
 * Cache-Control headers differ: the large index gets a 6-hour public TTL;
-  the metadata file uses `no-cache` so status displays are always fresh.
+  metadata and New Podcasts snapshots use `no-cache` so status displays are
+  always fresh.
 
 **Step 6 — (One-time) Cloud Build builds the Docker image**
 
@@ -287,6 +292,7 @@ build time) so the app reads the CDN snapshot for the production build:
 
 ```
 GCS_STATS_URL=https://storage.googleapis.com/YOUR_BUCKET/popular-podcasts.json
+GCS_NEW_PODCASTS_URL=https://storage.googleapis.com/YOUR_BUCKET/new-podcasts.json
 ```
 
 If left blank the app defaults to the production bucket URL bundled in

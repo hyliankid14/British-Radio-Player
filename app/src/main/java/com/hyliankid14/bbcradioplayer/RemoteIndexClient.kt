@@ -31,6 +31,7 @@ import java.util.zip.GZIPInputStream
  *   Configure the bucket URLs at build time via `local.properties`:
  *     GCS_INDEX_URL=https://storage.googleapis.com/YOUR_BUCKET/podcast-index.json.gz
  *     GCS_META_URL=https://storage.googleapis.com/YOUR_BUCKET/podcast-index-meta.json
+ *     GCS_NEW_PODCASTS_URL=https://storage.googleapis.com/YOUR_BUCKET/new-podcasts.json
  *
  * Live search — Cloud Function:
  *   The app also supports querying a Cloud Function that performs server-side
@@ -74,7 +75,8 @@ class RemoteIndexClient(private val context: Context) {
 
         // ── Index download URLs ───────────────────────────────────────────────
 
-        // Google Cloud Storage public URLs (set via GCS_INDEX_URL / GCS_META_URL / GCS_STATS_URL
+        // Google Cloud Storage public URLs (set via GCS_INDEX_URL / GCS_META_URL / GCS_STATS_URL /
+        // GCS_NEW_PODCASTS_URL
         // in local.properties or environment variables at build time).
         // These are optional overrides; defaults below point to production cloud index.
         private val GCS_INDEX_URL: String get() = BuildConfig.GCS_INDEX_URL
