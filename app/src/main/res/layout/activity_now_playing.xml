@@ -225,6 +225,7 @@
 
     <!-- Scrubber (only visible for podcasts, positioned directly above playback controls) -->
     <com.google.android.material.slider.Slider
+        style="@style/Widget.MaterialComponents.Slider"
         android:id="@+id/playback_seekbar"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
