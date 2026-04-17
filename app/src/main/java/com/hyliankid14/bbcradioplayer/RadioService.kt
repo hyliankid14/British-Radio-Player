@@ -1575,6 +1575,13 @@ class RadioService : MediaBrowserServiceCompat() {
                                 } else if (isStopped) {
                                     Log.d(TAG, "Autoplay skipped: playback already stopped")
                                 } else {
+                                    // Signal buffering before launching the coroutine. Some Android Auto
+                                    // head units call onStop() when they receive STATE_STOPPED from the
+                                    // MediaSession, which sets isStopped=true and aborts the autoplay
+                                    // coroutine before it has a chance to start the next episode.
+                                    // Sending STATE_BUFFERING keeps Android Auto in a "loading" state
+                                    // and prevents that spurious onStop() call.
+                                    updatePlaybackState(PlaybackStateCompat.STATE_BUFFERING)
                                     serviceScope.launch {
                                         try {
                                             val repo = PodcastRepository(this@RadioService)
@@ -1586,14 +1593,25 @@ class RadioService : MediaBrowserServiceCompat() {
                                                     val subscribed = PodcastSubscriptions.getSubscribedIds(this@RadioService)
                                                     if (!subscribed.contains(podcastId)) {
                                                         Log.d(TAG, "Autoplay skipped: podcast not subscribed (preference=subscriptions_only)")
+                                                        updatePlaybackState(PlaybackStateCompat.STATE_STOPPED)
                                                         return@launch
                                                     }
                                                 }
-                                                val allEpisodes = withContext(Dispatchers.IO) { repo.fetchEpisodes(podcast) }
+                                                // Prefer the in-memory episode cache populated when Android Auto
+                                                // browsed the podcast list. This avoids a network round-trip and
+                                                // handles episodes that may have rolled off the RSS feed since
+                                                // they were last displayed (BBC feeds keep only recent episodes).
+                                                val cachedEpisodes = autoEpisodesCache[podcastId]
+                                                val allEpisodes = if (!cachedEpisodes.isNullOrEmpty()) {
+                                                    cachedEpisodes
+                                                } else {
+                                                    withContext(Dispatchers.IO) { repo.fetchEpisodes(podcast) }
+                                                }
 
                                                 val currentEp = allEpisodes.find { it.id == currentEpisode }
                                                 if (currentEp == null) {
                                                     Log.w(TAG, "Current episode not found in feed for autoplay: $currentEpisode")
+                                                    updatePlaybackState(PlaybackStateCompat.STATE_STOPPED)
                                                 } else {
                                                     val currentEpoch = EpisodeDateParser.parsePubDateToEpoch(currentEp.pubDate)
                                                     // Build list of episodes with valid epoch greater than currentEpoch
@@ -1618,13 +1636,16 @@ class RadioService : MediaBrowserServiceCompat() {
                                                         playPodcastEpisode(next, playIntent)
                                                     } else {
                                                         Log.d(TAG, "No newer episode found to autoplay for podcast: $podcastId")
+                                                        updatePlaybackState(PlaybackStateCompat.STATE_STOPPED)
                                                     }
                                                 }
                                             } else {
                                                 Log.w(TAG, "Podcast not found while attempting to autoplay: $podcastId")
+                                                updatePlaybackState(PlaybackStateCompat.STATE_STOPPED)
                                             }
                                         } catch (e: Exception) {
                                             Log.w(TAG, "Failed to autoplay next episode: ${e.message}")
+                                            updatePlaybackState(PlaybackStateCompat.STATE_STOPPED)
                                         }
                                     }
                                 }
