@@ -171,6 +171,7 @@ class RadioService : MediaBrowserServiceCompat() {
         const val EXTRA_SEEK_POSITION = "com.hyliankid14.bbcradioplayer.EXTRA_SEEK_POSITION"
         const val EXTRA_SEEK_FRACTION = "com.hyliankid14.bbcradioplayer.EXTRA_SEEK_FRACTION"
         const val EXTRA_SEEK_DELTA = "com.hyliankid14.bbcradioplayer.EXTRA_SEEK_DELTA"
+        const val EXTRA_START_POSITION = "com.hyliankid14.bbcradioplayer.EXTRA_START_POSITION"
         private const val TAG = "RadioService"
         private const val ANALYTICS_MIN_PLAY_MS = 10_001L // strictly more than 10s
         private const val CHANNEL_ID = "radio_playback"
@@ -3446,11 +3447,15 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                     savedPosRaw
                 }
 
-                if (resumePos > 0) {
-                    seekTo(resumePos)
-                    Log.d(TAG, "Resuming episode ${episode.id} at position ${resumePos}ms")
+                // Allow the caller to override the start position (e.g. when the user scrubbed before pressing play)
+                val overrideStartMs = intent?.getLongExtra(EXTRA_START_POSITION, -1L) ?: -1L
+                val startPos = if (overrideStartMs >= 0L) overrideStartMs else resumePos
+
+                if (startPos > 0) {
+                    seekTo(startPos)
+                    Log.d(TAG, "Starting episode ${episode.id} at position ${startPos}ms (overrideStartMs=$overrideStartMs)")
                 } else {
-                    // Ensure we seek to start explicitly when resumePos == 0 so playback origin is deterministic
+                    // Ensure we seek to start explicitly when startPos == 0 so playback origin is deterministic
                     seekTo(0L)
 
                     // Allow replayed completed episodes to be counted as a new play.

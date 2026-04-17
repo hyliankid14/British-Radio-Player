@@ -67,6 +67,7 @@ class NowPlayingActivity : AppCompatActivity() {
     private var isPreviewMode = false
     private var previewEpisodeProp: Episode? = null
     private var isSeekBarDragging = false
+    private var pendingPreviewSeekFraction: Float? = null
     
     private var updateTimer: Thread? = null
     private var lastArtworkUrl: String? = null
@@ -246,6 +247,11 @@ class NowPlayingActivity : AppCompatActivity() {
 
             override fun onStopTrackingTouch(slider: Slider) {
                 isSeekBarDragging = false
+                if (isPreviewMode) {
+                    // Store the desired start position for when the play button is pressed
+                    pendingPreviewSeekFraction = slider.value
+                    return
+                }
                 // Send seek command only when user releases the slider
                 val show = PlaybackStateHelper.getCurrentShow()
                 val duration = show.segmentDurationMs ?: return
@@ -255,15 +261,24 @@ class NowPlayingActivity : AppCompatActivity() {
             }
         })
         
-        // No longer send seek in addOnChangeListener - only when user releases slider
-        seekBar.addOnChangeListener { _, _, _ ->
-            // Just track that the value changed; seek happens on touch release
+        // Update time labels while dragging in preview mode
+        seekBar.addOnChangeListener { _, value, fromUser ->
+            if (fromUser && isPreviewMode) {
+                val durMs = (previewEpisodeProp?.durationMins?.takeIf { it >= 0 } ?: 0) * 60_000L
+                if (durMs > 0) {
+                    val pos = (durMs * value).toLong()
+                    elapsedView.text = formatTime(pos)
+                    remainingView.text = "-${formatTime((durMs - pos).coerceAtLeast(0))}"
+                }
+            }
         }
         
         // Format slider label to show time instead of decimal value
         seekBar.setLabelFormatter { value ->
             val show = PlaybackStateHelper.getCurrentShow()
-            val duration = show.segmentDurationMs ?: return@setLabelFormatter "0:00"
+            val duration = show.segmentDurationMs
+                ?: ((previewEpisodeProp?.durationMins?.takeIf { it >= 0 } ?: 0) * 60_000L).takeIf { it > 0 }
+                ?: return@setLabelFormatter "0:00"
             val timeMs = (duration * value).toLong()
             formatTime(timeMs)
         }
@@ -833,12 +848,12 @@ class NowPlayingActivity : AppCompatActivity() {
 
         // Show scrubber controls if episode has a duration so user can see progress
         val durMs = (episode.durationMins.takeIf { it >= 0 } ?: 0) * 60_000L
+        pendingPreviewSeekFraction = null
         if (durMs > 0) {
             progressGroup.visibility = android.view.View.VISIBLE
             seekBar.visibility = android.view.View.VISIBLE
-            // Initialize scrubber to start (not playing)
             seekBar.value = 0f
-            seekBar.isEnabled = false
+            seekBar.isEnabled = true
             elapsedView.text = "0:00"
             remainingView.text = "-${formatTime(durMs)}"
         } else {
@@ -851,6 +866,10 @@ class NowPlayingActivity : AppCompatActivity() {
         // Do not clear lastArtworkUrl here — keep the preview artwork visible until the service
         // provides the official station artwork to avoid visual disappearance on play.
 
+        val durMs = (episode.durationMins.takeIf { it >= 0 } ?: 0) * 60_000L
+        val pendingFraction = pendingPreviewSeekFraction
+        pendingPreviewSeekFraction = null
+
         val intent = Intent(this, RadioService::class.java).apply {
             action = RadioService.ACTION_PLAY_PODCAST_EPISODE
             putExtra(RadioService.EXTRA_EPISODE, episode)
@@ -859,6 +878,10 @@ class NowPlayingActivity : AppCompatActivity() {
             // set a synthetic station logo immediately and avoid flashing a missing image.
             if (!lastArtworkUrl.isNullOrEmpty()) putExtra(RadioService.EXTRA_PODCAST_IMAGE, lastArtworkUrl)
             supportActionBar?.title?.let { putExtra(RadioService.EXTRA_PODCAST_TITLE, it.toString()) }
+            // If the user scrubbed before pressing play, start playback from that position
+            if (pendingFraction != null && pendingFraction > 0f && durMs > 0) {
+                putExtra(RadioService.EXTRA_START_POSITION, (durMs * pendingFraction).toLong())
+            }
         }
         startService(intent)
         // Store the episode being played so updateProgressUi() can use its duration immediately
