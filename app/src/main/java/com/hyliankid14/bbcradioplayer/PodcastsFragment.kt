@@ -10,10 +10,11 @@ import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.EditText
 import android.widget.ImageView
-import android.widget.ProgressBar
 import android.widget.SeekBar
 import android.widget.Spinner
 import android.widget.TextView
+import com.google.android.material.progressindicator.CircularProgressIndicator
+import com.google.android.material.progressindicator.LinearProgressIndicator
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
@@ -118,7 +119,7 @@ class PodcastsFragment : Fragment() {
     private fun currentFilterHash(): Int = (currentFilter.hashCode() * 31) xor currentSort.hashCode()
 
     private fun showLoadingFeedback(
-        loadingIndicator: ProgressBar,
+        loadingIndicator: CircularProgressIndicator,
         emptyState: TextView,
         message: String
     ) {
@@ -127,7 +128,7 @@ class PodcastsFragment : Fragment() {
         if (container != null && messageView != null) {
             messageView.text = message
             container.visibility = View.VISIBLE
-            container.findViewById<ProgressBar>(R.id.loading_horizontal_progress)?.progress = 0
+            container.findViewById<LinearProgressIndicator>(R.id.loading_horizontal_progress)?.progress = 0
             emptyState.visibility = View.GONE
         } else {
             loadingIndicator.visibility = View.VISIBLE
@@ -137,7 +138,7 @@ class PodcastsFragment : Fragment() {
     }
 
     private fun hideLoadingFeedback(
-        loadingIndicator: ProgressBar,
+        loadingIndicator: CircularProgressIndicator,
         emptyState: TextView
     ) {
         val container = loadingIndicator.parent as? ViewGroup
@@ -153,7 +154,7 @@ class PodcastsFragment : Fragment() {
 
     private fun updateLoadingProgress(percent: Int) {
         if (!isAdded) return
-        view?.findViewById<ProgressBar>(R.id.loading_horizontal_progress)?.progress = percent
+        view?.findViewById<LinearProgressIndicator>(R.id.loading_horizontal_progress)?.progress = percent
     }
 
     private fun showLoadingMoreSearchResultsIndicator() {
@@ -765,7 +766,7 @@ class PodcastsFragment : Fragment() {
         val saveButton: android.widget.Button = view.findViewById(R.id.save_search_button)
         saveSearchButton = saveButton
         updateSaveSearchButtonVisibility()
-        val loadingIndicator: ProgressBar = view.findViewById(R.id.loading_progress)
+        val loadingIndicator: CircularProgressIndicator = view.findViewById(R.id.loading_progress)
         val emptyState: TextView = view.findViewById(R.id.empty_state_text)
         val filtersContainer: View = view.findViewById(R.id.filters_container)
         if (!searchContextMode) {
@@ -1101,7 +1102,7 @@ class PodcastsFragment : Fragment() {
     fun refreshPodcastsDueToPreferenceChange() {
         try {
             val view = view ?: return
-            val loadingIndicator: ProgressBar = view.findViewById(R.id.loading_progress)
+            val loadingIndicator: CircularProgressIndicator = view.findViewById(R.id.loading_progress)
             val emptyState: TextView = view.findViewById(R.id.empty_state_text)
             val recyclerView: RecyclerView = view.findViewById(R.id.podcasts_recycler)
             val genreSpinner: com.google.android.material.textfield.MaterialAutoCompleteTextView = view.findViewById(R.id.genre_filter_spinner)
@@ -1113,7 +1114,7 @@ class PodcastsFragment : Fragment() {
     }
 
     private fun loadPodcasts(
-        loadingIndicator: ProgressBar,
+        loadingIndicator: CircularProgressIndicator,
         emptyState: TextView,
         recyclerView: RecyclerView,
         genreSpinner: com.google.android.material.textfield.MaterialAutoCompleteTextView,
@@ -1378,7 +1379,7 @@ class PodcastsFragment : Fragment() {
     private fun displayPodcasts(
         podcasts: List<Podcast>,
         earliestUpdates: Map<String, Long>,
-        loadingIndicator: ProgressBar,
+        loadingIndicator: CircularProgressIndicator,
         emptyState: TextView,
         recyclerView: RecyclerView,
         genreSpinner: com.google.android.material.textfield.MaterialAutoCompleteTextView,
@@ -1417,7 +1418,7 @@ class PodcastsFragment : Fragment() {
             !isLoadingNewPodcastBounds &&
             !hasAttemptedNewPodcastBoundsLoad
         ) {
-            val loadingIndicator = requireView().findViewById<ProgressBar>(R.id.loading_progress)
+            val loadingIndicator = requireView().findViewById<CircularProgressIndicator>(R.id.loading_progress)
             showLoadingFeedback(loadingIndicator, emptyState, LOADING_NEW_PODCASTS_MESSAGE)
             recyclerView.visibility = View.VISIBLE
             loadNewPodcastBoundsAndReapply(emptyState, recyclerView)
@@ -1431,11 +1432,11 @@ class PodcastsFragment : Fragment() {
             analyticsPopularTitleRanks.isEmpty() &&
             allPodcasts.isNotEmpty()
         ) {
-            val loadingIndicator = requireView().findViewById<ProgressBar>(R.id.loading_progress)
+            val loadingIndicator = requireView().findViewById<CircularProgressIndicator>(R.id.loading_progress)
             showLoadingFeedback(loadingIndicator, emptyState, LOADING_POPULAR_PODCASTS_MESSAGE)
             recyclerView.visibility = View.VISIBLE
         } else {
-            view?.findViewById<ProgressBar>(R.id.loading_progress)?.let { loadingIndicator ->
+            view?.findViewById<CircularProgressIndicator>(R.id.loading_progress)?.let { loadingIndicator ->
                 hideLoadingFeedback(loadingIndicator, emptyState)
             }
         }
@@ -1540,7 +1541,7 @@ class PodcastsFragment : Fragment() {
 
         isLoadingNewPodcastBounds = true
         hasAttemptedNewPodcastBoundsLoad = true
-        view?.findViewById<ProgressBar>(R.id.loading_progress)?.let { loadingIndicator ->
+        view?.findViewById<CircularProgressIndicator>(R.id.loading_progress)?.let { loadingIndicator ->
             showLoadingFeedback(loadingIndicator, emptyState, LOADING_NEW_PODCASTS_MESSAGE)
         }
 
@@ -1594,7 +1595,7 @@ class PodcastsFragment : Fragment() {
                 android.util.Log.w("PodcastsFragment", "Failed to load New Podcasts bounds: ${e.message}")
             } finally {
                 isLoadingNewPodcastBounds = false
-                view?.findViewById<ProgressBar>(R.id.loading_progress)?.let { loadingIndicator ->
+                view?.findViewById<CircularProgressIndicator>(R.id.loading_progress)?.let { loadingIndicator ->
                     hideLoadingFeedback(loadingIndicator, emptyState)
                 }
             }
@@ -1808,7 +1809,7 @@ class PodcastsFragment : Fragment() {
                         // If the adapter has no data, refresh it
                         if (podcastAdapter.itemCount == 0) {
                             android.util.Log.d("PodcastsFragment", "onResume: adapter is empty, refreshing podcast list")
-                            view?.findViewById<ProgressBar>(R.id.loading_progress)?.let { _ ->
+                            view?.findViewById<CircularProgressIndicator>(R.id.loading_progress)?.let { _ ->
                                 view?.findViewById<TextView>(R.id.empty_state_text)?.let { empty ->
                                     applyFilters(empty, podcastsRecycler)
                                 }
@@ -1936,7 +1937,7 @@ class PodcastsFragment : Fragment() {
                 return
             }
 
-            view?.findViewById<ProgressBar>(R.id.loading_progress)?.let { _ ->
+            view?.findViewById<CircularProgressIndicator>(R.id.loading_progress)?.let { _ ->
                 view?.findViewById<TextView>(R.id.empty_state_text)?.let { empty ->
                     view?.findViewById<RecyclerView>(R.id.podcasts_recycler)?.let { rv ->
                         applyFilters(empty, rv)
@@ -2284,7 +2285,7 @@ class PodcastsFragment : Fragment() {
             }
             if (generation != searchGeneration) return@launch
 
-            val loadingView = view?.findViewById<ProgressBar>(R.id.loading_progress)
+            val loadingView = view?.findViewById<CircularProgressIndicator>(R.id.loading_progress)
             hideLoadingMoreSearchResultsIndicator()
             
             // Get the query first to determine if we should show the large spinner

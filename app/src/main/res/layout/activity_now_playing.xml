@@ -238,6 +238,8 @@
         app:trackHeight="3dp"
         app:thumbRadius="8dp"
         app:trackStopIndicatorSize="0dp"
+        app:thumbTrackGapSize="0dp"
+        app:labelBehavior="gone"
         app:layout_constraintBottom_toTopOf="@id/playback_controls"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />

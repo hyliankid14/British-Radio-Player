@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/mini_player"
     android:layout_width="match_parent"
     android:layout_height="130dp"
@@ -62,18 +63,19 @@
                 android:textColor="?attr/colorOnSurfaceVariant" />
 
             <!-- Podcast / Episode progress (shown when playing an episode with known duration) -->
-            <ProgressBar
+            <com.google.android.material.progressindicator.LinearProgressIndicator
                 android:id="@+id/mini_player_progress"
-                style="?android:attr/progressBarStyleHorizontal"
                 android:layout_width="match_parent"
-                android:layout_height="3dp"
+                android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
                 android:visibility="gone"
                 android:max="100"
                 android:progress="0"
-                android:indeterminate="false"
-                android:progressTint="?attr/colorPrimary"
-                android:progressBackgroundTint="?attr/colorOnSurfaceVariant" />
+                app:trackThickness="4dp"
+                app:trackCornerRadius="2dp"
+                app:trackStopIndicatorSize="0dp"
+                app:indicatorColor="?attr/colorPrimary"
+                app:trackColor="?attr/colorSurfaceVariant" />
 
         </LinearLayout>
 

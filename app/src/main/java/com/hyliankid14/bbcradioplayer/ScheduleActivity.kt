@@ -7,7 +7,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageButton
 import android.widget.ImageView
-import android.widget.ProgressBar
+import com.google.android.material.progressindicator.CircularProgressIndicator
 import android.widget.TextView
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
@@ -37,7 +37,7 @@ class ScheduleActivity : AppCompatActivity() {
     private val scheduleCache = mutableMapOf<String, List<ScheduleEntry>>()
 
     private lateinit var recycler: RecyclerView
-    private lateinit var loading: ProgressBar
+    private lateinit var loading: CircularProgressIndicator
     private lateinit var empty: TextView
     private lateinit var tabs: TabLayout
 

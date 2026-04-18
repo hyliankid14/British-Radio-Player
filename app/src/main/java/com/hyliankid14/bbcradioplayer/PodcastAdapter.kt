@@ -6,8 +6,8 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.animation.AccelerateDecelerateInterpolator
 import android.widget.ImageView
-import android.widget.ProgressBar
 import android.widget.TextView
+import com.google.android.material.progressindicator.LinearProgressIndicator
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.graphics.drawable.DrawableCompat
 import androidx.recyclerview.widget.RecyclerView
@@ -544,7 +544,7 @@ class EpisodeAdapter(
         private val titleView: TextView = itemView.findViewById(R.id.episode_title)
         private val descriptionView: TextView = itemView.findViewById(R.id.episode_description)
         private val podcastTitleView: TextView? = itemView.findViewById(R.id.episode_podcast)
-        private val progressBar: ProgressBar = itemView.findViewById(R.id.episode_progress_bar)
+        private val progressBar: LinearProgressIndicator = itemView.findViewById(R.id.episode_progress_bar)
         private val dateView: TextView = itemView.findViewById(R.id.episode_date)
         private val durationView: TextView = itemView.findViewById(R.id.episode_duration)
         private val playButton: MaterialButton = itemView.findViewById(R.id.episode_play_icon)

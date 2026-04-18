@@ -273,16 +273,6 @@ class NowPlayingActivity : AppCompatActivity() {
             }
         }
         
-        // Format slider label to show time instead of decimal value
-        seekBar.setLabelFormatter { value ->
-            val show = PlaybackStateHelper.getCurrentShow()
-            val duration = show.segmentDurationMs
-                ?: ((previewEpisodeProp?.durationMins?.takeIf { it >= 0 } ?: 0) * 60_000L).takeIf { it > 0 }
-                ?: return@setLabelFormatter "0:00"
-            val timeMs = (duration * value).toLong()
-            formatTime(timeMs)
-        }
-
         // Register listener for show changes
         PlaybackStateHelper.onShowChange(showChangeListener)
 

@@ -69,18 +69,19 @@
             android:layout_marginTop="2dp" />
 
         <!-- Progress bar sits directly under the description so it always appears between description and date -->
-        <ProgressBar
+        <com.google.android.material.progressindicator.LinearProgressIndicator
             android:id="@+id/episode_progress_bar"
-            style="?android:attr/progressBarStyleHorizontal"
             android:layout_width="match_parent"
-            android:layout_height="6dp"
+            android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:visibility="gone"
             android:max="100"
             android:progress="0"
-            android:indeterminate="false"
-            android:progressTint="?attr/colorPrimary"
-            android:progressBackgroundTint="?attr/colorOnSurfaceVariant" />
+            app:trackThickness="4dp"
+            app:trackCornerRadius="2dp"
+            app:trackStopIndicatorSize="0dp"
+            app:indicatorColor="?attr/colorPrimary"
+            app:trackColor="?attr/colorSurfaceVariant" />
 
     </LinearLayout>
 

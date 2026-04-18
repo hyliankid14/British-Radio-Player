@@ -27,6 +27,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.google.android.material.textfield.MaterialAutoCompleteTextView
+import com.google.android.material.progressindicator.CircularProgressIndicator
 import kotlinx.coroutines.launch
 
 class SettingsDetailActivity : AppCompatActivity() {
@@ -755,7 +756,7 @@ class SettingsDetailActivity : AppCompatActivity() {
         return androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle("Restoring backup…")
             .setMessage("Restoring your subscriptions and preferences. Please wait.")
-            .setView(android.widget.ProgressBar(this).apply {
+            .setView(CircularProgressIndicator(this).apply {
                 isIndeterminate = true
                 val pad = (16 * resources.displayMetrics.density).toInt()
                 setPadding(pad, pad, pad, pad)

@@ -47,6 +47,8 @@ import com.bumptech.glide.load.engine.GlideException
 import com.bumptech.glide.request.RequestListener
 import com.bumptech.glide.request.target.Target
 import com.google.android.material.bottomnavigation.BottomNavigationView
+import com.google.android.material.progressindicator.CircularProgressIndicator
+import com.google.android.material.progressindicator.LinearProgressIndicator
 import androidx.core.graphics.ColorUtils
 import android.view.WindowManager
 import android.view.GestureDetector
@@ -82,7 +84,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var miniPlayer: LinearLayout
     private lateinit var miniPlayerTitle: TextView
     private lateinit var miniPlayerSubtitle: ScrollingTextView
-    private lateinit var miniPlayerProgress: android.widget.ProgressBar
+    private lateinit var miniPlayerProgress: LinearProgressIndicator
     private lateinit var miniPlayerArtwork: ImageView
     private lateinit var miniPlayerPrevious: ImageButton
     private lateinit var miniPlayerPlayPause: ImageButton
@@ -1786,7 +1788,7 @@ class MainActivity : AppCompatActivity() {
     private fun setSubscribedPodcastsLoading(loading: Boolean) {
         try {
             val visibility = if (loading) View.VISIBLE else View.GONE
-            findViewById<android.widget.ProgressBar>(R.id.favorites_podcasts_loading).visibility = visibility
+            findViewById<CircularProgressIndicator>(R.id.favorites_podcasts_loading).visibility = visibility
         } catch (_: Exception) { }
     }
 
@@ -3714,7 +3716,7 @@ class MainActivity : AppCompatActivity() {
         return androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle("Restoring backup…")
             .setMessage("Restoring your subscriptions and preferences. Please wait.")
-            .setView(android.widget.ProgressBar(this).apply {
+            .setView(CircularProgressIndicator(this).apply {
                 isIndeterminate = true
                 val pad = (16 * resources.displayMetrics.density).toInt()
                 setPadding(pad, pad, pad, pad)

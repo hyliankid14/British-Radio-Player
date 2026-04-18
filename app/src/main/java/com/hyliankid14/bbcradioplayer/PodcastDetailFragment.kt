@@ -11,7 +11,7 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.ImageView
 import android.widget.ImageButton
-import android.widget.ProgressBar
+import com.google.android.material.progressindicator.CircularProgressIndicator
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.text.HtmlCompat
@@ -33,7 +33,7 @@ class PodcastDetailFragment : Fragment() {
     private var currentPodcast: Podcast? = null
     private var episodesAdapter: EpisodeAdapter? = null
     private var episodesRecycler: RecyclerView? = null
-    private var loadingIndicator: ProgressBar? = null
+    private var loadingIndicator: CircularProgressIndicator? = null
     private var emptyState: TextView? = null
     private var currentOffset = 0
     private var isLoadingPage = false
@@ -72,7 +72,7 @@ class PodcastDetailFragment : Fragment() {
             val shareButton: ImageButton = view.findViewById(R.id.share_button)
             val notificationBell: ImageView = view.findViewById(R.id.notification_bell_button)
             val episodesRecycler: RecyclerView = view.findViewById(R.id.episodes_recycler)
-            val loadingIndicator: ProgressBar = view.findViewById(R.id.loading_progress)
+            val loadingIndicator: CircularProgressIndicator = view.findViewById(R.id.loading_progress)
             val emptyState: TextView = view.findViewById(R.id.empty_state_text)
             this.episodesRecycler = episodesRecycler
             this.loadingIndicator = loadingIndicator

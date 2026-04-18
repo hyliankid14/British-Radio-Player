@@ -6,7 +6,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
-import android.widget.ProgressBar
+import com.google.android.material.progressindicator.LinearProgressIndicator
 import androidx.recyclerview.widget.RecyclerView
 import androidx.core.text.HtmlCompat
 import androidx.core.content.ContextCompat
@@ -59,7 +59,7 @@ class SavedEpisodesAdapter(
         val podcastTitle: TextView? = view.findViewById(R.id.episode_podcast)
         val date: TextView = view.findViewById(R.id.episode_date)
         val duration: TextView? = view.findViewById(R.id.episode_duration)
-        val progressBar: ProgressBar = view.findViewById(R.id.episode_progress_bar)
+        val progressBar: LinearProgressIndicator = view.findViewById(R.id.episode_progress_bar)
         val playedIcon: TextView? = view.findViewById(R.id.episode_played_icon)
         val downloadIcon: ImageView? = view.findViewById(R.id.episode_download_icon)
         val play: View? = view.findViewById(R.id.episode_play_icon)
