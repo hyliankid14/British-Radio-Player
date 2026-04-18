@@ -6,7 +6,7 @@ import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.os.Bundle
 import android.widget.ImageView
-import com.google.android.material.slider.Slider
+import com.google.android.material.progressindicator.LinearProgressIndicator
 import android.widget.TextView
 import android.text.method.ScrollingMovementMethod
 import androidx.activity.enableEdgeToEdge
@@ -48,7 +48,7 @@ class NowPlayingActivity : AppCompatActivity() {
     private lateinit var nextButton: MaterialButton
     private lateinit var favoriteButton: MaterialButton
     private lateinit var openPodcastButton: MaterialButton
-    private lateinit var seekBar: Slider
+    private lateinit var podcastProgressIndicator: LinearProgressIndicator
     private lateinit var progressGroup: android.view.View
     private lateinit var elapsedView: TextView
     private lateinit var remainingView: TextView
@@ -66,8 +66,6 @@ class NowPlayingActivity : AppCompatActivity() {
     // overwritten by subsequent playback state updates until playback starts.
     private var isPreviewMode = false
     private var previewEpisodeProp: Episode? = null
-    private var isSeekBarDragging = false
-    private var pendingPreviewSeekFraction: Float? = null
     
     private var updateTimer: Thread? = null
     private var lastArtworkUrl: String? = null
@@ -194,7 +192,7 @@ class NowPlayingActivity : AppCompatActivity() {
         favoriteButton = findViewById(R.id.now_playing_favorite)
         openPodcastButton = findViewById(R.id.now_playing_open_podcast)
         progressGroup = findViewById(R.id.podcast_progress_group)
-        seekBar = findViewById(R.id.playback_seekbar)
+        podcastProgressIndicator = findViewById(R.id.playback_seekbar)
         elapsedView = findViewById(R.id.playback_elapsed)
         remainingView = findViewById(R.id.playback_remaining)
         markPlayedButton = findViewById(R.id.now_playing_mark_played) 
@@ -240,39 +238,6 @@ class NowPlayingActivity : AppCompatActivity() {
         }
 
 
-        seekBar.addOnSliderTouchListener(object : Slider.OnSliderTouchListener {
-            override fun onStartTrackingTouch(slider: Slider) {
-                isSeekBarDragging = true
-            }
-
-            override fun onStopTrackingTouch(slider: Slider) {
-                isSeekBarDragging = false
-                if (isPreviewMode) {
-                    // Store the desired start position for when the play button is pressed
-                    pendingPreviewSeekFraction = slider.value
-                    return
-                }
-                // Send seek command only when user releases the slider
-                val show = PlaybackStateHelper.getCurrentShow()
-                val duration = show.segmentDurationMs ?: return
-                if (duration <= 0) return
-                val newPos = (duration * slider.value).toLong()
-                sendSeekTo(newPos, slider.value)
-            }
-        })
-        
-        // Update time labels while dragging in preview mode
-        seekBar.addOnChangeListener { _, value, fromUser ->
-            if (fromUser && isPreviewMode) {
-                val durMs = (previewEpisodeProp?.durationMins?.takeIf { it >= 0 } ?: 0) * 60_000L
-                if (durMs > 0) {
-                    val pos = (durMs * value).toLong()
-                    elapsedView.text = formatTime(pos)
-                    remainingView.text = "-${formatTime((durMs - pos).coerceAtLeast(0))}"
-                }
-            }
-        }
-        
         // Register listener for show changes
         PlaybackStateHelper.onShowChange(showChangeListener)
 
@@ -751,7 +716,7 @@ class NowPlayingActivity : AppCompatActivity() {
             }
         } else {
             progressGroup.visibility = android.view.View.GONE
-            seekBar.visibility = android.view.View.GONE
+            podcastProgressIndicator.visibility = android.view.View.GONE
             // Clear stored episode when not playing a podcast
             playingEpisode = null
         }
@@ -838,27 +803,21 @@ class NowPlayingActivity : AppCompatActivity() {
 
         // Show scrubber controls if episode has a duration so user can see progress
         val durMs = (episode.durationMins.takeIf { it >= 0 } ?: 0) * 60_000L
-        pendingPreviewSeekFraction = null
         if (durMs > 0) {
             progressGroup.visibility = android.view.View.VISIBLE
-            seekBar.visibility = android.view.View.VISIBLE
-            seekBar.value = 0f
-            seekBar.isEnabled = true
+            podcastProgressIndicator.visibility = android.view.View.VISIBLE
+            podcastProgressIndicator.setProgressCompat(0, false)
             elapsedView.text = "0:00"
             remainingView.text = "-${formatTime(durMs)}"
         } else {
             progressGroup.visibility = android.view.View.GONE
-            seekBar.visibility = android.view.View.GONE
+            podcastProgressIndicator.visibility = android.view.View.GONE
         }
     }
 
     private fun playEpisodePreview(episode: Episode) {
         // Do not clear lastArtworkUrl here — keep the preview artwork visible until the service
         // provides the official station artwork to avoid visual disappearance on play.
-
-        val durMs = (episode.durationMins.takeIf { it >= 0 } ?: 0) * 60_000L
-        val pendingFraction = pendingPreviewSeekFraction
-        pendingPreviewSeekFraction = null
 
         val intent = Intent(this, RadioService::class.java).apply {
             action = RadioService.ACTION_PLAY_PODCAST_EPISODE
@@ -868,10 +827,6 @@ class NowPlayingActivity : AppCompatActivity() {
             // set a synthetic station logo immediately and avoid flashing a missing image.
             if (!lastArtworkUrl.isNullOrEmpty()) putExtra(RadioService.EXTRA_PODCAST_IMAGE, lastArtworkUrl)
             supportActionBar?.title?.let { putExtra(RadioService.EXTRA_PODCAST_TITLE, it.toString()) }
-            // If the user scrubbed before pressing play, start playback from that position
-            if (pendingFraction != null && pendingFraction > 0f && durMs > 0) {
-                putExtra(RadioService.EXTRA_START_POSITION, (durMs * pendingFraction).toLong())
-            }
         }
         startService(intent)
         // Store the episode being played so updateProgressUi() can use its duration immediately
@@ -903,31 +858,18 @@ class NowPlayingActivity : AppCompatActivity() {
 
         if (isPodcast && dur > 0) {
             progressGroup.visibility = android.view.View.VISIBLE
-            seekBar.visibility = android.view.View.VISIBLE
-            // Skip updating seek bar position when user is actively dragging, to prevent it jumping back
-            if (!isSeekBarDragging) {
-                val ratio = (pos.toDouble() / dur.toDouble()).coerceIn(0.0, 1.0)
-                seekBar.value = ratio.toFloat()
-            }
+            podcastProgressIndicator.visibility = android.view.View.VISIBLE
+            val ratio = (pos.toDouble() / dur.toDouble()).coerceIn(0.0, 1.0)
+            podcastProgressIndicator.setProgressCompat((ratio * 1000.0).toInt(), false)
             elapsedView.text = formatTime(pos)
             remainingView.text = "-${formatTime((dur - pos).coerceAtLeast(0))}"
-            seekBar.isEnabled = true
         } else {
             progressGroup.visibility = android.view.View.GONE
-            seekBar.visibility = android.view.View.GONE
+            podcastProgressIndicator.visibility = android.view.View.GONE
         }
 
         // Ensure mark-played button reflects current playback state
         updateMarkPlayedButtonState()
-    }
-
-    private fun sendSeekTo(positionMs: Long, positionFraction: Float? = null) {
-        val intent = Intent(this, RadioService::class.java).apply {
-            action = RadioService.ACTION_SEEK_TO
-            putExtra(RadioService.EXTRA_SEEK_POSITION, positionMs)
-            positionFraction?.let { putExtra(RadioService.EXTRA_SEEK_FRACTION, it.coerceIn(0f, 1f)) }
-        }
-        startService(intent)
     }
 
     private fun formatTime(ms: Long): String {
@@ -1798,8 +1740,7 @@ class NowPlayingActivity : AppCompatActivity() {
             playPauseButton.backgroundTintList = playPauseButtonColorStateList
             playPauseButton.iconTint = ColorStateList.valueOf(android.graphics.Color.WHITE)
 
-            seekBar.trackActiveTintList = iconColorStateList
-            seekBar.thumbTintList = iconColorStateList
+            podcastProgressIndicator.setIndicatorColor(iconColor)
 
             val inactiveColor = android.graphics.Color.argb(
                 76,
@@ -1807,8 +1748,7 @@ class NowPlayingActivity : AppCompatActivity() {
                 android.graphics.Color.green(iconColor),
                 android.graphics.Color.blue(iconColor)
             )
-            seekBar.trackInactiveTintList = ColorStateList.valueOf(inactiveColor)
-            seekBar.haloTintList = ColorStateList.valueOf(inactiveColor)
+            podcastProgressIndicator.trackColor = inactiveColor
 
             WindowInsetsControllerCompat(window, window.decorView).apply {
                 isAppearanceLightStatusBars = !isDarkMode

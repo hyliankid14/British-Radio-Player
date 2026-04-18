@@ -223,9 +223,9 @@
             android:gravity="end" />
     </LinearLayout>
 
-    <!-- Scrubber (only visible for podcasts, positioned directly above playback controls) -->
-    <com.google.android.material.slider.Slider
-        style="@style/Widget.Material3.Slider"
+    <!-- Podcast progress indicator (Material 3, determinate, no playhead marker) -->
+    <com.google.android.material.progressindicator.LinearProgressIndicator
+        style="@style/Widget.Material3.LinearProgressIndicator"
         android:id="@+id/playback_seekbar"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
@@ -233,13 +233,11 @@
         android:layout_marginStart="24dp"
         android:layout_marginEnd="24dp"
         android:layout_marginBottom="12dp"
-        android:valueFrom="0.0"
-        android:valueTo="1.0"
-        app:trackHeight="3dp"
-        app:thumbRadius="8dp"
+        android:max="1000"
+        android:progress="0"
+        app:trackThickness="6dp"
+        app:trackCornerRadius="3dp"
         app:trackStopIndicatorSize="0dp"
-        app:thumbTrackGapSize="0dp"
-        app:labelBehavior="gone"
         app:layout_constraintBottom_toTopOf="@id/playback_controls"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
