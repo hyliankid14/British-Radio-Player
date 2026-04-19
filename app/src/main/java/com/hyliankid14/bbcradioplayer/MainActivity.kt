@@ -2344,16 +2344,15 @@ class MainActivity : AppCompatActivity() {
                 adapter.showDragHandles = true
             } else {
                 adapter.showDragHandles = false
-                // Re-fetch updates and re-sort in the background
-                val ids = PodcastSubscriptions.getSubscribedIds(this)
-                if (ids.isNotEmpty()) {
+                // Re-sort the currently loaded podcasts using locally cached timestamps.
+                // This is instant and works offline — no network re-fetch needed.
+                val podcasts = adapter.getPodcasts()
+                if (podcasts.isNotEmpty()) {
                     Thread {
-                        val repo = PodcastRepository(this)
                         try {
-                            val all = kotlinx.coroutines.runBlocking { repo.fetchPodcasts(false) }
-                            val subs = all.filter { ids.contains(it.id) }
-                            val updates = kotlinx.coroutines.runBlocking { repo.fetchLatestUpdates(subs) }
-                            val sorted = SubscribedPodcastSortPreference.applySortOrder(this, subs, updates)
+                            val repo = PodcastRepository(this)
+                            val updates = repo.getAvailableUpdatesNow(podcasts)
+                            val sorted = SubscribedPodcastSortPreference.applySortOrder(this, podcasts, updates)
                             runOnUiThread { adapter.updatePodcasts(sorted) }
                         } catch (e: Exception) {
                             android.util.Log.w("MainActivity", "Failed to re-sort subscribed podcasts: ${e.message}")
