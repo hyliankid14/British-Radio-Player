@@ -28,7 +28,10 @@ object SubscribedPodcastSortPreference {
         return try {
             val arr = org.json.JSONArray(json)
             List(arr.length()) { arr.getString(it) }
-        } catch (_: Exception) { emptyList() }
+        } catch (e: Exception) {
+            android.util.Log.w("SubscribedPodcastSortPreference", "Failed to parse manual order: ${e.message}")
+            emptyList()
+        }
     }
 
     fun setManualOrder(context: Context, ids: List<String>) {

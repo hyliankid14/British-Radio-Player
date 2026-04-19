@@ -2273,8 +2273,9 @@ class MainActivity : AppCompatActivity() {
         return when (item.itemId) {
             R.id.action_subscribed_sort -> {
                 val toolbar = findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.top_app_bar)
-                val anchor: View = toolbar ?: window.decorView
-                showSubscribedSortMenu(anchor)
+                if (toolbar != null) {
+                    showSubscribedSortMenu(toolbar)
+                }
                 true
             }
             else -> super.onOptionsItemSelected(item)
@@ -2339,22 +2340,26 @@ class MainActivity : AppCompatActivity() {
                 adapter.showDragHandles = true
             } else {
                 adapter.showDragHandles = false
-                // Re-fetch updates and re-sort
+                // Re-fetch updates and re-sort in the background
                 val ids = PodcastSubscriptions.getSubscribedIds(this)
                 if (ids.isNotEmpty()) {
                     Thread {
+                        val repo = PodcastRepository(this)
                         try {
-                            val repo = PodcastRepository(this)
-                            val all = try { kotlinx.coroutines.runBlocking { repo.fetchPodcasts(false) } } catch (_: Exception) { emptyList<Podcast>() }
+                            val all = kotlinx.coroutines.runBlocking { repo.fetchPodcasts(false) }
                             val subs = all.filter { ids.contains(it.id) }
-                            val updates = try { kotlinx.coroutines.runBlocking { repo.fetchLatestUpdates(subs) } } catch (_: Exception) { emptyMap<String, Long>() }
+                            val updates = kotlinx.coroutines.runBlocking { repo.fetchLatestUpdates(subs) }
                             val sorted = SubscribedPodcastSortPreference.applySortOrder(this, subs, updates)
                             runOnUiThread { adapter.updatePodcasts(sorted) }
-                        } catch (_: Exception) { }
+                        } catch (e: Exception) {
+                            android.util.Log.w("MainActivity", "Failed to re-sort subscribed podcasts: ${e.message}")
+                        }
                     }.start()
                 }
             }
-        } catch (_: Exception) { }
+        } catch (e: Exception) {
+            android.util.Log.w("MainActivity", "applySubscribedPodcastSort failed: ${e.message}")
+        }
     }
 
     // Update visuals for the favorites button group (tablet shows labels; phone icon-only)
