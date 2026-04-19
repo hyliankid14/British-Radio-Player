@@ -712,7 +712,7 @@ def get_stats():
             ({'id': v['id'], 'name': v['name'], 'plays': v['plays']}
              for v in merged.values()),
             key=lambda x: -x['plays']
-        )[:20]
+        )[:30]
 
         # Most popular episodes (app + web player)
         c.execute(f'''
@@ -1379,14 +1379,14 @@ def index():
                         <p class="muted" style="margin-top: 8px; font-size: 13px;">Showing top 20. Download the CSV for the full list.</p>
                     </div>
                     <div class="panel">
-                        <h3>Top 20 Podcasts</h3>
+                        <h3>Top 30 Podcasts</h3>
                         <div class="table-wrapper">
                             <table id="podcastsTable">
                                 <thead><tr><th>Podcast</th><th>Plays</th></tr></thead>
                                 <tbody></tbody>
                             </table>
                         </div>
-                        <p class="muted" style="margin-top: 8px; font-size: 13px;">Showing top 20. Download the CSV for the full list.</p>
+                        <p class="muted" style="margin-top: 8px; font-size: 13px;">Showing top 30. Download the CSV for the full list.</p>
                     </div>
                     <div class="panel">
                         <h3>Top 20 Episodes</h3>
@@ -1412,7 +1412,7 @@ def index():
                 </div>
 
                 <div class="panel">
-                    <h3>App Top 20 Podcasts Refresh</h3>
+                    <h3>App Top 30 Podcasts Refresh</h3>
                     <p class="muted">Refresh time of the cloud snapshot the app uses for fast "Most popular" rankings.</p>
                     <div style="margin-top: 10px;">
                         Last refreshed: <code>{app_top20_last_refreshed}</code> &nbsp;·&nbsp;
