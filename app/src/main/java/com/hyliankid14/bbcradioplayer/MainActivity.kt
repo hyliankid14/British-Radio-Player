@@ -2288,11 +2288,13 @@ class MainActivity : AppCompatActivity() {
      */
     private fun showSubscribedSortMenu(anchor: View) {
         val popup = PopupMenu(this, anchor)
+        val groupId = 1
         popup.menu.apply {
-            add(Menu.NONE, 1, 0, "Most recently updated")
-            add(Menu.NONE, 2, 1, "Least recently updated")
-            add(Menu.NONE, 3, 2, "Alphabetical (A-Z)")
-            add(Menu.NONE, 4, 3, "Manual sort")
+            add(groupId, 1, 0, "Most recently updated")
+            add(groupId, 2, 1, "Least recently updated")
+            add(groupId, 3, 2, "Alphabetical (A-Z)")
+            add(groupId, 4, 3, "Manual sort")
+            setGroupCheckable(groupId, true, true)
         }
         val current = SubscribedPodcastSortPreference.getSortOrder(this)
         val checkedId = when (current) {
@@ -2302,11 +2304,7 @@ class MainActivity : AppCompatActivity() {
             SubscribedPodcastSortPreference.SORT_MANUAL -> 4
             else -> 1
         }
-        for (i in 0 until popup.menu.size()) {
-            val menuItem = popup.menu.getItem(i)
-            menuItem.isCheckable = true
-            menuItem.isChecked = (menuItem.itemId == checkedId)
-        }
+        popup.menu.findItem(checkedId)?.isChecked = true
         popup.setOnMenuItemClickListener { menuItem ->
             val newSort = when (menuItem.itemId) {
                 1 -> SubscribedPodcastSortPreference.SORT_MOST_RECENTLY_UPDATED
@@ -2332,10 +2330,16 @@ class MainActivity : AppCompatActivity() {
             val adapter = rv.adapter as? PodcastAdapter ?: return
             val isManual = sortOrder == SubscribedPodcastSortPreference.SORT_MANUAL
             if (isManual) {
-                // Save the current display order as the starting manual order (if none saved yet)
                 val existingManual = SubscribedPodcastSortPreference.getManualOrder(this)
                 if (existingManual.isEmpty()) {
+                    // No saved manual order yet — snapshot the current display order
                     SubscribedPodcastSortPreference.setManualOrder(this, adapter.getPodcasts().map { it.id })
+                } else {
+                    // Restore the previously saved manual order
+                    val podcasts = adapter.getPodcasts()
+                    val orderMap = existingManual.mapIndexed { idx, id -> id to idx }.toMap()
+                    val sorted = podcasts.sortedWith(compareBy { orderMap[it.id] ?: Int.MAX_VALUE })
+                    adapter.updatePodcasts(sorted)
                 }
                 adapter.showDragHandles = true
             } else {
