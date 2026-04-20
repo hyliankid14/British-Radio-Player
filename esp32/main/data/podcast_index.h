@@ -56,6 +56,12 @@ extern "C" {
  */
 esp_err_t podcast_index_fetch(void);
 
+/**
+ * Fetch only the popular podcast snapshot from GCS, capped to @p max_count.
+ * This is the lightest-weight path for showing a ranked popular list.
+ */
+esp_err_t podcast_index_fetch_popular(size_t max_count);
+
 /** Total number of podcasts loaded. */
 size_t podcast_index_count(void);
 

@@ -1,4 +1,5 @@
 #include "screen_home.h"
+#include "screen_podcasts.h"
 #include "screen_settings.h"
 #include "screen_stations.h"
 #include "ui_manager.h"
@@ -17,27 +18,10 @@ static void open_settings(lv_event_t *e)
     ui_push_screen(scr, LV_SCR_LOAD_ANIM_MOVE_LEFT);
 }
 
-static lv_obj_t *screen_podcasts_placeholder_create(void)
-{
-    lv_obj_t *scr = lv_obj_create(NULL);
-    lv_obj_remove_style_all(scr);
-    lv_obj_set_style_bg_color(scr, UI_COLOR_DARK_BG, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_border_width(scr, 0, LV_PART_MAIN);
-    lv_obj_set_style_outline_width(scr, 0, LV_PART_MAIN);
-    lv_obj_set_style_shadow_width(scr, 0, LV_PART_MAIN);
-    lv_obj_set_style_radius(scr, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(scr, 0, LV_PART_MAIN);
-    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
-
-    ui_create_header(scr, "Podcasts", true);
-    return scr;
-}
-
 static void open_podcasts(lv_event_t *e)
 {
     LV_UNUSED(e);
-    lv_obj_t *scr = screen_podcasts_placeholder_create();
+    lv_obj_t *scr = screen_podcasts_create();
     ui_push_screen(scr, LV_SCR_LOAD_ANIM_MOVE_LEFT);
 }
 

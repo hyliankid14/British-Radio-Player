@@ -30,6 +30,55 @@ static void *podcast_realloc(void *ptr, size_t bytes)
     return p;
 }
 
+static void xml_unescape_inplace(char *s)
+{
+    if (!s || !*s) {
+        return;
+    }
+
+    char *src = s;
+    char *dst = s;
+    while (*src) {
+        if (src[0] == '&' && strncmp(src, "&amp;", 5) == 0) {
+            *dst++ = '&';
+            src += 5;
+        } else if (src[0] == '&' && strncmp(src, "&quot;", 6) == 0) {
+            *dst++ = '"';
+            src += 6;
+        } else if (src[0] == '&' && strncmp(src, "&apos;", 6) == 0) {
+            *dst++ = '\'';
+            src += 6;
+        } else if (src[0] == '&' && strncmp(src, "&lt;", 4) == 0) {
+            *dst++ = '<';
+            src += 4;
+        } else if (src[0] == '&' && strncmp(src, "&gt;", 4) == 0) {
+            *dst++ = '>';
+            src += 4;
+        } else {
+            *dst++ = *src++;
+        }
+    }
+    *dst = '\0';
+}
+
+static int parse_duration_secs_text(const char *text)
+{
+    if (!text || !*text) {
+        return 0;
+    }
+
+    int h = 0, m = 0, s = 0;
+    if (sscanf(text, "%d:%d:%d", &h, &m, &s) == 3) {
+        return h * 3600 + m * 60 + s;
+    }
+    if (sscanf(text, "%d:%d", &m, &s) == 2) {
+        return m * 60 + s;
+    }
+
+    int secs = atoi(text);
+    return (secs > 0) ? secs : 0;
+}
+
 /* Extract attr_name="..." from a bounded tag range. */
 static const char *attr_find(const char *tag_start, const char *tag_end,
                              const char *attr_name, char *out, size_t out_len)
@@ -252,8 +301,12 @@ static bool podcasts_files_https_to_http(const char *url, char *out, size_t out_
     return true;
 }
 
-static esp_err_t load_top_podcasts_from_cloud(void)
+static esp_err_t load_top_podcasts_from_cloud(size_t max_count, bool include_new)
 {
+    if (max_count == 0 || max_count > MAX_PODCASTS) {
+        max_count = MAX_PODCASTS;
+    }
+
     if (!s_podcasts) {
         s_podcasts = podcast_malloc(MAX_PODCASTS * sizeof(podcast_t));
         if (!s_podcasts) {
@@ -287,7 +340,7 @@ static esp_err_t load_top_podcasts_from_cloud(void)
 
     cJSON *item;
     cJSON_ArrayForEach(item, popular) {
-        if (s_count >= MAX_PODCASTS) break;
+        if (s_count >= max_count) break;
 
         const char *pid = NULL;
         const char *title = NULL;
@@ -330,71 +383,73 @@ static esp_err_t load_top_podcasts_from_cloud(void)
 
     ESP_LOGI(TAG, "Loaded %zu popular podcasts", s_count);
 
-    /* Load the newest 20 podcasts from cloud index (newest first). */
-    char *new_json = fetch_small_json(GCS_NEW_URL, GCS_NEW_MAX_JSON);
-    if (new_json) {
-        cJSON *new_root = cJSON_Parse(new_json);
-        free(new_json);
-        if (new_root) {
-            cJSON *new_items = cJSON_GetObjectItemCaseSensitive(new_root, "new_podcasts");
-            if (!new_items) {
-                new_items = cJSON_GetObjectItemCaseSensitive(new_root, "ids");
-            }
-            if (!new_items && cJSON_IsArray(new_root)) {
-                new_items = new_root;
-            }
-
-            int new_rank = 0;
-            cJSON *entry;
-            cJSON_ArrayForEach(entry, new_items) {
-                if (new_rank >= MAX_NEW_PODCASTS) {
-                    break;
+    if (include_new) {
+        /* Load the newest 20 podcasts from cloud index (newest first). */
+        char *new_json = fetch_small_json(GCS_NEW_URL, GCS_NEW_MAX_JSON);
+        if (new_json) {
+            cJSON *new_root = cJSON_Parse(new_json);
+            free(new_json);
+            if (new_root) {
+                cJSON *new_items = cJSON_GetObjectItemCaseSensitive(new_root, "new_podcasts");
+                if (!new_items) {
+                    new_items = cJSON_GetObjectItemCaseSensitive(new_root, "ids");
+                }
+                if (!new_items && cJSON_IsArray(new_root)) {
+                    new_items = new_root;
                 }
 
-                const char *pid = NULL;
-                const char *title = NULL;
-
-                if (cJSON_IsObject(entry)) {
-                    cJSON *jid = cJSON_GetObjectItemCaseSensitive(entry, "id");
-                    cJSON *jtitle = cJSON_GetObjectItemCaseSensitive(entry, "title");
-                    if (cJSON_IsString(jid) && jid->valuestring) {
-                        pid = jid->valuestring;
+                int new_rank = 0;
+                cJSON *entry;
+                cJSON_ArrayForEach(entry, new_items) {
+                    if (new_rank >= MAX_NEW_PODCASTS) {
+                        break;
                     }
-                    if (cJSON_IsString(jtitle) && jtitle->valuestring) {
-                        title = jtitle->valuestring;
+
+                    const char *pid = NULL;
+                    const char *title = NULL;
+
+                    if (cJSON_IsObject(entry)) {
+                        cJSON *jid = cJSON_GetObjectItemCaseSensitive(entry, "id");
+                        cJSON *jtitle = cJSON_GetObjectItemCaseSensitive(entry, "title");
+                        if (cJSON_IsString(jid) && jid->valuestring) {
+                            pid = jid->valuestring;
+                        }
+                        if (cJSON_IsString(jtitle) && jtitle->valuestring) {
+                            title = jtitle->valuestring;
+                        }
+                    } else if (cJSON_IsString(entry) && entry->valuestring) {
+                        pid = entry->valuestring;
                     }
-                } else if (cJSON_IsString(entry) && entry->valuestring) {
-                    pid = entry->valuestring;
-                }
 
-                if (!is_valid_bbc_pid(pid)) {
-                    continue;
-                }
-
-                int idx = find_podcast_index_by_id(pid);
-                if (idx >= 0) {
-                    s_podcasts[idx].is_new = true;
-                    s_podcasts[idx].new_rank = ++new_rank;
-                    if (title && title[0]) {
-                        strncpy(s_podcasts[idx].title, title, PODCAST_TITLE_MAX - 1);
+                    if (!is_valid_bbc_pid(pid)) {
+                        continue;
                     }
-                    continue;
-                }
 
-                if (s_count >= MAX_PODCASTS) {
-                    break;
-                }
+                    int idx = find_podcast_index_by_id(pid);
+                    if (idx >= 0) {
+                        s_podcasts[idx].is_new = true;
+                        s_podcasts[idx].new_rank = ++new_rank;
+                        if (title && title[0]) {
+                            strncpy(s_podcasts[idx].title, title, PODCAST_TITLE_MAX - 1);
+                        }
+                        continue;
+                    }
 
-                podcast_t *pod = &s_podcasts[s_count];
-                memset(pod, 0, sizeof(*pod));
-                strncpy(pod->id, pid, PODCAST_ID_MAX - 1);
-                strncpy(pod->title, (title && title[0]) ? title : pid, PODCAST_TITLE_MAX - 1);
-                build_rss_url_from_id(pod->id, pod->rss_url, PODCAST_URL_MAX);
-                pod->is_new = true;
-                pod->new_rank = ++new_rank;
-                s_count++;
+                    if (s_count >= MAX_PODCASTS) {
+                        break;
+                    }
+
+                    podcast_t *pod = &s_podcasts[s_count];
+                    memset(pod, 0, sizeof(*pod));
+                    strncpy(pod->id, pid, PODCAST_ID_MAX - 1);
+                    strncpy(pod->title, (title && title[0]) ? title : pid, PODCAST_TITLE_MAX - 1);
+                    build_rss_url_from_id(pod->id, pod->rss_url, PODCAST_URL_MAX);
+                    pod->is_new = true;
+                    pod->new_rank = ++new_rank;
+                    s_count++;
+                }
+                cJSON_Delete(new_root);
             }
-            cJSON_Delete(new_root);
         }
     }
 
@@ -407,7 +462,18 @@ esp_err_t podcast_index_fetch(void)
 {
     ESP_LOGI(TAG, "Fetching top podcasts from cloud index...");
 
-    esp_err_t ret = load_top_podcasts_from_cloud();
+    esp_err_t ret = load_top_podcasts_from_cloud(MAX_PODCASTS, true);
+    if (ret != ESP_OK) return ret;
+
+    s_ready = true;
+    return ESP_OK;
+}
+
+esp_err_t podcast_index_fetch_popular(size_t max_count)
+{
+    ESP_LOGI(TAG, "Fetching popular podcasts from cloud index...");
+
+    esp_err_t ret = load_top_podcasts_from_cloud(max_count, false);
     if (ret != ESP_OK) return ret;
 
     s_ready = true;
@@ -469,6 +535,7 @@ static esp_err_t parse_rss_episodes(const char *xml, podcast_t *podcast)
             /* Strip leading CDATA if present */
             if (strncmp(ts, "<![CDATA[", 9) == 0) { ts += 9; tl -= 9 + 3; }
             strncpy(ep->title, ts, tl);
+            xml_unescape_inplace(ep->title);
         }
 
         /* enclosure url (audio) */
@@ -477,6 +544,7 @@ static esp_err_t parse_rss_episodes(const char *xml, podcast_t *podcast)
             const char *enc_end = strchr(enc, '>');
             if (enc_end) {
                 attr_find(enc, enc_end, "url", ep->audio_url, EPISODE_URL_MAX);
+                xml_unescape_inplace(ep->audio_url);
             }
         }
 
@@ -488,6 +556,31 @@ static esp_err_t parse_rss_episodes(const char *xml, podcast_t *podcast)
             size_t dl = (size_t)(de - ds);
             if (dl >= sizeof(ep->pub_date)) dl = sizeof(ep->pub_date) - 1;
             strncpy(ep->pub_date, ds, dl);
+            xml_unescape_inplace(ep->pub_date);
+        }
+
+        const char *dur_s = strstr(item, "<itunes:duration>");
+        const char *dur_e = dur_s ? strstr(dur_s, "</itunes:duration>") : NULL;
+        if (dur_s && dur_e && dur_e < item_end) {
+            dur_s += 17;
+        } else {
+            dur_s = strstr(item, "<duration>");
+            dur_e = dur_s ? strstr(dur_s, "</duration>") : NULL;
+            if (dur_s && dur_e && dur_e < item_end) {
+                dur_s += 10;
+            } else {
+                dur_s = NULL;
+                dur_e = NULL;
+            }
+        }
+        if (dur_s && dur_e) {
+            char duration_txt[24] = {0};
+            size_t dur_l = (size_t)(dur_e - dur_s);
+            if (dur_l >= sizeof(duration_txt)) dur_l = sizeof(duration_txt) - 1;
+            memcpy(duration_txt, dur_s, dur_l);
+            duration_txt[dur_l] = '\0';
+            xml_unescape_inplace(duration_txt);
+            ep->duration_secs = parse_duration_secs_text(duration_txt);
         }
 
         if (ep->audio_url[0] != '\0') n++;
@@ -538,6 +631,7 @@ static esp_err_t append_compact_item_xml(const char *item_start, const char *ite
     char title[EPISODE_TITLE_MAX] = {0};
     char audio_url[EPISODE_URL_MAX] = {0};
     char pub_date[32] = {0};
+    char duration[24] = {0};
 
     const char *ts = strstr(item_start, "<title>");
     const char *te = ts ? strstr(ts, "</title>") : NULL;
@@ -567,6 +661,21 @@ static esp_err_t append_compact_item_xml(const char *item_start, const char *ite
         pub_date[dl] = '\0';
     }
 
+    const char *dur_s = strstr(item_start, "<itunes:duration>");
+    const char *dur_e = dur_s ? strstr(dur_s, "</itunes:duration>") : NULL;
+    if (dur_s && dur_e && dur_e < item_end) {
+        dur_s += 17;
+        size_t dur_l = (size_t)(dur_e - dur_s);
+        if (dur_l >= sizeof(duration)) dur_l = sizeof(duration) - 1;
+        memcpy(duration, dur_s, dur_l);
+        duration[dur_l] = '\0';
+    }
+
+    xml_unescape_inplace(title);
+    xml_unescape_inplace(audio_url);
+    xml_unescape_inplace(pub_date);
+    xml_unescape_inplace(duration);
+
     if (audio_url[0] == '\0') {
         return ESP_ERR_NOT_FOUND;
     }
@@ -575,10 +684,11 @@ static esp_err_t append_compact_item_xml(const char *item_start, const char *ite
     int written = snprintf(
         compact,
         sizeof(compact),
-        "<item><title>%s</title><enclosure url=\"%s\" /><pubDate>%s</pubDate></item>",
+        "<item><title>%s</title><enclosure url=\"%s\" /><pubDate>%s</pubDate><duration>%s</duration></item>",
         title,
         audio_url,
-        pub_date
+        pub_date,
+        duration
     );
     if (written <= 0 || (size_t)written >= sizeof(compact)) {
         return ESP_FAIL;

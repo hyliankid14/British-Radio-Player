@@ -11,6 +11,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #if BBC_HAS_ADF
 #include "esp_http_client.h"
@@ -40,6 +41,9 @@ static bool s_use_adf = false;
 #define AUDIO_TONE_FRAME_SAMPLES 256
 #define AUDIO_TONE_AMPLITUDE     10000
 #define HTTP_CHUNK_BYTES         8192
+#define HTTP_HEADER_BYTES        65536
+#define HTTP_HEADER_TX_BYTES     8192
+#define HTTP_URL_BYTES           4096
 #define PLAYLIST_BUF_BYTES       4096
 #define PCM_BUF_BYTES            16384
 #define PENDING_BUF_BYTES        196608
@@ -256,6 +260,17 @@ static int parse_playlist_entries(const char *playlist, char entries[][256], int
     return count;
 }
 
+static char s_redirect_location[HTTP_URL_BYTES];
+static esp_err_t segment_http_event_handler(esp_http_client_event_t *evt)
+{
+    if (evt->event_id == HTTP_EVENT_ON_HEADER &&
+        evt->header_key && evt->header_value &&
+        strcasecmp(evt->header_key, "Location") == 0) {
+        strlcpy(s_redirect_location, evt->header_value, sizeof(s_redirect_location));
+    }
+    return ESP_OK;
+}
+
 static size_t decode_pending_bytes(esp_audio_simple_dec_handle_t dec,
                                    uint8_t *pending,
                                    size_t *pending_len,
@@ -265,8 +280,8 @@ static size_t decode_pending_bytes(esp_audio_simple_dec_handle_t dec,
                                    bool *sample_info_logged,
                                    size_t *bytes_written_out)
 {
-        size_t decoded_total = 0;
-        size_t written_total = 0;
+    size_t decoded_total = 0;
+    size_t written_total = 0;
     static int s_decode_error_logs = 0;
     esp_audio_simple_dec_raw_t raw = {
         .buffer = pending,
@@ -362,7 +377,7 @@ static size_t decode_pending_bytes(esp_audio_simple_dec_handle_t dec,
     return decoded_total;
 }
 
-static void stream_segment_encoded(const char *segment_url,
+static size_t stream_segment_encoded(const char *segment_url,
                                    esp_audio_simple_dec_handle_t dec,
                                    uint8_t *chunk_buf,
                                    uint8_t **pcm_buf,
@@ -374,56 +389,84 @@ static void stream_segment_encoded(const char *segment_url,
                                    bool flush_eos)
 {
     static esp_http_client_handle_t s_segment_client = NULL;
-    if (!s_segment_client) {
+    char current_url[HTTP_URL_BYTES];
+    strlcpy(current_url, segment_url, sizeof(current_url));
+    int seg_status = 0;
+
+    for (int hop = 0; hop < 8; hop++) {
+        if (s_segment_client) {
+            esp_http_client_cleanup(s_segment_client);
+            s_segment_client = NULL;
+        }
+        s_redirect_location[0] = '\0';
+
         esp_http_client_config_t cfg = {
-            .url = segment_url,
-            .method = HTTP_METHOD_GET,
-            .timeout_ms = 5000,
+            .url               = current_url,
+            .method            = HTTP_METHOD_GET,
+            .timeout_ms        = 30000,
             .crt_bundle_attach = esp_crt_bundle_attach,
-            .buffer_size = HTTP_CHUNK_BYTES,
-            .max_redirection_count = 5,
-            .keep_alive_enable = true,
+            .buffer_size       = HTTP_HEADER_BYTES,
+            .buffer_size_tx    = HTTP_HEADER_TX_BYTES,
+            .keep_alive_enable = false,
+            .event_handler     = segment_http_event_handler,
         };
         s_segment_client = esp_http_client_init(&cfg);
         if (!s_segment_client) {
-            ESP_LOGW(TAG, "Segment client init failed: %.96s", segment_url);
-            return;
+            ESP_LOGW(TAG, "Segment client init failed hop=%d: %.96s", hop, current_url);
+            return 0;
         }
-    }
+        esp_http_client_set_header(s_segment_client, "User-Agent", "BBC-Radio-Player/esp32");
+        esp_http_client_set_header(s_segment_client, "Accept-Encoding", "identity");
 
-    esp_http_client_set_url(s_segment_client, segment_url);
-    esp_http_client_set_method(s_segment_client, HTTP_METHOD_GET);
-    esp_http_client_set_header(s_segment_client, "User-Agent", "BBC-Radio-Player/esp32");
-    esp_http_client_set_header(s_segment_client, "Accept-Encoding", "identity");
+        if (esp_http_client_open(s_segment_client, 0) != ESP_OK) {
+            ESP_LOGW(TAG, "Segment open failed hop=%d: %.96s", hop, current_url);
+            esp_http_client_cleanup(s_segment_client);
+            s_segment_client = NULL;
+            return 0;
+        }
+        if (esp_http_client_fetch_headers(s_segment_client) < 0) {
+            ESP_LOGW(TAG, "Segment fetch_headers failed hop=%d: %.80s", hop, current_url);
+            esp_http_client_close(s_segment_client);
+            esp_http_client_cleanup(s_segment_client);
+            s_segment_client = NULL;
+            return 0;
+        }
 
-    esp_err_t open_err = esp_http_client_open(s_segment_client, 0);
-    if (open_err != ESP_OK) {
-        ESP_LOGW(TAG, "Segment open failed err=%d: %.96s", (int)open_err, segment_url);
-        esp_http_client_cleanup(s_segment_client);
-        s_segment_client = NULL;
-        return;
-    }
-    /* Consume HTTP response headers before reading the body. */
-    if (esp_http_client_fetch_headers(s_segment_client) < 0) {
-        ESP_LOGW(TAG, "Segment fetch_headers failed: %.80s", segment_url);
+        seg_status = esp_http_client_get_status_code(s_segment_client);
+        if (seg_status >= 200 && seg_status < 300) {
+            ESP_LOGI(TAG, "Segment connected hop=%d status=%d: %.96s", hop, seg_status, current_url);
+            break;
+        }
+
+        if (seg_status >= 300 && seg_status < 400 && s_redirect_location[0] != '\0') {
+            ESP_LOGI(TAG, "Redirect hop=%d status=%d -> %.120s", hop, seg_status, s_redirect_location);
+            esp_http_client_close(s_segment_client);
+            strlcpy(current_url, s_redirect_location, sizeof(current_url));
+            continue;
+        }
+
+        ESP_LOGW(TAG, "Segment HTTP status %d hop=%d loc=%s url=%.80s",
+                 seg_status, hop, s_redirect_location[0] ? s_redirect_location : "(none)", current_url);
         esp_http_client_close(s_segment_client);
         esp_http_client_cleanup(s_segment_client);
         s_segment_client = NULL;
-        return;
+        return 0;
     }
-    int seg_status = esp_http_client_get_status_code(s_segment_client);
-    if (seg_status < 200 || seg_status >= 300) {
-        ESP_LOGW(TAG, "Segment HTTP status %d: %.80s", seg_status, segment_url);
-        esp_http_client_close(s_segment_client);
-        esp_http_client_cleanup(s_segment_client);
-        s_segment_client = NULL;
-        return;
+
+    if (!s_segment_client || seg_status < 200 || seg_status >= 300) {
+        ESP_LOGW(TAG, "Segment redirect chain exhausted: %.80s", segment_url);
+        if (s_segment_client) {
+            esp_http_client_close(s_segment_client);
+            esp_http_client_cleanup(s_segment_client);
+            s_segment_client = NULL;
+        }
+        return 0;
     }
 
     if (!pending || pending_cap < 2048) {
         ESP_LOGW(TAG, "Pending decode buffer unavailable");
         esp_http_client_close(s_segment_client);
-        return;
+        return 0;
     }
     size_t pending_len = pending_len_io ? *pending_len_io : 0;
 
@@ -492,6 +535,7 @@ static void stream_segment_encoded(const char *segment_url,
         ESP_LOGD(TAG, "Segment ok read=%u decoded=%u written=%u",
                  (unsigned)read_total, (unsigned)decoded_total, (unsigned)written_total);
     }
+    return decoded_total;
 }
 
 static bool url_looks_like_m3u8(const char *url)
@@ -602,9 +646,31 @@ static void adf_pcm_task(void *arg)
     while (s_playing && s_use_adf && my_gen_id == s_adf.task_gen_id) {
         if (dec_type != ESP_AUDIO_SIMPLE_DEC_TYPE_TS) {
             /* Podcast and direct-file playback path (MP3/AAC): stream bytes directly. */
-            stream_segment_encoded(media_playlist_url, dec, in_buf, &pcm_buf, &pcm_size,
-                                   &sample_info_logged, pending_buf, pending_cap,
-                                   &pending_len, true);
+            size_t decoded = stream_segment_encoded(media_playlist_url, dec, in_buf, &pcm_buf, &pcm_size,
+                                                    &sample_info_logged, pending_buf, pending_cap,
+                                                    &pending_len, true);
+            if (decoded == 0) {
+                esp_audio_simple_dec_type_t fallback_type =
+                    (dec_type == ESP_AUDIO_SIMPLE_DEC_TYPE_MP3)
+                        ? ESP_AUDIO_SIMPLE_DEC_TYPE_AAC
+                        : ESP_AUDIO_SIMPLE_DEC_TYPE_MP3;
+                ESP_LOGW(TAG, "No PCM decoded with type=%d, retrying with fallback type=%d",
+                         (int)dec_type, (int)fallback_type);
+                esp_audio_simple_dec_close(dec);
+                dec_cfg.dec_type = fallback_type;
+                dec_cfg.dec_cfg = NULL;
+                dec_cfg.cfg_size = 0;
+                if (esp_audio_simple_dec_open(&dec_cfg, &dec) == ESP_AUDIO_ERR_OK) {
+                    pending_len = 0;
+                    sample_info_logged = false;
+                    (void)stream_segment_encoded(media_playlist_url, dec, in_buf, &pcm_buf, &pcm_size,
+                                                 &sample_info_logged, pending_buf, pending_cap,
+                                                 &pending_len, true);
+                    dec_type = fallback_type;
+                } else {
+                    ESP_LOGE(TAG, "Fallback decoder open failed (type=%d)", (int)fallback_type);
+                }
+            }
             break;
         }
 
@@ -667,9 +733,9 @@ static void adf_pcm_task(void *arg)
                 continue;
             }
             ESP_LOGD(TAG, "Fetching segment i=%d/%d url=%.96s", i, newest, seg_url);
-            stream_segment_encoded(seg_url, dec, in_buf, &pcm_buf, &pcm_size,
-                                   &sample_info_logged, pending_buf, pending_cap,
-                                   &pending_len, false);
+            (void)stream_segment_encoded(seg_url, dec, in_buf, &pcm_buf, &pcm_size,
+                                         &sample_info_logged, pending_buf, pending_cap,
+                                         &pending_len, false);
             strlcpy(last_segment_url, seg_url, sizeof(last_segment_url));
         }
 
@@ -769,7 +835,6 @@ static void codec_drainer_task(void *arg)
 
 static esp_err_t adf_start_stream(const char *url, bool is_live)
 {
-    (void)is_live;
     adf_stop_locked();
     /* Brief settle after codec drain — caller already holds an 80ms gap. */
     vTaskDelay(pdMS_TO_TICKS(50));

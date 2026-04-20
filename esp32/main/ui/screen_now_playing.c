@@ -45,6 +45,11 @@ static volatile int s_pending_station_delta = 0;
 #define ESS_REFRESH_EVERY_POLLS 2
 #define STATION_SWITCH_COALESCE_MS 120
 
+#define TITLE_X_WITH_BADGE   56
+#define TITLE_X_NO_BADGE      8
+#define TITLE_W_WITH_BADGE  172
+#define TITLE_W_NO_BADGE    224
+
 typedef struct {
     uint32_t gen;
     char text[RMS_TEXT_MAX];
@@ -859,6 +864,8 @@ void screen_now_playing_refresh(void *arg)
         station_display_title(st.station, station_title, sizeof(station_title));
         s_last_station = st.station;
         rms_ensure_tracking(st.station);
+        lv_obj_set_width(s_lbl_title, TITLE_W_WITH_BADGE);
+        lv_obj_align(s_lbl_title, LV_ALIGN_TOP_LEFT, TITLE_X_WITH_BADGE, UI_HEADER_HEIGHT + 25);
         if (s_station_badge && s_station_badge_lbl) {
             lv_obj_clear_flag(s_station_badge, LV_OBJ_FLAG_HIDDEN);
             lv_obj_set_style_bg_color(s_station_badge, station_logo_bg(st.station), LV_PART_MAIN);
@@ -873,6 +880,8 @@ void screen_now_playing_refresh(void *arg)
         lv_obj_add_flag(s_lbl_remaining, LV_OBJ_FLAG_HIDDEN);
     } else if (st.type == PLAYBACK_EPISODE) {
         rms_stop_tracking();
+        lv_obj_set_width(s_lbl_title, TITLE_W_NO_BADGE);
+        lv_obj_align(s_lbl_title, LV_ALIGN_TOP_LEFT, TITLE_X_NO_BADGE, UI_HEADER_HEIGHT + 25);
         if (s_station_badge) {
             lv_obj_add_flag(s_station_badge, LV_OBJ_FLAG_HIDDEN);
         }
@@ -905,6 +914,8 @@ void screen_now_playing_refresh(void *arg)
         if (s_last_station) {
             char station_title[64];
             station_display_title(s_last_station, station_title, sizeof(station_title));
+            lv_obj_set_width(s_lbl_title, TITLE_W_WITH_BADGE);
+            lv_obj_align(s_lbl_title, LV_ALIGN_TOP_LEFT, TITLE_X_WITH_BADGE, UI_HEADER_HEIGHT + 25);
             if (s_station_badge && s_station_badge_lbl) {
                 lv_obj_clear_flag(s_station_badge, LV_OBJ_FLAG_HIDDEN);
                 lv_obj_set_style_bg_color(s_station_badge, station_logo_bg(s_last_station), LV_PART_MAIN);
@@ -914,6 +925,8 @@ void screen_now_playing_refresh(void *arg)
             lv_label_set_text(s_lbl_subtitle, "Nothing Playing");
             lv_label_set_long_mode(s_lbl_subtitle, LV_LABEL_LONG_DOT);
         } else {
+            lv_obj_set_width(s_lbl_title, TITLE_W_NO_BADGE);
+            lv_obj_align(s_lbl_title, LV_ALIGN_TOP_LEFT, TITLE_X_NO_BADGE, UI_HEADER_HEIGHT + 25);
             if (s_station_badge) {
                 lv_obj_add_flag(s_station_badge, LV_OBJ_FLAG_HIDDEN);
             }
@@ -985,13 +998,16 @@ lv_obj_t *screen_now_playing_create(void)
 
     /* Progress bar (episode mode only, hidden for live radio) */
     s_bar_progress = lv_bar_create(scr);
-    lv_obj_set_size(s_bar_progress, 190, 6);
-    lv_obj_align(s_bar_progress, LV_ALIGN_TOP_MID, 0, UI_HEADER_HEIGHT + 94);
+    lv_obj_remove_style_all(s_bar_progress);
+    lv_obj_set_size(s_bar_progress, 224, 3);
+    lv_obj_align(s_bar_progress, LV_ALIGN_TOP_MID, 0, UI_HEADER_HEIGHT + 86);
     lv_obj_set_style_bg_color(s_bar_progress, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_bar_progress, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_bg_color(s_bar_progress, UI_COLOR_BBC_RED, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(s_bar_progress, LV_OPA_COVER, LV_PART_INDICATOR);
     lv_obj_set_style_border_width(s_bar_progress, 0, LV_PART_MAIN);
-    lv_obj_set_style_radius(s_bar_progress, 3, LV_PART_MAIN);
-    lv_obj_set_style_radius(s_bar_progress, 3, LV_PART_INDICATOR);
+    lv_obj_set_style_radius(s_bar_progress, 2, LV_PART_MAIN);
+    lv_obj_set_style_radius(s_bar_progress, 2, LV_PART_INDICATOR);
     lv_bar_set_range(s_bar_progress, 0, 100);
     lv_bar_set_value(s_bar_progress, 0, LV_ANIM_OFF);
     lv_obj_add_flag(s_bar_progress, LV_OBJ_FLAG_HIDDEN);
@@ -1001,7 +1017,7 @@ lv_obj_t *screen_now_playing_create(void)
     lv_label_set_text(s_lbl_elapsed, "0:00");
     lv_obj_set_style_text_color(s_lbl_elapsed, UI_COLOR_SUBTEXT, LV_PART_MAIN);
     lv_obj_set_style_text_font(s_lbl_elapsed, &lv_font_montserrat_14, LV_PART_MAIN);
-    lv_obj_align(s_lbl_elapsed, LV_ALIGN_TOP_MID, -70, UI_HEADER_HEIGHT + 106);
+    lv_obj_align(s_lbl_elapsed, LV_ALIGN_TOP_MID, -92, UI_HEADER_HEIGHT + 96);
     lv_obj_add_flag(s_lbl_elapsed, LV_OBJ_FLAG_HIDDEN);
 
     /* Remaining time label (right of bar) */
@@ -1009,7 +1025,7 @@ lv_obj_t *screen_now_playing_create(void)
     lv_label_set_text(s_lbl_remaining, "");
     lv_obj_set_style_text_color(s_lbl_remaining, UI_COLOR_SUBTEXT, LV_PART_MAIN);
     lv_obj_set_style_text_font(s_lbl_remaining, &lv_font_montserrat_14, LV_PART_MAIN);
-    lv_obj_align(s_lbl_remaining, LV_ALIGN_TOP_MID, 70, UI_HEADER_HEIGHT + 106);
+    lv_obj_align(s_lbl_remaining, LV_ALIGN_TOP_MID, 92, UI_HEADER_HEIGHT + 96);
     lv_obj_add_flag(s_lbl_remaining, LV_OBJ_FLAG_HIDDEN);
 
     /* Previous button */
