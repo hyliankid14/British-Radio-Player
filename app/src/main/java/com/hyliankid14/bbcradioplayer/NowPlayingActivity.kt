@@ -199,6 +199,8 @@ class NowPlayingActivity : AppCompatActivity() {
         elapsedView = findViewById(R.id.playback_elapsed)
         remainingView = findViewById(R.id.playback_remaining)
         markPlayedButton = findViewById(R.id.now_playing_mark_played) 
+        seekBar.thumbRadius = (5 * resources.displayMetrics.density).toInt()
+        seekBar.haloRadius = 0
 
         // Keep a high-contrast white glyph for the play/pause control.
         playPauseButton.iconTint = android.content.res.ColorStateList.valueOf(android.graphics.Color.WHITE)
@@ -1812,7 +1814,8 @@ class NowPlayingActivity : AppCompatActivity() {
                 android.graphics.Color.blue(iconColor)
             )
             seekBar.trackInactiveTintList = ColorStateList.valueOf(inactiveColor)
-            seekBar.haloTintList = ColorStateList.valueOf(inactiveColor)
+            seekBar.haloTintList = ColorStateList.valueOf(android.graphics.Color.TRANSPARENT)
+            seekBar.haloRadius = 0
 
             WindowInsetsControllerCompat(window, window.decorView).apply {
                 isAppearanceLightStatusBars = !isDarkMode

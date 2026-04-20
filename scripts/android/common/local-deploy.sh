@@ -75,6 +75,13 @@ if [ ! -x "./gradlew" ]; then
     chmod +x ./gradlew
 fi
 
+# Kotlin/Java incremental outputs can occasionally retain Finder-style duplicate
+# class artefacts like `Foo (1).class`, which then break D8 with "defined multiple
+# times" errors for githubDebug. Clearing only the generated githubDebug compiler
+# output keeps local deploy reliable without forcing a full clean build.
+rm -rf app/build/tmp/kotlin-classes/githubDebug
+rm -rf app/build/intermediates/javac/githubDebug
+
 # Build GitHub debug APK for local sideload flow.
 ./gradlew :app:assembleGithubDebug \
     -PAPP_VERSION_NAME="$DEBUG_VERSION_NAME" \
