@@ -20,6 +20,9 @@
 #define BSP_LCD_H_RES           240
 #define BSP_LCD_V_RES           240
 #define BSP_LCD_DRAW_BUF_LINES  50      /* lines per DMA draw buffer */
+/* Exact panel origin (safe bounds; no artefacts). */
+#define BSP_LCD_X_GAP          (0)
+#define BSP_LCD_Y_GAP          (0)
 
 #ifdef __cplusplus
 extern "C" {

@@ -938,6 +938,11 @@ lv_obj_t *screen_now_playing_create(void)
 {
     lv_obj_t *scr = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(scr, UI_COLOR_DARK_BG, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(scr, 0, LV_PART_MAIN);
+    lv_obj_set_style_outline_width(scr, 0, LV_PART_MAIN);
+    lv_obj_set_style_shadow_width(scr, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(scr, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(scr, 0, LV_PART_MAIN);
     lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -948,7 +953,7 @@ lv_obj_t *screen_now_playing_create(void)
     /* Station logo badge (shown for live radio). */
     s_station_badge = lv_obj_create(scr);
     lv_obj_set_size(s_station_badge, 30, 30);
-    lv_obj_align(s_station_badge, LV_ALIGN_TOP_LEFT, 6, UI_HEADER_HEIGHT + 13);
+    lv_obj_align(s_station_badge, LV_ALIGN_TOP_LEFT, 8, UI_HEADER_HEIGHT + 13);
     lv_obj_set_style_bg_color(s_station_badge, lv_color_make(0x4A, 0x4A, 0x8A), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s_station_badge, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(s_station_badge, 0, LV_PART_MAIN);
@@ -965,18 +970,18 @@ lv_obj_t *screen_now_playing_create(void)
     /* Station / episode title */
     s_lbl_title = lv_label_create(scr);
     lv_label_set_long_mode(s_lbl_title, LV_LABEL_LONG_DOT);
-    lv_obj_set_width(s_lbl_title, 160);
+    lv_obj_set_width(s_lbl_title, 172);
     lv_obj_set_style_text_font(s_lbl_title, &lv_font_montserrat_14, LV_PART_MAIN);
     lv_obj_set_style_text_color(s_lbl_title, UI_COLOR_TEXT, LV_PART_MAIN);
-    lv_obj_align(s_lbl_title, LV_ALIGN_TOP_LEFT, 60, UI_HEADER_HEIGHT + 25);
+    lv_obj_align(s_lbl_title, LV_ALIGN_TOP_LEFT, 56, UI_HEADER_HEIGHT + 25);
 
     /* Now playing subtitle under station title row. */
     s_lbl_subtitle = lv_label_create(scr);
     lv_label_set_long_mode(s_lbl_subtitle, LV_LABEL_LONG_DOT);
-    lv_obj_set_width(s_lbl_subtitle, 210);
+    lv_obj_set_width(s_lbl_subtitle, 224);
     lv_obj_set_style_text_font(s_lbl_subtitle, &lv_font_montserrat_14, LV_PART_MAIN);
     lv_obj_set_style_text_color(s_lbl_subtitle, UI_COLOR_TEXT, LV_PART_MAIN);
-    lv_obj_align(s_lbl_subtitle, LV_ALIGN_TOP_LEFT, 12, UI_HEADER_HEIGHT + 66);
+    lv_obj_align(s_lbl_subtitle, LV_ALIGN_TOP_LEFT, 8, UI_HEADER_HEIGHT + 66);
 
     /* Progress bar (episode mode only, hidden for live radio) */
     s_bar_progress = lv_bar_create(scr);

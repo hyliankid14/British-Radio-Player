@@ -23,6 +23,9 @@ void ui_refresh_navigation(void);
 /** Push a new screen onto the navigation stack (max depth 8). */
 void ui_push_screen(lv_obj_t *scr, lv_scr_load_anim_t anim);
 
+/** Set the root screen directly (clears stack and loads without animation). */
+void ui_set_root_screen(lv_obj_t *scr);
+
 /** Pop the top screen and return to the previous one. */
 void ui_pop_screen(void);
 

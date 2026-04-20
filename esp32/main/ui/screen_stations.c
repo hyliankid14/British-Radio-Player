@@ -1,6 +1,5 @@
 #include "screen_stations.h"
 #include "screen_now_playing.h"
-#include "screen_settings.h"
 #include "ui_manager.h"
 #include "stations.h"
 #include "playback_state.h"
@@ -77,13 +76,6 @@ static void on_station_clicked(lv_event_t *e)
     }
     lv_obj_t *np_scr = screen_now_playing_create();
     ui_push_screen(np_scr, LV_SCR_LOAD_ANIM_MOVE_LEFT);
-}
-
-static void on_settings_clicked(lv_event_t *e)
-{
-    LV_UNUSED(e);
-    lv_obj_t *settings = screen_settings_create();
-    ui_push_screen(settings, LV_SCR_LOAD_ANIM_MOVE_LEFT);
 }
 
 static bool parse_http_date_to_iso(const char *date_hdr, char *out, size_t out_len)
@@ -320,34 +312,27 @@ lv_obj_t *screen_stations_create(void)
     s_station_label_count = 0;
 
     lv_obj_t *scr = lv_obj_create(NULL);
+    lv_disp_t *disp = lv_disp_get_default();
+    lv_coord_t disp_w = disp ? lv_disp_get_hor_res(disp) : 240;
+    lv_coord_t disp_h = disp ? lv_disp_get_ver_res(disp) : 240;
+    lv_obj_remove_style_all(scr);
+    lv_obj_set_size(scr, disp_w, disp_h);
+    lv_obj_align(scr, LV_ALIGN_TOP_LEFT, 0, 0);
     lv_obj_set_style_bg_color(scr, UI_COLOR_DARK_BG, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(scr, 0, LV_PART_MAIN);
+    lv_obj_set_style_outline_width(scr, 0, LV_PART_MAIN);
+    lv_obj_set_style_shadow_width(scr, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(scr, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(scr, 0, LV_PART_MAIN);
     lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
 
-    ui_create_header(scr, "BBC Radio", false);
-
-    lv_obj_t *settings_btn = lv_btn_create(scr);
-    lv_obj_set_size(settings_btn, 44, UI_HEADER_HEIGHT);
-    lv_obj_align(settings_btn, LV_ALIGN_TOP_LEFT, 0, 0);
-    lv_obj_set_style_bg_opa(settings_btn, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(settings_btn, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_PRESSED);
-    lv_obj_set_style_border_width(settings_btn, 0, LV_PART_MAIN);
-    lv_obj_set_style_shadow_width(settings_btn, 0, LV_PART_MAIN);
-    lv_obj_set_style_outline_width(settings_btn, 0, LV_PART_MAIN);
-    lv_obj_set_style_radius(settings_btn, 0, LV_PART_MAIN);
-    lv_obj_clear_flag(settings_btn, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_ext_click_area(settings_btn, 14);
-    ui_mark_selectable(settings_btn);
-    lv_obj_add_event_cb(settings_btn, on_settings_clicked, LV_EVENT_CLICKED, NULL);
-    lv_obj_t *settings_icon = lv_label_create(settings_btn);
-    lv_label_set_text(settings_icon, LV_SYMBOL_SETTINGS);
-    lv_obj_set_style_text_color(settings_icon, UI_COLOR_TEXT, LV_PART_MAIN);
-    lv_obj_align(settings_icon, LV_ALIGN_CENTER, 0, 1);
+    ui_create_header(scr, "BBC Radio", true);
 
     lv_obj_t *list = lv_obj_create(scr);
     lv_obj_remove_style_all(list);
-    lv_obj_set_size(list, 240, 240 - UI_HEADER_HEIGHT);
-    lv_obj_align(list, LV_ALIGN_TOP_MID, 0, UI_HEADER_HEIGHT);
+    lv_obj_set_size(list, disp_w, disp_h - UI_HEADER_HEIGHT);
+    lv_obj_align(list, LV_ALIGN_TOP_LEFT, 0, UI_HEADER_HEIGHT);
     lv_obj_set_style_bg_color(list, UI_COLOR_DARK_BG, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(list, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(list, 0, LV_PART_MAIN);
@@ -355,7 +340,7 @@ lv_obj_t *screen_stations_create(void)
     lv_obj_set_style_pad_all(list, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_left(list, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_right(list, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_top(list, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_top(list, 6, LV_PART_MAIN);
     lv_obj_set_style_pad_bottom(list, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_row(list, 6, LV_PART_MAIN);
     lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
@@ -385,8 +370,8 @@ lv_obj_t *screen_stations_create(void)
         lv_obj_set_style_shadow_width(btn, 0, LV_PART_MAIN);
         lv_obj_set_style_outline_width(btn, 0, LV_PART_MAIN);
         lv_obj_set_style_radius(btn, 0, LV_PART_MAIN);
-        lv_obj_set_style_pad_left(btn, 8, LV_PART_MAIN);
-        lv_obj_set_style_pad_right(btn, 8, LV_PART_MAIN);
+        lv_obj_set_style_pad_left(btn, 0, LV_PART_MAIN);
+        lv_obj_set_style_pad_right(btn, 0, LV_PART_MAIN);
         lv_obj_set_style_pad_top(btn, 0, LV_PART_MAIN);
         lv_obj_set_style_pad_bottom(btn, 0, LV_PART_MAIN);
         lv_obj_set_flex_flow(btn, LV_FLEX_FLOW_ROW);
@@ -415,9 +400,9 @@ lv_obj_t *screen_stations_create(void)
         station_display_title(&stations[i], title, sizeof(title));
         lv_label_set_text(label, title);
         lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
-        lv_obj_set_width(label, 182);
+        lv_obj_set_width(label, 200);
         lv_obj_set_style_text_color(label, UI_COLOR_TEXT, LV_PART_MAIN);
-        lv_obj_set_style_pad_left(label, 8, LV_PART_MAIN);
+        lv_obj_set_style_pad_left(label, 6, LV_PART_MAIN);
 
         if (s_station_label_count < (sizeof(s_station_labels) / sizeof(s_station_labels[0]))) {
             s_station_labels[s_station_label_count] = label;
@@ -431,6 +416,7 @@ lv_obj_t *screen_stations_create(void)
     }
 
     lv_obj_scroll_to_y(list, 0, LV_ANIM_OFF);
+    screen_stations_start_title_fetch();
 
     return scr;
 }

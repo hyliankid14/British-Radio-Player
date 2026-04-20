@@ -72,10 +72,11 @@ esp_err_t bsp_display_init(esp_lcd_panel_handle_t    *panel_handle,
     ESP_ERROR_CHECK(esp_lcd_panel_init(*panel_handle));
     ESP_ERROR_CHECK(esp_lcd_panel_mirror(*panel_handle, false, true));
     ESP_ERROR_CHECK(esp_lcd_panel_invert_color(*panel_handle, true));
-    ESP_ERROR_CHECK(esp_lcd_panel_set_gap(*panel_handle, 0, 0));
+        ESP_ERROR_CHECK(esp_lcd_panel_set_gap(*panel_handle, BSP_LCD_X_GAP, BSP_LCD_Y_GAP));
     ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(*panel_handle, true));
 
-    ESP_LOGI(TAG, "Display initialised (%dx%d)", BSP_LCD_H_RES, BSP_LCD_V_RES);
+    ESP_LOGI(TAG, "Display initialised (%dx%d, gap=%d,%d)",
+             BSP_LCD_H_RES, BSP_LCD_V_RES, BSP_LCD_X_GAP, BSP_LCD_Y_GAP);
     return ESP_OK;
 }
 

@@ -90,6 +90,11 @@ lv_obj_t *screen_pod_detail_create(podcast_t *podcast)
 {
     lv_obj_t *scr = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(scr, UI_COLOR_DARK_BG, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(scr, 0, LV_PART_MAIN);
+    lv_obj_set_style_outline_width(scr, 0, LV_PART_MAIN);
+    lv_obj_set_style_shadow_width(scr, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(scr, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(scr, 0, LV_PART_MAIN);
 
     char hdr_title[72];
@@ -97,8 +102,8 @@ lv_obj_t *screen_pod_detail_create(podcast_t *podcast)
     ui_create_header(scr, hdr_title, true);
 
     lv_obj_t *list = lv_list_create(scr);
-    lv_obj_set_size(list, 240, 240 - UI_HEADER_HEIGHT);
-    lv_obj_align(list, LV_ALIGN_TOP_MID, 0, UI_HEADER_HEIGHT);
+    lv_obj_set_size(list, LV_PCT(100), 240 - UI_HEADER_HEIGHT);
+    lv_obj_align(list, LV_ALIGN_TOP_LEFT, 0, UI_HEADER_HEIGHT);
     lv_obj_set_style_bg_color(list, UI_COLOR_DARK_BG, LV_PART_MAIN);
     lv_obj_set_style_border_width(list, 0, LV_PART_MAIN);
     lv_obj_set_style_radius(list, 0, LV_PART_MAIN);

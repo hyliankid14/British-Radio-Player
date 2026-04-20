@@ -40,6 +40,7 @@ idf_component_register(
         "wifi_settings.c"
         "wifi_portal.c"
         "ui/ui_manager.c"
+        "ui/screen_home.c"
         "ui/screen_stations.c"
         "ui/screen_settings.c"
         "ui/screen_now_playing.c"

@@ -21,12 +21,15 @@
 #include "audio/playback_state.h"
 #include "audio/bbc_audio.h"
 #include "ui/ui_manager.h"
+#include "ui/screen_home.h"
 #include "ui/screen_stations.h"
 #include "wifi_settings.h"
 
 #include "config.h"   /* copy config.h.example → config.h and fill in credentials */
 
 static const char *TAG = "main";
+
+#define STARTUP_DISPLAY_TEST_PATTERN_MS 2000
 
 /* ── WiFi ─────────────────────────────────────────────────────────────── */
 #define WIFI_CONNECTED_BIT BIT0
@@ -144,6 +147,80 @@ static void sync_time_if_needed(void)
     }
 }
 
+static lv_obj_t *show_startup_display_test_pattern(lv_disp_t *disp)
+{
+    if (!disp) {
+        return NULL;
+    }
+
+    lv_coord_t w = lv_disp_get_hor_res(disp);
+    lv_coord_t h = lv_disp_get_ver_res(disp);
+
+    lv_obj_t *scr = lv_obj_create(NULL);
+    lv_obj_remove_style_all(scr);
+    lv_obj_set_size(scr, w, h);
+    lv_obj_align(scr, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_obj_set_style_bg_color(scr, lv_color_hex(0x111111), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *top = lv_obj_create(scr);
+    lv_obj_remove_style_all(top);
+    lv_obj_set_size(top, w, 2);
+    lv_obj_align(top, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_obj_set_style_bg_color(top, lv_color_hex(0xFF0000), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(top, LV_OPA_COVER, LV_PART_MAIN);
+
+    lv_obj_t *left = lv_obj_create(scr);
+    lv_obj_remove_style_all(left);
+    lv_obj_set_size(left, 2, h);
+    lv_obj_align(left, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_obj_set_style_bg_color(left, lv_color_hex(0x00FF00), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(left, LV_OPA_COVER, LV_PART_MAIN);
+
+    lv_obj_t *right = lv_obj_create(scr);
+    lv_obj_remove_style_all(right);
+    lv_obj_set_size(right, 2, h);
+    lv_obj_align(right, LV_ALIGN_TOP_RIGHT, 0, 0);
+    lv_obj_set_style_bg_color(right, lv_color_hex(0x0000FF), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(right, LV_OPA_COVER, LV_PART_MAIN);
+
+    lv_obj_t *bottom = lv_obj_create(scr);
+    lv_obj_remove_style_all(bottom);
+    lv_obj_set_size(bottom, w, 2);
+    lv_obj_align(bottom, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+    lv_obj_set_style_bg_color(bottom, lv_color_hex(0xFFFF00), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(bottom, LV_OPA_COVER, LV_PART_MAIN);
+
+    lv_obj_t *inner_border = lv_obj_create(scr);
+    lv_obj_remove_style_all(inner_border);
+    lv_obj_set_size(inner_border, w - 4, h - 4);
+    lv_obj_align(inner_border, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_bg_opa(inner_border, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(inner_border, 1, LV_PART_MAIN);
+    lv_obj_set_style_border_color(inner_border, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+
+    lv_obj_t *cross_h = lv_obj_create(scr);
+    lv_obj_remove_style_all(cross_h);
+    lv_obj_set_size(cross_h, w, 1);
+    lv_obj_align(cross_h, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_bg_color(cross_h, lv_color_hex(0xAAAAAA), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(cross_h, LV_OPA_COVER, LV_PART_MAIN);
+
+    lv_obj_t *cross_v = lv_obj_create(scr);
+    lv_obj_remove_style_all(cross_v);
+    lv_obj_set_size(cross_v, 1, h);
+    lv_obj_align(cross_v, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_bg_color(cross_v, lv_color_hex(0xAAAAAA), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(cross_v, LV_OPA_COVER, LV_PART_MAIN);
+
+    lv_scr_load(scr);
+    lv_refr_now(NULL);
+    ESP_LOGI(TAG, "Startup display test pattern shown (%dx%d)", (int)w, (int)h);
+
+    return scr;
+}
+
 /* ── Entry point ─────────────────────────────────────────────────────── */
 void app_main(void)
 {
@@ -182,23 +259,35 @@ void app_main(void)
     lv_disp_t *disp = NULL;
     ESP_ERROR_CHECK(bsp_lvgl_port_init(panel, io, touch, &disp));
 
+    lv_obj_t *startup_pattern = NULL;
+    if (bsp_lvgl_port_lock(100)) {
+        startup_pattern = show_startup_display_test_pattern(disp);
+        bsp_lvgl_port_unlock();
+    } else {
+        ESP_LOGW(TAG, "Could not acquire LVGL lock for startup test pattern");
+    }
+    vTaskDelay(pdMS_TO_TICKS(STARTUP_DISPLAY_TEST_PATTERN_MS));
+
     /* Playback state init */
     playback_state_init();
 
     /* Audio subsystem (ADF decode on hardware when available, tone fallback otherwise) */
     bbc_audio_init();
 
-    /* Show radio station screen directly (radio-only mode). */
+    /* Show entry screen with Radio and Podcasts. */
     if (bsp_lvgl_port_lock(100)) {
-        ESP_LOGI(TAG, "Creating stations screen");
+        ESP_LOGI(TAG, "Creating home screen");
         ui_manager_init();
-        lv_obj_t *stations = screen_stations_create();
-        ui_push_screen(stations, LV_SCR_LOAD_ANIM_NONE);
+        lv_obj_t *home = screen_home_create();
+        ui_set_root_screen(home);
+        if (startup_pattern && lv_obj_is_valid(startup_pattern)) {
+            lv_obj_del(startup_pattern);
+        }
         lv_refr_now(NULL);
-        ESP_LOGI(TAG, "Stations screen loaded");
+        ESP_LOGI(TAG, "Home screen loaded");
         bsp_lvgl_port_unlock();
     } else {
-        ESP_LOGW(TAG, "Could not acquire LVGL lock for stations screen");
+        ESP_LOGW(TAG, "Could not acquire LVGL lock for home screen");
     }
 
     /* WiFi */
