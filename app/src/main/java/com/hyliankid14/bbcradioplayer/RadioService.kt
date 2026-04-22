@@ -133,6 +133,12 @@ class RadioService : MediaBrowserServiceCompat() {
     // onPlay() callback triggers a second, duplicate replayEpisodeById() before the first
     // coroutine has a chance to call playPodcastEpisode() and claim the player.
     @Volatile private var pendingAndroidAutoAutoResume: Boolean = false
+    // Set to true while the autoplay-next-episode coroutine is in flight (between episode
+    // completion and playPodcastEpisode being called for the next episode).  Prevents a race
+    // where some Android Auto head units send onPlay() after receiving STATE_STOPPED (which is
+    // emitted when the episode ends), causing handlePlayRequest to restart the same episode
+    // from position 0 instead of letting the autoplay coroutine advance to the next one.
+    @Volatile private var pendingAutoplayNextEpisode: Boolean = false
 
     // Service-level episode cache for Android Auto pagination.
     // Keyed by podcast ID; populated on first episode load so subsequent page requests
@@ -1581,6 +1587,11 @@ class RadioService : MediaBrowserServiceCompat() {
                                     // coroutine before it has a chance to start the next episode.
                                     // Sending STATE_BUFFERING keeps Android Auto in a "loading" state
                                     // and prevents that spurious onStop() call.
+                                    // Mark the coroutine as in-flight before launching so that any
+                                    // onPlay() arriving on the main thread (some head units send onPlay()
+                                    // instead of onStop() after STATE_STOPPED) does not restart the same
+                                    // episode via handlePlayRequest's STATE_ENDED path.
+                                    pendingAutoplayNextEpisode = true
                                     updatePlaybackState(PlaybackStateCompat.STATE_BUFFERING)
                                     serviceScope.launch {
                                         try {
@@ -1646,6 +1657,10 @@ class RadioService : MediaBrowserServiceCompat() {
                                         } catch (e: Exception) {
                                             Log.w(TAG, "Failed to autoplay next episode: ${e.message}")
                                             updatePlaybackState(PlaybackStateCompat.STATE_STOPPED)
+                                        } finally {
+                                            // Clear the in-flight flag for all non-success paths.
+                                            // playPodcastEpisode() clears it on the success path.
+                                            pendingAutoplayNextEpisode = false
                                         }
                                     }
                                 }
@@ -1776,6 +1791,10 @@ class RadioService : MediaBrowserServiceCompat() {
                     return
                 }
                 Player.STATE_ENDED -> {
+                    if (pendingAutoplayNextEpisode) {
+                        Log.d(TAG, "handlePlayRequest: autoplay-next coroutine in flight, skipping restart of ended episode (source=$source)")
+                        return
+                    }
                     Log.d(TAG, "handlePlayRequest: restarting ENDED media item from start (source=$source)")
                     currentPlayer.seekTo(0L)
                     currentPlayer.playWhenReady = true
@@ -3294,6 +3313,9 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
             // Clear the Android Auto auto-resume in-flight flag: actual playback is now
             // starting, so any pending onPlay() handlers should proceed normally.
             pendingAndroidAutoAutoResume = false
+            // Clear the autoplay-next-episode in-flight flag: the next episode is now
+            // being set up, so handlePlayRequest no longer needs to be blocked.
+            pendingAutoplayNextEpisode = false
             playerReconnectRunnable?.let { handler.removeCallbacks(it); playerReconnectRunnable = null }
             if (!mediaSession.isActive) mediaSession.isActive = true
 
