@@ -1618,21 +1618,16 @@ class RadioService : MediaBrowserServiceCompat() {
                                                 } else {
                                                     withContext(Dispatchers.IO) { repo.fetchEpisodes(podcast) }
                                                 }
+                                                val sortedEpisodes = repo.sortEpisodesForPodcast(podcastId, allEpisodes)
 
-                                                val currentEp = allEpisodes.find { it.id == currentEpisode }
-                                                if (currentEp == null) {
+                                                val currentIndex = sortedEpisodes.indexOfFirst { it.id == currentEpisode }
+                                                if (currentIndex < 0) {
                                                     Log.w(TAG, "Current episode not found in feed for autoplay: $currentEpisode")
                                                     updatePlaybackState(PlaybackStateCompat.STATE_STOPPED)
                                                 } else {
-                                                    val currentEpoch = EpisodeDateParser.parsePubDateToEpoch(currentEp.pubDate)
-                                                    // Build list of episodes with valid epoch greater than currentEpoch
-                                                    val candidates = allEpisodes.mapNotNull { ep ->
-                                                        val epEpoch = EpisodeDateParser.parsePubDateToEpoch(ep.pubDate)
-                                                        if (epEpoch > 0L && currentEpoch > 0L && epEpoch > currentEpoch) Pair(ep, epEpoch) else null
-                                                    }
-                                                    val next = candidates.minByOrNull { it.second }?.first
+                                                    val next = sortedEpisodes.drop(currentIndex + 1).firstOrNull()
                                                     if (next != null) {
-                                                        Log.d(TAG, "Autoplaying next episode chronologically: ${next.title} (id=${next.id})")
+                                                        Log.d(TAG, "Autoplaying next episode by configured order: ${next.title} (id=${next.id})")
                                                         // Check isStopped here: the user may have pressed Stop while we were
                                                         // fetching episodes in the background. playPodcastEpisode() resets
                                                         // isStopped = false, which would restart playback the user explicitly stopped.
@@ -1646,7 +1641,7 @@ class RadioService : MediaBrowserServiceCompat() {
                                                         }
                                                         playPodcastEpisode(next, playIntent)
                                                     } else {
-                                                        Log.d(TAG, "No newer episode found to autoplay for podcast: $podcastId")
+                                                        Log.d(TAG, "No next episode found to autoplay for podcast: $podcastId")
                                                         updatePlaybackState(PlaybackStateCompat.STATE_STOPPED)
                                                     }
                                                 }
@@ -3313,9 +3308,6 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
             // Clear the Android Auto auto-resume in-flight flag: actual playback is now
             // starting, so any pending onPlay() handlers should proceed normally.
             pendingAndroidAutoAutoResume = false
-            // Clear the autoplay-next-episode in-flight flag: the next episode is now
-            // being set up, so handlePlayRequest no longer needs to be blocked.
-            pendingAutoplayNextEpisode = false
             playerReconnectRunnable?.let { handler.removeCallbacks(it); playerReconnectRunnable = null }
             if (!mediaSession.isActive) mediaSession.isActive = true
 
@@ -3661,7 +3653,12 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                 }
             }
             handler.post(podcastProgressRunnable!!)
+
+            // Clear the autoplay-next-episode guard only after the new media item is queued.
+            // This avoids Android Auto onPlay() races that can restart the previously ended item.
+            pendingAutoplayNextEpisode = false
         } catch (e: Exception) {
+            pendingAutoplayNextEpisode = false
             Log.e(TAG, "Error playing podcast episode", e)
         }
     }
