@@ -43,6 +43,7 @@ object EpisodeDownloadManager {
     private const val KEY_PREFIX_DOWNLOAD_ID = "download_id_"
     private const val KEY_PREFIX_HTTP_RETRY = "http_retry_"
     private const val KEY_PREFIX_DIRECT_RETRY = "direct_retry_"
+    private const val KEY_PREFIX_WIFI_QUEUE = "wifi_queue_"
     private const val DOWNLOAD_FAILURE_CHANNEL_ID = "episode_download_failures"
     private const val DOWNLOAD_SUCCESS_CHANNEL_ID = "episode_download_success"
     private const val DOWNLOAD_BULK_CHANNEL_ID = "episode_download_bulk"
@@ -322,10 +323,10 @@ object EpisodeDownloadManager {
             return false
         }
 
-        // Check WiFi requirement
+        // Check WiFi requirement — queue for later if WiFi is unavailable
         if (DownloadPreferences.isDownloadOnWifiOnly(context) && !isWifiConnected(context)) {
-            showToast(context, "Download requires WiFi connection")
-            return false
+            queueForWifiDownload(context, episodeForDownload, podcastTitle, isAutoDownload, suppressSuccessNotification)
+            return true
         }
 
         try {
@@ -356,6 +357,61 @@ object EpisodeDownloadManager {
             Log.e(TAG, "Failed to start download", e)
             showToast(context, "Failed to start download: ${e.message}")
             return false
+        }
+    }
+
+    /**
+     * Persist an episode to the WiFi download queue and schedule
+     * [com.hyliankid14.bbcradioplayer.workers.WifiDownloadWorker] so the
+     * download starts automatically once an unmetered (WiFi) connection is
+     * available.
+     */
+    private fun queueForWifiDownload(
+        context: Context,
+        episode: Episode,
+        podcastTitle: String?,
+        isAutoDownload: Boolean,
+        suppressSuccessNotification: Boolean
+    ) {
+        val queueKey = KEY_PREFIX_WIFI_QUEUE + episode.id
+        val data = android.util.Base64.encodeToString(
+            org.json.JSONObject().apply {
+                put("episode", episodeToJson(episode))
+                put("podcastTitle", podcastTitle ?: "")
+                put("autoDownload", isAutoDownload)
+                put("suppressSuccessNotification", suppressSuccessNotification)
+            }.toString().toByteArray(),
+            android.util.Base64.DEFAULT
+        )
+        prefs(context).edit().putString(queueKey, data).apply()
+        showToast(context, "Queued – will download when WiFi is available")
+        com.hyliankid14.bbcradioplayer.workers.WifiDownloadWorker.enqueue(context)
+    }
+
+    /**
+     * Process all episodes queued for WiFi-only download.  Called by
+     * [com.hyliankid14.bbcradioplayer.workers.WifiDownloadWorker] once an
+     * unmetered network is available.
+     */
+    fun processWifiQueue(context: Context) {
+        val prefs = prefs(context)
+        @Suppress("UNCHECKED_CAST")
+        val queuedEntries = prefs.all.filter { it.key.startsWith(KEY_PREFIX_WIFI_QUEUE) }
+        for ((key, value) in queuedEntries) {
+            if (value !is String) continue
+            try {
+                val jsonStr = String(android.util.Base64.decode(value, android.util.Base64.DEFAULT))
+                val json = org.json.JSONObject(jsonStr)
+                val episode = jsonToEpisode(json.getJSONObject("episode"))
+                val podcastTitle = json.optString("podcastTitle", "").ifBlank { null }
+                val isAutoDownload = json.optBoolean("autoDownload", false)
+                val suppressSuccessNotification = json.optBoolean("suppressSuccessNotification", false)
+                // Remove from queue before starting so a crash doesn't re-queue indefinitely
+                prefs.edit().remove(key).apply()
+                downloadEpisode(context, episode, podcastTitle, isAutoDownload, suppressSuccessNotification)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to process WiFi-queued download for key $key", e)
+            }
         }
     }
 
@@ -501,7 +557,7 @@ object EpisodeDownloadManager {
         val request = DownloadManager.Request(Uri.parse(downloadUrl)).apply {
             setTitle("${podcastTitle ?: "Podcast"}: ${episode.title}")
             setDescription("Downloading episode")
-            setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
+            setNotificationVisibility(DownloadManager.Request.VISIBILITY_HIDDEN)
             setDestinationInExternalPublicDir(Environment.DIRECTORY_PODCASTS, publicSubPath)
             setMimeType("audio/mpeg")
             addRequestHeader("User-Agent", "British Radio Player/1.0 (Android)")
