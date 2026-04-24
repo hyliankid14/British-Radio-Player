@@ -3,8 +3,13 @@
     xmlns:app="http://schemas.android.com/apk/res-auto">
 
     <item
+        android:id="@+id/action_playlist_download_selected"
+        android:title="Download All"
+        app:showAsAction="always" />
+
+    <item
         android:id="@+id/action_playlist_delete_downloads_selected"
-        android:title="Delete downloads"
+        android:title="Delete Downloads"
         app:showAsAction="always" />
 
     <item

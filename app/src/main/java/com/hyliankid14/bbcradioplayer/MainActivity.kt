@@ -292,6 +292,10 @@ class MainActivity : AppCompatActivity() {
         }
         playlistSelectionToolbar.setOnMenuItemClickListener { item ->
             when (item.itemId) {
+                R.id.action_playlist_download_selected -> {
+                    downloadSelectedPlaylistEpisodes()
+                    true
+                }
                 R.id.action_playlist_delete_downloads_selected -> {
                     deleteDownloadsForSelectedPlaylistEpisodes()
                     true
@@ -1322,6 +1326,12 @@ class MainActivity : AppCompatActivity() {
 
         toolbar.title = if (count == 1) "1 selected" else "$count selected"
         toolbar.visibility = View.VISIBLE
+
+        // Determine download state of selection to toggle between Download All / Delete Downloads
+        val selected = selectedPlaylistEpisodeEntries.values.toList()
+        val allDownloaded = selected.isNotEmpty() && selected.all { DownloadedEpisodes.isDownloaded(this, playlistEntryToEpisode(it)) }
+        toolbar.menu.findItem(R.id.action_playlist_download_selected)?.isVisible = !allDownloaded
+        toolbar.menu.findItem(R.id.action_playlist_delete_downloads_selected)?.isVisible = allDownloaded
     }
 
     private fun onPlaylistEpisodeLongPress(playlistId: String, entry: PodcastPlaylists.Entry) {
@@ -1334,6 +1344,18 @@ class MainActivity : AppCompatActivity() {
         if (selectedPlaylistEpisodeEntries.isEmpty()) return false
         togglePlaylistEpisodeSelection(playlistId, entry)
         return true
+    }
+
+    private fun downloadSelectedPlaylistEpisodes() {
+        val selected = selectedPlaylistEpisodeEntries.values.toList()
+        if (selected.isEmpty()) return
+        val pending = selected.filterNot { DownloadedEpisodes.isDownloaded(this, playlistEntryToEpisode(it)) }
+        if (pending.isEmpty()) {
+            Toast.makeText(this, "All selected episodes are already downloaded", Toast.LENGTH_SHORT).show()
+            return
+        }
+        startBulkPlaylistDownload(pending)
+        clearPlaylistEpisodeSelection()
     }
 
     private fun deleteDownloadsForSelectedPlaylistEpisodes() {
