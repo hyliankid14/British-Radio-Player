@@ -1682,7 +1682,19 @@ class RadioService : MediaBrowserServiceCompat() {
                                             val allEntries = PodcastPlaylists.getPlaylistEntries(this@RadioService, playlistId)
                                             val sortedEntries = PlaylistSortPreference.applySort(this@RadioService, playlistId, allEntries)
                                             val currentIndex = sortedEntries.indexOfFirst { it.id == currentEpisode }
-                                            val nextEntry = if (currentIndex >= 0) sortedEntries.getOrNull(currentIndex + 1) else null
+                                            // For SORT_NEWEST_FIRST the list runs newest→oldest (index 0 = newest).
+                                            // Advancing by +1 would replay progressively older (previously-heard) episodes
+                                            // when the user listens in chronological order starting from the bottom.
+                                            // Instead, advance toward the newer end of the list (lower index) so that
+                                            // playback progresses oldest→newest regardless of where the user started.
+                                            // All other sort orders already place older content at lower indices, so
+                                            // +1 correctly advances toward newer/later episodes.
+                                            val nextIndex = if (PlaylistSortPreference.getSortOrder(this@RadioService, playlistId) == PlaylistSortPreference.SORT_NEWEST_FIRST) {
+                                                currentIndex - 1
+                                            } else {
+                                                currentIndex + 1
+                                            }
+                                            val nextEntry = if (currentIndex >= 0 && nextIndex >= 0) sortedEntries.getOrNull(nextIndex) else null
                                             if (nextEntry != null && !isStopped) {
                                                 Log.d(TAG, "Autoplaying next playlist episode: ${nextEntry.title} (id=${nextEntry.id})")
                                                 val nextEp = Episode(
