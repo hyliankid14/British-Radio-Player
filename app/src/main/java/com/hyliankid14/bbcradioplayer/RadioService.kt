@@ -1860,6 +1860,37 @@ class RadioService : MediaBrowserServiceCompat() {
                             }
                         }
                     }
+
+                    override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                        // ExoPlayer fires PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS only for
+                        // *permanent* focus loss (AUDIOFOCUS_LOSS).  Transient losses such as
+                        // navigation announcements or incoming calls use ExoPlayer's internal
+                        // "wait-for-callback" mechanism and do not change playWhenReady from the
+                        // app's perspective, so those are unaffected by this handler.
+                        //
+                        // Without an explicit stop here the media session stays active after
+                        // permanent focus loss and some Android Auto head units respond to the
+                        // resulting STATE_PAUSED transition by automatically sending onPlay() back
+                        // to this session.  That re-requests audio focus and interrupts the app
+                        // that legitimately took over — the bug reported in the issue.
+                        //
+                        // Calling stopPlayback() deactivates the session (isStopped = true) so any
+                        // subsequent onPlay() callback is treated as a fresh, user-initiated start
+                        // rather than an automatic resume.  This matches the behaviour observed
+                        // after the user taps the Stop button.
+                        if (!playWhenReady && reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS) {
+                            Log.d(TAG, "Audio focus permanently lost (ExoPlayer) — stopping playback to yield to other app")
+                            try {
+                                stopPlayback()
+                            } catch (e: Exception) {
+                                // stopPlayback() calls multiple Android APIs (player.stop,
+                                // stopForeground, etc.) that can each throw runtime exceptions.
+                                // isStopped is set first inside stopPlayback(), so even a partial
+                                // failure still prevents automatic restarts via handlePlayRequest.
+                                Log.e(TAG, "Error stopping playback on audio focus loss: ${e.message}")
+                            }
+                        }
+                    }
                 })
             }
         }
