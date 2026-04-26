@@ -557,7 +557,8 @@ object EpisodeDownloadManager {
         val request = DownloadManager.Request(Uri.parse(downloadUrl)).apply {
             setTitle("${podcastTitle ?: "Podcast"}: ${episode.title}")
             setDescription("Downloading episode")
-            setNotificationVisibility(DownloadManager.Request.VISIBILITY_HIDDEN)
+            // Third-party apps cannot use VISIBILITY_HIDDEN; use a valid public visibility mode.
+            setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             setDestinationInExternalPublicDir(Environment.DIRECTORY_PODCASTS, publicSubPath)
             setMimeType("audio/mpeg")
             addRequestHeader("User-Agent", "British Radio Player/1.0 (Android)")
