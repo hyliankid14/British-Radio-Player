@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <item
+        android:id="@+id/action_episode_mark_played"
+        android:title="Mark as played"
+        app:showAsAction="always" />
+
+    <item
+        android:id="@+id/action_episode_mark_unplayed"
+        android:title="Mark as unplayed"
+        app:showAsAction="always" />
+
+    <item
+        android:id="@+id/action_episode_download_selected"
+        android:title="Download"
+        app:showAsAction="always" />
+
+    <item
+        android:id="@+id/action_episode_delete_downloads_selected"
+        android:title="Delete downloads"
+        app:showAsAction="always" />
+
+</menu>

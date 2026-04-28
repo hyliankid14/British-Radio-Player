@@ -36,6 +36,8 @@ class PodcastDetailFragment : Fragment() {
     private var episodesRecycler: RecyclerView? = null
     private var loadingIndicator: CircularProgressIndicator? = null
     private var emptyState: TextView? = null
+    private var episodeSelectionToolbar: com.google.android.material.appbar.MaterialToolbar? = null
+    private val selectedEpisodes = linkedMapOf<String, Episode>()
     private var currentOffset = 0
     private var isLoadingPage = false
     private var reachedEnd = false
@@ -206,10 +208,39 @@ class PodcastDetailFragment : Fragment() {
             episodesAdapter = EpisodeAdapter(
                 requireContext(),
                 onPlayClick = { episode -> playEpisode(episode) },
-                onOpenFull = { episode -> openEpisodePreview(episode) }
+                onOpenFull = { episode -> openEpisodePreview(episode) },
+                onEpisodeLongPress = { episode -> onEpisodeLongPress(episode) },
+                onEpisodeSelectionClick = { episode -> onEpisodeSelectionClick(episode) }
             )
             episodesAdapter?.setHidePlayedEpisodes(hidePlayedEpisodes)
             episodesRecycler.adapter = episodesAdapter
+
+            val selectionToolbar = view.findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.episode_selection_toolbar)
+            episodeSelectionToolbar = selectionToolbar
+            selectionToolbar.setNavigationOnClickListener {
+                clearEpisodeSelection()
+            }
+            selectionToolbar.setOnMenuItemClickListener { item ->
+                when (item.itemId) {
+                    R.id.action_episode_mark_played -> {
+                        markSelectedEpisodesPlayed()
+                        true
+                    }
+                    R.id.action_episode_mark_unplayed -> {
+                        markSelectedEpisodesUnplayed()
+                        true
+                    }
+                    R.id.action_episode_download_selected -> {
+                        downloadSelectedEpisodes()
+                        true
+                    }
+                    R.id.action_episode_delete_downloads_selected -> {
+                        deleteDownloadsForSelectedEpisodes()
+                        true
+                    }
+                    else -> false
+                }
+            }
 
             // Listen for played-status changes so the list updates when items are marked/unmarked
             // Use RECEIVER_NOT_EXPORTED to satisfy Android's requirement for non-system broadcasts
@@ -343,6 +374,98 @@ class PodcastDetailFragment : Fragment() {
         startActivity(intent)
     }
 
+    private fun onEpisodeLongPress(episode: Episode) {
+        toggleEpisodeSelection(episode)
+    }
+
+    private fun onEpisodeSelectionClick(episode: Episode): Boolean {
+        if (selectedEpisodes.isEmpty()) return false
+        toggleEpisodeSelection(episode)
+        return true
+    }
+
+    private fun toggleEpisodeSelection(episode: Episode) {
+        if (selectedEpisodes.containsKey(episode.id)) {
+            selectedEpisodes.remove(episode.id)
+        } else {
+            selectedEpisodes[episode.id] = episode
+        }
+        episodesAdapter?.setSelectedEpisodeIds(selectedEpisodes.keys)
+        updateEpisodeSelectionToolbar()
+    }
+
+    private fun clearEpisodeSelection() {
+        selectedEpisodes.clear()
+        episodesAdapter?.setSelectedEpisodeIds(emptySet())
+        updateEpisodeSelectionToolbar()
+    }
+
+    private fun updateEpisodeSelectionToolbar() {
+        val toolbar = episodeSelectionToolbar ?: return
+        val count = selectedEpisodes.size
+        if (count == 0) {
+            toolbar.visibility = View.GONE
+            return
+        }
+        toolbar.title = if (count == 1) "1 selected" else "$count selected"
+        toolbar.visibility = View.VISIBLE
+
+        val allDownloaded = selectedEpisodes.values.all { DownloadedEpisodes.isDownloaded(requireContext(), it) }
+        toolbar.menu.findItem(R.id.action_episode_download_selected)?.isVisible = !allDownloaded
+        toolbar.menu.findItem(R.id.action_episode_delete_downloads_selected)?.isVisible = allDownloaded
+    }
+
+    private fun markSelectedEpisodesPlayed() {
+        val episodes = selectedEpisodes.values.toList()
+        episodes.forEach { PlayedEpisodesPreference.markPlayed(requireContext(), it.id) }
+        android.widget.Toast.makeText(requireContext(), "Marked ${episodes.size} episode(s) as played", android.widget.Toast.LENGTH_SHORT).show()
+        clearEpisodeSelection()
+    }
+
+    private fun markSelectedEpisodesUnplayed() {
+        val episodes = selectedEpisodes.values.toList()
+        episodes.forEach { PlayedEpisodesPreference.markUnplayed(requireContext(), it.id) }
+        android.widget.Toast.makeText(requireContext(), "Marked ${episodes.size} episode(s) as unplayed", android.widget.Toast.LENGTH_SHORT).show()
+        clearEpisodeSelection()
+    }
+
+    private fun downloadSelectedEpisodes() {
+        val podcast = currentPodcast
+        val episodes = selectedEpisodes.values.toList()
+        val pending = episodes.filterNot { DownloadedEpisodes.isDownloaded(requireContext(), it) }
+        if (pending.isEmpty()) {
+            android.widget.Toast.makeText(requireContext(), "All selected episodes are already downloaded", android.widget.Toast.LENGTH_SHORT).show()
+            clearEpisodeSelection()
+            return
+        }
+        var started = 0
+        pending.forEach { episode ->
+            val didStart = EpisodeDownloadManager.downloadEpisode(
+                requireContext(),
+                episode,
+                podcast?.title ?: "",
+                isAutoDownload = false,
+                suppressSuccessNotification = true
+            )
+            if (didStart) started++
+        }
+        EpisodeDownloadManager.showBulkDownloadQueuedNotification(requireContext(), started, podcast?.title ?: "Podcast")
+        android.widget.Toast.makeText(requireContext(), "Started $started download(s)", android.widget.Toast.LENGTH_SHORT).show()
+        clearEpisodeSelection()
+    }
+
+    private fun deleteDownloadsForSelectedEpisodes() {
+        val episodes = selectedEpisodes.values.toList()
+        var deleted = 0
+        episodes.forEach { episode ->
+            if (EpisodeDownloadManager.deleteDownload(requireContext(), episode.id, showToast = false)) {
+                deleted++
+            }
+        }
+        android.widget.Toast.makeText(requireContext(), "Deleted $deleted download(s)", android.widget.Toast.LENGTH_SHORT).show()
+        clearEpisodeSelection()
+    }
+
     private fun playEpisode(episode: Episode) {
         val intent = Intent(requireContext(), RadioService::class.java).apply {
             action = RadioService.ACTION_PLAY_PODCAST_EPISODE
@@ -378,6 +501,8 @@ class PodcastDetailFragment : Fragment() {
         episodesRecycler = null
         loadingIndicator = null
         emptyState = null
+        episodeSelectionToolbar = null
+        selectedEpisodes.clear()
         // Reset action bar state. Always hide here — the destination fragment manages its own
         // toolbar (PodcastsFragment, PodcastSearchFragment, etc.). If the landing page needs
         // the action bar shown (e.g. static content), syncActionBarVisibility() in the back

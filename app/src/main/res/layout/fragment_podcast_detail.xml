@@ -149,6 +149,21 @@
 
     </androidx.core.widget.NestedScrollView>
 
+    <!-- Contextual selection toolbar shown when episodes are long-pressed -->
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/episode_selection_toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:visibility="gone"
+        android:background="?attr/colorSurfaceContainer"
+        android:minHeight="56dp"
+        android:contentInsetStartWithNavigation="0dp"
+        app:navigationIcon="@drawable/ic_clear"
+        app:navigationContentDescription="Clear selection"
+        app:titleTextColor="?attr/colorOnSurface"
+        app:menu="@menu/podcast_detail_selection_toolbar_menu" />
+
     <!-- Floating action button to return to top when the user starts scrolling -->
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         style="@style/Widget.MaterialComponents.FloatingActionButton"

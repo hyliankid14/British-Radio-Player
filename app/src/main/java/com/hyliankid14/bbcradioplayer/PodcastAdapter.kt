@@ -282,8 +282,17 @@ class EpisodeAdapter(
     private val context: Context,
     private var episodes: List<Episode> = emptyList(),
     private val onPlayClick: (Episode) -> Unit,
-    private val onOpenFull: (Episode) -> Unit
+    private val onOpenFull: (Episode) -> Unit,
+    private val onEpisodeLongPress: ((Episode) -> Unit)? = null,
+    private val onEpisodeSelectionClick: ((Episode) -> Boolean)? = null
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+
+    private var selectedEpisodeIds: Set<String> = emptySet()
+
+    fun setSelectedEpisodeIds(ids: Set<String>) {
+        selectedEpisodeIds = ids
+        notifyDataSetChanged()
+    }
 
     private sealed class DisplayItem {
         data class EpisodeRow(val episode: Episode) : DisplayItem()
@@ -495,14 +504,14 @@ class EpisodeAdapter(
             }
             else -> {
                 val view = LayoutInflater.from(context).inflate(R.layout.item_episode, parent, false)
-                EpisodeViewHolder(view, onPlayClick, onOpenFull)
+                EpisodeViewHolder(view, onPlayClick, onOpenFull, onEpisodeLongPress, onEpisodeSelectionClick)
             }
         }
     }
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         when (val item = displayItems[position]) {
-            is DisplayItem.EpisodeRow -> (holder as EpisodeViewHolder).bind(item.episode)
+            is DisplayItem.EpisodeRow -> (holder as EpisodeViewHolder).bind(item.episode, selectedEpisodeIds.contains(item.episode.id), selectedEpisodeIds.isNotEmpty())
             is DisplayItem.PlayedSectionHeader -> (holder as PlayedSectionHeaderViewHolder).bind(item.expanded)
             is DisplayItem.PlayedLoadMore -> {
                 (holder as PlayedLoadMoreViewHolder).bind(item.remainingCount)
@@ -577,7 +586,9 @@ class EpisodeAdapter(
     open class EpisodeViewHolder(
         itemView: View,
         private val onPlayClick: (Episode) -> Unit,
-        private val onOpenFull: (Episode) -> Unit
+        private val onOpenFull: (Episode) -> Unit,
+        private val onEpisodeLongPress: ((Episode) -> Unit)? = null,
+        private val onEpisodeSelectionClick: ((Episode) -> Boolean)? = null
     ) : RecyclerView.ViewHolder(itemView) {
         private lateinit var currentEpisode: Episode
         private val titleView: TextView = itemView.findViewById(R.id.episode_title)
@@ -613,30 +624,63 @@ class EpisodeAdapter(
                     .start()
                 onPlayClick(currentEpisode)
             }
-            // Play when the play button is tapped
-            playButton.setOnClickListener(playAction)
+            // Play when the play button is tapped (unless in selection mode)
+            playButton.setOnClickListener {
+                if (onEpisodeSelectionClick?.invoke(currentEpisode) != true) {
+                    playAction(it)
+                }
+            }
 
-            // Do not open preview when the row itself is tapped — only specific subviews are actionable
-            itemView.setOnClickListener(null)
+            // Row tap: toggle selection when in selection mode, otherwise open full
+            itemView.setOnClickListener {
+                if (onEpisodeSelectionClick?.invoke(currentEpisode) != true) {
+                    onOpenFull(currentEpisode)
+                }
+            }
+
+            // Long press enters selection mode
+            itemView.setOnLongClickListener {
+                if (onEpisodeLongPress != null) {
+                    onEpisodeLongPress.invoke(currentEpisode)
+                    true
+                } else {
+                    false
+                }
+            }
 
             // Make the title and description open the full-screen player in preview mode (no autoplay)
             titleView.isClickable = true
             titleView.isFocusable = true
-            titleView.setOnClickListener { onOpenFull(currentEpisode) }
+            titleView.setOnClickListener {
+                if (onEpisodeSelectionClick?.invoke(currentEpisode) != true) {
+                    onOpenFull(currentEpisode)
+                }
+            }
 
             descriptionView.isClickable = true
             descriptionView.isFocusable = true
-            descriptionView.setOnClickListener { onOpenFull(currentEpisode) }
+            descriptionView.setOnClickListener {
+                if (onEpisodeSelectionClick?.invoke(currentEpisode) != true) {
+                    onOpenFull(currentEpisode)
+                }
+            }
+
+            selectionCheckBox?.setOnClickListener {
+                onEpisodeSelectionClick?.invoke(currentEpisode)
+            }
         }
 
-        fun bind(episode: Episode) {
+        fun bind(episode: Episode, isSelected: Boolean = false, isSelectionMode: Boolean = false) {
             currentEpisode = episode
             titleView.text = episode.title
             isExpanded = false
             descriptionView.maxLines = collapsedLines
-            selectionCheckBox?.visibility = View.GONE
             overflowButton?.visibility = View.GONE
-            playButton.visibility = View.VISIBLE
+
+            // Show checkbox and hide play button in selection mode
+            selectionCheckBox?.visibility = if (isSelectionMode) View.VISIBLE else View.GONE
+            selectionCheckBox?.isChecked = isSelected
+            playButton.visibility = if (isSelectionMode) View.GONE else View.VISIBLE
 
             // Show description text sanitized
             val fullDesc = sanitizeDescription(episode.description)
