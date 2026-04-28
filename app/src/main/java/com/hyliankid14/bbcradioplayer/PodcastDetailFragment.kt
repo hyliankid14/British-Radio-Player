@@ -384,7 +384,7 @@ class PodcastDetailFragment : Fragment() {
         } else {
             selectedEpisodes[episode.id] = episode
         }
-        episodesAdapter?.setSelectedEpisodeIds(selectedEpisodes.keys)
+        episodesAdapter?.setSelectedEpisodeIds(selectedEpisodes.keys.toSet())
         updateEpisodeSelectionToolbar()
     }
 
@@ -400,7 +400,7 @@ class PodcastDetailFragment : Fragment() {
             toolbar.visibility = View.GONE
             return
         }
-        toolbar.title = ""
+        toolbar.title = null
         toolbar.visibility = View.VISIBLE
 
         val allPlayed = selectedEpisodes.values.all { PlayedEpisodesPreference.isPlayed(requireContext(), it.id) }
