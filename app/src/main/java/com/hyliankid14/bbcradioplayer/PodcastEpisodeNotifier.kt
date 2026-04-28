@@ -16,23 +16,25 @@ object PodcastEpisodeNotifier {
     private const val CHANNEL_ID = "podcast_updates"
     private const val CHANNEL_NAME = "Podcast updates"
 
-    fun notifyNewEpisode(context: Context, podcast: Podcast, episodeTitle: String) {
-        if (episodeTitle.isBlank()) return
+    fun notifyNewEpisode(context: Context, podcast: Podcast, episode: Episode) {
+        if (episode.title.isBlank()) return
         if (!PodcastSubscriptions.isNotificationsEnabled(context, podcast.id)) return
         if (!areNotificationsAllowed(context)) return
 
         ensureChannel(context)
 
         val title = podcast.title.ifBlank { "Podcast" }
-        val text = "New episode added - $episodeTitle"
+        val text = "New episode added - ${episode.title}"
 
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra("open_podcast_id", podcast.id)
+            putExtra("open_episode", episode)
+            putExtra("open_podcast_title", podcast.title)
+            putExtra("open_podcast_image", podcast.imageUrl)
         }
         val pendingIntent = PendingIntent.getActivity(
             context,
-            podcast.id.hashCode(),
+            (podcast.id + ":" + episode.id).hashCode(),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )

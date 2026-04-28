@@ -83,8 +83,7 @@ class SubscriptionRefreshReceiver : BroadcastReceiver() {
                         }
 
                         if (lastSeenId != latestId) {
-                            val episodeTitle = latest.title.ifBlank { "(Untitled Episode)" }
-                            PodcastEpisodeNotifier.notifyNewEpisode(context, podcast, episodeTitle)
+                            PodcastEpisodeNotifier.notifyNewEpisode(context, podcast, latest)
                             prefs.edit().putString(podcast.id, latestId).apply()
                         }
                     }

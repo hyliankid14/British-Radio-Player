@@ -595,6 +595,7 @@ class MainActivity : AppCompatActivity() {
 
         // Handle any incoming intents that request opening a specific podcast or mode
         handleDeepLinkIntent(intent)
+        handleOpenEpisodeNotificationIntent(intent)
         handleOpenPodcastIntent(intent)
         handleOpenModeIntent(intent)
         handleOpenSavedSearchIntent(intent)
@@ -605,6 +606,7 @@ class MainActivity : AppCompatActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleDeepLinkIntent(intent)
+        handleOpenEpisodeNotificationIntent(intent)
         handleOpenPodcastIntent(intent)
         handleOpenModeIntent(intent)
         handleOpenSavedSearchIntent(intent)
@@ -2626,6 +2628,26 @@ class MainActivity : AppCompatActivity() {
                 replace(R.id.fragment_container, existing, "podcasts_fragment")
                 commit()
             }
+        }
+    }
+
+    private fun handleOpenEpisodeNotificationIntent(intent: Intent?) {
+        val episode = intent?.getParcelableExtraCompat<Episode>("open_episode", Episode::class.java) ?: return
+        intent.removeExtra("open_episode")
+        try {
+            val podcastTitle = intent.getStringExtra("open_podcast_title") ?: ""
+            val podcastImage = intent.getStringExtra("open_podcast_image") ?: ""
+            val openIntent = Intent(this, NowPlayingActivity::class.java).apply {
+                putExtra("preview_episode", episode)
+                putExtra("preview_use_play_ui", true)
+                putExtra("preview_podcast_title", podcastTitle)
+                putExtra("preview_podcast_image", podcastImage)
+                putExtra("initial_podcast_title", podcastTitle)
+                putExtra("initial_podcast_image", podcastImage)
+            }
+            startActivity(openIntent)
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Error handling open episode notification intent", e)
         }
     }
 

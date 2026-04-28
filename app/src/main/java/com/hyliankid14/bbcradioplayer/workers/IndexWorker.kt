@@ -296,7 +296,7 @@ object IndexWorker {
                     lastEpPrefs.edit().putString(podcastId, overallLatest.id).apply()
                 }
 
-                PodcastEpisodeNotifier.notifyNewEpisode(context, podcast, latestNew.title)
+                PodcastEpisodeNotifier.notifyNewEpisode(context, podcast, latestNew)
                 Log.d(TAG, "Notified new episode for podcast=$podcastId episodeId=${latestNew.id}")
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to notify new episode for podcast=$podcastId: ${e.message}")
