@@ -39,6 +39,7 @@ class PodcastDetailFragment : Fragment() {
     private var episodeSelectionToolbar: android.view.View? = null
     private var actionTogglePlayed: android.widget.Button? = null
     private var actionToggleDownload: android.widget.Button? = null
+    private var scrollToTopFab: com.google.android.material.floatingactionbutton.FloatingActionButton? = null
     private val selectedEpisodes = linkedMapOf<String, Episode>()
     private var currentOffset = 0
     private var isLoadingPage = false
@@ -242,6 +243,7 @@ class PodcastDetailFragment : Fragment() {
 
             // Show a FAB after the user scrolls a bit; tapping it scrolls back to the top
             val fab = view.findViewById<com.google.android.material.floatingactionbutton.FloatingActionButton>(R.id.scroll_to_top_fab)
+            scrollToTopFab = fab
             // Show FAB sooner — lower threshold to make it visible when user scrolls down a little
             val showThresholdPx = (48 * resources.displayMetrics.density).toInt()
             fab.setOnClickListener {
@@ -392,11 +394,22 @@ class PodcastDetailFragment : Fragment() {
 
     private fun updateEpisodeSelectionToolbar() {
         val toolbar = episodeSelectionToolbar ?: return
+        val fab = scrollToTopFab
+        val toolbarHeightPx = (56 * resources.displayMetrics.density).toInt()
+        val fabMarginDefaultPx = (16 * resources.displayMetrics.density).toInt()
         if (selectedEpisodes.isEmpty()) {
             toolbar.visibility = View.GONE
+            fab?.let {
+                (it.layoutParams as? android.widget.FrameLayout.LayoutParams)?.bottomMargin = fabMarginDefaultPx
+                it.requestLayout()
+            }
             return
         }
         toolbar.visibility = View.VISIBLE
+        fab?.let {
+            (it.layoutParams as? android.widget.FrameLayout.LayoutParams)?.bottomMargin = fabMarginDefaultPx + toolbarHeightPx
+            it.requestLayout()
+        }
 
         val allPlayed = selectedEpisodes.values.all { PlayedEpisodesPreference.isPlayed(requireContext(), it.id) }
         actionTogglePlayed?.text = if (allPlayed) "Mark as unplayed" else "Mark as played"
@@ -494,6 +507,7 @@ class PodcastDetailFragment : Fragment() {
         episodeSelectionToolbar = null
         actionTogglePlayed = null
         actionToggleDownload = null
+        scrollToTopFab = null
         selectedEpisodes.clear()
         // Reset action bar state. Always hide here — the destination fragment manages its own
         // toolbar (PodcastsFragment, PodcastSearchFragment, etc.). If the landing page needs
