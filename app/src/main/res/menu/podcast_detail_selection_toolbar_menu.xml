@@ -2,24 +2,16 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
 
+    <!-- Title is set dynamically: "Mark as played" or "Mark as unplayed" -->
     <item
-        android:id="@+id/action_episode_mark_played"
+        android:id="@+id/action_episode_toggle_played"
         android:title="Mark as played"
         app:showAsAction="always" />
 
+    <!-- Title is set dynamically: "Download" or "Delete downloads" -->
     <item
-        android:id="@+id/action_episode_mark_unplayed"
-        android:title="Mark as unplayed"
-        app:showAsAction="always" />
-
-    <item
-        android:id="@+id/action_episode_download_selected"
+        android:id="@+id/action_episode_toggle_download"
         android:title="Download"
-        app:showAsAction="always" />
-
-    <item
-        android:id="@+id/action_episode_delete_downloads_selected"
-        android:title="Delete downloads"
         app:showAsAction="always" />
 
 </menu>

@@ -222,20 +222,14 @@ class PodcastDetailFragment : Fragment() {
             }
             selectionToolbar.setOnMenuItemClickListener { item ->
                 when (item.itemId) {
-                    R.id.action_episode_mark_played -> {
-                        markSelectedEpisodesPlayed()
+                    R.id.action_episode_toggle_played -> {
+                        val allPlayed = selectedEpisodes.values.all { PlayedEpisodesPreference.isPlayed(requireContext(), it.id) }
+                        if (allPlayed) markSelectedEpisodesUnplayed() else markSelectedEpisodesPlayed()
                         true
                     }
-                    R.id.action_episode_mark_unplayed -> {
-                        markSelectedEpisodesUnplayed()
-                        true
-                    }
-                    R.id.action_episode_download_selected -> {
-                        downloadSelectedEpisodes()
-                        true
-                    }
-                    R.id.action_episode_delete_downloads_selected -> {
-                        deleteDownloadsForSelectedEpisodes()
+                    R.id.action_episode_toggle_download -> {
+                        val allDownloaded = selectedEpisodes.values.all { DownloadedEpisodes.isDownloaded(requireContext(), it) }
+                        if (allDownloaded) deleteDownloadsForSelectedEpisodes() else downloadSelectedEpisodes()
                         true
                     }
                     else -> false
@@ -410,9 +404,13 @@ class PodcastDetailFragment : Fragment() {
         toolbar.title = if (count == 1) "1 selected" else "$count selected"
         toolbar.visibility = View.VISIBLE
 
+        val allPlayed = selectedEpisodes.values.all { PlayedEpisodesPreference.isPlayed(requireContext(), it.id) }
+        toolbar.menu.findItem(R.id.action_episode_toggle_played)?.title =
+            if (allPlayed) "Mark as unplayed" else "Mark as played"
+
         val allDownloaded = selectedEpisodes.values.all { DownloadedEpisodes.isDownloaded(requireContext(), it) }
-        toolbar.menu.findItem(R.id.action_episode_download_selected)?.isVisible = !allDownloaded
-        toolbar.menu.findItem(R.id.action_episode_delete_downloads_selected)?.isVisible = allDownloaded
+        toolbar.menu.findItem(R.id.action_episode_toggle_download)?.title =
+            if (allDownloaded) "Delete downloads" else "Download"
     }
 
     private fun markSelectedEpisodesPlayed() {
