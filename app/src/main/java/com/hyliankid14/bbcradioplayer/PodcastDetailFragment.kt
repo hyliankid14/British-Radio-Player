@@ -396,12 +396,11 @@ class PodcastDetailFragment : Fragment() {
 
     private fun updateEpisodeSelectionToolbar() {
         val toolbar = episodeSelectionToolbar ?: return
-        val count = selectedEpisodes.size
-        if (count == 0) {
+        if (selectedEpisodes.isEmpty()) {
             toolbar.visibility = View.GONE
             return
         }
-        toolbar.title = if (count == 1) "1 selected" else "$count selected"
+        toolbar.title = ""
         toolbar.visibility = View.VISIBLE
 
         val allPlayed = selectedEpisodes.values.all { PlayedEpisodesPreference.isPlayed(requireContext(), it.id) }
