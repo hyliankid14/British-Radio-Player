@@ -2452,8 +2452,9 @@ class MainActivity : AppCompatActivity() {
             val verticalPaddingPx = (8 * density).toInt()
 
             // Collect existing tags across all subscribed podcasts for autocomplete suggestions
+            val existingTags = PodcastTagsPreference.getTags(this, podcast)
             val allTags = PodcastTagsPreference.getAllTagsForSubscribed(this, currentSubscribedPodcasts)
-                .filter { !PodcastTagsPreference.getTags(this, podcast).any { t -> t.equals(it, ignoreCase = true) } }
+                .filter { tag -> existingTags.none { existingTag -> existingTag.equals(tag, ignoreCase = true) } }
 
             val autoComplete = android.widget.AutoCompleteTextView(this).apply {
                 hint = "New tag"
