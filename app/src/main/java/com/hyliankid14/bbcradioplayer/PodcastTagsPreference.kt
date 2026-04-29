@@ -62,7 +62,7 @@ object PodcastTagsPreference {
      */
     fun getTags(context: Context, podcast: Podcast): Set<String> {
         val map = readMap(context)
-        return map[podcast.id] ?: podcast.genres.toSet()
+        return map[podcast.id] ?: podcast.genres.filterNot { it.equals("podcast", ignoreCase = true) || it.equals("podcasts", ignoreCase = true) }.toSet()
     }
 
     /**
@@ -70,7 +70,7 @@ object PodcastTagsPreference {
      */
     fun getTags(context: Context, podcastId: String, defaultGenres: List<String>): Set<String> {
         val map = readMap(context)
-        return map[podcastId] ?: defaultGenres.toSet()
+        return map[podcastId] ?: defaultGenres.filterNot { it.equals("podcast", ignoreCase = true) || it.equals("podcasts", ignoreCase = true) }.toSet()
     }
 
     /**
@@ -90,7 +90,7 @@ object PodcastTagsPreference {
         val trimmed = tag.trim()
         if (trimmed.isEmpty()) return
         val map = readMap(context)
-        val current = map.getOrPut(podcast.id) { podcast.genres.toMutableSet() }
+        val current = map.getOrPut(podcast.id) { podcast.genres.filterNot { it.equals("podcast", ignoreCase = true) || it.equals("podcasts", ignoreCase = true) }.toMutableSet() }
         current.add(trimmed)
         writeMap(context, map)
     }
@@ -101,7 +101,7 @@ object PodcastTagsPreference {
      */
     fun removeTag(context: Context, podcast: Podcast, tag: String) {
         val map = readMap(context)
-        val current = map.getOrPut(podcast.id) { podcast.genres.toMutableSet() }
+        val current = map.getOrPut(podcast.id) { podcast.genres.filterNot { it.equals("podcast", ignoreCase = true) || it.equals("podcasts", ignoreCase = true) }.toMutableSet() }
         current.remove(tag)
         writeMap(context, map)
     }
@@ -122,7 +122,7 @@ object PodcastTagsPreference {
         val map = readMap(context)
         val all = mutableSetOf<String>()
         subscribedPodcasts.forEach { podcast ->
-            val tags = map[podcast.id] ?: podcast.genres.toSet()
+            val tags = map[podcast.id] ?: podcast.genres.filterNot { it.equals("podcast", ignoreCase = true) || it.equals("podcasts", ignoreCase = true) }.toSet()
             all.addAll(tags)
         }
         return all.filter { it.isNotBlank() }.sorted()
@@ -138,7 +138,7 @@ object PodcastTagsPreference {
     ): List<Podcast> {
         val map = readMap(context)
         return subscribedPodcasts.filter { podcast ->
-            val tags = map[podcast.id] ?: podcast.genres.toSet()
+            val tags = map[podcast.id] ?: podcast.genres.filterNot { it.equals("podcast", ignoreCase = true) || it.equals("podcasts", ignoreCase = true) }.toSet()
             tags.contains(tag)
         }
     }

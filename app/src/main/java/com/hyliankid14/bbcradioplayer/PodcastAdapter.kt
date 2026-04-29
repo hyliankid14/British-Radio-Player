@@ -285,18 +285,28 @@ class PodcastAdapter(
                 genresView.visibility = View.GONE
                 tagsGroup.visibility = View.VISIBLE
                 tagsGroup.removeAllViews()
+                val density = itemView.resources.displayMetrics.density
                 val tags = PodcastTagsPreference.getTags(itemView.context, podcast).sorted()
                 tags.forEach { tag ->
                     val chip = Chip(itemView.context)
                     chip.text = tag
+                    chip.textSize = 10f
+                    chip.chipMinHeight = 24f * density
+                    chip.chipStartPadding = 6f * density
+                    chip.chipEndPadding = 6f * density
                     chip.isCloseIconVisible = true
+                    chip.closeIconSize = 14f * density
                     chip.isClickable = false
                     chip.isFocusable = false
                     chip.setOnCloseIconClickListener { onTagRemoved?.invoke(podcast, tag) }
                     tagsGroup.addView(chip)
                 }
                 val addChip = Chip(itemView.context)
-                addChip.text = "＋"
+                addChip.text = "+"
+                addChip.textSize = 10f
+                addChip.chipMinHeight = 24f * density
+                addChip.chipStartPadding = 6f * density
+                addChip.chipEndPadding = 6f * density
                 addChip.isCloseIconVisible = false
                 addChip.setOnClickListener { onTagAdded?.invoke(podcast) }
                 tagsGroup.addView(addChip)

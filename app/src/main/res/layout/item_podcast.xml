@@ -59,10 +59,10 @@
             android:id="@+id/podcast_tags_group"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
+            android:layout_marginTop="4dp"
             android:visibility="gone"
-            app:chipSpacingHorizontal="4dp"
-            app:chipSpacingVertical="0dp"
+            app:chipSpacingHorizontal="2dp"
+            app:chipSpacingVertical="2dp"
             app:singleLine="false" />
     </LinearLayout>
 
