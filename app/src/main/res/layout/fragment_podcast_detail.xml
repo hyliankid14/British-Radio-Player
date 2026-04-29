@@ -149,6 +149,51 @@
 
     </androidx.core.widget.NestedScrollView>
 
+    <!-- Contextual selection toolbar shown when episodes are long-pressed -->
+    <LinearLayout
+        android:id="@+id/episode_selection_toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:layout_gravity="bottom"
+        android:visibility="gone"
+        android:background="?attr/colorSurfaceContainer"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="4dp"
+        android:paddingEnd="4dp">
+
+        <ImageButton
+            android:id="@+id/episode_selection_close"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:padding="12dp"
+            android:src="@drawable/ic_clear"
+            android:contentDescription="Clear selection"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:tint="?attr/colorOnSurface" />
+
+        <Button
+            android:id="@+id/action_episode_toggle_played"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:text="Mark as played"
+            android:textColor="?attr/colorOnSurface"
+            android:textAllCaps="true" />
+
+        <Button
+            android:id="@+id/action_episode_toggle_download"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:text="Download"
+            android:textColor="?attr/colorOnSurface"
+            android:textAllCaps="true" />
+
+    </LinearLayout>
+
     <!-- Floating action button to return to top when the user starts scrolling -->
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         style="@style/Widget.MaterialComponents.FloatingActionButton"
