@@ -5,6 +5,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.view.animation.AccelerateDecelerateInterpolator
+import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.TextView
 import com.google.android.material.chip.Chip
@@ -154,7 +155,7 @@ class PodcastAdapter(
         private val titleView: TextView = itemView.findViewById(R.id.podcast_title)
         private val descriptionView: TextView = itemView.findViewById(R.id.podcast_description)
         private val genresView: TextView = itemView.findViewById(R.id.podcast_genres)
-        private val tagsScroll: android.widget.HorizontalScrollView? = itemView.findViewById(R.id.podcast_tags_scroll)
+        private val tagsScroll: HorizontalScrollView? = itemView.findViewById(R.id.podcast_tags_scroll)
         private val tagsGroup: ChipGroup? = itemView.findViewById(R.id.podcast_tags_group)
         private val notificationBell: ImageView = itemView.findViewById(R.id.podcast_notification_bell)
         private val dragHandle: ImageView? = itemView.findViewById(R.id.podcast_drag_handle)
