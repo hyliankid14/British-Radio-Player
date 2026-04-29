@@ -289,6 +289,9 @@ class PodcastAdapter(
                 tagsGroup.removeAllViews()
                 val density = itemView.resources.displayMetrics.density
                 val tags = PodcastTagsPreference.getTags(itemView.context, podcast).sorted()
+                val chipBg = android.content.res.ColorStateList.valueOf(
+                    androidx.core.content.ContextCompat.getColor(itemView.context, R.color.chip_tag_background))
+                val chipText = androidx.core.content.ContextCompat.getColor(itemView.context, R.color.chip_tag_text)
                 tags.forEach { tag ->
                     val chip = Chip(itemView.context)
                     chip.text = tag
@@ -300,6 +303,9 @@ class PodcastAdapter(
                     chip.closeIconSize = 14f * density
                     chip.isClickable = false
                     chip.isFocusable = false
+                    chip.chipBackgroundColor = chipBg
+                    chip.setTextColor(chipText)
+                    chip.closeIconTint = android.content.res.ColorStateList.valueOf(chipText)
                     chip.setOnCloseIconClickListener { onTagRemoved?.invoke(podcast, tag) }
                     tagsGroup.addView(chip)
                 }
@@ -310,6 +316,8 @@ class PodcastAdapter(
                 addChip.chipStartPadding = 6f * density
                 addChip.chipEndPadding = 6f * density
                 addChip.isCloseIconVisible = false
+                addChip.chipBackgroundColor = chipBg
+                addChip.setTextColor(chipText)
                 addChip.setOnClickListener { onTagAdded?.invoke(podcast) }
                 tagsGroup.addView(addChip)
             } else {

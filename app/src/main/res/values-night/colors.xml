@@ -64,4 +64,7 @@
     <color name="episode_tilde_amber">#FF5252</color>
     <!-- Notification colors -->
     <color name="notification_dot_red">#FF5252</color>
+    <!-- Tag chip colours (theme purple - dark variant) -->
+    <color name="chip_tag_background">#4F378A</color>
+    <color name="chip_tag_text">#EADDFF</color>
 </resources>
