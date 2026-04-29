@@ -5,8 +5,11 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.view.animation.AccelerateDecelerateInterpolator
+import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.TextView
+import com.google.android.material.chip.Chip
+import com.google.android.material.chip.ChipGroup
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.graphics.drawable.DrawableCompat
@@ -26,7 +29,8 @@ class PodcastAdapter(
     private val onOpenPlayer: (() -> Unit)? = null,
     private val highlightSubscribed: Boolean = false,
     private val showSubscribedIcon: Boolean = true,
-    private val showNotificationBell: Boolean = true
+    private val showNotificationBell: Boolean = true,
+    private val onLongPodcastClick: ((Podcast) -> Unit)? = null
 ) : RecyclerView.Adapter<PodcastAdapter.PodcastViewHolder>() {
 
     private var newEpisodeIds: Set<String> = emptySet()
@@ -41,6 +45,17 @@ class PodcastAdapter(
             field = value
             notifyDataSetChanged()
         }
+
+    /**
+     * When non-null, podcast rows in this adapter will show interactive tag chips instead of
+     * the plain genres text. Called when the user taps the × button on a chip.
+     */
+    var onTagRemoved: ((Podcast, String) -> Unit)? = null
+
+    /**
+     * When non-null, a "＋" chip is appended after the tag chips. Called when the user taps it.
+     */
+    var onTagAdded: ((Podcast) -> Unit)? = null
 
     /**
      * Called when the user touches the drag handle. The host should call
@@ -140,6 +155,8 @@ class PodcastAdapter(
         private val titleView: TextView = itemView.findViewById(R.id.podcast_title)
         private val descriptionView: TextView = itemView.findViewById(R.id.podcast_description)
         private val genresView: TextView = itemView.findViewById(R.id.podcast_genres)
+        private val tagsScroll: HorizontalScrollView? = itemView.findViewById(R.id.podcast_tags_scroll)
+        private val tagsGroup: ChipGroup? = itemView.findViewById(R.id.podcast_tags_group)
         private val notificationBell: ImageView = itemView.findViewById(R.id.podcast_notification_bell)
         private val dragHandle: ImageView? = itemView.findViewById(R.id.podcast_drag_handle)
 
@@ -151,6 +168,15 @@ class PodcastAdapter(
                     val podcast = this@PodcastAdapter.podcasts[pos]
                     android.util.Log.d("PodcastAdapter", "Tapped podcast row: ${podcast.title}")
                     onPodcastClick(podcast)
+                }
+            }
+            if (onLongPodcastClick != null) {
+                itemView.setOnLongClickListener {
+                    val pos = bindingAdapterPosition
+                    if (pos != RecyclerView.NO_POSITION && pos < this@PodcastAdapter.podcasts.size) {
+                        onLongPodcastClick.invoke(this@PodcastAdapter.podcasts[pos])
+                    }
+                    true
                 }
             }
             titleView.setOnClickListener {
@@ -214,7 +240,6 @@ class PodcastAdapter(
             currentPodcast = podcast
             titleView.text = podcast.title
             descriptionView.text = podcast.description
-            genresView.text = podcast.genres.take(2).joinToString(", ")
 
             if (podcast.imageUrl.isNotEmpty()) {
                 Glide.with(itemView.context)
@@ -257,13 +282,58 @@ class PodcastAdapter(
             // Show or hide drag handle based on adapter property
             dragHandle?.visibility = if (showDragHandles) View.VISIBLE else View.GONE
 
+            // Tag chips (shown when onTagRemoved/onTagAdded are set) or plain genres text
+            if (tagsGroup != null && (onTagRemoved != null || onTagAdded != null)) {
+                genresView.visibility = View.GONE
+                tagsScroll?.visibility = View.VISIBLE
+                tagsGroup.removeAllViews()
+                val density = itemView.resources.displayMetrics.density
+                val tags = PodcastTagsPreference.getTags(itemView.context, podcast).sorted()
+                val chipBg = android.content.res.ColorStateList.valueOf(
+                    androidx.core.content.ContextCompat.getColor(itemView.context, R.color.chip_tag_background))
+                val chipText = androidx.core.content.ContextCompat.getColor(itemView.context, R.color.chip_tag_text)
+                tags.forEach { tag ->
+                    val chip = Chip(itemView.context)
+                    chip.text = tag
+                    chip.textSize = 10f
+                    chip.chipMinHeight = 24f * density
+                    chip.chipStartPadding = 6f * density
+                    chip.chipEndPadding = 6f * density
+                    chip.isCloseIconVisible = true
+                    chip.closeIconSize = 14f * density
+                    chip.isClickable = false
+                    chip.isFocusable = false
+                    chip.chipBackgroundColor = chipBg
+                    chip.setTextColor(chipText)
+                    chip.closeIconTint = android.content.res.ColorStateList.valueOf(chipText)
+                    chip.setOnCloseIconClickListener { onTagRemoved?.invoke(podcast, tag) }
+                    tagsGroup.addView(chip)
+                }
+                val addChip = Chip(itemView.context)
+                addChip.text = "+"
+                addChip.textSize = 10f
+                addChip.chipMinHeight = 24f * density
+                addChip.chipStartPadding = 6f * density
+                addChip.chipEndPadding = 6f * density
+                addChip.isCloseIconVisible = false
+                addChip.chipBackgroundColor = chipBg
+                addChip.setTextColor(chipText)
+                addChip.setOnClickListener { onTagAdded?.invoke(podcast) }
+                tagsGroup.addView(addChip)
+            } else {
+                tagsScroll?.visibility = View.GONE
+                val genresText = podcast.genres.take(2).joinToString(", ")
+                genresView.text = genresText
+                genresView.visibility = if (genresText.isNotEmpty()) View.VISIBLE else View.GONE
+            }
+
             // Highlight subscribed podcasts when used in the Favorites list using fixed lavender color
             if ((itemView.context as? android.app.Activity) != null && (bindingAdapterPosition >= 0)) {
                 if (highlightSubscribed && isSubscribed) {
                     val bg = androidx.core.content.ContextCompat.getColor(itemView.context, R.color.subscribed_podcasts_bg)
                     val on = androidx.core.content.ContextCompat.getColor(itemView.context, R.color.subscribed_podcasts_text)
                     itemView.setBackgroundColor(bg)
-                    // Use the same darker text for title, description and genres to increase contrast
+                    // Use the same darker text for title and description to increase contrast
                     titleView.setTextColor(on)
                     descriptionView.setTextColor(on)
                     genresView.setTextColor(on)

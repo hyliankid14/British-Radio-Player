@@ -251,7 +251,7 @@
             <!-- (stations_list already exists above and is used as the Stations view) -->
 
             <!-- Subscribed podcasts: keep the card look but remove the old collapsible header -->
-            <FrameLayout
+            <LinearLayout
                 android:id="@+id/favorites_podcasts_container"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -260,8 +260,10 @@
                 android:visibility="gone"
                 android:background="?attr/colorSurface"
                 android:paddingStart="8dp"
-                android:paddingEnd="8dp">
+                android:paddingEnd="8dp"
+                android:orientation="vertical">
 
+                <!-- Podcast list (flat view) -->
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/favorites_podcasts_recycler"
                     android:layout_width="match_parent"
@@ -272,6 +274,17 @@
                     android:scrollbars="vertical"
                     android:background="?attr/colorSurface" />
 
+                <!-- Grouped by-tag view (shown when "Sort by tags" is active) -->
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/subscribed_tags_recycler"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:visibility="gone"
+                    android:clipToPadding="true"
+                    android:scrollbars="vertical"
+                    android:background="?attr/colorSurface" />
+
+                <!-- Shared empty state / loading views -->
                 <TextView
                     android:id="@+id/favorites_podcasts_empty"
                     android:layout_width="match_parent"
@@ -293,7 +306,7 @@
                     android:visibility="gone"
                     app:trackThickness="4dp"
                     app:indicatorColor="?attr/colorPrimary" />
-            </FrameLayout>
+            </LinearLayout>
 
             <!-- Playlists: Saved Episodes is the default playlist within this section -->
             <LinearLayout

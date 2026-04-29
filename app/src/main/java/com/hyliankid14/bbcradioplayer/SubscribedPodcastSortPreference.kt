@@ -7,6 +7,7 @@ object SubscribedPodcastSortPreference {
     const val SORT_LEAST_RECENTLY_UPDATED = "least_recently_updated"
     const val SORT_ALPHABETICAL = "alphabetical"
     const val SORT_MANUAL = "manual"
+    const val SORT_TAGS = "tags"
 
     private const val PREFS_NAME = "subscribed_podcast_sort_prefs"
     private const val KEY_SORT_ORDER = "sort_order"

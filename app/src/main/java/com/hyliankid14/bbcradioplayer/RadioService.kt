@@ -211,6 +211,8 @@ class RadioService : MediaBrowserServiceCompat() {
         private const val MEDIA_ID_PODCASTS_PLAYLISTS = "podcasts_playlists"
         private const val MEDIA_ID_PODCASTS_DOWNLOADED = "podcasts_downloaded"
         private const val MEDIA_ID_PODCASTS_RANDOM = "podcasts_random"
+        private const val MEDIA_ID_PODCASTS_SUBSCRIBED_TAGS = "podcasts_subscribed_tags"
+        private const val MEDIA_ID_PODCASTS_TAG_PREFIX = "podcasts_tag_"
         private const val ANDROID_AUTO_CLIENT_HINT = "gearhead"
         // Number of episodes returned per page when Android Auto requests paginated episode lists.
         private const val EPISODE_PAGE_SIZE = 20
@@ -832,6 +834,8 @@ class RadioService : MediaBrowserServiceCompat() {
             && parentId != "podcasts_saved_episodes"
             && parentId != "podcasts_history"
             && parentId != MEDIA_ID_PODCASTS_DOWNLOADED
+            && parentId != MEDIA_ID_PODCASTS_SUBSCRIBED_TAGS
+            && !parentId.startsWith(MEDIA_ID_PODCASTS_TAG_PREFIX)
 
         if (!isPodcastEpisodeList) {
             // Delegate to the standard (non-paginated) implementation.
@@ -958,6 +962,7 @@ class RadioService : MediaBrowserServiceCompat() {
                     // Present podcast collections for Android Auto browsing.
                     val itemsPodcasts = mutableListOf<MediaItem>()
                     itemsPodcasts.add(MediaItem(MediaDescriptionCompat.Builder().setMediaId("podcasts_subscribed").setTitle("Subscribed Podcasts").build(), MediaItem.FLAG_BROWSABLE))
+                    itemsPodcasts.add(MediaItem(MediaDescriptionCompat.Builder().setMediaId(MEDIA_ID_PODCASTS_SUBSCRIBED_TAGS).setTitle("Browse by Tag").build(), MediaItem.FLAG_BROWSABLE))
                     itemsPodcasts.add(MediaItem(MediaDescriptionCompat.Builder().setMediaId(MEDIA_ID_PODCASTS_PLAYLISTS).setTitle("Playlists").build(), MediaItem.FLAG_BROWSABLE))
                     itemsPodcasts.add(MediaItem(MediaDescriptionCompat.Builder().setMediaId(MEDIA_ID_PODCASTS_DOWNLOADED).setTitle("Downloaded Episodes").build(), MediaItem.FLAG_BROWSABLE))
                     itemsPodcasts.add(MediaItem(MediaDescriptionCompat.Builder().setMediaId("podcasts_history").setTitle("History").build(), MediaItem.FLAG_BROWSABLE))
@@ -1012,6 +1017,74 @@ class RadioService : MediaBrowserServiceCompat() {
                                     Log.e(TAG, "Error loading offline fallback for subscribed podcasts", ex)
                                     result.sendResult(emptyList())
                                 }
+                            }
+                        }
+                    } else if (parentId == MEDIA_ID_PODCASTS_SUBSCRIBED_TAGS) {
+                        // Browse by tag: list all unique tags across subscribed podcasts
+                        val subscribed = PodcastSubscriptions.getSubscribedIds(this@RadioService)
+                        if (subscribed.isEmpty()) {
+                            result.sendResult(emptyList())
+                        } else {
+                            try {
+                                val repo = PodcastRepository(this@RadioService)
+                                val all = withContext(Dispatchers.IO) { repo.fetchPodcasts(false) }
+                                val subscribedPodcasts = all.filter { subscribed.contains(it.id) }
+                                val tags = PodcastTagsPreference.getAllTagsForSubscribed(this@RadioService, subscribedPodcasts)
+                                val tagMap = buildMap<String, List<Podcast>> {
+                                    tags.forEach { tag ->
+                                        put(tag, PodcastTagsPreference.getPodcastsForTag(this@RadioService, tag, subscribedPodcasts))
+                                    }
+                                }
+                                val tagItems = tags.map { tag ->
+                                    val podcastsInTag = tagMap[tag] ?: emptyList()
+                                    val subtitle = podcastsInTag.take(3).joinToString(", ") { it.title }
+                                    MediaItem(
+                                        MediaDescriptionCompat.Builder()
+                                            .setMediaId("$MEDIA_ID_PODCASTS_TAG_PREFIX${tag}")
+                                            .setTitle(tag)
+                                            .setSubtitle(subtitle)
+                                            .build(),
+                                        MediaItem.FLAG_BROWSABLE
+                                    )
+                                }
+                                result.sendResult(tagItems)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Error loading podcast tags for Android Auto", e)
+                                result.sendResult(emptyList())
+                            }
+                        }
+                    } else if (parentId.startsWith(MEDIA_ID_PODCASTS_TAG_PREFIX)) {
+                        // Browse podcasts within a specific tag
+                        val tag = parentId.removePrefix(MEDIA_ID_PODCASTS_TAG_PREFIX)
+                        val subscribed = PodcastSubscriptions.getSubscribedIds(this@RadioService)
+                        if (subscribed.isEmpty() || tag.isEmpty()) {
+                            result.sendResult(emptyList())
+                        } else {
+                            try {
+                                val repo = PodcastRepository(this@RadioService)
+                                val all = withContext(Dispatchers.IO) { repo.fetchPodcasts(false) }
+                                val subscribedPodcasts = all.filter { subscribed.contains(it.id) }
+                                val taggedPodcasts = PodcastTagsPreference.getPodcastsForTag(
+                                    this@RadioService, tag, subscribedPodcasts
+                                )
+                                val updates = withContext(Dispatchers.IO) { repo.fetchLatestUpdates(taggedPodcasts) }
+                                val sorted = SubscribedPodcastSortPreference.applySortOrder(this@RadioService, taggedPodcasts, updates)
+                                val items = sorted.map { p ->
+                                    val subtitle = if ((updates[p.id] ?: 0L) > PlayedEpisodesPreference.getLastPlayedEpoch(this@RadioService, p.id)) "New" else ""
+                                    MediaItem(
+                                        MediaDescriptionCompat.Builder()
+                                            .setMediaId("podcast_${p.id}")
+                                            .setTitle(p.title)
+                                            .setSubtitle(subtitle)
+                                            .setIconUri(android.net.Uri.parse(p.imageUrl))
+                                            .build(),
+                                        MediaItem.FLAG_BROWSABLE
+                                    )
+                                }
+                                result.sendResult(items)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Error loading podcasts for tag '$tag' in Android Auto", e)
+                                result.sendResult(emptyList())
                             }
                         }
                     } else if (parentId == MEDIA_ID_PODCASTS_DOWNLOADED) {
@@ -4083,6 +4156,7 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                 PodcastSubscriptions.toggleSubscription(this, podcastId)
                 notifyChildrenChanged(MEDIA_ID_FAVORITES)
                 notifyChildrenChanged(MEDIA_ID_PODCASTS)
+                try { notifyChildrenChanged(MEDIA_ID_PODCASTS_SUBSCRIBED_TAGS) } catch (_: Exception) { }
             }
         } else {
             FavoritesPreference.toggleFavorite(this, stationId)

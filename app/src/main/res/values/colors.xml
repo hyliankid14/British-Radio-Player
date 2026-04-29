@@ -65,7 +65,7 @@
     <!-- Icon colors -->
     <color name="icon_on_surface">#1C1B1F</color>
     
-    <!-- Notification colors -->
-    <color name="notification_dot_red">#FF5252</color>
-    <color name="playlist_selected_bg">#E8DEF8</color>
+    <!-- Tag chip colors (theme purple) -->
+    <color name="chip_tag_background">#EADDFF</color>
+    <color name="chip_tag_text">#21005D</color>
 </resources>

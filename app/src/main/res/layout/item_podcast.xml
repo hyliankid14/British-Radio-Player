@@ -1,105 +1,139 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="horizontal"
-    android:padding="12dp"
+    android:orientation="vertical"
+    android:paddingStart="12dp"
+    android:paddingEnd="12dp"
+    android:paddingTop="8dp"
+    android:paddingBottom="8dp"
     android:background="?attr/colorSurface"
     android:foreground="?attr/selectableItemBackground">
 
-    <ImageView
-        android:id="@+id/podcast_image"
-        android:layout_width="80dp"
-        android:layout_height="80dp"
-        android:scaleType="centerCrop"
-        android:contentDescription="Podcast artwork" />
-
+    <!-- Top row: artwork + text content + action icons -->
     <LinearLayout
-        android:layout_width="0dp"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_weight="1"
-        android:orientation="vertical"
-        android:layout_marginStart="12dp">
+        android:orientation="horizontal">
+
+        <ImageView
+            android:id="@+id/podcast_image"
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            android:scaleType="centerCrop"
+            android:contentDescription="Podcast artwork" />
 
         <LinearLayout
-            android:layout_width="match_parent"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:orientation="horizontal">
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:layout_marginStart="12dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/podcast_title"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:textStyle="bold"
+                    android:textSize="16sp"
+                    android:maxLines="2"
+                    android:ellipsize="end" />
+
+            </LinearLayout>
 
             <TextView
-                android:id="@+id/podcast_title"
-                android:layout_width="0dp"
+                android:id="@+id/podcast_description"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:textStyle="bold"
-                android:textSize="16sp"
+                android:textSize="12sp"
                 android:maxLines="2"
-                android:ellipsize="end" />
+                android:ellipsize="end"
+                android:layout_marginTop="4dp" />
+
+            <TextView
+                android:id="@+id/podcast_genres"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="10sp"
+                android:layout_marginTop="8dp" />
 
         </LinearLayout>
 
-        <TextView
-            android:id="@+id/podcast_description"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textSize="12sp"
-            android:maxLines="2"
-            android:ellipsize="end"
-            android:layout_marginTop="4dp" />
-
-        <TextView
-            android:id="@+id/podcast_genres"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textSize="10sp"
-            android:layout_marginTop="8dp" />
-    </LinearLayout>
-
-    <FrameLayout
-        android:layout_width="wrap_content"
-        android:layout_height="56dp"
-        android:layout_marginStart="8dp">
-
-        <TextView
-            android:id="@+id/podcast_new_dot"
+        <FrameLayout
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="top|center_horizontal"
-            android:text="•"
-            android:textSize="18sp"
-            android:visibility="gone"
-            android:textColor="@color/notification_dot_red"
-            android:contentDescription="New episodes" />
+            android:layout_height="56dp"
+            android:layout_marginStart="8dp">
+
+            <TextView
+                android:id="@+id/podcast_new_dot"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top|center_horizontal"
+                android:text="•"
+                android:textSize="18sp"
+                android:visibility="gone"
+                android:textColor="@color/notification_dot_red"
+                android:contentDescription="New episodes" />
+
+            <ImageView
+                android:id="@+id/podcast_notification_bell"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:layout_gravity="bottom|center_horizontal"
+                android:contentDescription="Toggle notifications"
+                android:visibility="gone"
+                android:tint="?attr/colorOnSurface"
+                android:background="?attr/selectableItemBackgroundBorderless" />
+        </FrameLayout>
 
         <ImageView
-            android:id="@+id/podcast_notification_bell"
+            android:id="@+id/podcast_subscribed_icon"
             android:layout_width="24dp"
             android:layout_height="24dp"
-            android:layout_gravity="bottom|center_horizontal"
-            android:contentDescription="Toggle notifications"
+            android:layout_marginStart="8dp"
+            android:layout_gravity="center_vertical"
+            android:contentDescription="Subscribed"
             android:visibility="gone"
-            android:tint="?attr/colorOnSurface"
-            android:background="?attr/selectableItemBackgroundBorderless" />
-    </FrameLayout>
+            android:tint="?attr/colorOnSurface" />
 
-    <ImageView
-        android:id="@+id/podcast_subscribed_icon"
-        android:layout_width="24dp"
-        android:layout_height="24dp"
-        android:layout_marginStart="8dp"
-        android:layout_gravity="center_vertical"
-        android:contentDescription="Subscribed"
-        android:visibility="gone"
-        android:tint="?attr/colorOnSurface" />
+        <ImageView
+            android:id="@+id/podcast_drag_handle"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_marginStart="8dp"
+            android:layout_gravity="center_vertical"
+            android:contentDescription="Drag to reorder"
+            android:src="@drawable/ic_drag_handle"
+            android:visibility="gone"
+            android:tint="?attr/colorOnSurface" />
 
-    <ImageView
-        android:id="@+id/podcast_drag_handle"
-        android:layout_width="24dp"
-        android:layout_height="24dp"
-        android:layout_marginStart="8dp"
-        android:layout_gravity="center_vertical"
-        android:contentDescription="Drag to reorder"
-        android:src="@drawable/ic_drag_handle"
+    </LinearLayout>
+
+    <!-- Tag chips: full item width (starts under artwork), single scrollable row -->
+    <HorizontalScrollView
+        android:id="@+id/podcast_tags_scroll"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
         android:visibility="gone"
-        android:tint="?attr/colorOnSurface" />
+        android:scrollbars="none"
+        android:overScrollMode="never">
+
+        <com.google.android.material.chip.ChipGroup
+            android:id="@+id/podcast_tags_group"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            app:chipSpacingHorizontal="4dp"
+            app:singleLine="true" />
+
+    </HorizontalScrollView>
+
 </LinearLayout>
+
