@@ -263,49 +263,7 @@
                 android:paddingEnd="8dp"
                 android:orientation="vertical">
 
-                <!-- List / Tags view toggle -->
-                <LinearLayout
-                    android:id="@+id/subscribed_view_toggle"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:paddingStart="4dp"
-                    android:paddingEnd="4dp"
-                    android:paddingTop="8dp"
-                    android:paddingBottom="4dp"
-                    android:visibility="gone">
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/subscribed_toggle_list"
-                        style="@style/Widget.Material3.Button.TonalButton"
-                        android:layout_width="0dp"
-                        android:layout_weight="1"
-                        android:layout_height="wrap_content"
-                        android:layout_marginEnd="4dp"
-                        android:minWidth="0dp"
-                        android:text="List"
-                        app:icon="@drawable/ic_podcast"
-                        app:iconGravity="textStart"
-                        app:iconPadding="4dp"
-                        app:cornerRadius="100dp" />
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/subscribed_toggle_tags"
-                        style="@style/Widget.Material3.Button.TonalButton"
-                        android:layout_width="0dp"
-                        android:layout_weight="1"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="4dp"
-                        android:minWidth="0dp"
-                        android:text="Tags"
-                        app:icon="@drawable/ic_label"
-                        app:iconGravity="textStart"
-                        app:iconPadding="4dp"
-                        app:cornerRadius="100dp" />
-
-                </LinearLayout>
-
-                <!-- Podcast list (shown in List mode) -->
+                <!-- Podcast list (flat view) -->
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/favorites_podcasts_recycler"
                     android:layout_width="match_parent"
@@ -316,7 +274,7 @@
                     android:scrollbars="vertical"
                     android:background="?attr/colorSurface" />
 
-                <!-- Tags list (shown in Tags mode) -->
+                <!-- Grouped by-tag view (shown when "Sort by tags" is active) -->
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/subscribed_tags_recycler"
                     android:layout_width="match_parent"

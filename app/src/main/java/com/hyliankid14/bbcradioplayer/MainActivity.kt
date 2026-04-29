@@ -144,10 +144,9 @@ class MainActivity : AppCompatActivity() {
     // so we can restore it after they back out past the Schedule.
     private var scheduleReturnOriginMode: String = "list"
 
-    // Subscribed podcasts view state: "list" (default) or "tags"
-    private var subscribedViewMode: String = "list"
-    // When non-null, the subscribed list is filtered to this tag (within tag view)
-    private var subscribedTagFilter: String? = null
+    // Subscribed podcasts: holds the most recently loaded list so sort changes don't need a network re-fetch
+    private var currentSubscribedPodcasts: List<Podcast> = emptyList()
+    private var currentNewEpisodeIds: Set<String> = emptySet()
 
     // Track the last visible percent for the episode/index progress bar so we can
     // defensively ignore any stray regressions emitted by background components.
@@ -1916,28 +1915,7 @@ class MainActivity : AppCompatActivity() {
 
         // Load subscribed podcasts into Favorites section — do not force visibility unless the Subscribed tab was last-selected
         val subscribedIds = PodcastSubscriptions.getSubscribedIds(this)
-        // Set up List/Tags toggle buttons for the subscribed podcasts section
-        try {
-            val toggleView = findViewById<View>(R.id.subscribed_view_toggle)
-            val toggleList = findViewById<com.google.android.material.button.MaterialButton>(R.id.subscribed_toggle_list)
-            val toggleTags = findViewById<com.google.android.material.button.MaterialButton>(R.id.subscribed_toggle_tags)
-            if (toggleView != null && toggleList != null && toggleTags != null) {
-                toggleList.setOnClickListener {
-                    subscribedViewMode = "list"
-                    subscribedTagFilter = null
-                    supportActionBar?.title = "Subscribed Podcasts"
-                    refreshSubscribedViewMode()
-                }
-                toggleTags.setOnClickListener {
-                    subscribedViewMode = "tags"
-                    subscribedTagFilter = null
-                    supportActionBar?.title = "Subscribed Podcasts"
-                    refreshSubscribedTagsRecycler()
-                    refreshSubscribedViewMode()
-                }
-            }
-        } catch (_: Exception) { }
-        // Set up tags RecyclerView layout manager
+        // Set up "Sort by tags" recycler layout manager (used by applySubscribedPodcastSort)
         try {
             val tagsRv = findViewById<RecyclerView>(R.id.subscribed_tags_recycler)
             tagsRv?.layoutManager = LinearLayoutManager(this)
@@ -1994,10 +1972,28 @@ class MainActivity : AppCompatActivity() {
                     addToBackStack(null)
                     commit()
                 }
-            }, highlightSubscribed = true, showSubscribedIcon = false,
-            onLongPodcastClick = { podcast ->
-                showManageTagsDialog(podcast)
-            })
+            }, highlightSubscribed = true, showSubscribedIcon = false)
+
+            // Wire inline tag chip callbacks
+            favPodcastAdapter.onTagRemoved = { podcast, tag ->
+                PodcastTagsPreference.removeTag(this@MainActivity, podcast, tag)
+                val currentSort = SubscribedPodcastSortPreference.getSortOrder(this@MainActivity)
+                if (currentSort == SubscribedPodcastSortPreference.SORT_TAGS) {
+                    applySubscribedPodcastSort(currentSort)
+                } else {
+                    favPodcastAdapter.notifyDataSetChanged()
+                }
+            }
+            favPodcastAdapter.onTagAdded = { podcast ->
+                showAddTagForPodcast(podcast) {
+                    val currentSort = SubscribedPodcastSortPreference.getSortOrder(this@MainActivity)
+                    if (currentSort == SubscribedPodcastSortPreference.SORT_TAGS) {
+                        applySubscribedPodcastSort(currentSort)
+                    } else {
+                        favPodcastAdapter.notifyDataSetChanged()
+                    }
+                }
+            }
 
             // Set drag handles visibility based on current sort preference
             val initialSort = SubscribedPodcastSortPreference.getSortOrder(this)
@@ -2170,8 +2166,11 @@ class MainActivity : AppCompatActivity() {
                         setSubscribedPodcastsLoading(false)
                         favPodcastAdapter.updatePodcasts(fastSorted)
                         favPodcastAdapter.updateNewEpisodes(fastNewSet)
+                        currentSubscribedPodcasts = fastSorted
+                        currentNewEpisodeIds = fastNewSet
                         val subscribedTabActive = (currentMode == "favorites" && isButtonChecked(R.id.fav_tab_subscribed))
-                        if (subscribedTabActive && subscribedViewMode == "list") {
+                        val currentSort = SubscribedPodcastSortPreference.getSortOrder(this@MainActivity)
+                        if (subscribedTabActive && currentSort != SubscribedPodcastSortPreference.SORT_TAGS) {
                             favoritesPodcastsRecycler.visibility = View.VISIBLE
                             favoritesPodcastsContainer.visibility = View.VISIBLE
                         }
@@ -2195,9 +2194,12 @@ class MainActivity : AppCompatActivity() {
                     setSubscribedPodcastsLoading(false)
                     favPodcastAdapter.updatePodcasts(subs)
                     favPodcastAdapter.updateNewEpisodes(newSet)
+                    currentSubscribedPodcasts = subs
+                    currentNewEpisodeIds = newSet
                     // Reveal recycler only if the Subscribed tab is actually selected right now
                     val subscribedTabActive = (currentMode == "favorites" && isButtonChecked(R.id.fav_tab_subscribed))
-                    if (subscribedTabActive && subscribedViewMode == "list") {
+                    val currentSort = SubscribedPodcastSortPreference.getSortOrder(this@MainActivity)
+                    if (subscribedTabActive && currentSort != SubscribedPodcastSortPreference.SORT_TAGS) {
                         favoritesPodcastsRecycler.visibility = View.VISIBLE
                         favoritesPodcastsContainer.visibility = View.VISIBLE
                     } else if (!subscribedTabActive) {
@@ -2321,170 +2323,119 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Shows or hides the podcast list recycler / tags recycler according to [subscribedViewMode].
-     * Also updates the selected state of the toggle buttons.
+     * Loads subscribed podcasts grouped by tag into [R.id.subscribed_tags_recycler].
+     * Used when "Sort by tags" is the active sort option.
      */
-    private fun refreshSubscribedViewMode() {
-        try {
-            val listRv = findViewById<RecyclerView>(R.id.favorites_podcasts_recycler)
-            val tagsRv = findViewById<RecyclerView>(R.id.subscribed_tags_recycler)
-            val toggleList = findViewById<com.google.android.material.button.MaterialButton>(R.id.subscribed_toggle_list)
-            val toggleTags = findViewById<com.google.android.material.button.MaterialButton>(R.id.subscribed_toggle_tags)
-            when {
-                subscribedViewMode == "tags" && subscribedTagFilter == null -> {
-                    listRv?.visibility = View.GONE
-                    tagsRv?.visibility = View.VISIBLE
-                    toggleList?.isSelected = false
-                    toggleTags?.isSelected = true
-                }
-                else -> {
-                    listRv?.let { rv ->
-                        if (rv.adapter != null && (rv.adapter as? PodcastAdapter)?.itemCount ?: 0 > 0) {
-                            rv.visibility = View.VISIBLE
-                        }
-                    }
-                    tagsRv?.visibility = View.GONE
-                    toggleList?.isSelected = true
-                    toggleTags?.isSelected = false
-                }
-            }
-        } catch (_: Exception) { }
-    }
-
-    /**
-     * Populates the tags RecyclerView with all unique tags across subscribed podcasts.
-     * Tapping a tag switches to the filtered list view.
-     */
-    private fun refreshSubscribedTagsRecycler() {
+    private fun refreshSubscribedByTagView() {
         try {
             val tagsRv = findViewById<RecyclerView>(R.id.subscribed_tags_recycler) ?: return
-            val listRv = findViewById<RecyclerView>(R.id.favorites_podcasts_recycler)
+            tagsRv.visibility = View.VISIBLE
+            try { findViewById<View>(R.id.favorites_podcasts_container).visibility = View.VISIBLE } catch (_: Exception) { }
+            // Use already-loaded podcasts when available to avoid a redundant network hit
+            val podcasts = currentSubscribedPodcasts
+            if (podcasts.isNotEmpty()) {
+                val items = SubscribedByTagAdapter.buildItems(this, podcasts)
+                val tagAdapter = buildTagAdapter(items)
+                tagsRv.adapter = tagAdapter
+                tagAdapter.updateNewEpisodes(currentNewEpisodeIds)
+                return
+            }
+            // Fall back to loading from disk / network
             val subscribedIds = PodcastSubscriptions.getSubscribedIds(this)
+            if (subscribedIds.isEmpty()) return
             Thread {
                 val repo = PodcastRepository(this)
-                val allPodcasts = try { kotlinx.coroutines.runBlocking { repo.fetchPodcasts(false) } } catch (_: Exception) { emptyList<Podcast>() }
-                val subscribed = allPodcasts.filter { subscribedIds.contains(it.id) }
-                val tags = PodcastTagsPreference.getAllTagsForSubscribed(this, subscribed)
+                val all = try { kotlinx.coroutines.runBlocking { repo.fetchPodcasts(false) } } catch (_: Exception) { emptyList<Podcast>() }
+                val subscribed = all.filter { subscribedIds.contains(it.id) }
+                val updates = try { kotlinx.coroutines.runBlocking { repo.fetchLatestUpdates(subscribed) } } catch (_: Exception) { emptyMap<String, Long>() }
+                val newSet = subscribed.filter { p ->
+                    (updates[p.id] ?: 0L) > PlayedEpisodesPreference.getLastPlayedEpoch(this, p.id)
+                }.map { it.id }.toSet()
+                val items = SubscribedByTagAdapter.buildItems(this, subscribed)
                 runOnUiThread {
-                    val genreItems = tags.map { tag ->
-                        PodcastGenreAdapter.Item(name = tag, iconRes = R.drawable.ic_label)
-                    }
-                    val adapter = PodcastGenreAdapter(genreItems.toMutableList()) { item ->
-                        // Tap a tag → filter the list by that tag
-                        subscribedTagFilter = item.name
-                        subscribedViewMode = "list"
-                        supportActionBar?.title = item.name
-                        // Populate podcast list with filtered results
-                        val filtered = PodcastTagsPreference.getPodcastsForTag(this@MainActivity, item.name, subscribed)
-                        val podAdapter = listRv?.adapter as? PodcastAdapter
-                        podAdapter?.updatePodcasts(filtered)
-                        refreshSubscribedViewMode()
-                    }
-                    tagsRv.adapter = adapter
+                    currentSubscribedPodcasts = subscribed
+                    currentNewEpisodeIds = newSet
+                    val tagAdapter = buildTagAdapter(items)
+                    tagsRv.adapter = tagAdapter
+                    tagAdapter.updateNewEpisodes(newSet)
+                    tagsRv.visibility = View.VISIBLE
+                    try { findViewById<View>(R.id.favorites_podcasts_container).visibility = View.VISIBLE } catch (_: Exception) { }
                 }
             }.start()
         } catch (_: Exception) { }
     }
 
+    /** Creates a fully-wired [SubscribedByTagAdapter] for the grouped-by-tag sort view. */
+    private fun buildTagAdapter(items: List<SubscribedByTagAdapter.TagItem>): SubscribedByTagAdapter {
+        return SubscribedByTagAdapter(
+            context = this,
+            items = items,
+            onPodcastClick = { podcast ->
+                supportActionBar?.show()
+                fragmentContainer.visibility = View.VISIBLE
+                staticContentContainer.visibility = View.GONE
+                currentMode = "podcasts"
+                returnToFavoritesOnBack = true
+                disableSwipeNavigation()
+                suppressBottomNavSelection = true
+                try { bottomNavigation.selectedItemId = R.id.navigation_podcasts } catch (_: Exception) { }
+                suppressBottomNavSelection = false
+                updateActionBarTitle()
+                updateFavoritesToggleVisibility()
+                val detailFragment = PodcastDetailFragment().apply {
+                    arguments = android.os.Bundle().apply {
+                        putParcelable("podcast", podcast)
+                        putString("back_context", "favorites")
+                    }
+                }
+                supportFragmentManager.beginTransaction().apply {
+                    replace(R.id.fragment_container, detailFragment)
+                    addToBackStack(null)
+                    commit()
+                }
+            },
+            onTagRemoved = { podcast, tag ->
+                PodcastTagsPreference.removeTag(this, podcast, tag)
+                val updatedItems = SubscribedByTagAdapter.buildItems(this, currentSubscribedPodcasts)
+                try { (findViewById<RecyclerView>(R.id.subscribed_tags_recycler)?.adapter as? SubscribedByTagAdapter)?.updateItems(updatedItems) } catch (_: Exception) { }
+            },
+            onTagAdded = { podcast ->
+                showAddTagForPodcast(podcast) {
+                    val updatedItems = SubscribedByTagAdapter.buildItems(this, currentSubscribedPodcasts)
+                    try { (findViewById<RecyclerView>(R.id.subscribed_tags_recycler)?.adapter as? SubscribedByTagAdapter)?.updateItems(updatedItems) } catch (_: Exception) { }
+                }
+            }
+        )
+    }
+
     /**
-     * Shows a dialog to manage tags (add / remove) for a subscribed [podcast].
+     * Shows a small dialog to add a new tag to [podcast].
+     * [onAdded] is invoked (on the UI thread) after the tag has been saved.
      */
-    private fun showManageTagsDialog(podcast: Podcast) {
+    private fun showAddTagForPodcast(podcast: Podcast, onAdded: () -> Unit) {
         try {
-            val context = this
-
-            // Build a scrollable layout containing current tag chips + add-tag field
-            val scrollView = android.widget.ScrollView(context)
-            val container = android.widget.LinearLayout(context).apply {
-                orientation = android.widget.LinearLayout.VERTICAL
-                setPadding(48, 24, 48, 8)
+            val edit = android.widget.EditText(this).apply {
+                hint = "New tag"
+                inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+                imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
             }
-            scrollView.addView(container)
-
-            fun rebuildChips() {
-                container.removeAllViews()
-                val tags = PodcastTagsPreference.getTags(context, podcast).toMutableSet()
-                tags.sorted().forEach { tag ->
-                    val row = android.widget.LinearLayout(context).apply {
-                        orientation = android.widget.LinearLayout.HORIZONTAL
-                        gravity = android.view.Gravity.CENTER_VERTICAL
-                    }
-                    val label = android.widget.TextView(context).apply {
-                        text = tag
-                        textSize = 15f
-                        layoutParams = android.widget.LinearLayout.LayoutParams(
-                            0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f
-                        )
-                    }
-                    val removeBtn = android.widget.ImageButton(context).apply {
-                        setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
-                        background = null
-                        contentDescription = "Remove tag"
-                        setOnClickListener {
-                            PodcastTagsPreference.removeTag(context, podcast, tag)
-                            rebuildChips()
-                            // Refresh tags recycler if visible
-                            if (subscribedViewMode == "tags") refreshSubscribedTagsRecycler()
-                        }
-                    }
-                    row.addView(label)
-                    row.addView(removeBtn)
-                    container.addView(row)
-                }
-                // Add-tag row
-                val addRow = android.widget.LinearLayout(context).apply {
-                    orientation = android.widget.LinearLayout.HORIZONTAL
-                    gravity = android.view.Gravity.CENTER_VERTICAL
-                    setPadding(0, 16, 0, 0)
-                }
-                val addEdit = android.widget.EditText(context).apply {
-                    hint = "New tag"
-                    layoutParams = android.widget.LinearLayout.LayoutParams(
-                        0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f
-                    )
-                    inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
-                    imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
-                    setOnEditorActionListener { _, actionId, _ ->
-                        if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_DONE) {
-                            val newTag = text.toString().trim()
-                            if (newTag.isNotEmpty()) {
-                                PodcastTagsPreference.addTag(context, podcast, newTag)
-                                text.clear()
-                                rebuildChips()
-                                if (subscribedViewMode == "tags") refreshSubscribedTagsRecycler()
-                            }
-                            true
-                        } else false
+            val dialog = AlertDialog.Builder(this)
+                .setTitle("Add tag")
+                .setView(edit)
+                .setPositiveButton("Add", null)
+                .setNegativeButton("Cancel", null)
+                .create()
+            dialog.setOnShowListener {
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                    val tag = edit.text.toString().trim()
+                    if (tag.isNotEmpty()) {
+                        PodcastTagsPreference.addTag(this, podcast, tag)
+                        dialog.dismiss()
+                        onAdded()
                     }
                 }
-                val addBtn = android.widget.Button(context).apply {
-                    text = "Add"
-                    setOnClickListener {
-                        val newTag = addEdit.text.toString().trim()
-                        if (newTag.isNotEmpty()) {
-                            PodcastTagsPreference.addTag(context, podcast, newTag)
-                            addEdit.text.clear()
-                            rebuildChips()
-                            if (subscribedViewMode == "tags") refreshSubscribedTagsRecycler()
-                        }
-                    }
-                }
-                addRow.addView(addEdit)
-                addRow.addView(addBtn)
-                container.addView(addRow)
             }
-
-            rebuildChips()
-
-            androidx.appcompat.app.AlertDialog.Builder(this)
-                .setTitle("Manage Tags: ${podcast.title}")
-                .setView(scrollView)
-                .setNeutralButton("Reset to defaults") { _, _ ->
-                    PodcastTagsPreference.resetToDefaults(context, podcast.id)
-                    if (subscribedViewMode == "tags") refreshSubscribedTagsRecycler()
-                }
-                .setPositiveButton("Done", null)
-                .show()
+            dialog.show()
         } catch (_: Exception) { }
     }
 
@@ -2495,10 +2446,6 @@ class MainActivity : AppCompatActivity() {
     private fun showFavoritesTab(tab: String) {
         if (tab != "saved") {
             clearPlaylistEpisodeSelection()
-        }
-        // Hide the subscribed view toggle by default; the subscribed case re-shows it
-        if (tab != "subscribed") {
-            try { findViewById<View>(R.id.subscribed_view_toggle).visibility = View.GONE } catch (_: Exception) { }
         }
         when (tab) {
             "stations" -> {
@@ -2531,19 +2478,19 @@ class MainActivity : AppCompatActivity() {
                 try { findViewById<TextView>(R.id.favorites_history_empty).visibility = View.GONE } catch (_: Exception) { }
                 try { findViewById<RecyclerView>(R.id.saved_episodes_recycler).visibility = View.GONE } catch (_: Exception) { }
 
-                // Show the List/Tags toggle and restore the correct view mode
-                try { findViewById<View>(R.id.subscribed_view_toggle).visibility = View.VISIBLE } catch (_: Exception) { }
-                if (subscribedViewMode == "tags" && subscribedTagFilter == null) {
-                    refreshSubscribedTagsRecycler()
+                val currentSort = SubscribedPodcastSortPreference.getSortOrder(this)
+                if (currentSort == SubscribedPodcastSortPreference.SORT_TAGS) {
+                    // Show the grouped-by-tag view
+                    try { findViewById<RecyclerView>(R.id.favorites_podcasts_recycler).visibility = View.GONE } catch (_: Exception) { }
+                    refreshSubscribedByTagView()
+                    updateVpnWarningBanner()
+                    return
                 }
-                refreshSubscribedViewMode()
 
-                // Show loading indicator while fetching subscribed podcasts (only for list mode)
-                if (subscribedViewMode == "list") {
-                    val existingAdapter = try { findViewById<RecyclerView>(R.id.favorites_podcasts_recycler).adapter as? PodcastAdapter } catch (_: Exception) { null }
-                    if (existingAdapter == null || existingAdapter.itemCount == 0) {
-                        setSubscribedPodcastsLoading(true)
-                    }
+                // Show loading indicator if the flat list is empty
+                val existingAdapter = try { findViewById<RecyclerView>(R.id.favorites_podcasts_recycler).adapter as? PodcastAdapter } catch (_: Exception) { null }
+                if (existingAdapter == null || existingAdapter.itemCount == 0) {
+                    setSubscribedPodcastsLoading(true)
                 }
                 updateVpnWarningBanner()
 
@@ -2584,8 +2531,10 @@ class MainActivity : AppCompatActivity() {
                                     val adapter = rv.adapter as? PodcastAdapter
                                     adapter?.updatePodcasts(fastSorted)
                                     adapter?.updateNewEpisodes(fastNewSet)
+                                    currentSubscribedPodcasts = fastSorted
+                                    currentNewEpisodeIds = fastNewSet
                                     findViewById<TextView>(R.id.favorites_podcasts_empty).visibility = View.GONE
-                                    if (subscribedViewMode == "list") rv.visibility = View.VISIBLE
+                                    rv.visibility = View.VISIBLE
                                 }
                             }
                         }
@@ -2602,6 +2551,8 @@ class MainActivity : AppCompatActivity() {
                         }.map { it.id }.toSet()
                         runOnUiThread {
                             setSubscribedPodcastsLoading(false)
+                            currentSubscribedPodcasts = sorted
+                            currentNewEpisodeIds = newSet
                             val adapter = rv.adapter as? PodcastAdapter
                             if (adapter != null) {
                                 // Update the existing adapter in place — no need to recreate it.
@@ -2640,12 +2591,19 @@ class MainActivity : AppCompatActivity() {
                                 if (helper != null) {
                                     podcastAdapter.onStartDrag = { viewHolder -> helper.startDrag(viewHolder) }
                                 }
+                                podcastAdapter.onTagRemoved = { podcast, tag ->
+                                    PodcastTagsPreference.removeTag(this@MainActivity, podcast, tag)
+                                    podcastAdapter.notifyDataSetChanged()
+                                }
+                                podcastAdapter.onTagAdded = { podcast ->
+                                    showAddTagForPodcast(podcast) { podcastAdapter.notifyDataSetChanged() }
+                                }
                                 rv.adapter = podcastAdapter
                                 podcastAdapter.updatePodcasts(sorted)
                                 podcastAdapter.updateNewEpisodes(newSet)
                             }
                             findViewById<TextView>(R.id.favorites_podcasts_empty).visibility = View.GONE
-                            if (subscribedViewMode == "list") rv.visibility = View.VISIBLE
+                            rv.visibility = View.VISIBLE
                         }
                     } catch (_: Exception) {
                         runOnUiThread { setSubscribedPodcastsLoading(false) }
@@ -3014,6 +2972,7 @@ class MainActivity : AppCompatActivity() {
             add(groupId, 2, 1, "Least recently updated")
             add(groupId, 3, 2, "Alphabetical (A-Z)")
             add(groupId, 4, 3, "Manual sort")
+            add(groupId, 5, 4, "Sort by tags")
             setGroupCheckable(groupId, true, true)
         }
         val current = SubscribedPodcastSortPreference.getSortOrder(this)
@@ -3022,6 +2981,7 @@ class MainActivity : AppCompatActivity() {
             SubscribedPodcastSortPreference.SORT_LEAST_RECENTLY_UPDATED -> 2
             SubscribedPodcastSortPreference.SORT_ALPHABETICAL -> 3
             SubscribedPodcastSortPreference.SORT_MANUAL -> 4
+            SubscribedPodcastSortPreference.SORT_TAGS -> 5
             else -> 1
         }
         popup.menu.findItem(checkedId)?.isChecked = true
@@ -3031,6 +2991,7 @@ class MainActivity : AppCompatActivity() {
                 2 -> SubscribedPodcastSortPreference.SORT_LEAST_RECENTLY_UPDATED
                 3 -> SubscribedPodcastSortPreference.SORT_ALPHABETICAL
                 4 -> SubscribedPodcastSortPreference.SORT_MANUAL
+                5 -> SubscribedPodcastSortPreference.SORT_TAGS
                 else -> return@setOnMenuItemClickListener false
             }
             SubscribedPodcastSortPreference.setSortOrder(this, newSort)
@@ -3043,10 +3004,25 @@ class MainActivity : AppCompatActivity() {
     /**
      * Re-sort the subscribed podcasts adapter and toggle drag handles based on [sortOrder].
      * When switching to manual sort the existing display order is saved as the manual order.
+     * When switching to [SubscribedPodcastSortPreference.SORT_TAGS], shows the grouped-by-tag view.
      */
     private fun applySubscribedPodcastSort(sortOrder: String) {
         try {
+            if (sortOrder == SubscribedPodcastSortPreference.SORT_TAGS) {
+                // Switch to grouped-by-tag view
+                try { findViewById<RecyclerView>(R.id.favorites_podcasts_recycler)?.visibility = View.GONE } catch (_: Exception) { }
+                val tagsRv = try { findViewById<RecyclerView>(R.id.subscribed_tags_recycler) } catch (_: Exception) { null }
+                if (tagsRv?.layoutManager == null) {
+                    tagsRv?.layoutManager = LinearLayoutManager(this)
+                    tagsRv?.isNestedScrollingEnabled = false
+                }
+                refreshSubscribedByTagView()
+                return
+            }
+            // Switching from SORT_TAGS to another sort: hide grouped view, show flat list
+            try { findViewById<RecyclerView>(R.id.subscribed_tags_recycler)?.visibility = View.GONE } catch (_: Exception) { }
             val rv = findViewById<RecyclerView>(R.id.favorites_podcasts_recycler) ?: return
+            rv.visibility = View.VISIBLE
             val adapter = rv.adapter as? PodcastAdapter ?: return
             val isManual = sortOrder == SubscribedPodcastSortPreference.SORT_MANUAL
             if (isManual) {
