@@ -2418,6 +2418,7 @@ class MainActivity : AppCompatActivity() {
                 hint = "New tag"
                 inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
                 imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
+                setPadding(48, 24, 48, 8)
             }
             val dialog = AlertDialog.Builder(this)
                 .setTitle("Add tag")
@@ -2425,13 +2426,21 @@ class MainActivity : AppCompatActivity() {
                 .setPositiveButton("Add", null)
                 .setNegativeButton("Cancel", null)
                 .create()
+            dialog.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
             dialog.setOnShowListener {
+                edit.requestFocus()
                 dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                     val tag = edit.text.toString().trim()
-                    if (tag.isNotEmpty()) {
-                        PodcastTagsPreference.addTag(this, podcast, tag)
-                        dialog.dismiss()
-                        onAdded()
+                    when {
+                        tag.isEmpty() -> { /* no-op: keep dialog open */ }
+                        PodcastTagsPreference.getTags(this, podcast).any { it.equals(tag, ignoreCase = true) } -> {
+                            Toast.makeText(this, "Tag "$tag" already exists", Toast.LENGTH_SHORT).show()
+                        }
+                        else -> {
+                            PodcastTagsPreference.addTag(this, podcast, tag)
+                            dialog.dismiss()
+                            onAdded()
+                        }
                     }
                 }
             }
