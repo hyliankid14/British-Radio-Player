@@ -2434,7 +2434,7 @@ class MainActivity : AppCompatActivity() {
                     when {
                         tag.isEmpty() -> { /* no-op: keep dialog open */ }
                         PodcastTagsPreference.getTags(this, podcast).any { it.equals(tag, ignoreCase = true) } -> {
-                            Toast.makeText(this, "Tag "$tag" already exists", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(this, "Tag \"$tag\" already exists", Toast.LENGTH_SHORT).show()
                         }
                         else -> {
                             PodcastTagsPreference.addTag(this, podcast, tag)
