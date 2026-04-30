@@ -160,9 +160,12 @@ class PodcastAdapter(
         private val notificationBell: ImageView = itemView.findViewById(R.id.podcast_notification_bell)
         private val dragHandle: ImageView? = itemView.findViewById(R.id.podcast_drag_handle)
 
-        // Cache the last-rendered tags so we can skip the removeAllViews/re-add cycle
-        // when bind() is called again for the same podcast with unchanged tags (e.g. after
-        // notifyDataSetChanged). Avoids the chip-flicker on the Subscribed Podcasts page.
+        // Cache the last-rendered state so we can skip the removeAllViews/re-add cycle when
+        // bind() is called again for the same podcast with unchanged tags (e.g. after
+        // notifyDataSetChanged). This is safe with RecyclerView recycling: when a ViewHolder is
+        // reused for a different podcast, podcast.id != lastTagsPodcastId is always true, so the
+        // full rebuild path fires and the cache is updated. The fast-path (skip rebuild) is only
+        // reached when the same podcast is re-bound with identical tags.
         private var lastTagsPodcastId: String? = null
         private var lastTagsList: List<String> = emptyList()
 
