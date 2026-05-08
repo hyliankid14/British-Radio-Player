@@ -418,6 +418,45 @@ class RadioService : MediaBrowserServiceCompat() {
                 seekToPosition(pos)
             }
 
+            override fun onPlayFromSearch(query: String?, extras: Bundle?) {
+                Log.d(TAG, "onPlayFromSearch called with query: $query")
+                if (query.isNullOrBlank()) {
+                    // Bare "play" command — resume last session
+                    onPlay()
+                    return
+                }
+                serviceScope.launch {
+                    // 1. Try to match a station first (no network required)
+                    val station = findStationForVoiceQuery(query)
+                    if (station != null) {
+                        Log.d(TAG, "onPlayFromSearch: matched station '${station.title}' for query '$query'")
+                        playStation(station.id)
+                        return@launch
+                    }
+
+                    // 2. Try to match a podcast
+                    val repo = PodcastRepository(this@RadioService)
+                    val podcast = findPodcastForVoiceQuery(repo, query)
+                    if (podcast != null) {
+                        Log.d(TAG, "onPlayFromSearch: matched podcast '${podcast.title}' for query '$query'")
+                        val episode = selectEpisodeForVoicePlayback(repo, podcast)
+                        if (episode != null) {
+                            matchedPodcast = podcast
+                            val playIntent = Intent().apply {
+                                putExtra(EXTRA_PODCAST_TITLE, podcast.title)
+                                putExtra(EXTRA_PODCAST_IMAGE, podcast.imageUrl)
+                            }
+                            playPodcastEpisode(episode, playIntent)
+                        } else {
+                            Log.w(TAG, "onPlayFromSearch: no playable episode found for podcast '${podcast.title}'")
+                        }
+                        return@launch
+                    }
+
+                    Log.w(TAG, "onPlayFromSearch: no station or podcast matched query '$query'")
+                }
+            }
+
             override fun onCustomAction(action: String?, extras: Bundle?) {
                 Log.d(TAG, "onCustomAction called with action: $action")
                 when (action) {
@@ -658,6 +697,40 @@ class RadioService : MediaBrowserServiceCompat() {
         }
 
         return super.onUnbind(intent)
+    }
+
+    // --- Voice command helpers ---
+
+    /** Returns true if this station's title is a reasonable match for the spoken [query]. */
+    private fun Station.matchesVoiceQuery(query: String): Boolean {
+        val q = query.trim()
+        if (title.equals(q, ignoreCase = true)) return true
+        if (q.contains(title, ignoreCase = true)) return true
+        // All tokens from the title must appear at a word boundary in the query
+        val titleTokens = title.lowercase(Locale.getDefault()).split(Regex("\\s+")).filter { it.isNotEmpty() }
+        val qLower = q.lowercase(Locale.getDefault())
+        return titleTokens.isNotEmpty() && titleTokens.all { tok ->
+            qLower.contains(Regex("\\b${Regex.escape(tok)}"))
+        }
+    }
+
+    private fun findStationForVoiceQuery(query: String): Station? =
+        StationRepository.getStations().firstOrNull { it.matchesVoiceQuery(query) }
+
+    private suspend fun findPodcastForVoiceQuery(repo: PodcastRepository, query: String): Podcast? {
+        val podcasts = withContext(Dispatchers.IO) { repo.fetchPodcasts(false) }
+        val queryLower = query.lowercase(Locale.getDefault())
+        // Prefer a title match over a description match
+        return podcasts.firstOrNull { repo.podcastMatchKind(it, queryLower) == "title" }
+            ?: podcasts.firstOrNull { repo.podcastMatchKind(it, queryLower) == "description" }
+    }
+
+    private suspend fun selectEpisodeForVoicePlayback(repo: PodcastRepository, podcast: Podcast): Episode? {
+        val episodes = withContext(Dispatchers.IO) { repo.fetchEpisodes(podcast) }
+        if (episodes.isEmpty()) return null
+        val sorted = repo.sortEpisodesForPodcast(podcast.id, episodes)
+        // For both sort orders skip episodes that have already been fully played
+        return sorted.firstOrNull { !PlayedEpisodesPreference.isPlayed(this, it.id) }
     }
 
     private fun maybeHandleAndroidAutoReconnect(clientName: String, clientUid: Int) {
