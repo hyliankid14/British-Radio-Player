@@ -633,17 +633,28 @@ class RadioService : MediaBrowserServiceCompat() {
 
     override fun onGetRoot(clientName: String, clientUid: Int, rootHints: Bundle?): BrowserRoot? {
         Log.d(TAG, "onGetRoot called for client: $clientName, uid: $clientUid")
+        val isAndroidAutoClient = clientName.contains(ANDROID_AUTO_CLIENT_HINT, ignoreCase = true)
         maybeHandleAndroidAutoReconnect(clientName, clientUid)
 
         // Opt out of Android 11+'s media resumption feature (and Samsung One UI 8's "Live
         // notifications / recently played" card) when the user has explicitly stopped playback.
         // The system sends EXTRA_RECENT = true to discover which apps have recently-played
         // content.  Returning null here prevents it from connecting and building a "resume"
-        // notification in the shade.  Android Auto does NOT use this hint so returning null
-        // here does not affect Android Auto browsing or playback.
-        if (rootHints?.getBoolean(BrowserRoot.EXTRA_RECENT) == true && isStopped) {
+        // notification in the shade.
+        // IMPORTANT: Never return null for Android Auto clients, even when EXTRA_RECENT = true.
+        // While the standard Android Auto host does not use this hint, some OEM head-unit
+        // implementations send EXTRA_RECENT = true on their initial connection probe to populate
+        // the launcher.  Returning null causes those implementations to silently drop the app
+        // from the launcher until the user disconnects and reconnects.
+        if (!isAndroidAutoClient && rootHints?.getBoolean(BrowserRoot.EXTRA_RECENT) == true && isStopped) {
             Log.d(TAG, "onGetRoot: returning null for EXTRA_RECENT request (playback stopped)")
             return null
+        }
+
+        // When Android Auto connects fresh (new UID or first-ever connection), ping the root so
+        // the launcher refreshes immediately rather than waiting for a content-change event.
+        if (isAndroidAutoClient) {
+            try { notifyChildrenChanged("root") } catch (_: Exception) { }
         }
 
         val extras = Bundle().apply {
