@@ -305,8 +305,8 @@ class RadioService : MediaBrowserServiceCompat() {
                             val episodeId = rest.substring(separatorIdx + 1)
                             val currentEpisodeId = PlaybackStateHelper.getCurrentEpisodeId()
                             // Suppress automatic re-play of the episode that just ended naturally.
-                            val isPlayerInEndedState = player?.playbackState == Player.STATE_ENDED
-                            if (episodeId == currentEpisodeId && (podcastEpisodeEndedNoRestart || isPlayerInEndedState)) {
+                            val isEnded = player?.playbackState == Player.STATE_ENDED
+                            if (episodeId == currentEpisodeId && (podcastEpisodeEndedNoRestart || isEnded)) {
                                 Log.d(TAG, "onPlayFromMediaId: suppressing automatic replay of just-ended playlist episode $episodeId")
                                 return
                             }
@@ -349,8 +349,8 @@ class RadioService : MediaBrowserServiceCompat() {
                         // Some Android Auto head units call onPlayFromMediaId with the current
                         // media ID when they see STATE_STOPPED/STATE_PAUSED after an episode ends,
                         // which would restart the same episode instead of advancing to the next one.
-                        val isPlayerInEndedState = player?.playbackState == Player.STATE_ENDED
-                        if (episodeId == currentEpisodeId && (podcastEpisodeEndedNoRestart || isPlayerInEndedState)) {
+                        val isEnded = player?.playbackState == Player.STATE_ENDED
+                        if (episodeId == currentEpisodeId && (podcastEpisodeEndedNoRestart || isEnded)) {
                             Log.d(TAG, "onPlayFromMediaId: suppressing automatic replay of just-ended episode $episodeId")
                             return
                         }
@@ -2177,10 +2177,6 @@ class RadioService : MediaBrowserServiceCompat() {
                     if (currentStationId.startsWith("podcast_")) {
                         Log.d(TAG, "handlePlayRequest: suppressing ended podcast replay and stopping playback (source=$source)")
                         stopPlayback()
-                        return
-                    }
-                    if (pendingAutoplayNextEpisode || podcastEpisodeEndedNoRestart) {
-                        Log.d(TAG, "handlePlayRequest: suppressing restart of ended episode (pendingAutoplay=$pendingAutoplayNextEpisode, noRestart=$podcastEpisodeEndedNoRestart, source=$source)")
                         return
                     }
                     Log.d(TAG, "handlePlayRequest: restarting ENDED media item from start (source=$source)")
