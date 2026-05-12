@@ -1813,6 +1813,18 @@ class RadioService : MediaBrowserServiceCompat() {
                 
                 addListener(object : Player.Listener {
                     override fun onPlaybackStateChanged(playbackState: Int) {
+                        val podcastEpisodeJustEnded =
+                            playbackState == Player.STATE_ENDED && currentStationId.startsWith("podcast_")
+                        if (podcastEpisodeJustEnded) {
+                            // Set the no-restart guard before publishing STATE_STOPPED so that
+                            // Android Auto callbacks triggered by that state cannot race and
+                            // restart the just-finished episode from the beginning.
+                            podcastEpisodeEndedNoRestart = true
+                            // Stop progress writes immediately on natural episode end so no
+                            // follow-up STATE_PAUSED update is emitted for the ended episode.
+                            podcastProgressRunnable?.let { handler.removeCallbacks(it) }
+                        }
+
                         val state = when (playbackState) {
                             Player.STATE_READY -> if (playWhenReady) PlaybackStateCompat.STATE_PLAYING else PlaybackStateCompat.STATE_PAUSED
                             Player.STATE_BUFFERING -> PlaybackStateCompat.STATE_BUFFERING
@@ -1849,16 +1861,8 @@ class RadioService : MediaBrowserServiceCompat() {
 
                         // If playback ended for a podcast episode, attempt to autoplay next episode in the same podcast
                         if (playbackState == Player.STATE_ENDED && currentStationId.startsWith("podcast_")) {
-                            // Set the no-restart guard immediately when the episode ends so that
-                            // Android Auto's automatic onPlay() (triggered by STATE_STOPPED) cannot
-                            // restart the same episode via handlePlayRequest's STATE_ENDED path.
-                            // Cleared by playPodcastEpisode() when a new episode actually starts.
-                            podcastEpisodeEndedNoRestart = true
-                            // Stop the progress runnable so it no longer writes STATE_PAUSED to the
-                            // MediaSession after a natural episode end. Without this, some Android
-                            // Auto head units see STATE_PAUSED and call onPlayFromMediaId with the
-                            // current episode ID, causing the same episode to restart automatically.
-                            podcastProgressRunnable?.let { handler.removeCallbacks(it) }
+                            // Guard + progress runnable cleanup are applied at the top of this
+                            // callback before STATE_STOPPED is published.
                             val currentEpisode = PlaybackStateHelper.getCurrentEpisodeId()
                             val podcastId = currentPodcastId
                             val playlistId = currentPlaylistId
