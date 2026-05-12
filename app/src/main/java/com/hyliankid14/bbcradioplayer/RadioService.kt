@@ -303,13 +303,12 @@ class RadioService : MediaBrowserServiceCompat() {
                         if (separatorIdx >= 0) {
                             val playlistId = rest.substring(0, separatorIdx)
                             val episodeId = rest.substring(separatorIdx + 1)
+                            val currentEpisodeId = PlaybackStateHelper.getCurrentEpisodeId()
                             // Suppress automatic re-play of the episode that just ended naturally.
                             val isSameEndedEpisode =
-                                episodeId == PlaybackStateHelper.getCurrentEpisodeId() &&
+                                episodeId == currentEpisodeId &&
                                     player?.playbackState == Player.STATE_ENDED
-                            if (episodeId == PlaybackStateHelper.getCurrentEpisodeId() &&
-                                (podcastEpisodeEndedNoRestart || isSameEndedEpisode)
-                            ) {
+                            if (episodeId == currentEpisodeId && (podcastEpisodeEndedNoRestart || isSameEndedEpisode)) {
                                 Log.d(TAG, "onPlayFromMediaId: suppressing automatic replay of just-ended playlist episode $episodeId")
                                 return
                             }
@@ -347,16 +346,15 @@ class RadioService : MediaBrowserServiceCompat() {
                         }
                     } else if (id.startsWith("podcast_episode_")) {
                         val episodeId = id.removePrefix("podcast_episode_")
+                        val currentEpisodeId = PlaybackStateHelper.getCurrentEpisodeId()
                         // Suppress automatic re-play of the episode that just ended naturally.
                         // Some Android Auto head units call onPlayFromMediaId with the current
                         // media ID when they see STATE_STOPPED/STATE_PAUSED after an episode ends,
                         // which would restart the same episode instead of advancing to the next one.
                         val isSameEndedEpisode =
-                            episodeId == PlaybackStateHelper.getCurrentEpisodeId() &&
+                            episodeId == currentEpisodeId &&
                                 player?.playbackState == Player.STATE_ENDED
-                        if (episodeId == PlaybackStateHelper.getCurrentEpisodeId() &&
-                            (podcastEpisodeEndedNoRestart || isSameEndedEpisode)
-                        ) {
+                        if (episodeId == currentEpisodeId && (podcastEpisodeEndedNoRestart || isSameEndedEpisode)) {
                             Log.d(TAG, "onPlayFromMediaId: suppressing automatic replay of just-ended episode $episodeId")
                             return
                         }
