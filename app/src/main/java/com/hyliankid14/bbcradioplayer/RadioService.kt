@@ -305,8 +305,8 @@ class RadioService : MediaBrowserServiceCompat() {
                             val episodeId = rest.substring(separatorIdx + 1)
                             val currentEpisodeId = PlaybackStateHelper.getCurrentEpisodeId()
                             // Suppress automatic re-play of the episode that just ended naturally.
-                            val isEndedPlayback = player?.playbackState == Player.STATE_ENDED
-                            if (episodeId == currentEpisodeId && (podcastEpisodeEndedNoRestart || isEndedPlayback)) {
+                            val isPlayerInEndedState = player?.playbackState == Player.STATE_ENDED
+                            if (episodeId == currentEpisodeId && (podcastEpisodeEndedNoRestart || isPlayerInEndedState)) {
                                 Log.d(TAG, "onPlayFromMediaId: suppressing automatic replay of just-ended playlist episode $episodeId")
                                 return
                             }
@@ -349,8 +349,8 @@ class RadioService : MediaBrowserServiceCompat() {
                         // Some Android Auto head units call onPlayFromMediaId with the current
                         // media ID when they see STATE_STOPPED/STATE_PAUSED after an episode ends,
                         // which would restart the same episode instead of advancing to the next one.
-                        val isEndedPlayback = player?.playbackState == Player.STATE_ENDED
-                        if (episodeId == currentEpisodeId && (podcastEpisodeEndedNoRestart || isEndedPlayback)) {
+                        val isPlayerInEndedState = player?.playbackState == Player.STATE_ENDED
+                        if (episodeId == currentEpisodeId && (podcastEpisodeEndedNoRestart || isPlayerInEndedState)) {
                             Log.d(TAG, "onPlayFromMediaId: suppressing automatic replay of just-ended episode $episodeId")
                             return
                         }
