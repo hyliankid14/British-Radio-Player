@@ -2141,7 +2141,8 @@ class RadioService : MediaBrowserServiceCompat() {
         if (!isSink) return false
         return when (type) {
             AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
-            AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> true
+            AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+            AudioDeviceInfo.TYPE_HEARING_AID -> true
             else -> false
         }
     }
