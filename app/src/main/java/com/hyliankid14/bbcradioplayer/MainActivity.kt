@@ -548,9 +548,13 @@ class MainActivity : AppCompatActivity() {
         // Setup settings controls
         setupSettings()
 
-        // Run a throttled sync on app start so subscription auto-downloads stay current
-        // even before the next scheduled background refresh alarm fires.
-        PodcastSubscriptions.triggerAutoDownloadForAllSubscriptions(this)
+        // Defer auto-download sync so episode RSS fetches don't compete with the
+        // subscribed-podcast list loading on startup. The UI Phase 1 (disk) and
+        // Phase 2 (network bounds check) complete well within this window.
+        lifecycleScope.launch(Dispatchers.IO) {
+            kotlinx.coroutines.delay(5_000L)
+            PodcastSubscriptions.triggerAutoDownloadForAllSubscriptions(this@MainActivity)
+        }
         
         // Create alarm notification channel
         createAlarmNotificationChannel()
