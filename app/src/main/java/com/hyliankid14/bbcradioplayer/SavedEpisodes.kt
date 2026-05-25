@@ -32,46 +32,56 @@ object SavedEpisodes {
     internal fun buildEntry(context: Context, episode: Episode, podcastTitle: String? = null): PodcastPlaylists.Entry {
         // Resolve the best possible audio URL to store. We avoid network calls here — prefer
         // the episode object, then the active playback URI, then cached feed entries.
-        fun looksLikePreview(url: String?, dur: Int): Boolean {
+        fun looksLikePreviewUrl(url: String?): Boolean {
             if (url.isNullOrBlank()) return true
             val low = url.lowercase()
             if (low.contains("preview") || low.contains("snippet") || low.contains("sample")) return true
-            if (dur <= 0) return true
             if (url.length < 20) return true
+            return false
+        }
+
+        fun looksLikePreview(url: String?, dur: Int): Boolean {
+            if (looksLikePreviewUrl(url)) return true
+            if (dur <= 0) return true
             return false
         }
 
         var resolvedAudio = episode.audioUrl
         var resolvedDuration = episode.durationMins
         var resolvedPubDate = episode.pubDate
-        if (looksLikePreview(resolvedAudio, episode.durationMins)) {
-            val fromPlayer = PlaybackStateHelper.getCurrentMediaUri()
-            if (!fromPlayer.isNullOrBlank() && !looksLikePreview(fromPlayer, episode.durationMins)) {
-                resolvedAudio = fromPlayer
+
+        // 1. Try to find better metadata from cache or index store first (so we get correct pubDate, duration, etc.)
+        try {
+            val repo = PodcastRepository(context)
+            val cached = repo.getEpisodesFromCache(episode.podcastId)
+            val found = cached?.firstOrNull { it.id == episode.id }
+            if (found != null && !looksLikePreview(found.audioUrl, found.durationMins)) {
+                resolvedAudio = found.audioUrl
+                resolvedDuration = found.durationMins
+                resolvedPubDate = found.pubDate
             } else {
-                try {
-                    val repo = PodcastRepository(context)
-                    val cached = repo.getEpisodesFromCache(episode.podcastId)
-                    val found = cached?.firstOrNull { it.id == episode.id }
-                    if (found != null && !looksLikePreview(found.audioUrl, found.durationMins)) {
-                        resolvedAudio = found.audioUrl
-                        resolvedDuration = found.durationMins
-                        if (resolvedPubDate.isBlank()) resolvedPubDate = found.pubDate
-                    } else {
-                        try {
-                            val idx = com.hyliankid14.bbcradioplayer.db.IndexStore.getInstance(context)
-                            val ef = idx.findEpisodeById(episode.id)
-                            if (ef != null) {
-                                val candidate = repo.getEpisodesFromCache(ef.podcastId)?.firstOrNull { it.id == episode.id }
-                                if (candidate != null && !looksLikePreview(candidate.audioUrl, candidate.durationMins)) {
-                                    resolvedAudio = candidate.audioUrl
-                                    resolvedDuration = candidate.durationMins
-                                    if (resolvedPubDate.isBlank()) resolvedPubDate = candidate.pubDate
-                                }
-                            }
-                        } catch (_: Exception) { }
+                val idx = com.hyliankid14.bbcradioplayer.db.IndexStore.getInstance(context)
+                val ef = idx.findEpisodeById(episode.id)
+                if (ef != null) {
+                    val candidate = repo.getEpisodesFromCache(ef.podcastId)?.firstOrNull { it.id == episode.id }
+                    if (candidate != null && !looksLikePreview(candidate.audioUrl, candidate.durationMins)) {
+                        resolvedAudio = candidate.audioUrl
+                        resolvedDuration = candidate.durationMins
+                        resolvedPubDate = candidate.pubDate
                     }
-                } catch (_: Exception) { }
+                }
+            }
+        } catch (_: Exception) { }
+
+        // 2. If we still don't have a valid audio URL, fall back to the player's active URI
+        if (looksLikePreview(resolvedAudio, resolvedDuration)) {
+            val fromPlayer = PlaybackStateHelper.getCurrentMediaUri()
+            if (!fromPlayer.isNullOrBlank() && !looksLikePreviewUrl(fromPlayer)) {
+                resolvedAudio = fromPlayer
+                val playerDurationMs = PlaybackStateHelper.getCurrentShow().segmentDurationMs ?: 0L
+                if (playerDurationMs > 0 && resolvedDuration <= 0) {
+                    resolvedDuration = (playerDurationMs / 60_000L).toInt()
+                }
             }
         }
 
@@ -124,7 +134,14 @@ object SavedEpisodes {
     }
 
     fun toggleSaved(context: Context, episode: Episode, podcastTitle: String? = null): Boolean {
-        return PodcastPlaylists.toggleDefaultPlaylist(context, episode, podcastTitle)
+        val nowSaved = PodcastPlaylists.toggleDefaultPlaylist(context, episode, podcastTitle)
+        if (nowSaved) {
+            val resolvedEntry = getSavedEntries(context).firstOrNull { it.id == episode.id }
+            if (resolvedEntry != null && resolvedEntry.audioUrl.isBlank()) {
+                resolveSavedEntryAsynchronously(context, episode.id, episode.podcastId, podcastTitle ?: "")
+            }
+        }
+        return nowSaved
     }
 
     fun remove(context: Context, episodeId: String) {
@@ -156,6 +173,58 @@ object SavedEpisodes {
 
     fun clearAll(context: Context) {
         PodcastPlaylists.clearAll(context)
+    }
+
+    fun resolveSavedEntryAsynchronously(context: Context, episodeId: String, podcastId: String, podcastTitle: String) {
+        if (podcastId.isBlank() || episodeId.isBlank()) return
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val repo = PodcastRepository(context)
+                val podcast = repo.fetchPodcasts(false).firstOrNull { it.id == podcastId }
+                if (podcast != null) {
+                    val episodes = RSSParser.fetchAndParseRSS(podcast.rssUrl, podcast.id)
+                    val matched = episodes.firstOrNull { it.id == episodeId }
+                    if (matched != null) {
+                        val existing = getSavedEntries(context).firstOrNull { it.id == episodeId }
+                        if (existing != null) {
+                            val updatedEntry = Entry(
+                                id = matched.id,
+                                title = matched.title,
+                                description = matched.description,
+                                imageUrl = matched.imageUrl,
+                                audioUrl = matched.audioUrl,
+                                pubDate = matched.pubDate,
+                                durationMins = matched.durationMins,
+                                podcastId = matched.podcastId,
+                                podcastTitle = podcastTitle.ifBlank { existing.podcastTitle },
+                                savedAtMs = existing.savedAtMs
+                            )
+                            saveEntry(context, updatedEntry)
+                            android.util.Log.d("SavedEpisodes", "Asynchronously resolved details for saved episode: ${matched.title}")
+                            
+                            // If auto-download is enabled, trigger the download now that we have resolved the URL
+                            if (DownloadPreferences.isAutoDownloadSaved(context)) {
+                                val episodeForDownload = Episode(
+                                    id = matched.id,
+                                    title = matched.title,
+                                    description = matched.description,
+                                    audioUrl = matched.audioUrl,
+                                    imageUrl = matched.imageUrl,
+                                    pubDate = matched.pubDate,
+                                    durationMins = matched.durationMins,
+                                    podcastId = matched.podcastId
+                                )
+                                if (!DownloadedEpisodes.isDownloaded(context, episodeForDownload)) {
+                                    EpisodeDownloadManager.downloadEpisode(context, episodeForDownload, podcastTitle, isAutoDownload = true)
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("SavedEpisodes", "Failed to resolve saved episode $episodeId asynchronously", e)
+            }
+        }
     }
 
     /**

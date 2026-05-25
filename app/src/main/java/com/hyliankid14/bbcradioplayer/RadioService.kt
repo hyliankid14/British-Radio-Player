@@ -4334,10 +4334,10 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                     id = currentEpisodeId,
                     title = PlaybackStateHelper.getCurrentShow().episodeTitle ?: "",
                     description = PlaybackStateHelper.getCurrentShow().description ?: "",
-                    audioUrl = "",
+                    audioUrl = PlaybackStateHelper.getCurrentMediaUri() ?: "",
                     imageUrl = PlaybackStateHelper.getCurrentShow().imageUrl ?: "",
                     pubDate = "",
-                    durationMins = 0,
+                    durationMins = ((PlaybackStateHelper.getCurrentShow().segmentDurationMs ?: 0L) / 60_000L).toInt(),
                     podcastId = stationId.removePrefix("podcast_")
                 )
                 SavedEpisodes.toggleSaved(this, episode, PlaybackStateHelper.getCurrentStation()?.title ?: "")

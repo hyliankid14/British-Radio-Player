@@ -4326,10 +4326,10 @@ class MainActivity : AppCompatActivity() {
                         id = currentEpisodeId,
                         title = PlaybackStateHelper.getCurrentShow().episodeTitle ?: "Saved episode",
                         description = PlaybackStateHelper.getCurrentShow().description ?: "",
-                        audioUrl = "",
+                        audioUrl = PlaybackStateHelper.getCurrentMediaUri() ?: "",
                         imageUrl = PlaybackStateHelper.getCurrentShow().imageUrl ?: "",
                         pubDate = "",
-                        durationMins = 0,
+                        durationMins = ((PlaybackStateHelper.getCurrentShow().segmentDurationMs ?: 0L) / 60_000L).toInt(),
                         podcastId = station.id.removePrefix("podcast_")
                     )
                     val podcastTitle = PlaybackStateHelper.getCurrentStation()?.title ?: ""

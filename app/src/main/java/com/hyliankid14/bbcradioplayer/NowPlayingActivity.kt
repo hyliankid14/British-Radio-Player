@@ -1267,16 +1267,17 @@ class NowPlayingActivity : AppCompatActivity() {
                             // Build episode from current playback state
                             val episodeId = PlaybackStateHelper.getCurrentEpisodeId() ?: currentShownEpisodeId
                             if (episodeId.isNullOrEmpty()) return true
+                            val currentPodcastId = (PlaybackStateHelper.getCurrentStation()?.id?.removePrefix("podcast_") ?: previewEpisodeProp?.podcastId).orEmpty()
                             
                             Episode(
                                 id = episodeId,
                                 title = episodeTitle.text?.toString() ?: "Episode",
                                 description = fullDescriptionHtml.ifEmpty { showName.text?.toString() ?: "" },
-                                audioUrl = "",
+                                audioUrl = PlaybackStateHelper.getCurrentMediaUri() ?: "",
                                 imageUrl = lastArtworkUrl ?: "",
                                 pubDate = releaseDateView.text?.toString() ?: "",
-                                durationMins = 0,
-                                podcastId = ""
+                                durationMins = ((PlaybackStateHelper.getCurrentShow().segmentDurationMs ?: 0L) / 60_000L).toInt(),
+                                podcastId = currentPodcastId
                             )
                         }
                         
@@ -1587,10 +1588,10 @@ class NowPlayingActivity : AppCompatActivity() {
                 id = episodeId,
                 title = baseTitle.takeIf { it.isNotBlank() } ?: "Saved episode",
                 description = PlaybackStateHelper.getCurrentShow().description ?: "",
-                audioUrl = "",
+                audioUrl = PlaybackStateHelper.getCurrentMediaUri() ?: "",
                 imageUrl = PlaybackStateHelper.getCurrentShow().imageUrl ?: "",
-                pubDate = "",
-                durationMins = 0,
+                pubDate = releaseDateView.text?.toString() ?: "",
+                durationMins = ((PlaybackStateHelper.getCurrentShow().segmentDurationMs ?: 0L) / 60_000L).toInt(),
                 podcastId = (station?.id?.removePrefix("podcast_") ?: previewEpisodeProp?.podcastId).orEmpty()
             )
             val podcastTitle = PlaybackStateHelper.getCurrentStation()?.title ?: supportActionBar?.title?.toString() ?: "Podcast"
@@ -1656,7 +1657,7 @@ class NowPlayingActivity : AppCompatActivity() {
             audioUrl = PlaybackStateHelper.getCurrentMediaUri() ?: "",
             imageUrl = lastArtworkUrl ?: PlaybackStateHelper.getCurrentShow().imageUrl ?: "",
             pubDate = releaseDateView.text?.toString() ?: "",
-            durationMins = 0,
+            durationMins = ((PlaybackStateHelper.getCurrentShow().segmentDurationMs ?: 0L) / 60_000L).toInt(),
             podcastId = (station?.id?.removePrefix("podcast_") ?: previewEpisodeProp?.podcastId).orEmpty()
         )
         return episode to podcastTitle

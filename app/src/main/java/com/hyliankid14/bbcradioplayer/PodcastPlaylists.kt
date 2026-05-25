@@ -311,7 +311,11 @@ object PodcastPlaylists {
 
     fun addEpisodeToPlaylist(context: Context, playlistId: String, episode: Episode, podcastTitle: String? = null): Boolean {
         val resolvedEntry = SavedEpisodes.buildEntry(context, episode, podcastTitle)
-        return addEntry(context, playlistId, resolvedEntry)
+        val added = addEntry(context, playlistId, resolvedEntry)
+        if (added && playlistId == DEFAULT_PLAYLIST_ID && resolvedEntry.audioUrl.isBlank()) {
+            SavedEpisodes.resolveSavedEntryAsynchronously(context, episode.id, episode.podcastId, podcastTitle ?: "")
+        }
+        return added
     }
 
     fun saveEntryToDefault(context: Context, entry: Entry) {
