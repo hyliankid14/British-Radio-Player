@@ -4,6 +4,7 @@
 #include "audio/bbc_audio.h"
 #include "esp_log.h"
 #include "esp_sleep.h"
+#include "esp_system.h"
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -30,6 +31,7 @@ static bool      s_display_sleeping = false;
 #define UI_ACTIVE_BRIGHTNESS 80
 #define UI_TOUCH_MIN_SIZE    44
 #define UI_PWR_HOLD_MS       1400
+#define UI_PWR_REBOOT_MS     5000
 
 #define UI_BRIGHTNESS_OFF    0
 #define UI_BRIGHTNESS_LOW    20
@@ -101,14 +103,14 @@ static void ui_cycle_display_brightness_async(void *arg)
     ESP_LOGI(TAG, "Button PWR short (brightness: %s, %d%%)", label, brightness);
 }
 
-static void ui_power_off_timer_cb(lv_timer_t *timer)
+static void ui_enter_deep_sleep_async(void *arg)
 {
-    LV_UNUSED(timer);
+    LV_UNUSED(arg);
     if (s_power_msg && lv_obj_is_valid(s_power_msg)) {
         lv_obj_del(s_power_msg);
     }
     s_power_msg = NULL;
-    s_power_off_timer = NULL;
+
     ESP_LOGI(TAG, "Entering deep sleep (wake: PWR button)");
     bsp_display_brightness_set(0);
     s_display_sleeping = true;
@@ -121,7 +123,7 @@ static void ui_power_off_timer_cb(lv_timer_t *timer)
     esp_deep_sleep_start();
 }
 
-static void ui_power_off_async(void *arg)
+static void ui_show_power_off_message_async(void *arg)
 {
     LV_UNUSED(arg);
     lv_obj_t *screen = ui_current_screen();
@@ -145,13 +147,36 @@ static void ui_power_off_async(void *arg)
         lv_obj_set_style_text_color(label, UI_COLOR_TEXT, LV_PART_MAIN);
         lv_obj_center(label);
     }
+}
 
-    if (s_power_off_timer) {
-        lv_timer_del(s_power_off_timer);
-        s_power_off_timer = NULL;
+static void ui_show_reboot_message_async(void *arg)
+{
+    LV_UNUSED(arg);
+    lv_obj_t *screen = ui_current_screen();
+    if (screen == NULL) {
+        return;
     }
-    s_power_off_timer = lv_timer_create(ui_power_off_timer_cb, 900, NULL);
-    lv_timer_set_repeat_count(s_power_off_timer, 1);
+
+    if (s_power_msg && lv_obj_is_valid(s_power_msg)) {
+        lv_obj_del(s_power_msg);
+        s_power_msg = NULL;
+    }
+
+    s_power_msg = lv_obj_create(screen);
+    lv_obj_set_size(s_power_msg, 180, 72);
+    lv_obj_align(s_power_msg, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_bg_color(s_power_msg, UI_COLOR_CARD_BG, LV_PART_MAIN);
+    lv_obj_set_style_border_color(s_power_msg, UI_COLOR_BBC_RED, LV_PART_MAIN);
+    lv_obj_set_style_border_width(s_power_msg, 2, LV_PART_MAIN);
+    lv_obj_set_style_radius(s_power_msg, 10, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(s_power_msg, 8, LV_PART_MAIN);
+
+    lv_obj_t *label = lv_label_create(s_power_msg);
+    lv_label_set_text(label, "Rebooting...");
+    lv_obj_set_style_text_color(label, UI_COLOR_TEXT, LV_PART_MAIN);
+    lv_obj_center(label);
+
+    lv_refr_now(NULL);
 }
 
 static void ui_volume_hide_timer_cb(lv_timer_t *timer)
@@ -417,6 +442,7 @@ static void button_poll_task(void *arg)
     const TickType_t poll_period = pdMS_TO_TICKS(15);
     const TickType_t debounce_ms = pdMS_TO_TICKS(80);
     const TickType_t power_hold_ticks = pdMS_TO_TICKS(UI_PWR_HOLD_MS);
+    const TickType_t power_reboot_ticks = pdMS_TO_TICKS(UI_PWR_REBOOT_MS);
 
     int last_plus = 1;
     int last_pwr  = 1;
@@ -427,6 +453,7 @@ static void button_poll_task(void *arg)
     TickType_t boot_unlock = 0;
     TickType_t pwr_press_start = 0;
     bool pwr_hold_handled = false;
+    bool reboot_triggered = false;
 
     while (true) {
         vTaskDelay(poll_period);
@@ -445,16 +472,29 @@ static void button_poll_task(void *arg)
         if (last_pwr == 1 && pwr == 0) {
             pwr_press_start = now;
             pwr_hold_handled = false;
+            reboot_triggered = false;
         }
-        if (pwr == 0 && !pwr_hold_handled && (now - pwr_press_start) >= power_hold_ticks) {
-            ESP_LOGI(TAG, "Button PWR hold (power off)");
-            lv_async_call(ui_power_off_async, NULL);
-            pwr_hold_handled = true;
-            pwr_unlock = now + debounce_ms;
+        if (pwr == 0) {
+            if ((now - pwr_press_start) >= power_reboot_ticks && !reboot_triggered) {
+                ESP_LOGI(TAG, "Button PWR held for 5 seconds. Rebooting device!");
+                reboot_triggered = true;
+                lv_async_call(ui_show_reboot_message_async, NULL);
+                vTaskDelay(pdMS_TO_TICKS(1000));
+                esp_restart();
+            } else if ((now - pwr_press_start) >= power_hold_ticks && !pwr_hold_handled) {
+                ESP_LOGI(TAG, "Button PWR hold (power off)");
+                lv_async_call(ui_show_power_off_message_async, NULL);
+                pwr_hold_handled = true;
+                pwr_unlock = now + debounce_ms;
+            }
         }
         if (last_pwr == 0 && pwr == 1 && now >= pwr_unlock) {
-            if (!pwr_hold_handled) {
-                lv_async_call(ui_cycle_display_brightness_async, NULL);
+            if (!reboot_triggered) {
+                if (pwr_hold_handled) {
+                    lv_async_call(ui_enter_deep_sleep_async, NULL);
+                } else {
+                    lv_async_call(ui_cycle_display_brightness_async, NULL);
+                }
             }
             pwr_unlock = now + debounce_ms;
         }
