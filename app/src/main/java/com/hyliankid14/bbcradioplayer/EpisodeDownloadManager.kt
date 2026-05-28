@@ -230,9 +230,7 @@ object EpisodeDownloadManager {
                         }
                         context.sendBroadcast(broadcastIntent)
 
-                        if (!autoDownload && !suppressSuccessNotification) {
-                            showSuccessNotification(context, episode, podcastTitle)
-                        }
+                        // Downloads run silently - no success notification
 
                         Log.d(TAG, "Episode downloaded successfully: ${episode.title} to $localRef")
                     } catch (e: Exception) {
@@ -351,7 +349,6 @@ object EpisodeDownloadManager {
             )
             prefs(context).edit().putString(pendingKey, pendingData).apply()
 
-            showToast(context, "Download started")
             return true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start download", e)
@@ -558,7 +555,7 @@ object EpisodeDownloadManager {
             setTitle("${podcastTitle ?: "Podcast"}: ${episode.title}")
             setDescription("Downloading episode")
             // Third-party apps cannot use VISIBILITY_HIDDEN; use a valid public visibility mode.
-            setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
             setDestinationInExternalPublicDir(Environment.DIRECTORY_PODCASTS, publicSubPath)
             setMimeType("audio/mpeg")
             addRequestHeader("User-Agent", "British Radio Player/1.0 (Android)")
