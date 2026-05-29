@@ -128,9 +128,6 @@ class SearchResultsAdapter(
         val filtered = moreEpisodeMatches.filter { seenIds.add(it.first.id) }
         if (filtered.isEmpty()) return
 
-        // Remove any index hint — real episode results replace it
-        removeIndexHint()
-
         var sectionIndex = items.indexOfFirst { it is Item.Section && it.title == "Episode" }
         val sectionIsNew = sectionIndex == -1
         if (sectionIsNew) {
