@@ -56,9 +56,17 @@ import re
 import time
 from typing import Any
 
-import functions_framework  # type: ignore[import-untyped]
+try:
+    import functions_framework  # type: ignore[import-untyped]
+    _functions_framework_available = True
+except ImportError:
+    _functions_framework_available = False
 from flask import Request, jsonify, make_response
-from google.cloud import storage as gcs  # type: ignore[import-untyped]
+try:
+    from google.cloud import storage as gcs  # type: ignore[import-untyped]
+    _gcs_available = True
+except ImportError:
+    _gcs_available = False
 
 logger = logging.getLogger(__name__)
 
@@ -80,8 +88,22 @@ GCS_BUCKET = os.environ.get("GCS_BUCKET", "")
 INDEX_OBJECT = os.environ.get("INDEX_OBJECT", "podcast-index.json.gz")
 
 
+def _load_index_local() -> bytes:
+    """Load index from local filesystem instead of GCS."""
+    index_path = os.environ.get('INDEX_OBJECT', '')
+    if not index_path or not os.path.exists(index_path):
+        raise FileNotFoundError(f"Index file not found: {index_path}")
+    logger.info("Loading podcast index from local file: %s …", index_path)
+    with open(index_path, 'rb') as f:
+        return f.read()
+
+
 def _load_index(force: bool = False) -> None:
-    """Download the gzip index from GCS and populate the in-memory cache.
+    """Download the gzip index from GCS (or local filesystem) and populate the in-memory cache.
+
+    When GCS_BUCKET is set to '__local__', the index is loaded from the
+    filesystem path specified by INDEX_OBJECT instead of from Google Cloud Storage.
+    This enables running the search server on self-hosted hardware without GCS.
 
     The index is kept in module-level lists so that warm Cloud Function
     instances reuse it without paying the GCS download cost on every request.
@@ -94,27 +116,37 @@ def _load_index(force: bool = False) -> None:
     if not force and _loaded_at > 0 and (now - _loaded_at) < INDEX_CACHE_TTL_S:
         return
 
-    if not GCS_BUCKET:
-        raise RuntimeError(
-            "GCS_BUCKET environment variable is not set. "
-            "Set it to the name of your GCS bucket."
-        )
+    if GCS_BUCKET == '__local__':
+        payload = _load_index_local()
+        t0 = time.monotonic()
+    else:
+        if not GCS_BUCKET:
+            raise RuntimeError(
+                "GCS_BUCKET environment variable is not set. "
+                "Set it to the name of your GCS bucket, or '__local__' for local file loading."
+            )
 
-    logger.info("Loading podcast index from gs://%s/%s …", GCS_BUCKET, INDEX_OBJECT)
-    t0 = time.monotonic()
+        logger.info("Loading podcast index from gs://%s/%s …", GCS_BUCKET, INDEX_OBJECT)
+        t0 = time.monotonic()
 
-    client = gcs.Client()
-    bucket = client.bucket(GCS_BUCKET)
-    blob = bucket.blob(INDEX_OBJECT)
-    
-    try:
-        payload = blob.download_as_bytes()
-    except Exception as exc:
-        logger.error(
-            "Failed to download blob from GCS. bucket=%s object=%s error=%s",
-            GCS_BUCKET, INDEX_OBJECT, exc
-        )
-        raise
+        if not _gcs_available:
+            raise RuntimeError(
+                "google-cloud-storage is not installed. "
+                "Install it with: pip install google-cloud-storage"
+            )
+
+        client = gcs.Client()
+        bucket = client.bucket(GCS_BUCKET)
+        blob = bucket.blob(INDEX_OBJECT)
+
+        try:
+            payload = blob.download_as_bytes()
+        except Exception as exc:
+            logger.error(
+                "Failed to download blob from GCS. bucket=%s object=%s error=%s",
+                GCS_BUCKET, INDEX_OBJECT, exc
+            )
+            raise
     
     logger.debug(
         "Downloaded %d bytes. First 2 bytes (hex): %s. Checking for gzip magic bytes...",
@@ -451,7 +483,16 @@ def _cors_response(data: Any, status: int = 200):
 
 # ── Entry point ────────────────────────────────────────────────────────────────
 
-@functions_framework.http
+# When running locally (without functions_framework), the decorator is a no-op
+# because the Flask app in search_server.py handles routing directly.
+def _http_decorator(fn):
+    """No-op decorator when functions_framework is not available."""
+    return fn
+
+if _functions_framework_available:
+    _http_decorator = functions_framework.http
+
+@_http_decorator
 def search(request: Request):
     """HTTP entry point for all podcast search requests."""
 

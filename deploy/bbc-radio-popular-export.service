@@ -1,0 +1,15 @@
+[Unit]
+Description=BBC Radio Player Popular Podcasts Exporter
+After=network-online.target bbc-radio-analytics.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=shaivure
+WorkingDirectory=/home/shaivure/bbc-radio
+Environment=BBC_RADIO_DATA_DIR=/home/shaivure/bbc-radio/data
+Environment=ANALYTICS_URL=http://127.0.0.1:5000/stats?days=30
+ExecStart=/home/shaivure/bbc-radio/venv/bin/python scripts/export_popular_podcasts.py
+
+[Install]
+WantedBy=multi-user.target

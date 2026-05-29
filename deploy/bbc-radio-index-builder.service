@@ -1,0 +1,23 @@
+[Unit]
+Description=BBC Radio Player Podcast Index Builder
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=shaivure
+WorkingDirectory=/home/shaivure/bbc-radio/api
+ExecStart=/home/shaivure/bbc-radio/venv/bin/python build_index.py \
+    --output /home/shaivure/bbc-radio/data/podcast-index.json.gz \
+    --local-data-dir /home/shaivure/bbc-radio/data \
+    --workers 16
+StandardOutput=append:/home/shaivure/bbc-radio/logs/index-builder.log
+StandardError=append:/home/shaivure/bbc-radio/logs/index-builder.log
+
+# Resource limits
+MemoryMax=2G
+CPUQuota=400%
+TimeoutStartSec=3600
+
+[Install]
+WantedBy=multi-user.target

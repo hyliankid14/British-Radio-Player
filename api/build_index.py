@@ -441,9 +441,10 @@ def build_index(
     max_episodes=MAX_EPISODES_PER_PODCAST,
     workers=DEFAULT_WORKERS,
     gcs_bucket: str = "",
+    local_data_dir: str = "",
 ):
     """Fetch BBC OPML, then all RSS feeds concurrently, write the JSON index,
-    and optionally upload the result to Google Cloud Storage."""
+    and optionally upload the result to Google Cloud Storage or copy to a local directory."""
     print(f"Fetching OPML from {BBC_OPML_URL} ...")
     raw_podcasts = parse_opml(fetch_bytes(BBC_OPML_URL))
     print(f"Found {len(raw_podcasts)} podcasts in OPML\n")
@@ -527,6 +528,19 @@ def build_index(
     if failed:
         print(f"{failed} podcasts failed (see warnings above)")
 
+    # Optionally copy files to a local data directory.
+    if local_data_dir:
+        import shutil
+        data_path = Path(local_data_dir)
+        data_path.mkdir(parents=True, exist_ok=True)
+        for f in [out, meta_path, new_snapshot_path, new_state_path]:
+            dest = data_path / f.name
+            if f.resolve() != dest.resolve():
+                shutil.copy2(str(f), str(dest))
+                print(f"Copied {f.name} → {dest}")
+            else:
+                print(f"{f.name} already in data directory, skipping copy")
+
     # Optionally upload to Google Cloud Storage.
     if gcs_bucket:
         print(f"\nUploading to GCS bucket '{gcs_bucket}' ...")
@@ -552,6 +566,14 @@ if __name__ == "__main__":
         ),
     )
     parser.add_argument(
+        "--local-data-dir",
+        default="",
+        help=(
+            "Local directory to copy the index and metadata files to. "
+            "Use this instead of (or in addition to) --bucket for self-hosted deployments."
+        ),
+    )
+    parser.add_argument(
         "--max-episodes",
         type=int,
         default=MAX_EPISODES_PER_PODCAST,
@@ -564,4 +586,4 @@ if __name__ == "__main__":
         help=f"Parallel fetch threads (default: {DEFAULT_WORKERS})",
     )
     args = parser.parse_args()
-    build_index(args.output, args.max_episodes, args.workers, args.bucket)
+    build_index(args.output, args.max_episodes, args.workers, args.bucket, args.local_data_dir)

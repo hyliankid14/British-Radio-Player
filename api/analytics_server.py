@@ -66,23 +66,25 @@ _last_rating_submit_at = {}
 
 
 def _resolve_cloud_meta_url():
-    """Resolve cloud metadata URL from env vars, defaulting to production GCS."""
+    """Resolve cloud metadata URL from env vars, defaulting to local Nginx-served file."""
     explicit_meta_url = os.environ.get('GCS_META_URL', '').strip()
     if explicit_meta_url:
         return explicit_meta_url
 
-    bucket = os.environ.get('GCS_BUCKET', '').strip() or DEFAULT_GCS_BUCKET
-    return f'https://storage.googleapis.com/{bucket}/podcast-index-meta.json'
+    # Default to local Nginx-served file for self-hosted deployments
+    base_url = os.environ.get('BBC_RADIO_BASE_URL', 'http://127.0.0.1:8443')
+    return f'{base_url}/data/podcast-index-meta.json'
 
 
 def _resolve_cloud_stats_url():
-    """Resolve popular podcasts snapshot URL from env vars, defaulting to production GCS."""
+    """Resolve popular podcasts snapshot URL from env vars, defaulting to local Nginx-served file."""
     explicit_stats_url = os.environ.get('GCS_STATS_URL', '').strip()
     if explicit_stats_url:
         return explicit_stats_url
 
-    bucket = os.environ.get('GCS_BUCKET', '').strip() or DEFAULT_GCS_BUCKET
-    return f'https://storage.googleapis.com/{bucket}/popular-podcasts.json'
+    # Default to local Nginx-served file for self-hosted deployments
+    base_url = os.environ.get('BBC_RADIO_BASE_URL', 'http://127.0.0.1:8443')
+    return f'{base_url}/data/popular-podcasts.json'
 
 # Canonical station names match the app's current naming convention.
 # Legacy names such as "BBC Radio 4" are normalised to "Radio 4".
