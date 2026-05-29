@@ -1,7 +1,7 @@
 # Dockerfile for the British Radio Player podcast-index builder.
-# Run as a Cloud Run Job triggered by Cloud Scheduler to replace the GitHub
-# Actions workflow.  The job fetches the BBC OPML and RSS feeds, builds the
-# gzip-compressed podcast index, and uploads it to Google Cloud Storage.
+# Run as a scheduled job to replace the GitHub Actions workflow.
+# The job fetches the BBC OPML and RSS feeds, builds the
+# gzip-compressed podcast index, and uploads it to cloud storage.
 #
 # Build & push (run from the repository root so build_index.py is in context):
 #   docker build -t gcr.io/YOUR_PROJECT/bbc-index-builder -f api/cloud_run/Dockerfile api/
@@ -33,16 +33,16 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install google-cloud-storage for GCS upload support
-RUN pip install --no-cache-dir google-cloud-storage>=2.0.0
+# Install cloud storage client for upload support
+RUN pip install --no-cache-dir boto3>=1.26.0
 
 # Build context is the api/ directory (see docker build -f flag above)
 COPY build_index.py .
 
-# GCS_BUCKET must be injected at runtime (Cloud Run Job environment variable)
-ENV GCS_BUCKET=""
+# STORAGE_BUCKET must be injected at runtime (environment variable)
+ENV STORAGE_BUCKET=""
 
-# Write the index to /tmp (ephemeral Cloud Run disk) then upload to GCS.
-# Use shell form so $GCS_BUCKET is expanded from the runtime environment.
+# Write the index to /tmp (ephemeral disk) then upload to cloud storage.
+# Use shell form so $STORAGE_BUCKET is expanded from the runtime environment.
 ENTRYPOINT ["/bin/sh", "-c"]
-CMD ["python3 build_index.py --output /tmp/podcast-index.json.gz --bucket \"$GCS_BUCKET\""]
+CMD ["python3 build_index.py --output /tmp/podcast-index.json.gz --bucket \"$STORAGE_BUCKET\""]

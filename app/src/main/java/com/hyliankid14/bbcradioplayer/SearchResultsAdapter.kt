@@ -38,7 +38,6 @@ class SearchResultsAdapter(
         data class Section(val title: String, val count: Int = -1) : Item()
         data class PodcastItem(val podcast: Podcast) : Item()
         data class EpisodeItem(val episode: Episode, val podcast: Podcast) : Item()
-        data class Hint(val message: String, val onGoToSettings: () -> Unit) : Item()
     }
 
     private var items: MutableList<Item> = mutableListOf()
@@ -159,27 +158,6 @@ class SearchResultsAdapter(
     }
 
     /**
-     * Show an inline hint item (where episode results would appear) prompting the user to
-     * download the search index.  Replaces any previously set hint.
-     * Must be called on the main thread.
-     */
-    fun setIndexHint(message: String, onGoToSettings: () -> Unit) {
-        removeIndexHint()
-        val pos = items.size
-        items.add(Item.Hint(message, onGoToSettings))
-        notifyItemInserted(pos)
-    }
-
-    /** Remove any existing index hint item. */
-    private fun removeIndexHint() {
-        val idx = items.indexOfFirst { it is Item.Hint }
-        if (idx >= 0) {
-            items.removeAt(idx)
-            notifyItemRemoved(idx)
-        }
-    }
-
-    /**
      * Patch individual episode items in-place with enriched data (audio URLs, pub dates, etc.).
      * Uses fine-grained notifyItemChanged per updated item — no scroll-resetting full rebind.
      */
@@ -200,7 +178,6 @@ class SearchResultsAdapter(
         private const val TYPE_SECTION = 0
         private const val TYPE_PODCAST = 1
         private const val TYPE_EPISODE = 2
-        private const val TYPE_HINT = 3
 
         private val DATE_FORMATS = listOf(
             "EEE, dd MMM yyyy HH:mm:ss Z",
@@ -219,7 +196,6 @@ class SearchResultsAdapter(
             is Item.Section -> TYPE_SECTION
             is Item.PodcastItem -> TYPE_PODCAST
             is Item.EpisodeItem -> TYPE_EPISODE
-            is Item.Hint -> TYPE_HINT
         }
     }
 
@@ -238,10 +214,6 @@ class SearchResultsAdapter(
                 val v = inflater.inflate(R.layout.item_episode, parent, false)
                 EpisodeViewHolder(v)
             }
-            TYPE_HINT -> {
-                val v = inflater.inflate(R.layout.item_index_hint, parent, false)
-                HintViewHolder(v)
-            }
             else -> throw IllegalArgumentException("Unknown view type $viewType")
         }
     }
@@ -251,7 +223,6 @@ class SearchResultsAdapter(
             is Item.Section -> (holder as SectionViewHolder).bind(it)
             is Item.PodcastItem -> (holder as PodcastViewHolder).bind(it.podcast)
             is Item.EpisodeItem -> (holder as EpisodeViewHolder).bind(it.episode, it.podcast)
-            is Item.Hint -> (holder as HintViewHolder).bind(it)
         }
     }
 
@@ -472,18 +443,6 @@ class SearchResultsAdapter(
             androidx.core.content.ContextCompat.getColor(context, typedValue.resourceId)
         } else {
             typedValue.data
-        }
-    }
-
-    inner class HintViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
-        private val messageView: android.widget.TextView = itemView.findViewById(R.id.hint_message)
-
-        fun bind(item: Item.Hint) {
-            messageView.text = item.message
-            // Set contentDescription combining message and action for accessibility
-            val actionLabel = itemView.context.getString(R.string.search_indexing_settings_link)
-            itemView.contentDescription = "${item.message} $actionLabel"
-            itemView.setOnClickListener { item.onGoToSettings() }
         }
     }
 }

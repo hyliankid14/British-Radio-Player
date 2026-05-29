@@ -2722,20 +2722,9 @@ class PodcastsFragment : Fragment() {
 
                 if (!hasIndexedEpisodes) {
                     // No episode index available. Show the podcast results found (via basic search
-                    // or FTS), and append an inline hint where episode results would appear.
+                    // or FTS). No episode results will be shown.
                     if (isActive && generation == searchGeneration) {
-                        if (podcastMatches.isNotEmpty()) {
-                            // Podcast results are already displayed — add hint in episode slot
-                            val hintMessage = getString(R.string.search_no_results_download_hint)
-                            searchAdapter?.setIndexHint(hintMessage) {
-                                val intent = android.content.Intent(requireContext(), SettingsDetailActivity::class.java).apply {
-                                    putExtra(SettingsDetailActivity.EXTRA_SECTION, SettingsDetailActivity.SECTION_INDEXING)
-                                }
-                                startActivity(intent)
-                            }
-                            viewModel.cachedSearchItems = searchAdapter?.snapshotItems()
-                        } else if (q.isNotEmpty()) {
-                            // Nothing found at all and no episode index — show index download hint
+                        if (q.isNotEmpty()) {
                             if (searchAdapter == null) {
                                 searchAdapter = SearchResultsAdapter(
                                     context = requireContext(),
@@ -2750,14 +2739,7 @@ class PodcastsFragment : Fragment() {
                                     onEpisodeSelectionClick = { ep, pod -> onEpisodeSearchSelectionClick(ep, pod) }
                                 )
                             }
-                            val hintMessage = getString(R.string.search_no_results_download_hint)
-                            searchAdapter?.setIndexHint(hintMessage) {
-                                val intent = android.content.Intent(requireContext(), SettingsDetailActivity::class.java).apply {
-                                    putExtra(SettingsDetailActivity.EXTRA_SECTION, SettingsDetailActivity.SECTION_INDEXING)
-                                }
-                                startActivity(intent)
-                            }
-                            showResultsSafely(recyclerView, searchAdapter, isSearchAdapter = true, hasContent = true, emptyState)
+                            showResultsSafely(recyclerView, searchAdapter, isSearchAdapter = true, hasContent = podcastMatches.isNotEmpty(), emptyState)
                             rebuildFilterSpinners(emptyState, recyclerView)
                             viewModel.cachedSearchItems = searchAdapter?.snapshotItems()
                         }
@@ -3030,21 +3012,6 @@ class PodcastsFragment : Fragment() {
                             cachedEpisodeMatchesFull = if (usingCachedEpisodePagination) mergedAll else emptyList()
                             resolvedEpisodeMatches = initialBatch.toMutableList()
                             displayedEpisodeCount = resolvedEpisodeMatches.size
-
-                            // If no episodes were found at all, show a hint about the index
-                            if (episodes.isEmpty() && quickEps.isEmpty() && q.length >= 3) {
-                                val hintMessage = if (isEpisodeIndexStale()) {
-                                    getString(R.string.search_index_outdated_hint)
-                                } else {
-                                    getString(R.string.search_no_results_download_hint)
-                                }
-                                searchAdapter?.setIndexHint(hintMessage) {
-                                    val intent = android.content.Intent(requireContext(), SettingsDetailActivity::class.java).apply {
-                                        putExtra(SettingsDetailActivity.EXTRA_SECTION, SettingsDetailActivity.SECTION_INDEXING)
-                                    }
-                                    startActivity(intent)
-                                }
-                            }
 
                             viewModel.cachedSearchItems = searchAdapter?.snapshotItems()
                             hideLoadingMoreSearchResultsIndicator()
