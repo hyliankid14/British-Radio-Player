@@ -21,30 +21,28 @@ import java.util.zip.GZIPInputStream
 /**
  * Client for the remote podcast index.
  *
- * Primary source — Google Cloud Storage static index:
- *   A nightly Cloud Scheduler job (or GitHub Actions workflow) runs
- *   `api/build_index.py --bucket BUCKET` and uploads the result to a GCS
- *   bucket.  The Android app downloads it at most once per [INDEX_CACHE_TTL_MS],
+ * Primary source — cloud-hosted static index:
+ *   A nightly job (or GitHub Actions workflow) runs
+ *   `api/build_index.py` and uploads the result to cloud
+ *   storage.  The Android app downloads it at most once per [INDEX_CACHE_TTL_MS],
  *   caches it on disk, and uses it to populate the local SQLite FTS index.
  *   All searches then run locally — zero per-search traffic.
  *
  *   Configure the bucket URLs at build time via `local.properties`:
- *     GCS_INDEX_URL=https://storage.googleapis.com/YOUR_BUCKET/podcast-index.json.gz
- *     GCS_META_URL=https://storage.googleapis.com/YOUR_BUCKET/podcast-index-meta.json
- *     GCS_NEW_PODCASTS_URL=https://storage.googleapis.com/YOUR_BUCKET/new-podcasts.json
+ *     INDEX_URL=https://storage.example.com/podcast-index.json.gz
+ *     META_URL=https://storage.example.com/podcast-index-meta.json
+ *     NEW_PODCASTS_URL=https://storage.example.com/new-podcasts.json
  *
- * Live search — Cloud Function:
- *   The app also supports querying a Cloud Function that performs server-side
+ * Live search — cloud function:
+ *   The app also supports querying a cloud function that performs server-side
  *   search without requiring a full index download to the device.  Set the
- *   Cloud Function base URL at build time:
+ *   cloud function base URL at build time:
  *     CLOUD_FUNCTION_URL=https://REGION-PROJECT.cloudfunctions.net/podcast-search
  *
- *   The Cloud Function exposes the same endpoints as the home server:
+ *   The cloud function exposes the same endpoints as the home server:
  *     /index/status  — lightweight freshness check
  *     /search/podcasts?q=QUERY
  *     /search/episodes?q=QUERY[&limit=N][&offset=N]
- *
- *   See api/GOOGLE_CLOUD_SETUP.md for deployment instructions.
  *
  * Default routing:
  *   If build-time overrides are not provided, the app uses the default
@@ -75,9 +73,8 @@ class RemoteIndexClient(private val context: Context) {
 
         // ── Index download URLs ───────────────────────────────────────────────
 
-        // Google Cloud Storage public URLs (set via GCS_INDEX_URL / GCS_META_URL / GCS_STATS_URL /
-        // GCS_NEW_PODCASTS_URL
-        // in local.properties or environment variables at build time).
+        // Cloud storage public URLs (set via INDEX_URL / META_URL / STATS_URL /
+        // NEW_PODCASTS_URL in local.properties or environment variables at build time).
         // These are optional overrides; defaults below point to production cloud index.
         private val GCS_INDEX_URL: String get() = BuildConfig.GCS_INDEX_URL
         private val GCS_META_URL: String  get() = BuildConfig.GCS_META_URL
