@@ -32,6 +32,7 @@ import re
 import unicodedata
 import json
 import os
+import subprocess
 import time
 from urllib.request import urlopen, Request
 from urllib.error import URLError, HTTPError
@@ -85,6 +86,164 @@ def _resolve_cloud_stats_url():
     # Default to local Nginx-served file for self-hosted deployments
     base_url = os.environ.get('BBC_RADIO_BASE_URL', 'http://127.0.0.1:8443')
     return f'{base_url}/data/popular-podcasts.json'
+
+def _get_cpu_usage():
+    """Read CPU usage from /proc/stat (delta over 1 second sample)."""
+    try:
+        def read_cpu():
+            with open('/proc/stat') as f:
+                line = f.readline()
+            parts = list(map(int, line.split()[1:]))
+            return parts
+
+        t1 = read_cpu()
+        time.sleep(1)
+        t2 = read_cpu()
+
+        delta = [b - a for a, b in zip(t1, t2)]
+        total = sum(delta)
+        idle = delta[3] if len(delta) > 3 else 0
+        return round((1.0 - idle / total) * 100.0, 1) if total > 0 else 0.0
+    except Exception:
+        return None
+
+
+def _get_memory_usage():
+    """Read from /proc/meminfo: total, available, used, percentage."""
+    try:
+        mem = {}
+        with open('/proc/meminfo') as f:
+            for line in f:
+                parts = line.split()
+                key = parts[0].rstrip(':')
+                val = int(parts[1])  # kB
+                mem[key] = val
+
+        total_kb = mem.get('MemTotal', 0)
+        avail_kb = mem.get('MemAvailable', mem.get('MemFree', 0))
+        used_kb = total_kb - avail_kb
+        pct = round((used_kb / total_kb) * 100.0, 1) if total_kb > 0 else 0.0
+
+        return {
+            'total_mb': round(total_kb / 1024.0),
+            'used_mb': round(used_kb / 1024.0),
+            'available_mb': round(avail_kb / 1024.0),
+            'percent': pct
+        }
+    except Exception:
+        return None
+
+
+def _get_disk_usage():
+    """Use os.statvfs on root filesystem: total, used, available, percentage."""
+    try:
+        st = os.statvfs('/')
+        total_bytes = st.f_frsize * st.f_blocks
+        free_bytes = st.f_frsize * st.f_bfree
+        avail_bytes = st.f_frsize * st.f_bavail
+        used_bytes = total_bytes - free_bytes
+        pct = round((used_bytes / total_bytes) * 100.0, 1) if total_bytes > 0 else 0.0
+
+        return {
+            'total_gb': round(total_bytes / (1024**3), 1),
+            'used_gb': round(used_bytes / (1024**3), 1),
+            'available_gb': round(avail_bytes / (1024**3), 1),
+            'percent': pct
+        }
+    except Exception:
+        return None
+
+
+def _get_uptime():
+    """Read from /proc/uptime: return human-readable string."""
+    try:
+        with open('/proc/uptime') as f:
+            seconds = float(f.readline().split()[0])
+        days = int(seconds // 86400)
+        hours = int((seconds % 86400) // 3600)
+        minutes = int((seconds % 3600) // 60)
+        parts = []
+        if days:
+            parts.append(f'{days}d')
+        if hours:
+            parts.append(f'{hours}h')
+        parts.append(f'{minutes}m')
+        return ' '.join(parts)
+    except Exception:
+        return None
+
+
+def _get_cpu_temperature():
+    """Read from /sys/class/thermal/thermal_zone0/temp (Raspberry Pi specific)."""
+    try:
+        with open('/sys/class/thermal/thermal_zone0/temp') as f:
+            raw = f.read().strip()
+            temp_c = int(raw) / 1000.0
+            return round(temp_c, 1)
+    except Exception:
+        try:
+            result = subprocess.run(['vcgencmd', 'measure_temp'], capture_output=True, text=True, timeout=2)
+            if result.returncode == 0:
+                temp_str = result.stdout.strip().split('=')[1].replace('\'C', '')
+                return round(float(temp_str), 1)
+        except Exception:
+            pass
+        return None
+
+
+def _check_service_active(service_name):
+    """Check if a systemd service is active."""
+    try:
+        result = subprocess.run(
+            ['systemctl', 'is-active', service_name],
+            capture_output=True, text=True, timeout=5
+        )
+        return result.stdout.strip()
+    except Exception:
+        return 'unknown'
+
+
+def _get_timer_next_run(timer_name):
+    """Get the next trigger time for a systemd timer."""
+    try:
+        result = subprocess.run(
+            ['systemctl', 'show', timer_name, '--property=NextElapseUSecRealtime', '--value'],
+            capture_output=True, text=True, timeout=5
+        )
+        val = result.stdout.strip()
+        if val and val != 'n/a':
+            return val
+    except Exception:
+        pass
+    return None
+
+
+def _get_service_status():
+    """Check systemd service states for BBC Radio Pi services."""
+    try:
+        search_svc = 'bbc-radio-search.service'
+        index_timer = 'bbc-radio-index-builder.timer'
+        export_timer = 'bbc-radio-popular-export.timer'
+
+        search_status = _check_service_active(search_svc)
+        index_status = _check_service_active(index_timer)
+        export_status = _check_service_active(export_timer)
+
+        payload = {
+            'analytics_server': {'status': 'active', 'port': 5002},
+            'search_server': {'status': search_status, 'port': 5001},
+            'index_builder_timer': {'status': index_status, 'next_run': _get_timer_next_run(index_timer)},
+            'popular_export_timer': {'status': export_status, 'next_run': _get_timer_next_run(export_timer)}
+        }
+        return payload
+    except Exception:
+        return {
+            'analytics_server': {'status': 'active', 'port': 5002},
+            'search_server': {'status': 'unavailable'},
+            'index_builder_timer': {'status': 'unavailable'},
+            'popular_export_timer': {'status': 'unavailable'}
+        }
+
 
 # Canonical station names match the app's current naming convention.
 # Legacy names such as "BBC Radio 4" are normalised to "Radio 4".
@@ -1406,10 +1565,272 @@ def search_episodes():
         return jsonify({'error': 'Internal server error'}), 500
 
 
+@app.route('/health/api', methods=['GET'])
+def health_api():
+    """JSON health API with Pi system metrics."""
+    try:
+        return jsonify({
+            'status': 'ok',
+            'timestamp': datetime.now().isoformat(),
+            'uptime': _get_uptime(),
+            'cpu_percent': _get_cpu_usage(),
+            'memory': _get_memory_usage(),
+            'disk': _get_disk_usage(),
+            'temperature_c': _get_cpu_temperature(),
+            'services': _get_service_status()
+        }), 200
+    except Exception as e:
+        return jsonify({'status': 'error', 'error': str(e)}), 500
+
+
 @app.route('/health', methods=['GET'])
 def health_check():
-    """Health check endpoint."""
+    """Health check endpoint - returns JSON for API clients, HTML dashboard for browsers."""
+    accept = request.headers.get('Accept', '')
+    if 'text/html' in accept and 'application/json' not in accept:
+        return _render_health_dashboard()
     return jsonify({'status': 'ok', 'timestamp': datetime.now().isoformat()}), 200
+
+
+def _render_health_dashboard():
+    """Render mobile-friendly Pi health dashboard HTML."""
+    try:
+        html = """
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+            <meta name="apple-mobile-web-app-capable" content="yes">
+            <meta name="mobile-web-app-capable" content="yes">
+            <title>Pi Health — British Radio Player</title>
+            <style>
+                * { box-sizing: border-box; }
+                html, body { margin: 0; padding: 0; }
+                body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f6f7f9; color: #1f2328; min-height: 100vh; }
+                .container { max-width: 500px; margin: 0 auto; padding: 16px; }
+                h1 { margin: 0 0 4px 0; font-size: 22px; }
+                .subtitle { color: #6b7280; font-size: 13px; margin: 0 0 16px 0; }
+                .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+                .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+                .status-dot.green { background: #22c55e; box-shadow: 0 0 6px rgba(34,197,94,0.5); }
+                .status-dot.yellow { background: #eab308; box-shadow: 0 0 6px rgba(234,179,8,0.5); }
+                .status-dot.red { background: #ef4444; box-shadow: 0 0 6px rgba(239,68,68,0.5); }
+                .status-dot.gray { background: #9ca3af; }
+                .panel { background: #ffffff; border: 1px solid #e6e8eb; border-radius: 12px; padding: 14px; box-shadow: 0 2px 8px rgba(31,35,40,0.06); margin-bottom: 12px; }
+                .panel h3 { margin: 0 0 10px 0; font-size: 14px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.04em; }
+                .stat-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; }
+                .stat-row + .stat-row { border-top: 1px solid #f0f1f3; }
+                .stat-label { font-size: 14px; color: #444; }
+                .stat-value { font-size: 14px; font-weight: 600; color: #1f2328; }
+                .progress-bar { height: 6px; background: #e5e7eb; border-radius: 3px; overflow: hidden; margin-top: 6px; }
+                .progress-bar .fill { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
+                .progress-bar .fill.green { background: #22c55e; }
+                .progress-bar .fill.yellow { background: #eab308; }
+                .progress-bar .fill.red { background: #ef4444; }
+                .service-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; }
+                .service-row + .service-row { border-top: 1px solid #f0f1f3; }
+                .service-name { font-size: 14px; color: #1f2328; }
+                .service-status { font-size: 12px; display: flex; align-items: center; }
+                .service-meta { font-size: 11px; color: #9ca3af; margin-top: 2px; }
+                .last-updated { text-align: center; color: #9ca3af; font-size: 11px; margin-top: 12px; }
+                .back-link { text-align: center; margin-top: 8px; }
+                .back-link a { color: #0066cc; text-decoration: none; font-size: 13px; }
+                .temp-warn { color: #eab308; }
+                .temp-danger { color: #ef4444; }
+
+                @media (prefers-color-scheme: dark) {
+                    body { background: #1a1a1a; color: #e0e0e0; }
+                    h1 { color: #f0f0f0; }
+                    .subtitle { color: #a0a0a0; }
+                    .panel { background: #252525; border-color: #3a3a3a; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+                    .panel h3 { color: #a0a0a0; }
+                    .stat-label { color: #d0d0d0; }
+                    .stat-value { color: #e0e0e0; }
+                    .progress-bar { background: #3a3a3a; }
+                    .service-name { color: #e0e0e0; }
+                    .service-meta { color: #6b6b6b; }
+                    .back-link a { color: #64b5f6; }
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <div>
+                        <h1>Pi Health</h1>
+                        <p class="subtitle">British Radio Player — Raspberry Pi</p>
+                    </div>
+                    <div id="overallStatus">
+                        <span class="status-dot gray"></span><span style="font-size:13px;color:#6b7280;">Loading…</span>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <h3>System</h3>
+                    <div class="stat-row">
+                        <span class="stat-label">Uptime</span>
+                        <span class="stat-value" id="uptime">—</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Temperature</span>
+                        <span class="stat-value" id="temp">—</span>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <h3>CPU</h3>
+                    <div class="stat-row">
+                        <span class="stat-label">Usage</span>
+                        <span class="stat-value" id="cpuValue">—</span>
+                    </div>
+                    <div class="progress-bar"><div class="fill green" id="cpuBar" style="width:0%"></div></div>
+                </div>
+
+                <div class="panel">
+                    <h3>Memory</h3>
+                    <div class="stat-row">
+                        <span class="stat-label">Used</span>
+                        <span class="stat-value" id="memValue">—</span>
+                    </div>
+                    <div class="progress-bar"><div class="fill green" id="memBar" style="width:0%"></div></div>
+                </div>
+
+                <div class="panel">
+                    <h3>Disk</h3>
+                    <div class="stat-row">
+                        <span class="stat-label">Used</span>
+                        <span class="stat-value" id="diskValue">—</span>
+                    </div>
+                    <div class="progress-bar"><div class="fill green" id="diskBar" style="width:0%"></div></div>
+                </div>
+
+                <div class="panel">
+                    <h3>Services</h3>
+                    <div id="servicesList"></div>
+                </div>
+
+                <p class="last-updated" id="lastUpdated"></p>
+
+                <div class="back-link">
+                    <a href="/">Back to Analytics Dashboard</a>
+                </div>
+            </div>
+
+            <script>
+                const REFRESH_INTERVAL = 30000;
+
+                function colorForPercent(pct) {
+                    if (pct >= 90) return 'red';
+                    if (pct >= 75) return 'yellow';
+                    return 'green';
+                }
+
+                function colorForTemp(tempC) {
+                    if (tempC === null || tempC === undefined) return '';
+                    if (tempC >= 80) return 'temp-danger';
+                    if (tempC >= 60) return 'temp-warn';
+                    return '';
+                }
+
+                function formatServiceName(key) {
+                    const names = {
+                        analytics_server: 'Analytics Server',
+                        search_server: 'Search Server',
+                        index_builder_timer: 'Index Builder',
+                        popular_export_timer: 'Popular Export'
+                    };
+                    return names[key] || key;
+                }
+
+                function renderService(key, info) {
+                    const isActive = info.status === 'active';
+                    const dotClass = isActive ? 'green' : (info.status === 'unavailable' || info.status === 'unknown' ? 'gray' : 'red');
+                    const statusText = isActive ? 'Running' : (info.status || 'Unknown');
+                    let meta = '';
+                    if (info.port) meta += 'Port ' + info.port;
+                    if (info.next_run && info.next_run !== 'n/a') {
+                        const next = new Date(info.next_run);
+                        if (!isNaN(next)) meta += (meta ? ' · ' : '') + 'Next: ' + next.toLocaleTimeString();
+                    }
+                    return '<div class="service-row">' +
+                        '<span class="service-name">' + formatServiceName(key) + '</span>' +
+                        '<span class="service-status">' +
+                            '<span class="status-dot ' + dotClass + '"></span>' +
+                            statusText +
+                        '</span>' +
+                        '</div>' +
+                        (meta ? '<div class="service-meta" style="margin-top:-4px;padding-left:16px;">' + meta + '</div>' : '');
+                }
+
+                function render(data) {
+                    const statusDot = document.getElementById('overallStatus');
+                    const servicesOk = data.services && Object.values(data.services).every(s => s.status === 'active');
+                    statusDot.innerHTML = '<span class="status-dot ' + (servicesOk ? 'green' : 'red') + '"></span><span style="font-size:13px;color:#6b7280;">' + (servicesOk ? 'All OK' : 'Issue Detected') + '</span>';
+
+                    document.getElementById('uptime').textContent = data.uptime || '—';
+
+                    const temp = data.temperature_c;
+                    const tempEl = document.getElementById('temp');
+                    if (temp !== null && temp !== undefined) {
+                        tempEl.innerHTML = '<span class="' + colorForTemp(temp) + '">' + temp + '°C</span>';
+                    } else {
+                        tempEl.textContent = '—';
+                    }
+
+                    const cpu = data.cpu_percent;
+                    if (cpu !== null && cpu !== undefined) {
+                        document.getElementById('cpuValue').textContent = cpu + '%';
+                        const cpuBar = document.getElementById('cpuBar');
+                        cpuBar.style.width = cpu + '%';
+                        cpuBar.className = 'fill ' + colorForPercent(cpu);
+                    }
+
+                    const mem = data.memory;
+                    if (mem && mem.percent !== null) {
+                        document.getElementById('memValue').textContent = mem.used_mb + ' / ' + mem.total_mb + ' MB (' + mem.percent + '%)';
+                        const memBar = document.getElementById('memBar');
+                        memBar.style.width = mem.percent + '%';
+                        memBar.className = 'fill ' + colorForPercent(mem.percent);
+                    }
+
+                    const disk = data.disk;
+                    if (disk && disk.percent !== null) {
+                        document.getElementById('diskValue').textContent = disk.used_gb + ' / ' + disk.total_gb + ' GB (' + disk.percent + '%)';
+                        const diskBar = document.getElementById('diskBar');
+                        diskBar.style.width = disk.percent + '%';
+                        diskBar.className = 'fill ' + colorForPercent(disk.percent);
+                    }
+
+                    const services = data.services || {};
+                    const listEl = document.getElementById('servicesList');
+                    listEl.innerHTML = Object.entries(services).map(([k, v]) => renderService(k, v)).join('');
+
+                    const now = new Date();
+                    document.getElementById('lastUpdated').textContent = 'Updated ' + now.toLocaleTimeString();
+                }
+
+                async function fetchHealth() {
+                    try {
+                        const res = await fetch('/health/api');
+                        const data = await res.json();
+                        render(data);
+                    } catch (err) {
+                        console.error('Failed to fetch health data:', err);
+                        document.getElementById('lastUpdated').textContent = 'Update failed';
+                    }
+                }
+
+                fetchHealth();
+                setInterval(fetchHealth, REFRESH_INTERVAL);
+            </script>
+        </body>
+        </html>
+        """
+        return html, 200, {'Content-Type': 'text/html; charset=utf-8'}
+    except Exception as e:
+        print(f"Error rendering health dashboard: {e}", file=sys.stderr)
+        return jsonify({'error': 'Internal server error'}), 500
 
 
 @app.route('/', methods=['GET'])
@@ -1546,7 +1967,10 @@ def index():
                         <h1>British Radio Player</h1>
                         <p class="muted">Privacy-respecting, anonymous popularity analytics.</p>
                     </div>
-                    <div class="badge">Total events: {total_events}</div>
+                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                        <div class="badge">Total events: {total_events}</div>
+                        <a href="/health" style="display:inline-block;background:#22c55e;color:#fff;padding:6px 12px;border-radius:999px;font-size:11px;font-weight:600;text-decoration:none;">Pi Health</a>
+                    </div>
                 </div>
 
                 <div class="panel">

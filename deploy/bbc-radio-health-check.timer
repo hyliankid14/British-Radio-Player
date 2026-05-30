@@ -1,0 +1,11 @@
+[Unit]
+Description=Run BBC Radio Player Health Check every 15 minutes
+Requires=bbc-radio-health-check.service
+
+[Timer]
+OnCalendar=*-*-* *:00/15:00
+Persistent=true
+RandomizedDelaySec=30
+
+[Install]
+WantedBy=timers.target

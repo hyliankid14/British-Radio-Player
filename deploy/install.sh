@@ -73,6 +73,8 @@ fi
 
 # Copy scripts
 cp "$REPO_ROOT/scripts/export_popular_podcasts.py" "$BBC_SCRIPTS_DIR/"
+cp "$REPO_ROOT/scripts/health_check.py" "$BBC_SCRIPTS_DIR/"
+chmod +x "$BBC_SCRIPTS_DIR/health_check.py"
 
 # Set ownership
 chown -R "${BBC_USER}:${BBC_GROUP}" "$BBC_BASE_DIR"
@@ -147,10 +149,47 @@ systemctl daemon-reload
 systemctl enable bbc-radio-index-builder.timer
 systemctl enable bbc-radio-search.service
 systemctl enable bbc-radio-popular-export.timer
+systemctl enable bbc-radio-health-check.timer
 
 # Start long-running services immediately
 systemctl start bbc-radio-search.service
-# Note: index-builder and popular-export are timer-based, they'll run on schedule
+# Note: index-builder, popular-export, and health-check are timer-based, they'll run on schedule
+
+# ── Step 6b: Configure health check email alerts ─────────────────────────────
+
+info "Step 6b: Setting up health check email alert credentials..."
+
+ENV_FILE="$BBC_BASE_DIR/.env"
+
+if [ -f "$ENV_FILE" ]; then
+    warn "Environment file already exists at $ENV_FILE, skipping SMTP setup"
+else
+    # Create environment file with SMTP defaults for Gmail
+    cat > "$ENV_FILE" << 'ENVEOF'
+# Health check email alert configuration
+# To receive alerts, set your SMTP credentials below.
+# For Gmail: generate an App Password at https://myaccount.google.com/apppasswords
+
+SMTP_USER=
+SMTP_PASSWORD=
+# SMTP_HOST=smtp.gmail.com
+# SMTP_PORT=587
+# ALERT_EMAIL=shaivure@gmail.com
+# ALERT_COOLDOWN_SEC=3600
+ENVEOF
+    chown "${BBC_USER}:${BBC_GROUP}" "$ENV_FILE"
+    chmod 600 "$ENV_FILE"
+    warn "Edit $ENV_FILE with your SMTP credentials to enable email alerts"
+fi
+
+# Update the systemd service to load the environment file
+if grep -q 'EnvironmentFile' /etc/systemd/system/bbc-radio-health-check.service 2>/dev/null; then
+    info "EnvironmentFile already configured in health check service"
+else
+    sed -i '/^\[Service\]/a EnvironmentFile='"$ENV_FILE" /etc/systemd/system/bbc-radio-health-check.service
+    systemctl daemon-reload
+    info "EnvironmentFile added to health check service"
+fi
 
 # ── Step 7: Verify services ────────────────────────────────────────────────────
 
@@ -161,7 +200,7 @@ echo ""
 info "=== Service Status ==="
 systemctl status bbc-radio-search.service --no-pager || true
 echo ""
-systemctl list-timers bbc-radio-index-builder.timer bbc-radio-popular-export.timer --no-pager || true
+systemctl list-timers bbc-radio-index-builder.timer bbc-radio-popular-export.timer bbc-radio-health-check.timer --no-pager || true
 echo ""
 
 # Test local endpoints
@@ -195,10 +234,12 @@ info "Services:"
 info "  Search server:     systemctl status bbc-radio-search.service"
 info "  Index builder:     systemctl list-timers bbc-radio-index-builder.timer"
 info "  Popular export:    systemctl list-timers bbc-radio-popular-export.timer"
+info "  Health check:      systemctl list-timers bbc-radio-health-check.timer"
 echo ""
 info "Logs:"
 info "  Search:            tail -f $BBC_LOGS_DIR/search-server.log"
 info "  Index builder:     tail -f $BBC_LOGS_DIR/index-builder.log"
+info "  Health check:      tail -f $BBC_LOGS_DIR/health-check.log"
 echo ""
 info "Next steps:"
 info "  1. Run index builder manually: systemctl start bbc-radio-index-builder.service"
@@ -208,4 +249,7 @@ info "  4. Update app endpoints to point to Tailscale URL"
 info "  5. Set GCS fallback env vars during migration period:"
 info "     export GCS_META_URL='https://storage.googleapis.com/YOUR_BUCKET/podcast-index-meta.json'"
 info "     export GCS_STATS_URL='https://storage.googleapis.com/YOUR_BUCKET/popular-podcasts.json'"
+info "  6. Configure email alerts:"
+info "     Edit $ENV_FILE with SMTP_USER and SMTP_PASSWORD (Gmail App Password)"
+info "     Test: systemctl start bbc-radio-health-check.service"
 echo ""

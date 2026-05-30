@@ -1,0 +1,19 @@
+[Unit]
+Description=BBC Radio Player Health Check with Email Alerts
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=shaivure
+WorkingDirectory=/home/shaivure/bbc-radio
+ExecStart=/home/shaivure/bbc-radio/venv/bin/python /home/shaivure/bbc-radio/scripts/health_check.py
+StandardOutput=append:/home/shaivure/bbc-radio/logs/health-check.log
+StandardError=append:/home/shaivure/bbc-radio/logs/health-check.log
+
+# Resource limits
+MemoryMax=256M
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target
