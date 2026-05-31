@@ -71,3 +71,4 @@ GITLAB_SUBMISSION_STEPS.md
 app/src/main/assets/adi-registration.properties
 .kilo/
 scripts/test_email.py
+/deploy/
