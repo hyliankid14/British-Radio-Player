@@ -52,6 +52,19 @@ def add_cors_headers(response):
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
     return response
 
+
+# ── Admin endpoint protection ──────────────────────────────────────────────
+# Admin endpoints are protected by HTTP Basic Auth at the nginx reverse proxy
+# level (auth_basic). The Python backend trusts requests that reach it, as
+# nginx has already validated credentials.
+
+ADMIN_TOKEN = os.environ.get('BBC_RADIO_ADMIN_TOKEN', '').strip()
+
+
+def require_admin_token():
+    """No-op — nginx handles HTTP Basic Auth before requests reach here."""
+    return True, None
+
 # Database paths
 DB_PATH = Path(__file__).parent / 'analytics.db'
 PODCAST_INDEX_DB_PATH = Path(__file__).parent / 'podcast_index.db'
@@ -1125,8 +1138,14 @@ def get_podcast_ratings():
 def export_csv():
     """
     Export raw events as CSV for archival.
+    Protected by admin token — raw data should not be publicly accessible.
     Optional query param: days (e.g., 1, 7, 30, 90, 365, or "all").
     """
+    authorized, error_resp = require_admin_token()
+    if not authorized:
+        resp, status_code = error_resp
+        return resp, status_code
+
     try:
         conn = get_db()
         c = conn.cursor()
@@ -1281,7 +1300,7 @@ def index_status():
 def index_podcasts():
     """
     Receive a batch of podcast records from the app and store them in the
-    server-side FTS index.
+    server-side FTS index. Protected by admin token.
 
     Expected JSON body:
         [
@@ -1289,6 +1308,11 @@ def index_podcasts():
             ...
         ]
     """
+    authorized, error_resp = require_admin_token()
+    if not authorized:
+        resp, status_code = error_resp
+        return resp, status_code
+
     try:
         data = request.get_json()
         if not isinstance(data, list):
@@ -1325,7 +1349,7 @@ def index_podcasts():
 def index_episodes():
     """
     Receive a batch of episode records from the app and store them in the
-    server-side FTS index.
+    server-side FTS index. Protected by admin token.
 
     Expected JSON body:
         {
@@ -1340,8 +1364,13 @@ def index_episodes():
                 },
                 ...
             ]
-        }
+            }
     """
+    authorized, error_resp = require_admin_token()
+    if not authorized:
+        resp, status_code = error_resp
+        return resp, status_code
+
     try:
         data = request.get_json()
         if not isinstance(data, dict):

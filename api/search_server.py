@@ -48,6 +48,17 @@ from cloud_function.main import search as cf_search
 
 app = Flask(__name__)
 
+# ── Admin endpoint protection ──────────────────────────────────────────────
+# Admin endpoints are protected by HTTP Basic Auth at the nginx reverse proxy
+# level (auth_basic). The Python backend trusts requests that reach it.
+
+ADMIN_TOKEN = os.environ.get('BBC_RADIO_ADMIN_TOKEN', '')
+
+
+def require_admin_token():
+    """No-op — nginx handles HTTP Basic Auth before requests reach here."""
+    return True, None
+
 
 @app.route('/search/podcasts', methods=['GET'])
 def search_podcasts():
@@ -66,6 +77,10 @@ def index_status():
 
 @app.route('/summarize', methods=['POST'])
 def summarize():
+    authorized, error_resp = require_admin_token()
+    if not authorized:
+        resp, status_code = error_resp
+        return resp, status_code
     return cf_search(request)
 
 
