@@ -2,11 +2,11 @@
 """
 Health check script for BBC Radio Player Raspberry Pi.
 
-Runs via systemd timer and sends email alerts to shaivure@gmail.com
-when system metrics exceed configured thresholds or services go down.
+Runs via systemd timer and sends email alerts when system metrics
+exceed configured thresholds or services go down.
 
 Environment variables (all optional with sensible defaults):
-    ALERT_EMAIL         — Recipient email (default: shaivure@gmail.com)
+    ALERT_EMAIL         — Recipient email (required)
     SMTP_HOST           — SMTP server host (default: smtp.gmail.com)
     SMTP_PORT           — SMTP server port (default: 587)
     SMTP_USER           — SMTP authentication username
@@ -44,7 +44,7 @@ import smtplib
 
 STATE_FILE = Path.home() / '.bbc-radio-health-state.json'
 
-ALERT_EMAIL = os.environ.get('ALERT_EMAIL', 'shaivure@gmail.com')
+ALERT_EMAIL = os.environ.get('ALERT_EMAIL', '')
 SMTP_HOST = os.environ.get('SMTP_HOST', 'smtp.gmail.com')
 SMTP_PORT = int(os.environ.get('SMTP_PORT', '587'))
 SMTP_USER = os.environ.get('SMTP_USER', '')

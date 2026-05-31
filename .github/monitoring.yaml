@@ -1,0 +1,61 @@
+# UptimeRobot Monitor Configuration
+# 
+# This file documents the monitors configured in UptimeRobot for the
+# BBC Radio Player Raspberry Pi. Use it as a reference when recreating
+# monitors or verifying the setup.
+#
+# Account: shaivure@gmail.com
+# Dashboard: https://uptimerobot.com/dashboard
+# API Docs: https://uptimerobot.com/api
+
+monitors:
+  - name: "BBC Radio Pi - Nginx (HTTPS)"
+    type: https
+    url: "https://raspberrypi.tailc23afa.ts.net:8443"
+    interval_minutes: 5
+    timeout_seconds: 30
+    expected_status: 200
+    purpose: "Full stack check - reverse proxy + SSL"
+    alert_contact: "shaivure@gmail.com"
+    notes: "Self-signed SSL cert may trigger warnings. Disable SSL validation in UptimeRobot if needed."
+
+  - name: "BBC Radio Pi - Search Server"
+    type: http
+    url: "http://raspberrypi.tailc23afa.ts.net:5001/health"
+    interval_minutes: 5
+    timeout_seconds: 30
+    expected_status: 200
+    purpose: "Search service health endpoint"
+    alert_contact: "shaivure@gmail.com"
+
+  - name: "BBC Radio Pi - Analytics Server"
+    type: http
+    url: "http://raspberrypi.tailc23afa.ts.net:5002/stats"
+    interval_minutes: 5
+    timeout_seconds: 30
+    expected_status: 200
+    purpose: "Analytics service responding"
+    alert_contact: "shaivure@gmail.com"
+
+  - name: "BBC Radio Pi - Ping"
+    type: ping
+    url: "raspberrypi.tailc23afa.ts.net"
+    interval_minutes: 5
+    timeout_seconds: 30
+    purpose: "Network-level reachability"
+    alert_contact: "shaivure@gmail.com"
+
+alert_settings:
+  sensitivity: 1  # consecutive failures before alerting
+  email_enabled: true
+  email_address: "shaivure@gmail.com"
+  notify_on_down: true
+  notify_on_recovery: true
+
+# UptimeRobot API endpoints for programmatic management:
+#   POST https://api.uptimerobot.com/v2/newMonitor
+#   POST https://api.uptimerobot.com/v2/editMonitor
+#   POST https://api.uptimerobot.com/v2/deleteMonitor
+#   POST https://api.uptimerobot.com/v2/pauseMonitor
+#   POST https://api.uptimerobot.com/v2/resumeMonitor
+#   POST https://api.uptimerobot.com/v2/getMonitors
