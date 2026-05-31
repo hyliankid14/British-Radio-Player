@@ -151,6 +151,13 @@ class RadioService : MediaBrowserServiceCompat() {
     //     finally block clears pendingAutoplayNextEpisode immediately after sending
     //     STATE_STOPPED, so a delayed onPlay() from Android Auto hits the unguarded path.
     @Volatile private var podcastEpisodeEndedNoRestart: Boolean = false
+    // Set to true when playPodcastEpisode() has queued a new media item but the player
+    // has not yet reached STATE_READY.  Cleared by onPlaybackStateChanged when READY
+    // fires.  This defers the clearing of podcastEpisodeEndedNoRestart and
+    // pendingAutoplayNextEpisode until the new episode is actually playing, closing a
+    // race window where Android Auto's onPlay() arrives during the IDLE→BUFFERING→READY
+    // transition and restarts the previously ended episode.
+    @Volatile private var pendingAutoplayGuardClear: Boolean = false
 
     // Service-level episode cache for Android Auto pagination.
     // Keyed by podcast ID; populated on first episode load so subsequent page requests
@@ -1833,6 +1840,17 @@ class RadioService : MediaBrowserServiceCompat() {
                             podcastProgressRunnable?.let { handler.removeCallbacks(it) }
                         }
 
+                        // Clear autoplay guard flags only when the new episode has actually
+                        // reached STATE_READY.  This closes a race window where Android Auto
+                        // sends onPlay() during the IDLE→BUFFERING→READY transition and the
+                        // guard flags had already been cleared by playPodcastEpisode() (causing
+                        // the previously ended episode to restart).
+                        if (playbackState == Player.STATE_READY && pendingAutoplayGuardClear) {
+                            pendingAutoplayGuardClear = false
+                            pendingAutoplayNextEpisode = false
+                            podcastEpisodeEndedNoRestart = false
+                        }
+
                         val state = when (playbackState) {
                             Player.STATE_READY -> if (playWhenReady) PlaybackStateCompat.STATE_PLAYING else PlaybackStateCompat.STATE_PAUSED
                             Player.STATE_BUFFERING -> PlaybackStateCompat.STATE_BUFFERING
@@ -2026,6 +2044,16 @@ class RadioService : MediaBrowserServiceCompat() {
                     
                     override fun onPlayerError(error: PlaybackException) {
                         Log.e(TAG, "Playback error: ${error.message}", error)
+                        // Do not schedule a delayed replay while an autoplay transition is in
+                        // flight.  The autoplay coroutine is already preparing the next episode
+                        // and a stale replayEpisodeById() would either restart the old episode
+                        // (if currentEpisodeId hasn't been updated yet) or restart the new
+                        // episode from position 0 (if it has), both producing the audible
+                        // "skip back" glitch reported by users.
+                        if (pendingAutoplayNextEpisode || pendingAutoplayGuardClear) {
+                            Log.d(TAG, "Player error during autoplay transition — skipping delayed replay")
+                            return
+                        }
                         // Auto-reconnect after a delay
                         playerReconnectRunnable?.let { handler.removeCallbacks(it) }
                         playerReconnectRunnable = Runnable {
@@ -2764,6 +2792,8 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
         if (!mediaSession.isActive) mediaSession.isActive = true
         // Switching to a radio station: clear podcast end guard so radio STATE_ENDED handling is not suppressed.
         podcastEpisodeEndedNoRestart = false
+        pendingAutoplayNextEpisode = false
+        pendingAutoplayGuardClear = false
         val station = StationRepository.getStations().firstOrNull { it.id == stationId }
         if (station == null) {
             Log.w(TAG, "Unknown station: $stationId")
@@ -3422,6 +3452,11 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
         isStopped = true
         stopAlarmPlaybackVolumeRamp()
         playerReconnectRunnable?.let { handler.removeCallbacks(it); playerReconnectRunnable = null }
+        // Clear all autoplay guard flags so a subsequent onPlay() is not incorrectly
+        // blocked (or allowed) due to stale state from a previous episode transition.
+        pendingAutoplayNextEpisode = false
+        podcastEpisodeEndedNoRestart = false
+        pendingAutoplayGuardClear = false
 
         // Shut down the MediaSession completely BEFORE player?.stop() so that neither
         // the ExoPlayer onPlaybackStateChanged(STATE_IDLE) callback nor any subsequent
@@ -4104,15 +4139,15 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
             }
             handler.post(podcastProgressRunnable!!)
 
-            // Clear the autoplay-next-episode guard only after the new media item is queued.
-            // This avoids Android Auto onPlay() races that can restart the previously ended item.
-            pendingAutoplayNextEpisode = false
-            // New episode is starting: clear the no-restart guard so future onPlay() calls are
-            // handled normally (e.g., resume after pause, user replays from list).
-            podcastEpisodeEndedNoRestart = false
+            // Defer clearing the autoplay guard flags until onPlaybackStateChanged sees
+            // STATE_READY for the new media item.  This prevents Android Auto onPlay()
+            // callbacks arriving during the IDLE→BUFFERING→READY transition from bypassing
+            // the guard and restarting the previously ended episode.
+            pendingAutoplayGuardClear = true
         } catch (e: Exception) {
             pendingAutoplayNextEpisode = false
             podcastEpisodeEndedNoRestart = false
+            pendingAutoplayGuardClear = false
             Log.e(TAG, "Error playing podcast episode", e)
         }
     }
