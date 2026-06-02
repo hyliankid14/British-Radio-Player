@@ -155,7 +155,7 @@ object DownloadedEpisodes {
                 } catch (_: Exception) {}
             }
 
-            val sorted = list.sortedByDescending { it.downloadedAtMs }
+            val sorted = list.sortedByDescending { it.downloadedAtMs }.sortedBy { it.podcastTitle.lowercase() }
             cachedEntries = sorted
             cachedSetHash = setHash
             cachedSetSize = set.size
