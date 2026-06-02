@@ -56,12 +56,16 @@ NEW_PODCASTS_MAX_COUNT = 50
 NEW_PODCASTS_POLICY_START_EPOCH_MS = 1_742_774_400_000  # 2026-03-24T00:00:00Z
 NEW_PODCASTS_SNAPSHOT_OBJECT = "new-podcasts.json"
 NEW_PODCASTS_STATE_OBJECT = "new-podcasts-state.json"
+PODCAST_CATALOGUE_OBJECT = "podcast-catalogue.json"
 NEW_PODCASTS_ALLOWED_ID_PREFIXES = ("p", "m", "w")
 
 # Explicitly exclude long-running legacy programmes that may resurface with a
 # truncated feed and should never be treated as newly launched podcasts.
 LEGACY_NEW_PODCAST_EXCLUDE_IDS = {
     "b0079fx0",  # All Things Considered
+    "b006qtqd",  # Today in Parliament (long-running parliamentary programme)
+    "p02s8yk1",  # Yesterday in Parliament (feed wiped and re-added periodically)
+    "p06b2655",  # Classic Scottish Albums (last updated 2022, not genuinely new)
 }
 
 # Baseline seed list (ordered newest -> oldest within the initial curated set).
@@ -268,11 +272,12 @@ def upload_to_gcs(
     bucket_name: str,
     local_index_path: Path,
     local_meta_path: Path,
+    local_catalogue_path: Path,
     local_new_podcasts_path: Path,
     local_new_podcasts_state_path: Path,
 ) -> None:
     """
-    Upload both output files to a Google Cloud Storage bucket.
+    Upload output files to a Google Cloud Storage bucket.
 
     Requires the ``google-cloud-storage`` package and Application Default
     Credentials (ADC).  On Cloud Run / Cloud Functions ADC is provided
@@ -322,6 +327,12 @@ def upload_to_gcs(
     print(f"Uploaded {local_meta_path.name} → gs://{bucket_name}/podcast-index-meta.json")
     print(f"  Public URL: https://storage.googleapis.com/{bucket_name}/podcast-index-meta.json")
 
+    catalogue_blob = bucket.blob(PODCAST_CATALOGUE_OBJECT)
+    catalogue_blob.cache_control = "no-cache, max-age=0"
+    catalogue_blob.content_type = "application/json"
+    catalogue_blob.upload_from_filename(str(local_catalogue_path))
+    print(f"Uploaded {local_catalogue_path.name} → gs://{bucket_name}/{PODCAST_CATALOGUE_OBJECT}")
+
     new_podcasts_blob = bucket.blob(NEW_PODCASTS_SNAPSHOT_OBJECT)
     new_podcasts_blob.cache_control = meta_cache_control
     new_podcasts_blob.content_type = "application/json"
@@ -365,10 +376,56 @@ def _load_previous_new_podcast_state(bucket_name: str) -> dict:
         return {}
 
 
+def _load_podcast_catalogue(bucket_name: str, local_data_dir: str = "") -> set:
+    """
+    Load the podcast catalogue snapshot from GCS or local filesystem.
+
+    The catalogue contains a snapshot of all known podcast IDs at a point in time.
+    Any podcast that appears in this catalogue is considered "known" and will not
+    be treated as newly discovered if it reappears (e.g., after a feed wipe/re-add).
+
+    Returns:
+        A set of podcast IDs from the catalogue, or an empty set if unavailable.
+    """
+    # Try local filesystem first (self-hosted / Pi deployments)
+    if local_data_dir:
+        try:
+            local_path = Path(local_data_dir) / PODCAST_CATALOGUE_OBJECT
+            if local_path.is_file():
+                data = json.loads(local_path.read_text(encoding="utf-8"))
+                ids = data.get("podcastIds", [])
+                result = set(i for i in ids if isinstance(i, str) and i)
+                if result:
+                    print(f"Loaded podcast catalogue from local: {local_path} ({len(result)} IDs)")
+                    return result
+        except Exception as exc:
+            print(f"WARN: failed to load podcast catalogue from local data dir: {exc}", file=sys.stderr)
+
+    if not bucket_name:
+        return set()
+    try:
+        from google.cloud import storage as gcs  # type: ignore[import-untyped]
+    except ImportError:
+        return set()
+
+    try:
+        client = gcs.Client()
+        blob = client.bucket(bucket_name).blob(PODCAST_CATALOGUE_OBJECT)
+        if not blob.exists():
+            return set()
+        data = json.loads(blob.download_as_text(encoding="utf-8"))
+        ids = data.get("podcastIds", [])
+        return set(i for i in ids if isinstance(i, str) and i)
+    except Exception as exc:
+        print(f"WARN: failed to load podcast catalogue from GCS: {exc}", file=sys.stderr)
+        return set()
+
+
 def _build_new_podcast_snapshot(
     generated_at: str,
     podcasts_out: list[dict],
     previous_state: dict,
+    catalogue_ids: set,
 ) -> tuple[dict, dict]:
     now_ms = int(time.time() * 1000)
     current_ids = {p["id"] for p in podcasts_out if p.get("id")}
@@ -378,6 +435,12 @@ def _build_new_podcast_snapshot(
         i for i in previous_state.get("knownIds", []) if isinstance(i, str) and i
     }
     baseline_seed = _seed_baseline_epochs(now_ms)
+
+    # Merge catalogue IDs into the known set so that any podcast that was
+    # previously published is never treated as a new discovery (e.g. after a
+    # feed wipe/re-add cycle or a stale podcast returning).
+    known_from_catalogue = catalogue_ids & current_ids
+    prev_known_ids |= known_from_catalogue
 
     had_previous_state = bool(prev_known_ids)
     known_ids = prev_known_ids if had_previous_state else set(BASELINE_NEW_PODCAST_IDS)
@@ -504,10 +567,18 @@ def build_index(
         json.dump(meta, f, separators=(",", ":"))
 
     previous_new_state = _load_previous_new_podcast_state(gcs_bucket)
+    catalogue_ids = _load_podcast_catalogue(gcs_bucket, local_data_dir)
+
+    current_catalogue = {p["id"] for p in podcasts_out if p.get("id")}
+    catalogue_path = out.with_name(PODCAST_CATALOGUE_OBJECT)
+    with open(str(catalogue_path), "w", encoding="utf-8") as f:
+        json.dump({"podcastIds": sorted(current_catalogue)}, f, separators=(",", ":"))
+
     new_snapshot, new_state = _build_new_podcast_snapshot(
         generated_at=index["generated_at"],
         podcasts_out=podcasts_out,
         previous_state=previous_new_state,
+        catalogue_ids=catalogue_ids,
     )
     new_snapshot_path = out.with_name(NEW_PODCASTS_SNAPSHOT_OBJECT)
     with open(str(new_snapshot_path), "w", encoding="utf-8") as f:
@@ -523,6 +594,7 @@ def build_index(
         f"→ {out} ({size_kb:.0f} KB, gzip-compressed)"
     )
     print(f"Wrote metadata → {meta_path}")
+    print(f"Wrote podcast catalogue → {catalogue_path} ({len(current_catalogue)} IDs)")
     print(f"Wrote New Podcasts snapshot → {new_snapshot_path}")
     print(f"Wrote New Podcasts state → {new_state_path}")
     if failed:
@@ -533,7 +605,7 @@ def build_index(
         import shutil
         data_path = Path(local_data_dir)
         data_path.mkdir(parents=True, exist_ok=True)
-        for f in [out, meta_path, new_snapshot_path, new_state_path]:
+        for f in [out, meta_path, catalogue_path, new_snapshot_path, new_state_path]:
             dest = data_path / f.name
             if f.resolve() != dest.resolve():
                 shutil.copy2(str(f), str(dest))
@@ -544,7 +616,7 @@ def build_index(
     # Optionally upload to Google Cloud Storage.
     if gcs_bucket:
         print(f"\nUploading to GCS bucket '{gcs_bucket}' ...")
-        upload_to_gcs(gcs_bucket, out, meta_path, new_snapshot_path, new_state_path)
+        upload_to_gcs(gcs_bucket, out, meta_path, catalogue_path, new_snapshot_path, new_state_path)
 
 
 if __name__ == "__main__":
