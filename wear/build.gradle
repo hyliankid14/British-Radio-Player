@@ -13,6 +13,9 @@ def releaseKeyAlias = project.findProperty("RELEASE_KEY_ALIAS") ?: System.getenv
 def releaseKeyPassword = project.findProperty("RELEASE_KEY_PASSWORD") ?: System.getenv("RELEASE_KEY_PASSWORD")
 def hasReleaseSigning = releaseStoreFile && releaseStorePassword && releaseKeyAlias && releaseKeyPassword
 
+// Analytics endpoint URL — set in local.properties or env to override the default.
+def analyticsEndpoint = (project.findProperty("ANALYTICS_ENDPOINT_URL") ?: System.getenv("ANALYTICS_ENDPOINT_URL") ?: "").toString()
+
 android {
     namespace "com.hyliankid14.bbcradioplayer.wear"
     compileSdk = 35
@@ -23,6 +26,10 @@ android {
         targetSdk = 35
         versionCode = wearVersionCode
         versionName = appVersionName
+
+        // Analytics endpoint URL — set via local.properties or env.
+        // Falls back to the hardcoded default in PrivacyAnalytics.kt if blank.
+        buildConfigField "String", "ANALYTICS_ENDPOINT_URL", "\"${analyticsEndpoint}\""
     }
 
     signingConfigs {

@@ -3,17 +3,30 @@ plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
     id 'kotlin-parcelize'
-
 }
 
-def appVersionName = (project.findProperty("APP_VERSION_NAME") ?: "1.5.0").toString()
-def appVersionCode = ((project.findProperty("APP_VERSION_CODE") ?: "42").toString()).toInteger()
+// Load local.properties (project.findProperty/project.hasProperty do NOT read this file)
+ext.localProps = new Properties()
+def _lpf = rootProject.file('local.properties')
+if (_lpf.exists()) { _lpf.withInputStream { s -> ext.localProps.load(s) } }
 
-def releaseStoreFile = project.findProperty("RELEASE_STORE_FILE") ?: System.getenv("RELEASE_STORE_FILE")
-def releaseStorePassword = project.findProperty("RELEASE_STORE_PASSWORD") ?: System.getenv("RELEASE_STORE_PASSWORD")
-def releaseKeyAlias = project.findProperty("RELEASE_KEY_ALIAS") ?: System.getenv("RELEASE_KEY_ALIAS")
-def releaseKeyPassword = project.findProperty("RELEASE_KEY_PASSWORD") ?: System.getenv("RELEASE_KEY_PASSWORD")
+// Resolve: project properties → local.properties → env → fallback
+def appVersionName = (project.hasProperty("APP_VERSION_NAME") ? project.property("APP_VERSION_NAME") : ext.localProps.getProperty("APP_VERSION_NAME") ?: System.getenv("APP_VERSION_NAME") ?: "1.5.0").toString()
+def appVersionCode = (project.hasProperty("APP_VERSION_CODE") ? project.property("APP_VERSION_CODE") : ext.localProps.getProperty("APP_VERSION_CODE") ?: System.getenv("APP_VERSION_CODE") ?: "42").toString().toInteger()
+
+def releaseStoreFile = (project.hasProperty("RELEASE_STORE_FILE") ? project.property("RELEASE_STORE_FILE") : ext.localProps.getProperty("RELEASE_STORE_FILE") ?: System.getenv("RELEASE_STORE_FILE")).toString()
+def releaseStorePassword = (project.hasProperty("RELEASE_STORE_PASSWORD") ? project.property("RELEASE_STORE_PASSWORD") : ext.localProps.getProperty("RELEASE_STORE_PASSWORD") ?: System.getenv("RELEASE_STORE_PASSWORD")).toString()
+def releaseKeyAlias = (project.hasProperty("RELEASE_KEY_ALIAS") ? project.property("RELEASE_KEY_ALIAS") : ext.localProps.getProperty("RELEASE_KEY_ALIAS") ?: System.getenv("RELEASE_KEY_ALIAS")).toString()
+def releaseKeyPassword = (project.hasProperty("RELEASE_KEY_PASSWORD") ? project.property("RELEASE_KEY_PASSWORD") : ext.localProps.getProperty("RELEASE_KEY_PASSWORD") ?: System.getenv("RELEASE_KEY_PASSWORD")).toString()
 def hasReleaseSigning = releaseStoreFile && releaseStorePassword && releaseKeyAlias && releaseKeyPassword
+
+// Backend URLs — same resolution chain
+def gcsIndexUrl       = (project.hasProperty("GCS_INDEX_URL")       ? project.property("GCS_INDEX_URL")       : ext.localProps.getProperty("GCS_INDEX_URL")       ?: System.getenv("GCS_INDEX_URL")       ?: "").toString()
+def gcsMetaUrl        = (project.hasProperty("GCS_META_URL")        ? project.property("GCS_META_URL")        : ext.localProps.getProperty("GCS_META_URL")        ?: System.getenv("GCS_META_URL")        ?: "").toString()
+def gcsStatsUrl       = (project.hasProperty("GCS_STATS_URL")       ? project.property("GCS_STATS_URL")       : ext.localProps.getProperty("GCS_STATS_URL")       ?: System.getenv("GCS_STATS_URL")       ?: "").toString()
+def gcsNewPodcastsUrl = (project.hasProperty("GCS_NEW_PODCASTS_URL")? project.property("GCS_NEW_PODCASTS_URL"): ext.localProps.getProperty("GCS_NEW_PODCASTS_URL")?: System.getenv("GCS_NEW_PODCASTS_URL")?: "").toString()
+def cloudFunctionUrl  = (project.hasProperty("CLOUD_FUNCTION_URL")  ? project.property("CLOUD_FUNCTION_URL")  : ext.localProps.getProperty("CLOUD_FUNCTION_URL")  ?: System.getenv("CLOUD_FUNCTION_URL")  ?: "").toString()
+def analyticsEndpoint = (project.hasProperty("ANALYTICS_ENDPOINT_URL") ? project.property("ANALYTICS_ENDPOINT_URL") : ext.localProps.getProperty("ANALYTICS_ENDPOINT_URL") ?: System.getenv("ANALYTICS_ENDPOINT_URL") ?: "").toString()
 
 android {
     namespace "com.hyliankid14.bbcradioplayer"
@@ -41,16 +54,14 @@ android {
         //   e.g. https://storage.googleapis.com/YOUR_BUCKET/new-podcasts.json
         // CLOUD_FUNCTION_URL — base URL of the Cloud Function search API
         //   e.g. https://REGION-PROJECT.cloudfunctions.net/podcast-search
-        def gcsIndexUrl       = project.findProperty("GCS_INDEX_URL")       ?: System.getenv("GCS_INDEX_URL")       ?: ""
-        def gcsMetaUrl        = project.findProperty("GCS_META_URL")        ?: System.getenv("GCS_META_URL")        ?: ""
-        def gcsStatsUrl       = project.findProperty("GCS_STATS_URL")       ?: System.getenv("GCS_STATS_URL")       ?: ""
-        def gcsNewPodcastsUrl = project.findProperty("GCS_NEW_PODCASTS_URL")?: System.getenv("GCS_NEW_PODCASTS_URL")?: ""
-        def cloudFunctionUrl  = project.findProperty("CLOUD_FUNCTION_URL")  ?: System.getenv("CLOUD_FUNCTION_URL")  ?: ""
+        // ANALYTICS_ENDPOINT_URL — full URL of the /event analytics endpoint
+        //   e.g. https://your-server.example.com:8443/event
         buildConfigField "String", "GCS_INDEX_URL",      "\"${gcsIndexUrl}\""
         buildConfigField "String", "GCS_META_URL",       "\"${gcsMetaUrl}\""
         buildConfigField "String", "GCS_STATS_URL",      "\"${gcsStatsUrl}\""
         buildConfigField "String", "GCS_NEW_PODCASTS_URL", "\"${gcsNewPodcastsUrl}\""
         buildConfigField "String", "CLOUD_FUNCTION_URL", "\"${cloudFunctionUrl}\""
+        buildConfigField "String", "ANALYTICS_ENDPOINT_URL", "\"${analyticsEndpoint}\""
         buildConfigField "boolean", "ENABLE_GITHUB_UPDATER", "false"
         buildConfigField "String", "DISTRIBUTION_CHANNEL", "\"unknown\""
     }

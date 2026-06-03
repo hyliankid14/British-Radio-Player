@@ -20,9 +20,16 @@ class PrivacyAnalytics(private val context: Context) {
         private const val KEY_ANON_INSTALL_ID = "anon_install_id"
         private const val TAG = "PrivacyAnalytics"
 
-        // Self-hosted analytics endpoint on your Raspberry Pi.
-        // Replace with your own Pi hostname/IP and HTTPS reverse-proxy URL.
-        private const val ANALYTICS_ENDPOINT = "https://raspberrypi.tailc23afa.ts.net:8443/event"
+        // Default self-hosted analytics endpoint on your Raspberry Pi.
+        // Overridden at build time via ANALYTICS_ENDPOINT_URL in local.properties.
+        private const val DEFAULT_ANALYTICS_ENDPOINT = "https://raspberrypi.tailc23afa.ts.net:8443/event"
+
+        private fun resolveEndpoint(): String {
+            val configured = BuildConfig.ANALYTICS_ENDPOINT_URL.trim()
+            return if (configured.isNotEmpty()) configured else DEFAULT_ANALYTICS_ENDPOINT
+        }
+
+        private val ANALYTICS_ENDPOINT: String get() = resolveEndpoint()
 
         fun getAnalyticsBaseUrl(): String {
             val endpoint = ANALYTICS_ENDPOINT.trim()

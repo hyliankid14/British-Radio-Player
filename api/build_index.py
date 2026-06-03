@@ -71,6 +71,9 @@ LEGACY_NEW_PODCAST_EXCLUDE_IDS = {
 # Baseline seed list (ordered newest -> oldest within the initial curated set).
 # New podcasts discovered in the live index are assigned a fresher epoch and float above this set.
 BASELINE_NEW_PODCAST_IDS = [
+    "m002s1mz",  # Sort Your Life Out Unpacked
+    "m002vcxm",  # Bitesize Parenting Teens
+    "p04grdbc",  # People Fixing the World
     "p0n5p4w5",  # Secrets of the Salt Path
     "w13xtwk9",  # Inheritance: Samsung
     "p0n3r2yp",  # Don't Say A Word

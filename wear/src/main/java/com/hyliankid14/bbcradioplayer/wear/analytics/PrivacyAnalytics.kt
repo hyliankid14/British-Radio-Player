@@ -16,8 +16,15 @@ class PrivacyAnalytics(private val context: Context) {
         private const val PREFS_NAME = "privacy_analytics"
         private const val KEY_ENABLED = "analytics_enabled"
         private const val TAG = "WearPrivacyAnalytics"
-        private const val ANALYTICS_ENDPOINT = "https://raspberrypi.tailc23afa.ts.net:8443/event"
+        private const val DEFAULT_ANALYTICS_ENDPOINT = "https://raspberrypi.tailc23afa.ts.net:8443/event"
         private const val PLATFORM = "wear"
+
+        private fun resolveEndpoint(): String {
+            val configured = BuildConfig.ANALYTICS_ENDPOINT_URL.trim()
+            return if (configured.isNotEmpty()) configured else DEFAULT_ANALYTICS_ENDPOINT
+        }
+
+        private val ANALYTICS_ENDPOINT: String get() = resolveEndpoint()
     }
 
     private val prefs: SharedPreferences =
