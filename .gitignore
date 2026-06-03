@@ -72,3 +72,7 @@ app/src/main/assets/adi-registration.properties
 .kilo/
 scripts/test_email.py
 /deploy/
+
+# Scripts and API directories (not for release)
+/scripts/
+/api/

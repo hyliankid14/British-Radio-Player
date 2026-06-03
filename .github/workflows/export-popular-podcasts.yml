@@ -19,11 +19,18 @@ name: Export popular podcasts to GCS
 #   GCP_SERVICE_ACCOUNT — service account email with
 #                         roles/storage.objectAdmin on the bucket
 
-on:
-  schedule:
-    # Run every 6 hours so the snapshot stays reasonably fresh.
-    - cron: '0 */6 * * *'
-  workflow_dispatch:   # allow manual trigger from the Actions tab
+# DISABLED: Pi server now handles GCS upload directly via bbc-radio-popular-export.timer
+# The systemd service runs export_popular_podcasts.py with GCS_BUCKET configured.
+# No more Tailscale connection or Workload Identity needed from GitHub Actions.
+#
+# Original purpose: Fetches the 30-day popular-podcast stats from the analytics server
+# and uploads a lightweight popular-podcasts.json snapshot to the GCS bucket.
+
+# on:
+#   schedule:
+#     # Run every 6 hours so the snapshot stays reasonably fresh.
+#     - cron: '0 */6 * * *'
+#   workflow_dispatch:   # allow manual trigger from the Actions tab
 
 permissions:
   contents: read
