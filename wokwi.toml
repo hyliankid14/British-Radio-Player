@@ -1,7 +1,0 @@
-[wokwi]
-version = 1
-rfc2217ServerPort = 4000
-
-# Workspace-level Wokwi config for the ESP-IDF project in esp32/
-elf = "esp32/build/bbc_radio_player.elf"
-firmware = "esp32/build/flasher_args.json"

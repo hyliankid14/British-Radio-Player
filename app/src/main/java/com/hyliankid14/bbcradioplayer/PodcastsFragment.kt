@@ -314,8 +314,8 @@ class PodcastsFragment : Fragment() {
     }
 
     private fun showGenreList(view: View) {
-        val podcastsRecycler = view.findViewById<RecyclerView>(R.id.podcasts_recycler)
-        val emptyState = view.findViewById<TextView>(R.id.empty_state_text)
+        val podcastsRecycler = view.findViewById<RecyclerView>(R.id.podcasts_recycler) ?: return
+        val emptyState = view.findViewById<TextView>(R.id.empty_state_text) ?: return
 
         if (genreAdapter == null) {
             genreAdapter = PodcastGenreAdapter(mutableListOf()) { item ->
@@ -332,7 +332,7 @@ class PodcastsFragment : Fragment() {
 
     private fun hideGenreList() {
         val root = view ?: return
-        val podcastsRecycler = root.findViewById<RecyclerView>(R.id.podcasts_recycler)
+        val podcastsRecycler = root.findViewById<RecyclerView>(R.id.podcasts_recycler) ?: return
         if (podcastsRecycler.adapter === genreAdapter) {
             podcastsRecycler.adapter = podcastAdapter
         }

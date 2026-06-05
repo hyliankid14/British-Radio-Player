@@ -186,7 +186,6 @@ object EpisodeDownloadManager {
                         val episode = jsonToEpisode(json.getJSONObject("episode"))
                         val podcastTitle = json.optString("podcastTitle", "")
                         val autoDownload = json.optBoolean("autoDownload", false)
-                        val suppressSuccessNotification = json.optBoolean("suppressSuccessNotification", false)
                         val pendingPath = json.optString("localPath", "")
 
                         // Always use the path we specified, since we know it's a real file path

@@ -158,6 +158,7 @@ android {
         jniLibs {
             // Keep native libs uncompressed and page-aligned for modern devices, including 16 KB pages.
             useLegacyPackaging = false
+            doNotStrip "**/liblanguage_id_l2c_jni.so"
         }
     }
 }

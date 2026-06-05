@@ -117,8 +117,8 @@ dependencies {
     implementation 'androidx.compose.material:material-icons-extended'
     debugImplementation 'androidx.compose.ui:ui-tooling'
 
-    implementation 'androidx.wear.compose:compose-foundation:1.4.0'
-    implementation 'androidx.wear.compose:compose-material:1.4.0'
+    implementation 'androidx.wear.compose:compose-foundation:1.4.1'
+    implementation 'androidx.wear.compose:compose-material:1.4.1'
     implementation 'io.coil-kt:coil-compose:2.7.0'
 
     implementation 'androidx.media3:media3-exoplayer:1.4.1'

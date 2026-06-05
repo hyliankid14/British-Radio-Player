@@ -15,6 +15,7 @@ object OPMLParser {
     fun parseOPML(inputStream: InputStream): List<Podcast> {
         val podcasts = mutableListOf<Podcast>()
         val seenIds = mutableSetOf<String>()
+        val seenTitles = mutableSetOf<String>()
         return try {
             val parser = Xml.newPullParser()
             parser.setInput(inputStream, null)
@@ -24,9 +25,15 @@ object OPMLParser {
             while (eventType != XmlPullParser.END_DOCUMENT) {
                 if (eventType == XmlPullParser.START_TAG && parser.name == OUTLINE) {
                     val podcast = parsePodcastOutline(parser)
-                    if (podcast != null && seenIds.add(podcast.id)) {
-                        podcasts.add(podcast)
-                        parsedCount++
+                    if (podcast != null) {
+                        val normalizedTitle = podcast.title.lowercase(Locale.US).trim()
+                        // Deduplicate by ID first, then by normalized title to prevent
+                        // legacy/archive feeds (e.g., "More or Less" b006qshd) from appearing
+                        // alongside the active feed (p02nrss1) and causing duplicate entries.
+                        if (seenIds.add(podcast.id) && seenTitles.add(normalizedTitle)) {
+                            podcasts.add(podcast)
+                            parsedCount++
+                        }
                     }
                 }
                 eventType = parser.next()
