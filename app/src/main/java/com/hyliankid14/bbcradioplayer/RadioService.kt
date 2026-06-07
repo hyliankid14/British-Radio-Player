@@ -782,16 +782,26 @@ class RadioService : MediaBrowserServiceCompat() {
 
         val now = System.currentTimeMillis()
         val isNewClient = lastAndroidAutoClientUid == null || lastAndroidAutoClientUid != clientUid
+        val defaultStationId = PlaybackPreference.getDefaultAndroidAutoStationId(this)
         val lastMediaId = PlaybackPreference.getLastMediaId(this)
         val canAutoResume = PlaybackPreference.isAutoResumeAndroidAutoEnabled(this) &&
             !PlaybackStateHelper.getIsPlaying() &&
             !lastMediaId.isNullOrEmpty() &&
+            defaultStationId == null &&
+            (isNewClient || now - lastAndroidAutoAutoplayMs >= AUTO_RECONNECT_REFRESH_COOLDOWN_MS)
+        val canPlayDefaultStation = !defaultStationId.isNullOrEmpty() &&
+            !PlaybackStateHelper.getIsPlaying() &&
             (isNewClient || now - lastAndroidAutoAutoplayMs >= AUTO_RECONNECT_REFRESH_COOLDOWN_MS)
         val canRefresh = PlaybackStateHelper.getIsPlaying() &&
             currentStationId.isNotEmpty() &&
             (isNewClient || now - lastAndroidAutoRefreshMs >= AUTO_RECONNECT_REFRESH_COOLDOWN_MS)
 
-        if (canAutoResume) {
+        if (canPlayDefaultStation) {
+            Log.d(TAG, "Android Auto reconnect detected (client=$clientName, uid=$clientUid). Auto-playing default station: $defaultStationId")
+            handler.post {
+                playStation(defaultStationId!!)
+            }
+        } else if (canAutoResume) {
             Log.d(TAG, "Android Auto reconnect detected (client=$clientName, uid=$clientUid). Auto-playing last media: $lastMediaId")
             // Mark the async resume as in-flight *before* the handler.post so that any
             // onPlay() callback arriving on the main thread while the network lookup runs

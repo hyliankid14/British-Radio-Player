@@ -8,6 +8,7 @@ object PlaybackPreference {
     private const val KEY_LAST_MEDIA_ID = "last_media_id"
     private const val KEY_LAST_PLAYLIST_ID = "last_playlist_id"
     private const val KEY_AUTO_RESUME_ANDROID_AUTO = "auto_resume_android_auto"
+    private const val KEY_DEFAULT_ANDROID_AUTO_STATION_ID = "default_android_auto_station_id"
     private const val KEY_HIDE_PLAYED_ANDROID_AUTO = "hide_played_android_auto"
     private const val KEY_HIDE_PLAYED_PLAYLISTS = "hide_played_playlists"
     private const val KEY_HIDE_PLAYED_PODCAST_DETAIL_PREFIX = "hide_played_podcast_detail_"
@@ -71,6 +72,21 @@ object PlaybackPreference {
     fun isAutoResumeAndroidAutoEnabled(context: Context): Boolean {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         return prefs.getBoolean(KEY_AUTO_RESUME_ANDROID_AUTO, false)
+    }
+
+    fun setDefaultAndroidAutoStationId(context: Context, stationId: String?) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        if (stationId != null) {
+            prefs.edit().putString(KEY_DEFAULT_ANDROID_AUTO_STATION_ID, stationId).apply()
+            prefs.edit().putBoolean(KEY_AUTO_RESUME_ANDROID_AUTO, false).apply()
+        } else {
+            prefs.edit().remove(KEY_DEFAULT_ANDROID_AUTO_STATION_ID).apply()
+        }
+    }
+
+    fun getDefaultAndroidAutoStationId(context: Context): String? {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getString(KEY_DEFAULT_ANDROID_AUTO_STATION_ID, null)
     }
 
     fun setHidePlayedEpisodesInAndroidAuto(context: Context, enabled: Boolean) {

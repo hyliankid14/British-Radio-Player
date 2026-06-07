@@ -177,10 +177,39 @@ class SettingsDetailActivity : AppCompatActivity() {
     }
 
     private fun setupAndroidAutoSettings() {
+        val defaultStationSpinner: com.google.android.material.textfield.MaterialAutoCompleteTextView = findViewById(R.id.default_android_auto_station_spinner)
         val autoResumeAndroidAutoCheckbox: android.widget.CheckBox = findViewById(R.id.auto_resume_android_auto_checkbox)
         val hidePlayedAndroidAutoCheckbox: android.widget.CheckBox = findViewById(R.id.hide_played_android_auto_checkbox)
 
-        autoResumeAndroidAutoCheckbox.isChecked = PlaybackPreference.isAutoResumeAndroidAutoEnabled(this)
+        val stations = try {
+            StationRepository.getStations()
+        } catch (e: Exception) {
+            emptyList()
+        }
+        val stationNames = listOf(getString(R.string.android_auto_default_station_none)) + stations.map { it.title }
+        val stationAdapter = android.widget.ArrayAdapter(this, R.layout.dropdown_item_large, stationNames)
+        defaultStationSpinner.setAdapter(stationAdapter)
+
+        val defaultStationId = PlaybackPreference.getDefaultAndroidAutoStationId(this)
+        val selectedStation = stations.find { it.id == defaultStationId }
+        val selectedName = selectedStation?.title ?: getString(R.string.android_auto_default_station_none)
+        defaultStationSpinner.setText(selectedName, false)
+
+        defaultStationSpinner.setOnItemClickListener { _, _, position, _ ->
+            if (position == 0) {
+                PlaybackPreference.setDefaultAndroidAutoStationId(this, null)
+                autoResumeAndroidAutoCheckbox.isEnabled = true
+            } else {
+                val station = stations[position - 1]
+                PlaybackPreference.setDefaultAndroidAutoStationId(this, station.id)
+                autoResumeAndroidAutoCheckbox.isChecked = false
+                autoResumeAndroidAutoCheckbox.isEnabled = false
+            }
+        }
+
+        val isAutoResumeEnabled = PlaybackPreference.isAutoResumeAndroidAutoEnabled(this)
+        autoResumeAndroidAutoCheckbox.isChecked = isAutoResumeEnabled
+        autoResumeAndroidAutoCheckbox.isEnabled = defaultStationId == null
         autoResumeAndroidAutoCheckbox.setOnCheckedChangeListener { _, isChecked ->
             PlaybackPreference.setAutoResumeAndroidAuto(this, isChecked)
         }
