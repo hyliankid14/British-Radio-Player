@@ -918,10 +918,10 @@ class RemoteIndexClient(private val context: Context) {
                 if (title.isNotBlank()) titles[id] = title
             }
 
-            if (firstSeenEpochs.isEmpty()) {
-                return readNewPodcastSnapshotCache()
-            }
-
+            // If the server explicitly returns an empty list, respect that empty state
+            // instead of falling back to the cache. Falling back to the cache (or null)
+            // causes the repository to scan the full index, where refreshed feeds with
+            // recent episode dates are incorrectly flagged as "new".
             val snapshot = NewPodcastSnapshot(
                 firstSeenEpochs = firstSeenEpochs,
                 titles = titles,
