@@ -322,6 +322,12 @@ class SettingsDetailActivity : AppCompatActivity() {
             }
             startService(refreshIntent)
         }
+
+        val liveRadioPauseBufferingSwitch: androidx.appcompat.widget.SwitchCompat = findViewById(R.id.live_radio_pause_buffering_switch)
+        liveRadioPauseBufferingSwitch.isChecked = PlaybackPreference.isLiveRadioPauseBufferingEnabled(this)
+        liveRadioPauseBufferingSwitch.setOnCheckedChangeListener { _, isChecked ->
+            PlaybackPreference.setLiveRadioPauseBuffering(this, isChecked)
+        }
         
         // Setup Playback Mode settings
         val scrollingModeGroup: RadioGroup = findViewById(R.id.scrolling_mode_radio_group)
@@ -760,6 +766,9 @@ class SettingsDetailActivity : AppCompatActivity() {
                 if (name == "playback_prefs" && !obj.has("autoplay_next_episode")) {
                     obj.put("autoplay_next_episode", PlaybackPreference.getAutoplayNextEpisode(this))
                 }
+                if (name == "playback_prefs" && !obj.has("live_radio_pause_buffering")) {
+                    obj.put("live_radio_pause_buffering", PlaybackPreference.isLiveRadioPauseBufferingEnabled(this))
+                }
                 if (name == "index_prefs") {
                     if (!obj.has("index_interval_days")) obj.put("index_interval_days", IndexPreference.getIntervalDays(this))
                     if (obj.has("last_reindex_time")) obj.remove("last_reindex_time")
@@ -862,6 +871,9 @@ class SettingsDetailActivity : AppCompatActivity() {
                 }
                 if (pp.has("autoplay_next_episode")) {
                     PlaybackPreference.setAutoplayNextEpisode(this, pp.optString("autoplay_next_episode", PlaybackPreference.AUTOPLAY_NEXT_NONE))
+                }
+                if (pp.has("live_radio_pause_buffering")) {
+                    PlaybackPreference.setLiveRadioPauseBuffering(this, pp.optBoolean("live_radio_pause_buffering", true))
                 }
             }
             if (root.has("index_prefs")) {

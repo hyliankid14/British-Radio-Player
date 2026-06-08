@@ -741,6 +741,30 @@ class MainActivity : AppCompatActivity() {
                         }
                     }.start()
                 }
+
+                uri.scheme == "bbcradio" && uri.host == "station" -> {
+                    val stationId = uri.pathSegments.firstOrNull()?.let(Uri::decode)
+                    android.util.Log.d("MainActivity", "Deep link to play station. Extracted stationId: $stationId")
+                    if (stationId.isNullOrEmpty()) {
+                        android.util.Log.e("MainActivity", "Deep link missing stationId")
+                        return
+                    }
+                    
+                    val serviceIntent = Intent(this, RadioService::class.java).apply {
+                        action = RadioService.ACTION_PLAY_STATION
+                        putExtra(RadioService.EXTRA_STATION_ID, stationId)
+                    }
+                    androidx.core.content.ContextCompat.startForegroundService(this, serviceIntent)
+                    
+                    // Delay launching NowPlayingActivity slightly to ensure it doesn't get 
+                    // swallowed or blocked by the current activity lifecycle transition.
+                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                        val nowPlayingIntent = Intent(this, NowPlayingActivity::class.java).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                        }
+                        startActivity(nowPlayingIntent)
+                    }, 100)
+                }
             }
         } catch (e: Exception) {
             android.util.Log.w("MainActivity", "Failed to handle deep link: ${e.message}")

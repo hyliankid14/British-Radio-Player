@@ -17,6 +17,7 @@ object PlaybackPreference {
     private const val KEY_AUTOPLAY_NEXT_EPISODE = "autoplay_next_episode"
     private const val KEY_STOP_ON_BLUETOOTH_DISCONNECT = "stop_on_bluetooth_disconnect"
     private const val KEY_LAST_TRACKED_ANALYTICS_EPISODE_ID = "last_tracked_analytics_episode_id"
+    private const val KEY_LIVE_RADIO_PAUSE_BUFFERING = "live_radio_pause_buffering"
 
     const val ARTWORK_SOURCE_EPISODE = "episode"
     const val ARTWORK_SOURCE_PODCAST = "podcast"
@@ -176,5 +177,15 @@ object PlaybackPreference {
     fun getLastTrackedAnalyticsEpisodeId(context: Context): String? {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .getString(KEY_LAST_TRACKED_ANALYTICS_EPISODE_ID, null)
+    }
+
+    fun setLiveRadioPauseBuffering(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_LIVE_RADIO_PAUSE_BUFFERING, enabled).apply()
+    }
+
+    fun isLiveRadioPauseBufferingEnabled(context: Context): Boolean {
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_LIVE_RADIO_PAUSE_BUFFERING, true)
     }
 }

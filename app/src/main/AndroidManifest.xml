@@ -41,6 +41,14 @@
                 <data android:scheme="app" android:host="episode" />
             </intent-filter>
             
+            <!-- Deep links for automation tools (e.g., MacroDroid) -->
+            <intent-filter android:label="Play Station">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="bbcradio" android:host="station" />
+            </intent-filter>
+            
             <!-- Web URLs for non-app users (App Links) -->
             <intent-filter android:label="@string/app_name" android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />

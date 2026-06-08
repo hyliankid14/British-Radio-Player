@@ -2209,11 +2209,21 @@ class RadioService : MediaBrowserServiceCompat() {
 
     private fun handlePauseRequest(source: String) {
         Log.d(TAG, "handlePauseRequest from $source")
-        player?.pause()
-        persistCurrentPodcastProgress()
-        updatePlaybackState(PlaybackStateCompat.STATE_PAUSED)
-        PlaybackStateHelper.setIsPlaying(false)
-        startForegroundNotification()
+        
+        val isLiveRadio = !currentStationId.startsWith("podcast_")
+        val pauseBufferingEnabled = PlaybackPreference.isLiveRadioPauseBufferingEnabled(this)
+        
+        if (isLiveRadio && !pauseBufferingEnabled) {
+            // Stop playback and restart from live edge on next play
+            stopPlayback()
+        } else {
+            // Normal pause (keeps player alive, buffers for live radio, preserves podcast progress)
+            player?.pause()
+            persistCurrentPodcastProgress()
+            updatePlaybackState(PlaybackStateCompat.STATE_PAUSED)
+            PlaybackStateHelper.setIsPlaying(false)
+            startForegroundNotification()
+        }
     }
 
     private fun handlePlayRequest(source: String) {
@@ -2797,9 +2807,13 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
     }
 
     private fun playStation(stationId: String) {
+        Log.d(TAG, "playStation called with stationId: $stationId. Current isStopped: $isStopped, mediaSession.isActive: ${mediaSession.isActive}")
         isStopped = false
         playerReconnectRunnable?.let { handler.removeCallbacks(it); playerReconnectRunnable = null }
-        if (!mediaSession.isActive) mediaSession.isActive = true
+        if (!mediaSession.isActive) {
+            Log.d(TAG, "Reactivating mediaSession in playStation")
+            mediaSession.isActive = true
+        }
         // Switching to a radio station: clear podcast end guard so radio STATE_ENDED handling is not suppressed.
         podcastEpisodeEndedNoRestart = false
         pendingAutoplayNextEpisode = false
@@ -2914,11 +2928,13 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
         // Indicate buffering immediately to prevent UI from showing "Stopped"
         updatePlaybackState(PlaybackStateCompat.STATE_BUFFERING)
 
+        Log.d(TAG, "About to prepare player for stream: $streamUri, player is null: ${player == null}")
         player?.apply {
             playWhenReady = true
             setMediaItem(ExoMediaItem.fromUri(streamUri))
             prepare()
-        }
+            Log.d(TAG, "Player prepare() called successfully")
+        } ?: Log.e(TAG, "Player is null, cannot prepare!")
         
         // Schedule periodic show info refresh (every 30 seconds)
         scheduleShowInfoRefresh()
@@ -3662,21 +3678,22 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        Log.d(TAG, "onStartCommand called. intent=${intent != null}, action=${intent?.action}, isStopped=$isStopped, currentStationId=$currentStationId")
         if (intent == null && currentStationId.isBlank() && !PlaybackStateHelper.getIsPlaying()) {
             Log.d(TAG, "onStartCommand - ignoring sticky restart with no active playback")
             stopSelf()
             return START_NOT_STICKY
         }
 
-        Log.d(TAG, "onStartCommand - action: ${intent?.action}")
         intent?.let {
             when (it.action) {
                 ACTION_PLAY_STATION -> {
                     val id = it.getStringExtra(EXTRA_STATION_ID)
                     val shouldRamp = it.getBooleanExtra(EXTRA_ALARM_VOLUME_RAMP, false)
                     val manualVolume = it.getIntExtra(EXTRA_ALARM_MANUAL_VOLUME, -1)
-                    Log.d(TAG, "ACTION_PLAY_STATION: id=$id, shouldRamp=$shouldRamp, manualVolume=$manualVolume")
+                    Log.d(TAG, "ACTION_PLAY_STATION received: id=$id, shouldRamp=$shouldRamp, manualVolume=$manualVolume")
                     id?.let { stationId ->
+                        Log.d(TAG, "Calling playStation($stationId) from onStartCommand")
                         playStation(stationId)
                         if (shouldRamp) {
                             Log.d(TAG, "Starting alarm volume ramp")
