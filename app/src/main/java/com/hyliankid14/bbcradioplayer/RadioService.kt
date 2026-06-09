@@ -2214,8 +2214,12 @@ class RadioService : MediaBrowserServiceCompat() {
         val pauseBufferingEnabled = PlaybackPreference.isLiveRadioPauseBufferingEnabled(this)
         
         if (isLiveRadio && !pauseBufferingEnabled) {
-            // Stop playback and restart from live edge on next play
-            stopPlayback()
+            // Stop playback to halt buffering and audio, but keep the service and notification alive.
+            // The next play will restart from the live edge via handlePlayRequest's IDLE recovery or playStation fallback.
+            player?.stop()
+            updatePlaybackState(PlaybackStateCompat.STATE_PAUSED)
+            PlaybackStateHelper.setIsPlaying(false)
+            startForegroundNotification()
         } else {
             // Normal pause (keeps player alive, buffers for live radio, preserves podcast progress)
             player?.pause()
