@@ -80,7 +80,12 @@ jobs:
         run: |
           ./gradlew assembleGithubDebug \
             -PAPP_VERSION_NAME="${{ steps.version.outputs.version_name }}" \
-            -PAPP_VERSION_CODE="${{ steps.version.outputs.version_code }}"
+            -PAPP_VERSION_CODE="${{ steps.version.outputs.version_code }}" \
+            -PGCS_INDEX_URL="https://raspberrypi.tailc23afa.ts.net:8443/data/podcast-index.json.gz" \
+            -PGCS_META_URL="https://raspberrypi.tailc23afa.ts.net:8443/data/podcast-index-meta.json" \
+            -PGCS_STATS_URL="https://raspberrypi.tailc23afa.ts.net:8443/data/popular-podcasts.json" \
+            -PGCS_NEW_PODCASTS_URL="https://raspberrypi.tailc23afa.ts.net:8443/data/new-podcasts.json" \
+            -PCLOUD_FUNCTION_URL="https://raspberrypi.tailc23afa.ts.net:8443"
 
       - name: Publish debug APK as rolling pre-release
         env:
