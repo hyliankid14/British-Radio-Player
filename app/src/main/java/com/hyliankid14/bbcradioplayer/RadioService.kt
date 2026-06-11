@@ -81,6 +81,9 @@ class RadioService : MediaBrowserServiceCompat() {
     private var currentStreamCandidates: List<String> = emptyList()
     private var currentPodcastId: String? = null
     @Volatile private var currentPlaylistId: String? = null
+    // Cached duration from RSS metadata to guarantee STATE_ENDED is emitted when seeking
+    // past the end, even if the stream itself doesn't report a duration to ExoPlayer.
+    private var currentEpisodeDurationMs: Long = 0L
     private var matchedPodcast: Podcast? = null  // Podcast matching currently playing radio show for Android Auto
     private var matchPodcastJob: kotlinx.coroutines.Job? = null
     private var matchPodcastGeneration: Int = 0
@@ -3489,6 +3492,7 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
         pendingAutoplayNextEpisode = false
         podcastEpisodeEndedNoRestart = false
         pendingAutoplayGuardClear = false
+        currentEpisodeDurationMs = 0L
 
         // Shut down the MediaSession completely BEFORE player?.stop() so that neither
         // the ExoPlayer onPlaybackStateChanged(STATE_IDLE) callback nor any subsequent
@@ -3975,7 +3979,8 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                 //  - it's explicitly marked as played, or
                 //  - saved progress is within COMPLETION_THRESHOLD of the known duration.
                 val isMarkedPlayed = PlayedEpisodesPreference.isPlayed(this@RadioService, episode.id)
-                val episodeDurationMs = (episode.durationMins.takeIf { it > 0 } ?: 0) * 60_000L
+                currentEpisodeDurationMs = (episode.durationMins.takeIf { it > 0 } ?: 0) * 60_000L
+                val episodeDurationMs = currentEpisodeDurationMs
                 val COMPLETION_THRESHOLD_FRACTION = 0.95f
                 val isCompletedByProgress = if (episodeDurationMs > 0) savedPosRaw >= (episodeDurationMs * COMPLETION_THRESHOLD_FRACTION).toLong() else false
 
@@ -4380,17 +4385,26 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
 
     private fun seekToPosition(positionMs: Long) {
         if (!currentStationId.startsWith("podcast_")) return
-        val duration = player?.duration ?: return
-        val clamped = positionMs.coerceIn(0L, if (duration > 0) duration else Long.MAX_VALUE)
-        player?.seekTo(clamped)
+        val currentPlayer = player ?: return
+        
+        // Use metadata duration as fallback if ExoPlayer's stream duration is unknown
+        val knownDuration = if (currentPlayer.duration > 0L) currentPlayer.duration else currentEpisodeDurationMs
+        
+        val clamped = positionMs.coerceIn(0L, if (knownDuration > 0L) knownDuration else Long.MAX_VALUE)
+        currentPlayer.seekTo(clamped)
     }
 
     private fun seekBy(deltaMs: Long) {
         if (!currentStationId.startsWith("podcast_")) return
-        val current = player?.currentPosition ?: return
-        val duration = player?.duration ?: return
-        val target = (current + deltaMs).coerceIn(0L, if (duration > 0) duration else Long.MAX_VALUE)
-        player?.seekTo(target)
+        val currentPlayer = player ?: return
+        val current = currentPlayer.currentPosition
+        
+        // Use metadata duration as fallback if ExoPlayer's stream duration is unknown (C.TIME_UNSET is negative)
+        // This guarantees seeking past the end credits hits the exact duration, reliably emitting STATE_ENDED.
+        val knownDuration = if (currentPlayer.duration > 0L) currentPlayer.duration else currentEpisodeDurationMs
+        
+        val target = (current + deltaMs).coerceIn(0L, if (knownDuration > 0L) knownDuration else Long.MAX_VALUE)
+        currentPlayer.seekTo(target)
     }
     
     private fun toggleFavoriteAndNotify(stationId: String) {
