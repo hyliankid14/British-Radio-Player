@@ -2293,8 +2293,10 @@ class RadioService : MediaBrowserServiceCompat() {
         // the head unit issues an automatic onPlay() in response to the STATE_STOPPED broadcast.
         // We cannot rely on currentStationId here because stopPlayback() clears it to "" before
         // this guard is reached; the flag alone is a sufficient and accurate signal.
-        if (source == "MediaSession.onPlay" && podcastEpisodeEndedNoRestart) {
-            Log.d(TAG, "handlePlayRequest: suppressing implicit onPlay replay after episode end (source=$source)")
+        // We also suppress if pendingAutoplayNextEpisode is true, to prevent racing with the
+        // autoplay coroutine that is currently fetching and preparing the next episode.
+        if (podcastEpisodeEndedNoRestart || pendingAutoplayNextEpisode) {
+            Log.d(TAG, "handlePlayRequest: suppressing implicit play request after podcast episode end or during autoplay transition (source=$source)")
             return
         }
 
@@ -4177,9 +4179,11 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
             pendingAutoplayGuardClear = true
         } catch (e: Exception) {
             pendingAutoplayNextEpisode = false
-            podcastEpisodeEndedNoRestart = false
             pendingAutoplayGuardClear = false
             Log.e(TAG, "Error playing podcast episode", e)
+            // Ensure we transition to a clean stopped state so handlePlayRequest ignores
+            // subsequent implicit play requests (via the isStopped check).
+            stopPlayback()
         }
     }
 
