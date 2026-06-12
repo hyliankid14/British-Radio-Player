@@ -72,12 +72,12 @@ struct FullPlayerView: View {
                 // Controls: Stop | Back | Play/Pause | Next | Favourite
                 HStack(spacing: 0) {
                     // Stop
-                    fullControlButton(symbol: "stop.fill", size: .title3) {
+                    fullControlButton(symbol: "stop.fill", size: 48) {
                         audio.stop()
                         dismiss()
                     }
                     // Back / seek back
-                    fullControlButton(symbol: isEpisode ? "gobackward.15" : "backward.end.fill", size: .title3) {
+                    fullControlButton(symbol: isEpisode ? "gobackward.15" : "backward.end.fill", size: 48) {
                         if isEpisode { audio.seekBackward() }
                         else { container.radioViewModel.playPreviousStation() }
                     }
@@ -85,14 +85,16 @@ struct FullPlayerView: View {
                     Button {
                         audio.isPlaying ? audio.pause() : audio.resume()
                     } label: {
-                        Image(systemName: audio.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                            .font(.system(size: 64))
-                            .foregroundStyle(.tint)
+                        Image(systemName: audio.isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: 28, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 64, height: 64)
+                            .background(Circle().fill(Color.accentColor))
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.plain)
                     // Next / seek forward
-                    fullControlButton(symbol: isEpisode ? "goforward.15" : "forward.end.fill", size: .title3) {
+                    fullControlButton(symbol: isEpisode ? "goforward.15" : "forward.end.fill", size: 48) {
                         if isEpisode { audio.seekForward() }
                         else { container.radioViewModel.playNextStation() }
                     }
@@ -126,13 +128,14 @@ struct FullPlayerView: View {
     // MARK: - Helpers
 
     @ViewBuilder
-    private func fullControlButton(symbol: String, size: Font, tint: Color? = nil, action: @escaping () -> Void) -> some View {
+    private func fullControlButton(symbol: String, size: CGFloat, tint: Color? = nil, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(size)
-                .foregroundStyle(tint ?? .primary)
+                .font(.system(size: size * 0.5, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: size, height: size)
+                .background(Circle().fill(tint ?? Color.accentColor))
                 .frame(maxWidth: .infinity)
-                .frame(height: 52)
         }
         .buttonStyle(.plain)
     }
@@ -186,13 +189,13 @@ struct FullPlayerView: View {
     private var favouriteControlButton: some View {
         if let episode = audio.currentEpisode {
             let isSaved = container.favoritesStore.isSaved(episodeID: episode.id)
-            fullControlButton(symbol: isSaved ? "bookmark.fill" : "bookmark", size: .title3) {
+            fullControlButton(symbol: isSaved ? "bookmark.fill" : "bookmark", size: 48) {
                 container.favoritesStore.toggleSaved(episode: episode, podcastTitle: audio.currentEpisodePodcastTitle)
             }
         } else {
             fullControlButton(
                 symbol: container.radioViewModel.isCurrentFavourite ? "star.fill" : "star",
-                size: .title3,
+                size: 48,
                 tint: container.radioViewModel.isCurrentFavourite ? .yellow : nil
             ) {
                 container.radioViewModel.toggleCurrentFavourite()
