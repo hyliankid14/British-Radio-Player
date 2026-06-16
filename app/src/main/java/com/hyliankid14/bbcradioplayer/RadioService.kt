@@ -1900,158 +1900,7 @@ class RadioService : MediaBrowserServiceCompat() {
 
                         // If playback ended for a podcast episode, attempt to autoplay next episode in the same podcast
                         if (playbackState == Player.STATE_ENDED && currentStationId.startsWith("podcast_")) {
-                            // Guard + progress runnable cleanup are applied at the top of this
-                            // callback before STATE_STOPPED is published.
-                            val currentEpisode = PlaybackStateHelper.getCurrentEpisodeId()
-                            val podcastId = currentPodcastId
-                            val playlistId = currentPlaylistId
-                            if (!currentEpisode.isNullOrEmpty()) {
-                                val autoplayPref = PlaybackPreference.getAutoplayNextEpisode(this@RadioService)
-                                if (isStopped) {
-                                    Log.d(TAG, "Autoplay skipped: playback already stopped")
-                                } else if (!playlistId.isNullOrEmpty()) {
-                                    // Playlist autoplay: advance to next episode in playlist order
-                                    // regardless of the subscription autoplay preference.
-                                    pendingAutoplayNextEpisode = true
-                                    updatePlaybackState(PlaybackStateCompat.STATE_BUFFERING)
-                                    serviceScope.launch {
-                                        try {
-                                            val allEntries = PodcastPlaylists.getPlaylistEntries(this@RadioService, playlistId)
-                                            val sortedEntries = PlaylistSortPreference.applySort(this@RadioService, playlistId, allEntries)
-                                            val hidePlayedEnabled = PlaybackPreference.isHidePlayedEpisodesInPlaylistsEnabled(this@RadioService)
-                                            val currentIndex = sortedEntries.indexOfFirst { it.id == currentEpisode }
-                                            val nextEntry = if (currentIndex >= 0) {
-                                                if (hidePlayedEnabled) {
-                                                    // When "hide played" is on, the UI only shows unplayed episodes.
-                                                    // Advance to the next episode in sort order that has not been played,
-                                                    // skipping any played entries that would be hidden from the list.
-                                                    sortedEntries.asSequence().drop(currentIndex + 1).firstOrNull {
-                                                        !PlayedEpisodesPreference.isPlayed(this@RadioService, it.id)
-                                                    }
-                                                } else {
-                                                    sortedEntries.getOrNull(currentIndex + 1)
-                                                }
-                                            } else {
-                                                null
-                                            }
-                                            // Do not gate on isStopped here: some Android Auto head units
-                                            // react to STATE_STOPPED (sent before STATE_BUFFERING) with an
-                                            // immediate onStop(), setting isStopped=true before this coroutine
-                                            // runs. playPodcastEpisode() resets isStopped=false at its start,
-                                            // so proceeding is safe and ensures the next episode plays.
-                                            if (nextEntry != null) {
-                                                Log.d(TAG, "Autoplaying next playlist episode: ${nextEntry.title} (id=${nextEntry.id})")
-                                                val nextEp = Episode(
-                                                    id = nextEntry.id,
-                                                    title = nextEntry.title,
-                                                    description = nextEntry.description,
-                                                    audioUrl = nextEntry.audioUrl,
-                                                    imageUrl = nextEntry.imageUrl,
-                                                    pubDate = nextEntry.pubDate,
-                                                    durationMins = nextEntry.durationMins,
-                                                    podcastId = nextEntry.podcastId
-                                                )
-                                                val playIntent = Intent().apply {
-                                                    putExtra(EXTRA_PODCAST_TITLE, nextEntry.podcastTitle)
-                                                    putExtra(EXTRA_PODCAST_IMAGE, nextEntry.imageUrl)
-                                                    putExtra(EXTRA_PLAYLIST_ID, playlistId)
-                                                }
-                                                playPodcastEpisode(nextEp, playIntent)
-                                            } else {
-                                                Log.d(TAG, "No next episode in playlist: $playlistId")
-                                                stopPlayback()
-                                            }
-                                        } catch (e: Exception) {
-                                            Log.w(TAG, "Failed to autoplay next playlist episode: ${e.message}")
-                                            stopPlayback()
-                                        } finally {
-                                            pendingAutoplayNextEpisode = false
-                                        }
-                                    }
-                                } else if (autoplayPref == PlaybackPreference.AUTOPLAY_NEXT_NONE) {
-                                    Log.d(TAG, "Autoplay disabled by user preference")
-                                    stopPlayback()
-                                } else if (!podcastId.isNullOrEmpty()) {
-                                    // Podcast autoplay: advance to next episode in podcast feed order
-                                    // Signal buffering before launching the coroutine. Some Android Auto
-                                    // head units call onStop() when they receive STATE_STOPPED from the
-                                    // MediaSession, which sets isStopped=true and aborts the autoplay
-                                    // coroutine before it has a chance to start the next episode.
-                                    // Sending STATE_BUFFERING keeps Android Auto in a "loading" state
-                                    // and prevents that spurious onStop() call.
-                                    // Mark the coroutine as in-flight before launching so that any
-                                    // onPlay() arriving on the main thread (some head units send onPlay()
-                                    // instead of onStop() after STATE_STOPPED) does not restart the same
-                                    // episode via handlePlayRequest's STATE_ENDED path.
-                                    pendingAutoplayNextEpisode = true
-                                    updatePlaybackState(PlaybackStateCompat.STATE_BUFFERING)
-                                    serviceScope.launch {
-                                        try {
-                                            val repo = PodcastRepository(this@RadioService)
-                                            val allPods = withContext(Dispatchers.IO) { repo.fetchPodcasts(false) }
-                                            val podcast = allPods.find { it.id == podcastId }
-                                            if (podcast != null) {
-                                                // Check subscription requirement
-                                                if (autoplayPref == PlaybackPreference.AUTOPLAY_NEXT_SUBSCRIPTIONS) {
-                                                    val subscribed = PodcastSubscriptions.getSubscribedIds(this@RadioService)
-                                                    if (!subscribed.contains(podcastId)) {
-                                                        Log.d(TAG, "Autoplay skipped: podcast not subscribed (preference=subscriptions_only)")
-                                                        stopPlayback()
-                                                        return@launch
-                                                    }
-                                                }
-                                                // Prefer the in-memory episode cache populated when Android Auto
-                                                // browsed the podcast list. This avoids a network round-trip and
-                                                // handles episodes that may have rolled off the RSS feed since
-                                                // they were last displayed (BBC feeds keep only recent episodes).
-                                                val cachedEpisodes = autoEpisodesCache[podcastId]
-                                                val allEpisodes = if (!cachedEpisodes.isNullOrEmpty()) {
-                                                    cachedEpisodes
-                                                } else {
-                                                    withContext(Dispatchers.IO) { repo.fetchEpisodes(podcast) }
-                                                }
-                                                val sortedEpisodes = repo.sortEpisodesForPodcast(podcastId, allEpisodes)
-
-                                                val currentIndex = sortedEpisodes.indexOfFirst { it.id == currentEpisode }
-                                                if (currentIndex < 0) {
-                                                    Log.w(TAG, "Current episode not found in feed for autoplay: $currentEpisode")
-                                                    stopPlayback()
-                                                } else {
-                                                    val next = sortedEpisodes.drop(currentIndex + 1).firstOrNull()
-                                                    if (next != null) {
-                                                        Log.d(TAG, "Autoplaying next episode by configured order: ${next.title} (id=${next.id})")
-                                                        // Check isStopped here: the user may have pressed Stop while we were
-                                                        // fetching episodes in the background. playPodcastEpisode() resets
-                                                        // isStopped = false, which would restart playback the user explicitly stopped.
-                                                        if (isStopped) {
-                                                            Log.d(TAG, "Autoplay aborted: user stopped playback while fetching next episode")
-                                                            return@launch
-                                                        }
-                                                        val playIntent = Intent().apply {
-                                                            putExtra(EXTRA_PODCAST_TITLE, podcast.title)
-                                                            putExtra(EXTRA_PODCAST_IMAGE, podcast.imageUrl)
-                                                        }
-                                                        playPodcastEpisode(next, playIntent)
-                                                    } else {
-                                                        Log.d(TAG, "No next episode found to autoplay for podcast: $podcastId")
-                                                        stopPlayback()
-                                                    }
-                                                }
-                                            } else {
-                                                Log.w(TAG, "Podcast not found while attempting to autoplay: $podcastId")
-                                                stopPlayback()
-                                            }
-                                        } catch (e: Exception) {
-                                            Log.w(TAG, "Failed to autoplay next episode: ${e.message}")
-                                            stopPlayback()
-                                        } finally {
-                                            // Clear the in-flight flag for all non-success paths.
-                                            // playPodcastEpisode() clears it on the success path.
-                                            pendingAutoplayNextEpisode = false
-                                        }
-                                    }
-                                }
-                            }
+                            handlePodcastEpisodeEnd()
                         }
                     }
                     
@@ -4383,6 +4232,129 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
         }
     }
 
+    private fun handlePodcastEpisodeEnd() {
+        val currentEpisode = PlaybackStateHelper.getCurrentEpisodeId()
+        val podcastId = currentPodcastId
+        val playlistId = currentPlaylistId
+        if (currentEpisode.isNullOrEmpty()) return
+
+        val autoplayPref = PlaybackPreference.getAutoplayNextEpisode(this@RadioService)
+        if (isStopped) {
+            Log.d(TAG, "Autoplay skipped: playback already stopped")
+            return
+        } else if (!playlistId.isNullOrEmpty()) {
+            pendingAutoplayNextEpisode = true
+            updatePlaybackState(PlaybackStateCompat.STATE_BUFFERING)
+            serviceScope.launch {
+                try {
+                    val allEntries = PodcastPlaylists.getPlaylistEntries(this@RadioService, playlistId)
+                    val sortedEntries = PlaylistSortPreference.applySort(this@RadioService, playlistId, allEntries)
+                    val hidePlayedEnabled = PlaybackPreference.isHidePlayedEpisodesInPlaylistsEnabled(this@RadioService)
+                    val currentIndex = sortedEntries.indexOfFirst { it.id == currentEpisode }
+                    val nextEntry = if (currentIndex >= 0) {
+                        if (hidePlayedEnabled) {
+                            sortedEntries.asSequence().drop(currentIndex + 1).firstOrNull {
+                                !PlayedEpisodesPreference.isPlayed(this@RadioService, it.id)
+                            }
+                        } else {
+                            sortedEntries.getOrNull(currentIndex + 1)
+                        }
+                    } else {
+                        null
+                    }
+                    if (nextEntry != null) {
+                        Log.d(TAG, "Autoplaying next playlist episode: ${nextEntry.title} (id=${nextEntry.id})")
+                        val nextEp = Episode(
+                            id = nextEntry.id,
+                            title = nextEntry.title,
+                            description = nextEntry.description,
+                            audioUrl = nextEntry.audioUrl,
+                            imageUrl = nextEntry.imageUrl,
+                            pubDate = nextEntry.pubDate,
+                            durationMins = nextEntry.durationMins,
+                            podcastId = nextEntry.podcastId
+                        )
+                        val playIntent = Intent().apply {
+                            putExtra(EXTRA_PODCAST_TITLE, nextEntry.podcastTitle)
+                            putExtra(EXTRA_PODCAST_IMAGE, nextEntry.imageUrl)
+                            putExtra(EXTRA_PLAYLIST_ID, playlistId)
+                        }
+                        playPodcastEpisode(nextEp, playIntent)
+                    } else {
+                        Log.d(TAG, "No next episode in playlist: $playlistId")
+                        stopPlayback()
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to autoplay next playlist episode: ${e.message}")
+                    stopPlayback()
+                } finally {
+                    pendingAutoplayNextEpisode = false
+                }
+            }
+        } else if (autoplayPref == PlaybackPreference.AUTOPLAY_NEXT_NONE) {
+            Log.d(TAG, "Autoplay disabled by user preference")
+            stopPlayback()
+        } else if (!podcastId.isNullOrEmpty()) {
+            pendingAutoplayNextEpisode = true
+            updatePlaybackState(PlaybackStateCompat.STATE_BUFFERING)
+            serviceScope.launch {
+                try {
+                    val repo = PodcastRepository(this@RadioService)
+                    val allPods = withContext(Dispatchers.IO) { repo.fetchPodcasts(false) }
+                    val podcast = allPods.find { it.id == podcastId }
+                    if (podcast != null) {
+                        if (autoplayPref == PlaybackPreference.AUTOPLAY_NEXT_SUBSCRIPTIONS) {
+                            val subscribed = PodcastSubscriptions.getSubscribedIds(this@RadioService)
+                            if (!subscribed.contains(podcastId)) {
+                                Log.d(TAG, "Autoplay skipped: podcast not subscribed (preference=subscriptions_only)")
+                                stopPlayback()
+                                return@launch
+                            }
+                        }
+                        val cachedEpisodes = autoEpisodesCache[podcastId]
+                        val allEpisodes = if (!cachedEpisodes.isNullOrEmpty()) {
+                            cachedEpisodes
+                        } else {
+                            withContext(Dispatchers.IO) { repo.fetchEpisodes(podcast) }
+                        }
+                        val sortedEpisodes = repo.sortEpisodesForPodcast(podcastId, allEpisodes)
+
+                        val currentIndex = sortedEpisodes.indexOfFirst { it.id == currentEpisode }
+                        if (currentIndex < 0) {
+                            Log.w(TAG, "Current episode not found in feed for autoplay: $currentEpisode")
+                            stopPlayback()
+                        } else {
+                            val next = sortedEpisodes.drop(currentIndex + 1).firstOrNull()
+                            if (next != null) {
+                                Log.d(TAG, "Autoplaying next episode by configured order: ${next.title} (id=${next.id})")
+                                if (isStopped) {
+                                    Log.d(TAG, "Autoplay aborted: user stopped playback while fetching next episode")
+                                    return@launch
+                                }
+                                val playIntent = Intent().apply {
+                                    putExtra(EXTRA_PODCAST_TITLE, podcast.title)
+                                    putExtra(EXTRA_PODCAST_IMAGE, podcast.imageUrl)
+                                }
+                                playPodcastEpisode(next, playIntent)
+                            } else {
+                                Log.d(TAG, "No next episode found to autoplay for podcast: $podcastId")
+                                stopPlayback()
+                            }
+                        }
+                    } else {
+                        Log.w(TAG, "Podcast not found while attempting to autoplay: $podcastId")
+                        stopPlayback()
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to autoplay next episode: ${e.message}")
+                    stopPlayback()
+                } finally {
+                    pendingAutoplayNextEpisode = false
+                }
+            }
+        }
+    }
+
     private fun seekToPosition(positionMs: Long) {
         if (!currentStationId.startsWith("podcast_")) return
         val currentPlayer = player ?: return
@@ -4392,6 +4364,16 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
         
         val clamped = positionMs.coerceIn(0L, if (knownDuration > 0L) knownDuration else Long.MAX_VALUE)
         currentPlayer.seekTo(clamped)
+        
+        // If we sought to the end of a podcast episode, manually trigger the end-of-episode logic.
+        // ExoPlayer does not always emit STATE_ENDED when seeking to the exact duration, which
+        // would cause Android Auto to send an onPlay() command that restarts the episode.
+        if (knownDuration > 0L && clamped >= knownDuration - 1000L) {
+            Log.d(TAG, "seekToPosition: sought to end of episode, manually triggering end-of-episode logic")
+            podcastEpisodeEndedNoRestart = true
+            podcastProgressRunnable?.let { handler.removeCallbacks(it) }
+            handlePodcastEpisodeEnd()
+        }
     }
 
     private fun seekBy(deltaMs: Long) {
@@ -4405,6 +4387,14 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
         
         val target = (current + deltaMs).coerceIn(0L, if (knownDuration > 0L) knownDuration else Long.MAX_VALUE)
         currentPlayer.seekTo(target)
+        
+        // If we sought to the end of a podcast episode, manually trigger the end-of-episode logic.
+        if (knownDuration > 0L && target >= knownDuration - 1000L) {
+            Log.d(TAG, "seekBy: sought to end of episode, manually triggering end-of-episode logic")
+            podcastEpisodeEndedNoRestart = true
+            podcastProgressRunnable?.let { handler.removeCallbacks(it) }
+            handlePodcastEpisodeEnd()
+        }
     }
     
     private fun toggleFavoriteAndNotify(stationId: String) {
