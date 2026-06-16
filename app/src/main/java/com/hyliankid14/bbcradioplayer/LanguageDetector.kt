@@ -34,11 +34,41 @@ object LanguageDetector {
         "orm", "faoi" // ga (Irish Gaelic) — accent-free distinctive words; accented forms (tá, níl, féin) are stripped by normalization
     )
     private val knownEnglishLanguageCodes = setOf("en", "en-gb", "en-us", "en-au", "en-ca", "eng")
+    
+    // Explicit list of common non-English language codes to immediately reject.
+    // This prevents feeds that lack strong non-Latin signal or clear stopwords from
+    // slipping through heuristic checks when they are explicitly tagged as non-English.
+    private val knownNonEnglishLanguageCodes = setOf(
+        "cy", "cy-gb", // Welsh
+        "gd", "gd-gb", // Scottish Gaelic
+        "ga", "ga-ie", // Irish
+        "fr", "fr-fr", // French
+        "de", "de-de", // German
+        "es", "es-es", // Spanish
+        "it", "it-it", // Italian
+        "nl", "nl-nl", // Dutch
+        "pt", "pt-pt", "pt-br", // Portuguese
+        "ru", "ru-ru", // Russian
+        "zh", "zh-cn", "zh-tw", // Chinese
+        "ja", "ja-jp", // Japanese
+        "ko", "ko-kr", // Korean
+        "ar", "ar-sa", // Arabic
+        "hi", "hi-in", // Hindi
+        "ur", "ur-pk", // Urdu
+        "bn", "bn-bd", // Bengali
+        "ta", "ta-in", // Tamil
+        "tr", "tr-tr", // Turkish
+        "pl", "pl-pl", // Polish
+        "sv", "sv-se", "sv-fi", // Swedish
+        "no", "no-no", "nb", "nn", // Norwegian
+        "da", "da-dk", // Danish
+        "fi", "fi-fi" // Finnish
+    )
 
     // In-memory cache for fast checks; persisted cache lives in SharedPreferences to survive restarts.
     private val memoryCache: MutableMap<String, Pair<Boolean, Long>> = mutableMapOf()
     private const val CACHE_TTL_MS = 24 * 60 * 60 * 1000L // 24 hours
-    private const val PREFS_NAME = "language_detector_cache_v4"
+    private const val PREFS_NAME = "language_detector_cache_v5"
     private val languageIdentifier: LanguageIdentifier by lazy {
         LanguageIdentification.getClient(
             com.google.mlkit.nl.languageid.LanguageIdentificationOptions.Builder()
@@ -114,6 +144,11 @@ object LanguageDetector {
 
             if (rssLang != null) {
                 val lang = rssLang.trim().lowercase()
+                if (knownNonEnglishLanguageCodes.contains(lang)) {
+                    Log.d("LanguageDetector", "RSS <language>='$lang' is known non-English for podcast key=$key -> english=false")
+                    putCachedResult(context, key, false)
+                    return false
+                }
                 val isEnglishTag = knownEnglishLanguageCodes.contains(lang) || lang.startsWith("en-")
                 if (!isEnglishTag) {
                     Log.d("LanguageDetector", "RSS <language>='$lang' for podcast key=$key -> english=false")
