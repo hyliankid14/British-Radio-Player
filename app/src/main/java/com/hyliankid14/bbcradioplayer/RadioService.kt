@@ -4354,9 +4354,6 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
             }
         }
     }
-            }
-        }
-    }
 
     private fun seekToPosition(positionMs: Long) {
         if (!currentStationId.startsWith("podcast_")) return
