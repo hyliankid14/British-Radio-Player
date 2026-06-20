@@ -730,6 +730,12 @@ class PodcastRepository(private val context: Context) {
                         )
                     )
                 }
+                // Cache the earliest episode epochs from the snapshot so subsequent
+                // calls to getAvailableCloudEarliestUpdatesNow can use them instead of
+                // triggering an expensive full-index download on first install
+                if (cloudSnapshot.earliestEpisodeEpochs.isNotEmpty()) {
+                    cacheEarliestEpisodeBoundsFromSnapshot(cloudSnapshot.earliestEpisodeEpochs)
+                }
                 // The cloud snapshot is the authoritative source for new podcasts — return
                 // immediately rather than falling through to the expensive full-index download.
                 return@withContext trimmedFromCloud
@@ -792,12 +798,17 @@ class PodcastRepository(private val context: Context) {
         firstSeenEpochs: Map<String, Long>,
         currentIds: Set<String>
     ): Map<String, Long> {
+        // Preserve the server's intended order — do not re-sort.
+        // The server already returns podcasts sorted by oldest episode date DESC,
+        // so we simply filter to current IDs, limit, and maintain that order.
         return firstSeenEpochs.entries
             .asSequence()
             .filter { (id, epoch) -> id in currentIds && epoch > 0L }
-            .sortedWith(compareByDescending<Map.Entry<String, Long>> { it.value }.thenBy { it.key })
             .take(NEW_PODCAST_MAX_COUNT)
-            .associate { it.key to it.value }
+            .fold(LinkedHashMap<String, Long>(NEW_PODCAST_MAX_COUNT)) { acc, entry ->
+                acc[entry.key] = entry.value
+                acc
+            }
     }
 
     suspend fun fetchCloudPodcastDateBounds(
@@ -881,7 +892,7 @@ class PodcastRepository(private val context: Context) {
                     val item = data.optJSONObject(podcastId) ?: return@forEach
                     val latest = item.optLong("latestEpoch", 0L)
                     val earliest = item.optLong("earliestEpoch", 0L)
-                    if (latest > 0L && earliest > 0L) {
+                    if (latest > 0L || earliest > 0L) {
                         put(
                             podcastId,
                             PodcastDateBounds(
@@ -961,6 +972,34 @@ class PodcastRepository(private val context: Context) {
             cloudBoundsCacheFile.writeText(root.toString())
         } catch (e: Exception) {
             Log.w("PodcastRepository", "Failed to write cloud podcast bounds cache", e)
+        }
+    }
+
+    /**
+     * Merge earliest episode bounds from the new podcasts snapshot into the cloud bounds cache.
+     * This populates the cache with earliest episode dates for new podcasts on first install,
+     * avoiding the need to download the full index just to get episode date bounds.
+     */
+    private fun cacheEarliestEpisodeBoundsFromSnapshot(earliestEpisodeEpochs: Map<String, Long>) {
+        try {
+            val existing = readCloudPodcastBoundsCache().toMutableMap()
+            earliestEpisodeEpochs.forEach { (podcastId, earliestEpoch) ->
+                if (earliestEpoch > 0L) {
+                    val existingBounds = existing[podcastId]
+                    // Only update if we don't have earliest epoch, or if we have a newer value
+                    if (existingBounds == null || existingBounds.earliestEpisodeEpoch <= 0L) {
+                        existing[podcastId] = PodcastDateBounds(
+                            latestEpisodeEpoch = existingBounds?.latestEpisodeEpoch ?: 0L,
+                            earliestEpisodeEpoch = earliestEpoch
+                        )
+                    }
+                }
+            }
+            if (existing.isNotEmpty()) {
+                writeCloudPodcastBoundsCache(existing)
+            }
+        } catch (e: Exception) {
+            Log.w("PodcastRepository", "Failed to cache earliest episode bounds from snapshot", e)
         }
     }
 

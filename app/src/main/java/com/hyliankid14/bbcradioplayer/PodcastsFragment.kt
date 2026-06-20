@@ -1596,7 +1596,7 @@ class PodcastsFragment : Fragment() {
             try {
                 // Phase 1 (fast): return immediately available data first so the New Podcasts
                 // tab can populate without waiting for full index-summary downloads.
-                val resolvedEarliest = withContext(Dispatchers.IO) {
+                var resolvedEarliest = withContext(Dispatchers.IO) {
                     repository.getAvailableCloudEarliestUpdatesNow(allPodcasts)
                         .ifEmpty { repository.getAvailableEarliestUpdatesNow(allPodcasts) }
                 }
@@ -1605,6 +1605,16 @@ class PodcastsFragment : Fragment() {
                     repository.fetchNewlyAddedPodcastEpochs(allPodcasts, forceRefresh = false)
                 }
                 updateLoadingProgress(PROGRESS_NEW_EPOCHS_FETCHED)
+
+                // After fetching newly added podcasts, the snapshot may have populated
+                // the cloud bounds cache with earliest episode dates. Re-read the cache
+                // to pick up these newly cached values.
+                if (resolvedEarliest.isEmpty()) {
+                    resolvedEarliest = withContext(Dispatchers.IO) {
+                        repository.getAvailableCloudEarliestUpdatesNow(allPodcasts)
+                            .ifEmpty { repository.getAvailableEarliestUpdatesNow(allPodcasts) }
+                    }
+                }
 
                 var finalEarliest = resolvedEarliest
                 var finalNewlyAdded = resolvedNewlyAdded
@@ -3123,17 +3133,10 @@ class PodcastsFragment : Fragment() {
                 )
             }
             SORT_NEW_PODCASTS -> {
-                val epochMap: Map<String, Long> = episodes.associate { (ep, _) ->
-                    ep.id to com.hyliankid14.bbcradioplayer.db.IndexStore.parsePubEpoch(ep.pubDate)
-                }
+                val newPodcastOrder = cachedNewlyAddedPodcastEpochs.keys.toList()
                 episodes
                     .filter { (_, podcast) -> isNewPodcast(podcast) }
-                    .sortedWith(
-                        compareByDescending<Pair<Episode, Podcast>> { newlyAddedEpoch(it.second) }
-                            .thenByDescending { earliestEpisodeEpoch(it.second) }
-                            .thenByDescending { epochMap[it.first.id] ?: Long.MIN_VALUE }
-                            .thenBy { it.first.title }
-                    )
+                    .sortedBy { newPodcastOrder.indexOf(it.second.id).let { idx -> if (idx < 0) Int.MAX_VALUE else idx } }
             }
             SORT_ALPHABETICAL -> episodes.sortedWith(
                 compareBy<Pair<Episode, Podcast>>({ it.first.title }, { it.second.title })
@@ -3213,11 +3216,7 @@ class PodcastsFragment : Fragment() {
             )
             SORT_NEW_PODCASTS -> podcasts
                 .filter { isNewPodcast(it) }
-                .sortedWith(
-                    compareByDescending<Podcast> { newlyAddedEpoch(it) }
-                        .thenByDescending { earliestEpisodeEpoch(it) }
-                        .thenBy { it.title }
-                )
+                .sortedBy { cachedNewlyAddedPodcastEpochs.keys.indexOf(it.id).let { idx -> if (idx < 0) Int.MAX_VALUE else idx } }
             SORT_ALPHABETICAL -> podcasts.sortedBy { it.title }
             else -> podcasts
         }
