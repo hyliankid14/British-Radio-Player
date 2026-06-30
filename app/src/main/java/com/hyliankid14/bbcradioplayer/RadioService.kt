@@ -1937,7 +1937,7 @@ class RadioService : MediaBrowserServiceCompat() {
                                 }
                             }
                         }
-                        handler.postDelayed(playerReconnectRunnable!!, 3000) // Wait 3 seconds before reconnecting
+                        handler.postDelayed(playerReconnectRunnable!!, 1000)
                     }
 
                     override fun onIsPlayingChanged(isPlaying: Boolean) {

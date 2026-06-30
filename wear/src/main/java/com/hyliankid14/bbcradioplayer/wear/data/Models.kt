@@ -10,21 +10,27 @@ data class Station(
     val category: StationCategory = StationCategory.LOCAL
 ) {
     fun streamCandidates(): List<String> {
-        // Prefer lower bitrates first for smoother playback on constrained Wear connections.
         val bitrates = listOf("48000", "96000", "128000")
-        val candidates = mutableListOf<String>()
-        candidates += directStreamUrls.filter { it.isNotBlank() }
-        for (sid in streamServiceIds.filter { it.isNotBlank() }) {
-            for (bitrate in bitrates) {
-                candidates += "https://lsn.lv/bbcradio.m3u8?station=$sid&bitrate=$bitrate"
+        val worldwide = mutableListOf<String>()
+        val ukOnly = mutableListOf<String>()
+
+        for (url in directStreamUrls.filter { it.isNotBlank() }) {
+            if (url.contains("&uk=1")) {
+                ukOnly += url
+            } else {
+                worldwide += url
             }
         }
-        // BBC direct HLS streams as final fallbacks (UK high-quality then non-UK lower-quality)
         for (sid in streamServiceIds.filter { it.isNotBlank() }) {
-            candidates += "https://a.files.bbci.co.uk/media/live/manifesto/audio/simulcast/hls/uk/sbr_high/ak/$sid.m3u8"
-            candidates += "https://a.files.bbci.co.uk/media/live/manifesto/audio/simulcast/hls/nonuk/sbr_low/ak/$sid.m3u8"
+            for (bitrate in bitrates) {
+                worldwide += "https://lsn.lv/bbcradio.m3u8?station=$sid&bitrate=$bitrate"
+            }
         }
-        return candidates.distinct()
+        for (sid in streamServiceIds.filter { it.isNotBlank() }) {
+            ukOnly += "https://a.files.bbci.co.uk/media/live/manifesto/audio/simulcast/hls/uk/sbr_high/ak/$sid.m3u8"
+            worldwide += "https://a.files.bbci.co.uk/media/live/manifesto/audio/simulcast/hls/nonuk/sbr_low/ak/$sid.m3u8"
+        }
+        return (worldwide + ukOnly).distinct()
     }
 }
 
