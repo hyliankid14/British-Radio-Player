@@ -41,25 +41,19 @@ struct Station: Identifiable, Codable, Equatable {
     }
 
     func streamCandidates(quality: PlaybackQuality) -> [URL] {
-        var worldwide: [URL] = []
-        var ukOnly: [URL] = []
-
+        var candidates: [URL] = []
         if let directStreamURL {
-            if directStreamURL.absoluteString.contains("&uk=1") {
-                ukOnly.append(directStreamURL)
-            } else {
-                worldwide.append(directStreamURL)
-            }
+            candidates.append(directStreamURL)
         }
         if let url = URL(string: "\(Self.streamBase)?station=\(serviceId)&bitrate=\(quality.bitrate)") {
-            worldwide.append(url)
+            candidates.append(url)
         }
         if let url = URL(string: "https://a.files.bbci.co.uk/media/live/manifesto/audio/simulcast/hls/uk/sbr_high/ak/\(serviceId).m3u8") {
-            ukOnly.append(url)
+            candidates.append(url)
         }
         if let url = URL(string: "https://a.files.bbci.co.uk/media/live/manifesto/audio/simulcast/hls/nonuk/sbr_low/ak/\(serviceId).m3u8") {
-            worldwide.append(url)
+            candidates.append(url)
         }
-        return worldwide + ukOnly
+        return candidates
     }
 }

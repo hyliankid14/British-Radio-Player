@@ -24,26 +24,19 @@ data class Station(
         val fallbackBitrates = listOf("128000", "96000", "48000", "320000")
         val bitrates = listOf(requestedBitrate) + fallbackBitrates.filter { it != requestedBitrate }
 
-        val worldwide = mutableListOf<String>()
-        val ukOnly = mutableListOf<String>()
-
-        for (url in directStreamUrls.filter { it.isNotBlank() }) {
-            if (url.contains("&uk=1")) {
-                ukOnly += url
-            } else {
-                worldwide += url
-            }
-        }
+        val candidates = mutableListOf<String>()
+        candidates += directStreamUrls.filter { it.isNotBlank() }
         for (sid in streamServiceIds.filter { it.isNotBlank() }) {
             for (bitrate in bitrates) {
-                worldwide += "$STREAM_BASE?station=$sid&bitrate=$bitrate"
+                candidates += "$STREAM_BASE?station=$sid&bitrate=$bitrate"
             }
         }
+        // BBC direct HLS streams as final fallbacks (UK high-quality then non-UK lower-quality)
         for (sid in streamServiceIds.filter { it.isNotBlank() }) {
-            ukOnly += "$BBC_HLS_UK/$sid.m3u8"
-            worldwide += "$BBC_HLS_NONUK/$sid.m3u8"
+            candidates += "$BBC_HLS_UK/$sid.m3u8"
+            candidates += "$BBC_HLS_NONUK/$sid.m3u8"
         }
-        return (worldwide + ukOnly).distinct()
+        return candidates.distinct()
     }
 }
 
@@ -88,11 +81,11 @@ object StationRepository {
             "Radio 5 Live",
             "bbc_radio_five_live",
             directStreamUrls = listOf(
-                "https://as-hls-ww-live.akamaized.net/pool_89021708/live/ww/bbc_radio_five_live/bbc_radio_five_live.isml/bbc_radio_five_live-audio%3d96000.norewind.m3u8",
                 "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_live&bitrate=320000&uk=1",
                 "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_live&bitrate=128000&uk=1",
                 "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_live&bitrate=96000&uk=1",
-                "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_live&bitrate=48000&uk=1"
+                "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_live&bitrate=48000&uk=1",
+                "https://as-hls-ww-live.akamaized.net/pool_89021708/live/ww/bbc_radio_five_live/bbc_radio_five_live.isml/bbc_radio_five_live-audio%3d96000.norewind.m3u8"
             ),
             category = StationCategory.NATIONAL
         ),
