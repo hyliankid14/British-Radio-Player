@@ -57,8 +57,8 @@ class SecureHttpDataSource : DataSource.Factory {
                         DataSpec.HTTP_METHOD_POST -> "POST"
                         else -> "GET"
                     }
-                    connectTimeout = 8000
-                    readTimeout = 8000
+                    connectTimeout = 5000
+                    readTimeout = 5000
                     instanceFollowRedirects = false // Handle redirects manually
                     setRequestProperty("User-Agent", "British Radio Player/1.0 (Android)")
                     setRequestProperty("Accept-Encoding", "identity")

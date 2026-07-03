@@ -1937,7 +1937,7 @@ class RadioService : MediaBrowserServiceCompat() {
                                 }
                             }
                         }
-                        handler.postDelayed(playerReconnectRunnable!!, 1000)
+                        handler.postDelayed(playerReconnectRunnable!!, 500)
                     }
 
                     override fun onIsPlayingChanged(isPlaying: Boolean) {
