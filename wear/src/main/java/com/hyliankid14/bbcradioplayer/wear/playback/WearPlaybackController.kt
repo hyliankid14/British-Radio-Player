@@ -6,6 +6,12 @@ import androidx.core.content.ContextCompat
 import com.hyliankid14.bbcradioplayer.wear.data.EpisodeSummary
 import com.hyliankid14.bbcradioplayer.wear.data.Station
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.net.HttpURLConnection
+import java.net.URL
 
 class WearPlaybackController(private val context: Context) {
     val nowPlaying: StateFlow<NowPlaying?> = WearPlaybackStateStore.nowPlaying()
@@ -13,11 +19,41 @@ class WearPlaybackController(private val context: Context) {
     val currentState: NowPlaying?
         get() = WearPlaybackStateStore.currentState()
 
+    private suspend fun probeGeoBlock(station: Station): List<String> = withContext(Dispatchers.IO) {
+        val ukOnlyUrl = station.directStreamUrls.firstOrNull { it.contains("&uk=1") && it.isNotBlank() }
+        if (ukOnlyUrl != null) {
+            try {
+                val url = URL(ukOnlyUrl)
+                val connection = url.openConnection() as HttpURLConnection
+                connection.requestMethod = "GET"
+                connection.connectTimeout = 2000
+                connection.readTimeout = 2000
+                connection.setRequestProperty("User-Agent", "BBC Radio Player Wear/1.0")
+                connection.inputStream.close()
+                connection.disconnect()
+                // UK stream accessible, not geo-blocked
+                return@withContext station.streamCandidates("48000", false)
+            } catch (e: Exception) {
+                // Geo-block detected, return only international streams
+                return@withContext station.streamCandidates("48000", true)
+            }
+        }
+        station.streamCandidates("48000", false)
+    }
+
     fun playStation(station: Station) {
+        val candidates = runBlocking {
+            withTimeoutOrNull(2500) { probeGeoBlock(station) } ?: emptyList()
+        }
+        val finalCandidates = if (candidates.isEmpty()) {
+            station.streamCandidates("48000", false)
+        } else {
+            candidates
+        }
         val intent = baseIntent(WearPlaybackService.ACTION_PLAY_STATION).apply {
             putStringArrayListExtra(
                 WearPlaybackService.EXTRA_STREAM_CANDIDATES,
-                ArrayList(station.streamCandidates().mapNotNull(::normaliseUrl))
+                ArrayList(finalCandidates.mapNotNull(::normaliseUrl))
             )
             putExtra(WearPlaybackService.EXTRA_STATION_ID, station.id)
             putExtra(WearPlaybackService.EXTRA_SERVICE_ID, station.serviceId)

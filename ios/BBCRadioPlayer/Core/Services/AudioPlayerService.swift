@@ -108,7 +108,8 @@ final class AudioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
 
     func play(station: Station, quality: PlaybackQuality) {
         let effectiveQuality = resolveQuality(quality)
-        let candidates = station.streamCandidates(quality: effectiveQuality)
+        let geoBlocked = probeGeoBlock(station)
+        let candidates = station.streamCandidates(quality: effectiveQuality, geoBlocked: geoBlocked)
         guard !candidates.isEmpty else { return }
 
         stationStreamCandidates = candidates
@@ -248,6 +249,34 @@ final class AudioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
     private func resolveQuality(_ quality: PlaybackQuality) -> PlaybackQuality {
         guard quality == .auto else { return quality }
         return isOnWiFi ? .high : .low
+    }
+
+    private func probeGeoBlock(_ station: Station) -> Bool {
+        guard let ukOnlyUrl = station.directStreamURL,
+              ukOnlyUrl.absoluteString.contains("&uk=1") else {
+            return false
+        }
+        let semaphore = DispatchSemaphore(value: 0)
+        var isBlocked = false
+        
+        let task = URLSession.shared.dataTask(with: ukOnlyUrl) { _, response, error in
+            if let _ = error {
+                isBlocked = true
+            } else if let httpResponse = response as? HTTPURLResponse {
+                isBlocked = httpResponse.statusCode != 200
+            } else {
+                isBlocked = true
+            }
+            semaphore.signal()
+        }
+        task.resume()
+        
+        let timeoutResult = semaphore.wait(timeout: .now() + 2.0)
+        if timeoutResult == .timedOut {
+            task.cancel()
+            return true
+        }
+        return isBlocked
     }
 
     private func tryNextStationStreamCandidate() {
