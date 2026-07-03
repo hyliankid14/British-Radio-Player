@@ -19,23 +19,51 @@ data class Station(
         return "$STREAM_BASE?station=$resolvedServiceId&bitrate=${quality.bitrate}"
     }
 
-    fun getStreamCandidates(quality: ThemePreference.AudioQuality): List<String> {
+    fun getStreamCandidates(quality: ThemePreference.AudioQuality, geoBlocked: Boolean = false): List<String> {
         val requestedBitrate = quality.bitrate
         val fallbackBitrates = listOf("128000", "96000", "48000", "320000")
         val bitrates = listOf(requestedBitrate) + fallbackBitrates.filter { it != requestedBitrate }
 
         val candidates = mutableListOf<String>()
-        candidates += directStreamUrls.filter { it.isNotBlank() }
+
+        // First: UK stream at the user's chosen bitrate (from directStreamUrls or generated)
+        for (url in directStreamUrls.filter { it.isNotBlank() }) {
+            if (url.contains("&uk=1") && url.contains("bitrate=$requestedBitrate")) {
+                candidates += url
+            }
+        }
+
+        // Second: International/worldwide streams (Akamai ww, BBC non-UK) - work from anywhere
+        for (url in directStreamUrls.filter { it.isNotBlank() }) {
+            if (!url.contains("&uk=1")) {
+                candidates += url
+            }
+        }
         for (sid in streamServiceIds.filter { it.isNotBlank() }) {
-            for (bitrate in bitrates) {
+            candidates += "$BBC_HLS_NONUK/$sid.m3u8"
+        }
+
+        if (geoBlocked) {
+            return candidates.distinct()
+        }
+
+        // Third: UK streams at other bitrates (if user's quality failed)
+        for (url in directStreamUrls.filter { it.isNotBlank() }) {
+            if (url.contains("&uk=1") && !url.contains("bitrate=$requestedBitrate")) {
+                candidates += url
+            }
+        }
+        for (sid in streamServiceIds.filter { it.isNotBlank() }) {
+            for (bitrate in fallbackBitrates) {
                 candidates += "$STREAM_BASE?station=$sid&bitrate=$bitrate"
             }
         }
-        // BBC direct HLS streams as final fallbacks (UK high-quality then non-UK lower-quality)
+
+        // Fourth: BBC UK HLS as final fallback
         for (sid in streamServiceIds.filter { it.isNotBlank() }) {
             candidates += "$BBC_HLS_UK/$sid.m3u8"
-            candidates += "$BBC_HLS_NONUK/$sid.m3u8"
         }
+
         return candidates.distinct()
     }
 }
@@ -82,10 +110,10 @@ object StationRepository {
             "bbc_radio_five_live",
             directStreamUrls = listOf(
                 "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_live&bitrate=320000&uk=1",
+                "https://as-hls-ww-live.akamaized.net/pool_89021708/live/ww/bbc_radio_five_live/bbc_radio_five_live.isml/bbc_radio_five_live-audio%3d96000.norewind.m3u8",
                 "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_live&bitrate=128000&uk=1",
                 "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_live&bitrate=96000&uk=1",
-                "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_live&bitrate=48000&uk=1",
-                "https://as-hls-ww-live.akamaized.net/pool_89021708/live/ww/bbc_radio_five_live/bbc_radio_five_live.isml/bbc_radio_five_live-audio%3d96000.norewind.m3u8"
+                "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_live&bitrate=48000&uk=1"
             ),
             category = StationCategory.NATIONAL
         ),

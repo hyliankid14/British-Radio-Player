@@ -1937,7 +1937,7 @@ class RadioService : MediaBrowserServiceCompat() {
                                 }
                             }
                         }
-                        handler.postDelayed(playerReconnectRunnable!!, 3000) // Wait 3 seconds before reconnecting
+                        handler.postDelayed(playerReconnectRunnable!!, 500)
                     }
 
                     override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -2632,6 +2632,26 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
         )
     }
 
+    private suspend fun probeGeoBlock(ukOnlyUrl: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val url = java.net.URL(ukOnlyUrl)
+            val connection = url.openConnection() as java.net.HttpURLConnection
+            connection.requestMethod = "GET"
+            connection.connectTimeout = 2000
+            connection.readTimeout = 2000
+            connection.setRequestProperty("User-Agent", "British Radio Player/1.0 (Android)")
+            connection.inputStream.close()
+            connection.disconnect()
+            false
+        } catch (e: java.net.SocketTimeoutException) {
+            true
+        } catch (e: java.io.IOException) {
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     private fun tryFallbackStationStream(stationId: String, reason: String): Boolean {
         val station = StationRepository.getStationById(stationId) ?: return false
         if (currentStreamCandidateIndex >= currentStreamCandidates.lastIndex) return false
@@ -2705,7 +2725,21 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
         PlaybackPreference.setLastStationId(this, station.id)
         
         val audioQuality = ThemePreference.getEffectiveAudioQuality(this)
-        currentStreamCandidates = station.getStreamCandidates(audioQuality)
+        
+        // Quick geo-probe: test first UK-only stream with short timeout
+        var geoBlocked = false
+        val ukOnlyUrl = station.directStreamUrls.firstOrNull { it.contains("&uk=1") && it.isNotBlank() }
+        if (ukOnlyUrl != null) {
+            try {
+                geoBlocked = runBlocking {
+                    withTimeoutOrNull(2500) { probeGeoBlock(ukOnlyUrl) } ?: false
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Geo-probe failed: ${e.message}")
+            }
+        }
+        
+        currentStreamCandidates = station.getStreamCandidates(audioQuality, geoBlocked)
         if (currentStreamCandidates.isEmpty()) {
             Log.w(TAG, "No stream candidates available for station: ${station.id}")
             return
