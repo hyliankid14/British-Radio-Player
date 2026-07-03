@@ -43,6 +43,7 @@ class SettingsDetailActivity : AppCompatActivity() {
         const val SECTION_PRIVACY = "privacy"
         const val SECTION_ALARM = "alarm"
         const val SECTION_ABOUT = "about"
+        const val SECTION_STARTUP_PAGE = "startup_page"
         private const val BACKUP_META_PREFS = "backup_meta_prefs"
         private const val KEY_LAST_BACKUP_TIME = "last_backup_time"
     }
@@ -101,6 +102,10 @@ class SettingsDetailActivity : AppCompatActivity() {
                 setContentView(R.layout.settings_about)
                 setupAboutSettings()
             }
+            SECTION_STARTUP_PAGE -> {
+                setContentView(R.layout.settings_startup_page)
+                setupStartupPageSettings()
+            }
         }
         
         // Set up the toolbar as the action bar
@@ -133,6 +138,7 @@ class SettingsDetailActivity : AppCompatActivity() {
             SECTION_PRIVACY -> "Privacy"
             SECTION_ALARM -> "Alarm"
             SECTION_ABOUT -> "About"
+            SECTION_STARTUP_PAGE -> "Startup page"
             else -> "Settings"
         }
         supportActionBar?.apply {
@@ -1251,6 +1257,25 @@ Source code: github.com/hyliankid14/British-Radio-Player""".trimIndent()
             
         } catch (e: Exception) {
             android.util.Log.e("SettingsDetailActivity", "Error saving alarm settings", e)
+        }
+    }
+
+    private fun setupStartupPageSettings() {
+        val startupGroup: RadioGroup = findViewById(R.id.startup_page_radio_group)
+
+        when (StartupPagePreference.getStartupPage(this)) {
+            StartupPagePreference.STARTUP_PAGE_FAVOURITES -> startupGroup.check(R.id.startup_page_favourites)
+            StartupPagePreference.STARTUP_PAGE_PODCASTS -> startupGroup.check(R.id.startup_page_podcasts)
+            else -> startupGroup.check(R.id.startup_page_all_stations)
+        }
+
+        startupGroup.setOnCheckedChangeListener { _, checkedId ->
+            val selected = when (checkedId) {
+                R.id.startup_page_favourites -> StartupPagePreference.STARTUP_PAGE_FAVOURITES
+                R.id.startup_page_podcasts -> StartupPagePreference.STARTUP_PAGE_PODCASTS
+                else -> StartupPagePreference.STARTUP_PAGE_ALL_STATIONS
+            }
+            StartupPagePreference.setStartupPage(this, selected)
         }
     }
 

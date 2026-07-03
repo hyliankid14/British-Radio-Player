@@ -116,6 +116,12 @@
     <string name="podcast_detail_hide_played_disabled">Played episodes shown inline again</string>
     <string name="podcast_detail_played_section_title">Played episodes</string>
     <string name="podcast_detail_played_load_more">Load more played episodes (%1$d remaining)</string>
+    <string name="startup_page_title">Startup page</string>
+    <string name="startup_page_subtitle">Which screen to show when opening the app</string>
+    <string name="startup_page_description">Choose which screen appears when the app and Android Auto open. This setting applies to both the app and Android Auto.</string>
+    <string name="startup_page_favourites">Favourites</string>
+    <string name="startup_page_all_stations">All Stations</string>
+    <string name="startup_page_podcasts">Podcasts</string>
     <string name="android_auto_default_station_label">Default station to play on Android Auto connect</string>
     <string name="android_auto_default_station_none">None (use last played)</string>
     <string name="android_auto_auto_resume_label">Auto-play last station or podcast when Android Auto connects</string>

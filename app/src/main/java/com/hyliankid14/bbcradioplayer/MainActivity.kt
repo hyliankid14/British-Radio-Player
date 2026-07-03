@@ -597,12 +597,13 @@ class MainActivity : AppCompatActivity() {
         // Prevent navigation bar from resizing/moving when the keyboard appears
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
         
-        // Restore previous section when recreating (e.g., theme change), otherwise default to list
+        // Restore previous section when recreating (e.g., theme change), otherwise use the
+        // user-configured startup page (defaults to All Stations).
         val restoredNavSelection = savedInstanceState?.getInt("selectedNavId")
         if (restoredNavSelection != null) {
             bottomNavigation.selectedItemId = restoredNavSelection
         } else {
-            bottomNavigation.selectedItemId = R.id.navigation_list
+            bottomNavigation.selectedItemId = navIdForStartupPage(StartupPagePreference.getStartupPage(this))
         }
         vpnWarningDismissed = savedInstanceState?.getBoolean("vpnWarningDismissed") ?: false
 
@@ -3788,6 +3789,14 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun navIdForStartupPage(startupPage: String): Int {
+        return when (startupPage) {
+            StartupPagePreference.STARTUP_PAGE_FAVOURITES -> R.id.navigation_favorites
+            StartupPagePreference.STARTUP_PAGE_PODCASTS -> R.id.navigation_podcasts
+            else -> R.id.navigation_list
+        }
+    }
+
     private fun setupSettings() {
         // Set up click listeners for each settings card
         findViewById<View>(R.id.settings_theme_card)?.setOnClickListener {
@@ -3807,6 +3816,13 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.settings_android_auto_card)?.setOnClickListener {
             val intent = Intent(this, SettingsDetailActivity::class.java).apply {
                 putExtra(SettingsDetailActivity.EXTRA_SECTION, SettingsDetailActivity.SECTION_ANDROID_AUTO)
+            }
+            startActivity(intent)
+        }
+
+        findViewById<View>(R.id.settings_startup_page_card)?.setOnClickListener {
+            val intent = Intent(this, SettingsDetailActivity::class.java).apply {
+                putExtra(SettingsDetailActivity.EXTRA_SECTION, SettingsDetailActivity.SECTION_STARTUP_PAGE)
             }
             startActivity(intent)
         }
