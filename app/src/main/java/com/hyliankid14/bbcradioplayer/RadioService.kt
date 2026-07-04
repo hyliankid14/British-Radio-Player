@@ -779,6 +779,22 @@ class RadioService : MediaBrowserServiceCompat() {
         return sorted.firstOrNull { !PlayedEpisodesPreference.isPlayed(this, it.id) }
     }
 
+    /**
+     * Returns the ordered list of root media-item IDs to display in Android Auto, with the
+     * user's selected startup page first. Falls back to All Stations first when the value
+     * is missing or unknown.
+     */
+    private fun rootItemOrderForStartupPage(startupPage: String): List<String> {
+        val first = when (startupPage) {
+            StartupPagePreference.STARTUP_PAGE_FAVOURITES -> MEDIA_ID_FAVORITES
+            StartupPagePreference.STARTUP_PAGE_PODCASTS -> MEDIA_ID_PODCASTS
+            else -> MEDIA_ID_ALL_STATIONS
+        }
+        val rest = listOf(MEDIA_ID_FAVORITES, MEDIA_ID_ALL_STATIONS, MEDIA_ID_PODCASTS)
+            .filter { it != first }
+        return listOf(first) + rest
+    }
+
     private fun maybeHandleAndroidAutoReconnect(clientName: String, clientUid: Int) {
         val isAndroidAutoClient = clientName.contains(ANDROID_AUTO_CLIENT_HINT, ignoreCase = true)
         if (!isAndroidAutoClient) return
@@ -1045,34 +1061,37 @@ class RadioService : MediaBrowserServiceCompat() {
 
             when (parentId) {
                 MEDIA_ID_ROOT -> {
-                    // Add "Favourites" folder (display text uses British spelling)
-                    items.add(MediaItem(
-                        MediaDescriptionCompat.Builder()
-                            .setMediaId(MEDIA_ID_FAVORITES)
-                            .setTitle("Favourites")
-                            .setIconBitmap(loadDrawableAsBitmap(R.drawable.ic_star_outline))
-                            .build(),
-                        MediaItem.FLAG_BROWSABLE
-                    ))
-                    
-                    // Add "All Stations" folder
-                    items.add(MediaItem(
-                        MediaDescriptionCompat.Builder()
-                            .setMediaId(MEDIA_ID_ALL_STATIONS)
-                            .setTitle("All Stations")
-                            .setIconBitmap(loadDrawableAsBitmap(R.drawable.ic_list))
-                            .build(),
-                        MediaItem.FLAG_BROWSABLE
-                    ))
-                    // Add "Podcasts" folder
-                    items.add(MediaItem(
-                        MediaDescriptionCompat.Builder()
-                            .setMediaId(MEDIA_ID_PODCASTS)
-                            .setTitle("Podcasts")
-                            .setIconBitmap(loadDrawableAsBitmap(R.drawable.ic_podcast))
-                            .build(),
-                        MediaItem.FLAG_BROWSABLE
-                    ))
+                    // Build the root items in the user-configured startup-page order so the
+                    // Android Auto launcher matches the in-app "Startup page" setting.
+                    val orderedIds = rootItemOrderForStartupPage(StartupPagePreference.getStartupPage(this@RadioService))
+                    for (id in orderedIds) {
+                        when (id) {
+                            MEDIA_ID_FAVORITES -> items.add(MediaItem(
+                                MediaDescriptionCompat.Builder()
+                                    .setMediaId(MEDIA_ID_FAVORITES)
+                                    .setTitle("Favourites")
+                                    .setIconBitmap(loadDrawableAsBitmap(R.drawable.ic_star_outline))
+                                    .build(),
+                                MediaItem.FLAG_BROWSABLE
+                            ))
+                            MEDIA_ID_ALL_STATIONS -> items.add(MediaItem(
+                                MediaDescriptionCompat.Builder()
+                                    .setMediaId(MEDIA_ID_ALL_STATIONS)
+                                    .setTitle("All Stations")
+                                    .setIconBitmap(loadDrawableAsBitmap(R.drawable.ic_list))
+                                    .build(),
+                                MediaItem.FLAG_BROWSABLE
+                            ))
+                            MEDIA_ID_PODCASTS -> items.add(MediaItem(
+                                MediaDescriptionCompat.Builder()
+                                    .setMediaId(MEDIA_ID_PODCASTS)
+                                    .setTitle("Podcasts")
+                                    .setIconBitmap(loadDrawableAsBitmap(R.drawable.ic_podcast))
+                                    .build(),
+                                MediaItem.FLAG_BROWSABLE
+                            ))
+                        }
+                    }
                     result.sendResult(items)
                 }
                 MEDIA_ID_FAVORITES -> {
