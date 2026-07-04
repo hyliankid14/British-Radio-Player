@@ -7,6 +7,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -47,6 +49,10 @@ class PodcastRepository(private val context: Context) {
     // In-memory cache of fetched episode metadata to support searching episode titles/descriptions
     // Prefill this in the background when the podcast list is loaded so searches don't trigger network on each keystroke
     private val episodesCache: MutableMap<String, List<Episode>> = mutableMapOf()
+
+    // Serializes concurrent "New Podcasts" snapshot fetches so a cold cache does not trigger
+    // duplicate network round-trips when the background prewarm and the on-demand load race.
+    private val newPodcastsFetchMutex = Mutex()
 
     // Lowercased index for episodes for fast, case-insensitive phrase checks. Kept in same order as episodesCache
     private val episodesIndex: MutableMap<String, List<Pair<String, String>>> = mutableMapOf()
@@ -715,75 +721,98 @@ class PodcastRepository(private val context: Context) {
         val requestedIds = podcasts.map { it.id }.toSet()
         if (requestedIds.isEmpty()) return@withContext emptyMap()
 
-        try {
-            val cloudSnapshot = RemoteIndexClient(context).fetchNewPodcastSnapshot(skipCache = forceRefresh)
-            if (cloudSnapshot != null) {
-                val trimmedFromCloud = trimNewPodcastEpochs(cloudSnapshot.firstSeenEpochs, requestedIds)
-                if (trimmedFromCloud.isNotEmpty()) {
-                    val mergedKnownIds = (readNewPodcastState()?.knownIds ?: emptySet()) + requestedIds
-                    writeNewPodcastState(
-                        NewPodcastState(
-                            schemaVersion = NEW_PODCAST_STATE_SCHEMA_VERSION,
-                            generatedAt = cloudSnapshot.snapshotGeneratedAt,
-                            knownIds = mergedKnownIds,
-                            firstSeenEpochs = trimmedFromCloud
-                        )
-                    )
-                }
-                // Cache the earliest episode epochs from the snapshot so subsequent
-                // calls to getAvailableCloudEarliestUpdatesNow can use them instead of
-                // triggering an expensive full-index download on first install
-                if (cloudSnapshot.earliestEpisodeEpochs.isNotEmpty()) {
-                    cacheEarliestEpisodeBoundsFromSnapshot(cloudSnapshot.earliestEpisodeEpochs)
-                }
-                // The cloud snapshot is the authoritative source for new podcasts — return
-                // immediately rather than falling through to the expensive full-index download.
-                return@withContext trimmedFromCloud
+        // Fast path: if the on-device state already has epochs for the requested IDs and a
+        // refresh is not forced, return immediately without acquiring the network mutex.
+        if (!forceRefresh) {
+            getAvailableNewPodcastEpochsNow(podcasts).let { cached ->
+                if (cached.isNotEmpty()) return@withContext cached
             }
-        } catch (e: Exception) {
-            Log.w("PodcastRepository", "Failed to fetch cloud New Podcasts snapshot", e)
         }
 
-        val remoteIndexSummary = try {
-            RemoteIndexClient(context).getIndexSummary(forceDownload = forceRefresh)
-        } catch (e: Exception) {
-            Log.w("PodcastRepository", "Failed to download cloud index for New Podcasts", e)
-            null
-        }
+        // Single-flight: serialize concurrent callers (e.g. the background prewarm kicked off
+        // at startup and the on-demand load triggered when the user opens the New Podcasts
+        // sort) so a cold cache does not trigger duplicate network round-trips to the snapshot
+        // endpoint. The disk-cache write inside the critical section ensures any caller that
+        // arrives after the first finishes sees the result via the fast path above.
+        newPodcastsFetchMutex.withLock {
+            // Double-check after acquiring the lock — a previous concurrent caller may have
+            // just populated the on-device state.
+            if (!forceRefresh) {
+                getAvailableNewPodcastEpochsNow(podcasts).let { cached ->
+                    if (cached.isNotEmpty()) return@withLock cached
+                }
+            }
 
-        if (remoteIndexSummary == null) {
-            return@withContext getAvailableNewPodcastEpochsNow(podcasts)
-        }
+            try {
+                val cloudSnapshot = RemoteIndexClient(context).fetchNewPodcastSnapshot(skipCache = forceRefresh)
+                if (cloudSnapshot != null) {
+                    val trimmedFromCloud = trimNewPodcastEpochs(cloudSnapshot.firstSeenEpochs, requestedIds)
+                    if (trimmedFromCloud.isNotEmpty()) {
+                        val mergedKnownIds = (readNewPodcastState()?.knownIds ?: emptySet()) + requestedIds
+                        writeNewPodcastState(
+                            NewPodcastState(
+                                schemaVersion = NEW_PODCAST_STATE_SCHEMA_VERSION,
+                                generatedAt = cloudSnapshot.snapshotGeneratedAt,
+                                knownIds = mergedKnownIds,
+                                firstSeenEpochs = trimmedFromCloud
+                            )
+                        )
+                    }
+                    // Cache the earliest episode epochs from the snapshot so subsequent
+                    // calls to getAvailableCloudEarliestUpdatesNow can use them instead of
+                    // triggering an expensive full-index download on first install
+                    if (cloudSnapshot.earliestEpisodeEpochs.isNotEmpty()) {
+                        cacheEarliestEpisodeBoundsFromSnapshot(cloudSnapshot.earliestEpisodeEpochs)
+                    }
+                    // The cloud snapshot is the authoritative source for new podcasts — return
+                    // immediately rather than falling through to the expensive full-index download.
+                    return@withLock trimmedFromCloud
+                }
+            } catch (e: Exception) {
+                Log.w("PodcastRepository", "Failed to fetch cloud New Podcasts snapshot", e)
+            }
 
-        val currentIds = remoteIndexSummary.podcastIds
-        val previousState = readNewPodcastState()
-        val existingState = previousState?.takeIf { it.schemaVersion >= NEW_PODCAST_STATE_SCHEMA_VERSION }
-        val baselineKnownIds = when {
-            existingState != null && existingState.knownIds.isNotEmpty() -> existingState.knownIds
-            else -> currentIds
-        }
+            val remoteIndexSummary = try {
+                RemoteIndexClient(context).getIndexSummary(forceDownload = forceRefresh)
+            } catch (e: Exception) {
+                Log.w("PodcastRepository", "Failed to download cloud index for New Podcasts", e)
+                null
+            }
 
-        val now = System.currentTimeMillis()
-        val updatedFirstSeen = if (existingState != null) {
-            existingState.firstSeenEpochs.toMutableMap()
-        } else {
-            mutableMapOf()
-        }
-        (currentIds - baselineKnownIds).forEach { podcastId ->
-            updatedFirstSeen.putIfAbsent(podcastId, now)
-        }
-        val trimmedFirstSeen = trimNewPodcastEpochs(updatedFirstSeen, currentIds)
+            if (remoteIndexSummary == null) {
+                return@withLock getAvailableNewPodcastEpochsNow(podcasts)
+            }
 
-        writeNewPodcastState(
-            NewPodcastState(
-                schemaVersion = NEW_PODCAST_STATE_SCHEMA_VERSION,
-                generatedAt = remoteIndexSummary.generatedAt,
-                knownIds = currentIds,
-                firstSeenEpochs = trimmedFirstSeen
+            val currentIds = remoteIndexSummary.podcastIds
+            val previousState = readNewPodcastState()
+            val existingState = previousState?.takeIf { it.schemaVersion >= NEW_PODCAST_STATE_SCHEMA_VERSION }
+            val baselineKnownIds = when {
+                existingState != null && existingState.knownIds.isNotEmpty() -> existingState.knownIds
+                else -> currentIds
+            }
+
+            val now = System.currentTimeMillis()
+            val updatedFirstSeen = if (existingState != null) {
+                existingState.firstSeenEpochs.toMutableMap()
+            } else {
+                mutableMapOf()
+            }
+            (currentIds - baselineKnownIds).forEach { podcastId ->
+                updatedFirstSeen.putIfAbsent(podcastId, now)
+            }
+            val trimmedFirstSeen = trimNewPodcastEpochs(updatedFirstSeen, currentIds)
+
+            writeNewPodcastState(
+                NewPodcastState(
+                    schemaVersion = NEW_PODCAST_STATE_SCHEMA_VERSION,
+                    generatedAt = remoteIndexSummary.generatedAt,
+                    knownIds = currentIds,
+                    firstSeenEpochs = trimmedFirstSeen
+                )
             )
-        )
 
-        return@withContext trimmedFirstSeen.filterKeys { it in requestedIds }
+            return@withLock trimmedFirstSeen.filterKeys { it in requestedIds }
+        }
     }
 
     fun getAvailableNewPodcastEpochsNow(podcasts: List<Podcast>): Map<String, Long> {

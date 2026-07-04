@@ -1169,6 +1169,35 @@ class PodcastsFragment : Fragment() {
         showLoadingFeedback(loadingIndicator, emptyState, LOADING_PODCASTS_MESSAGE)
         viewLifecycleOwner.lifecycleScope.launch {
             try {
+                // ── New Podcasts snapshot prefetch (kicked off as early as possible) ──
+                // On a cold cache the snapshot fetch requires a network round-trip to
+                // Tailscale Funnel whose first request incurs a TLS handshake of several
+                // seconds on mobile. Starting it here — in parallel with the Steps 1-3
+                // loads below — overlaps that cost with the local loads. The repository
+                // uses single-flight so this also dedupes with the on-demand load that
+                // runs when the user opens the New Podcasts sort.
+                launch {
+                    try {
+                        val immediateList = withContext(Dispatchers.IO) { repository.getAvailablePodcastsNow() }
+                        if (immediateList.isNotEmpty()) {
+                            val newlyAdded = withContext(Dispatchers.IO) {
+                                repository.fetchNewlyAddedPodcastEpochs(immediateList, forceRefresh = false)
+                            }
+                            if (isAdded && newlyAdded.isNotEmpty()) {
+                                cachedNewlyAddedPodcastEpochs = newlyAdded
+                                viewModel.cachedNewlyAddedPodcastEpochs = newlyAdded
+                                if (normalizeSortValue(currentSort) == SORT_NEW_PODCASTS && allPodcasts.isNotEmpty()) {
+                                    val empty = view?.findViewById<TextView>(R.id.empty_state_text)
+                                    val rv = view?.findViewById<RecyclerView>(R.id.podcasts_recycler)
+                                    if (empty != null && rv != null) applyFilters(empty, rv)
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.w("PodcastsFragment", "New Podcasts prefetch failed: ${e.message}")
+                    }
+                }
+
                 launch {
                     isLoadingPopularRanks = true
                     try {
@@ -1326,44 +1355,6 @@ class PodcastsFragment : Fragment() {
                         android.util.Log.d("PodcastsFragment", "Prefetched episode metadata for top $prefetchCount podcasts")
                     } catch (e: Exception) {
                         android.util.Log.w("PodcastsFragment", "Episode prefetch failed: ${e.message}")
-                    }
-                }
-
-                // Background prewarm for New Podcasts metadata so switching sort feels instant.
-                // Keep this path lightweight: prefer cached bounds and the dedicated small
-                // new-podcasts snapshot, and avoid forcing full cloud-index downloads here.
-                if (allPodcasts.isNotEmpty() && (cachedEarliestUpdates.isEmpty() || cachedNewlyAddedPodcastEpochs.isEmpty())) {
-                    viewLifecycleOwner.lifecycleScope.launch {
-                        try {
-                            val prewarmedEarliest = withContext(Dispatchers.IO) {
-                                repository.getAvailableCloudEarliestUpdatesNow(allPodcasts)
-                                    .ifEmpty { repository.getAvailableEarliestUpdatesNow(allPodcasts) }
-                            }
-                            val prewarmedNewlyAdded = withContext(Dispatchers.IO) {
-                                repository.fetchNewlyAddedPodcastEpochs(allPodcasts, forceRefresh = false)
-                            }
-                            if (prewarmedEarliest.isNotEmpty()) {
-                                cachedEarliestUpdates = prewarmedEarliest
-                                viewModel.cachedEarliestUpdates = prewarmedEarliest
-                            }
-                            if (prewarmedNewlyAdded.isNotEmpty()) {
-                                cachedNewlyAddedPodcastEpochs = prewarmedNewlyAdded
-                                viewModel.cachedNewlyAddedPodcastEpochs = prewarmedNewlyAdded
-                            }
-                            if (
-                                isAdded &&
-                                normalizeSortValue(currentSort) == SORT_NEW_PODCASTS &&
-                                (prewarmedEarliest.isNotEmpty() || prewarmedNewlyAdded.isNotEmpty())
-                            ) {
-                                val empty = view?.findViewById<TextView>(R.id.empty_state_text)
-                                val rv = view?.findViewById<RecyclerView>(R.id.podcasts_recycler)
-                                if (empty != null && rv != null) {
-                                    applyFilters(empty, rv)
-                                }
-                            }
-                        } catch (e: Exception) {
-                            android.util.Log.w("PodcastsFragment", "New Podcasts metadata prewarm failed: ${e.message}")
-                        }
                     }
                 }
 
