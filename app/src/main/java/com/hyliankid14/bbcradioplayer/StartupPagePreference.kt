@@ -8,7 +8,8 @@ object StartupPagePreference {
 
     const val STARTUP_PAGE_FAVOURITES = "favourites"
     const val STARTUP_PAGE_ALL_STATIONS = "all_stations"
-    const val STARTUP_PAGE_PODCASTS = "podcasts"
+    const val STARTUP_PAGE_SUBSCRIBED_PODCASTS = "subscribed_podcasts"
+    const val STARTUP_PAGE_PLAYLISTS = "playlists"
 
     const val STARTUP_PAGE_DEFAULT = STARTUP_PAGE_ALL_STATIONS
 
@@ -18,7 +19,8 @@ object StartupPagePreference {
         return when (raw) {
             STARTUP_PAGE_FAVOURITES,
             STARTUP_PAGE_ALL_STATIONS,
-            STARTUP_PAGE_PODCASTS -> raw
+            STARTUP_PAGE_SUBSCRIBED_PODCASTS,
+            STARTUP_PAGE_PLAYLISTS -> raw
             else -> STARTUP_PAGE_DEFAULT
         }
     }
@@ -27,7 +29,8 @@ object StartupPagePreference {
         val resolved = when (value) {
             STARTUP_PAGE_FAVOURITES,
             STARTUP_PAGE_ALL_STATIONS,
-            STARTUP_PAGE_PODCASTS -> value
+            STARTUP_PAGE_SUBSCRIBED_PODCASTS,
+            STARTUP_PAGE_PLAYLISTS -> value
             else -> STARTUP_PAGE_DEFAULT
         }
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -37,6 +40,7 @@ object StartupPagePreference {
     fun isValid(value: String?): Boolean {
         return value == STARTUP_PAGE_FAVOURITES ||
             value == STARTUP_PAGE_ALL_STATIONS ||
-            value == STARTUP_PAGE_PODCASTS
+            value == STARTUP_PAGE_SUBSCRIBED_PODCASTS ||
+            value == STARTUP_PAGE_PLAYLISTS
     }
 }

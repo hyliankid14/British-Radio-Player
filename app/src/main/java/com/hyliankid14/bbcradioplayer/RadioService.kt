@@ -787,7 +787,9 @@ class RadioService : MediaBrowserServiceCompat() {
     private fun rootItemOrderForStartupPage(startupPage: String): List<String> {
         val first = when (startupPage) {
             StartupPagePreference.STARTUP_PAGE_FAVOURITES -> MEDIA_ID_FAVORITES
-            StartupPagePreference.STARTUP_PAGE_PODCASTS -> MEDIA_ID_PODCASTS
+            StartupPagePreference.STARTUP_PAGE_ALL_STATIONS -> MEDIA_ID_ALL_STATIONS
+            StartupPagePreference.STARTUP_PAGE_SUBSCRIBED_PODCASTS -> MEDIA_ID_PODCASTS
+            StartupPagePreference.STARTUP_PAGE_PLAYLISTS -> MEDIA_ID_PODCASTS
             else -> MEDIA_ID_ALL_STATIONS
         }
         val rest = listOf(MEDIA_ID_FAVORITES, MEDIA_ID_ALL_STATIONS, MEDIA_ID_PODCASTS)

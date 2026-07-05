@@ -60,12 +60,21 @@
                     android:textSize="16sp" />
 
                 <RadioButton
-                    android:id="@+id/startup_page_podcasts"
+                    android:id="@+id/startup_page_subscribed_podcasts"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:minHeight="48dp"
                     android:padding="12dp"
-                    android:text="@string/startup_page_podcasts"
+                    android:text="@string/startup_page_subscribed_podcasts"
+                    android:textSize="16sp" />
+
+                <RadioButton
+                    android:id="@+id/startup_page_playlists"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:minHeight="48dp"
+                    android:padding="12dp"
+                    android:text="@string/startup_page_playlists"
                     android:textSize="16sp" />
 
             </RadioGroup>

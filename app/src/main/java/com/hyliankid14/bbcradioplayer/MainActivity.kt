@@ -603,7 +603,18 @@ class MainActivity : AppCompatActivity() {
         if (restoredNavSelection != null) {
             bottomNavigation.selectedItemId = restoredNavSelection
         } else {
-            bottomNavigation.selectedItemId = navIdForStartupPage(StartupPagePreference.getStartupPage(this))
+            val startupPage = StartupPagePreference.getStartupPage(this)
+            bottomNavigation.selectedItemId = navIdForStartupPage(startupPage)
+            val startupTab = startupPageToFavoritesTab(startupPage)
+            if (startupTab != null) {
+                val prefs = getPreferences(android.content.Context.MODE_PRIVATE)
+                val tabId = when (startupTab) {
+                    "subscribed" -> R.id.fav_tab_subscribed
+                    "saved" -> R.id.fav_tab_saved
+                    else -> R.id.fav_tab_stations
+                }
+                prefs.edit().putInt("last_fav_tab_id", tabId).apply()
+            }
         }
         vpnWarningDismissed = savedInstanceState?.getBoolean("vpnWarningDismissed") ?: false
 
@@ -3792,8 +3803,18 @@ class MainActivity : AppCompatActivity() {
     private fun navIdForStartupPage(startupPage: String): Int {
         return when (startupPage) {
             StartupPagePreference.STARTUP_PAGE_FAVOURITES -> R.id.navigation_favorites
-            StartupPagePreference.STARTUP_PAGE_PODCASTS -> R.id.navigation_podcasts
+            StartupPagePreference.STARTUP_PAGE_SUBSCRIBED_PODCASTS -> R.id.navigation_favorites
+            StartupPagePreference.STARTUP_PAGE_PLAYLISTS -> R.id.navigation_favorites
             else -> R.id.navigation_list
+        }
+    }
+
+    private fun startupPageToFavoritesTab(startupPage: String): String? {
+        return when (startupPage) {
+            StartupPagePreference.STARTUP_PAGE_FAVOURITES -> "stations"
+            StartupPagePreference.STARTUP_PAGE_SUBSCRIBED_PODCASTS -> "subscribed"
+            StartupPagePreference.STARTUP_PAGE_PLAYLISTS -> "saved"
+            else -> null
         }
     }
 

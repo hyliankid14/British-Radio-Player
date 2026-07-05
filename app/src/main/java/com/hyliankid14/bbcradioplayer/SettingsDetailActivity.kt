@@ -1265,14 +1265,16 @@ Source code: github.com/hyliankid14/British-Radio-Player""".trimIndent()
 
         when (StartupPagePreference.getStartupPage(this)) {
             StartupPagePreference.STARTUP_PAGE_FAVOURITES -> startupGroup.check(R.id.startup_page_favourites)
-            StartupPagePreference.STARTUP_PAGE_PODCASTS -> startupGroup.check(R.id.startup_page_podcasts)
+            StartupPagePreference.STARTUP_PAGE_SUBSCRIBED_PODCASTS -> startupGroup.check(R.id.startup_page_subscribed_podcasts)
+            StartupPagePreference.STARTUP_PAGE_PLAYLISTS -> startupGroup.check(R.id.startup_page_playlists)
             else -> startupGroup.check(R.id.startup_page_all_stations)
         }
 
         startupGroup.setOnCheckedChangeListener { _, checkedId ->
             val selected = when (checkedId) {
                 R.id.startup_page_favourites -> StartupPagePreference.STARTUP_PAGE_FAVOURITES
-                R.id.startup_page_podcasts -> StartupPagePreference.STARTUP_PAGE_PODCASTS
+                R.id.startup_page_subscribed_podcasts -> StartupPagePreference.STARTUP_PAGE_SUBSCRIBED_PODCASTS
+                R.id.startup_page_playlists -> StartupPagePreference.STARTUP_PAGE_PLAYLISTS
                 else -> StartupPagePreference.STARTUP_PAGE_ALL_STATIONS
             }
             StartupPagePreference.setStartupPage(this, selected)
