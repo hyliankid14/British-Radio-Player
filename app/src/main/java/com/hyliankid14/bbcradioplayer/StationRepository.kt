@@ -22,7 +22,6 @@ data class Station(
     fun getStreamCandidates(quality: ThemePreference.AudioQuality, geoBlocked: Boolean = false): List<String> {
         val requestedBitrate = quality.bitrate
         val fallbackBitrates = listOf("128000", "96000", "48000", "320000")
-        val bitrates = listOf(requestedBitrate) + fallbackBitrates.filter { it != requestedBitrate }
 
         val candidates = mutableListOf<String>()
 

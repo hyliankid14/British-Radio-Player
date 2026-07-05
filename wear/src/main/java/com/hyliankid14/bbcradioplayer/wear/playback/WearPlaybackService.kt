@@ -98,7 +98,6 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
             .getString(KEY_LAST_TRACKED_EPISODE_ID, null)
 
         mediaSession = MediaSessionCompat(this, "WearPlaybackService").apply {
-            setFlags(MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS)
             setSessionActivity(
                 PendingIntent.getActivity(
                     this@WearPlaybackService,
