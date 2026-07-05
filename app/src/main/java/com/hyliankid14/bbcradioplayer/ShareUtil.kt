@@ -18,7 +18,8 @@ object ShareUtil {
 
     private const val WEB_BASE_URL = "https://hyliankid14.github.io/British-Radio-Player"
     private const val APP_SCHEME = "app"
-    private const val SHORT_URL_API = "https://is.gd/create.php"
+    private const val TINYURL_API = "https://tinyurl.com/api-create.php"
+    private const val IS_GD_API = "https://is.gd/create.php"
     private const val BITLY_API_URL = "https://api-ssl.bitly.com/v4/shorten"
     private const val BITLY_TOKEN_KEY = "bitly_token"
 
@@ -265,10 +266,14 @@ object ShareUtil {
         val bitlyToken = prefs.getString(BITLY_TOKEN_KEY, null)
 
         if (bitlyToken != null && bitlyToken.isNotBlank()) {
-            return shortenWithBitly(longUrl, bitlyToken) ?: shortenWithIsGd(longUrl)
+            return shortenWithBitly(longUrl, bitlyToken)
+                ?: shortenWithTinyUrl(longUrl)
+                ?: longUrl
         }
 
-        return shortenWithIsGd(longUrl)
+        return shortenWithTinyUrl(longUrl)
+            ?: shortenWithIsGd(longUrl)
+            ?: longUrl
     }
 
     private fun shortenWithBitly(longUrl: String, token: String): String? {
@@ -302,17 +307,52 @@ object ShareUtil {
         }
     }
 
-    private fun shortenWithIsGd(longUrl: String): String {
+    private fun shortenWithTinyUrl(longUrl: String): String? {
+        return try {
+            val encodedUrl = URLEncoder.encode(longUrl, "UTF-8")
+            val connection = (URL("$TINYURL_API?url=$encodedUrl").openConnection() as java.net.HttpURLConnection).apply {
+                connectTimeout = 10000
+                readTimeout = 10000
+                requestMethod = "GET"
+                setRequestProperty("User-Agent", "British Radio Player/1.0")
+                instanceFollowRedirects = true
+            }
+
+            val responseCode = connection.responseCode
+            val response = if (responseCode == 200) {
+                connection.inputStream.bufferedReader().use { it.readText() }
+            } else {
+                connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
+            }
+            connection.disconnect()
+
+            val trimmed = response.trim()
+            if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+                android.util.Log.d("ShareUtil", "TinyURL shortened to: $trimmed")
+                return trimmed
+            }
+            android.util.Log.w("ShareUtil", "TinyURL error: $trimmed")
+            null
+        } catch (e: Exception) {
+            android.util.Log.w("ShareUtil", "TinyURL shorten failed: ${e.message}")
+            null
+        }
+    }
+
+    private fun shortenWithIsGd(longUrl: String): String? {
         return try {
             val encodedUrl = URLEncoder.encode(longUrl, "UTF-8")
 
-            val simpleResult = callIsGd("$SHORT_URL_API?format=simple&logstats=0&url=$encodedUrl")
+            val simpleResult = callIsGd("$IS_GD_API?format=simple&logstats=0&url=$encodedUrl")
             if (simpleResult.startsWith("http://") || simpleResult.startsWith("https://")) {
                 android.util.Log.d("ShareUtil", "is.gd shortened to: $simpleResult")
                 return simpleResult
             }
+            if (simpleResult.isNotEmpty()) {
+                android.util.Log.w("ShareUtil", "is.gd simple error: $simpleResult")
+            }
 
-            val jsonResponse = callIsGd("$SHORT_URL_API?format=json&logstats=0&url=$encodedUrl")
+            val jsonResponse = callIsGd("$IS_GD_API?format=json&logstats=0&url=$encodedUrl")
             if (jsonResponse.contains("shorturl")) {
                 val shortUrl = jsonResponse.substringAfter("\"shorturl\"")
                     .substringAfter("\"")
@@ -325,10 +365,10 @@ object ShareUtil {
                 }
             }
 
-            longUrl
+            null
         } catch (e: Exception) {
             android.util.Log.w("ShareUtil", "Failed to shorten URL: ${e.message}")
-            longUrl
+            null
         }
     }
 
