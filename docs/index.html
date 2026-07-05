@@ -2619,48 +2619,57 @@
 
                 // Episode
                 const podcastId = options.podcastId || params.get('podcastId') || '';
-                const hasAudio = !!params.get('audio');
+                const inlineAudio = params.get('audio');
+                const inlineImage = params.get('img');
 
-                if (hasAudio) {
-                    // Render immediately from inline metadata so playback works even if
-                    // RSS fetching fails. Then enrich from the RSS feed in the background.
-                    const content = {
-                        type: 'episode',
-                        id: id,
-                        title: params.get('title') || 'Shared Episode',
-                        description: params.get('desc') || '',
-                        podcastTitle: params.get('podcast') || 'British Radio Player',
-                        podcastId: podcastId,
-                        imageUrl: params.get('img') || null,
-                        audioUrl: params.get('audio') || null,
-                        pubDate: params.get('date') || '',
-                        durationMins: parseInt(params.get('duration') || '0')
-                    };
-                    this.currentContent = content;
+                // Construct audio and artwork URLs from IDs where possible. This keeps
+                // share links short and avoids depending on RSS for basic playback.
+                const constructedAudioUrl = this.audioUrlFromEpisodeId(id);
+                const constructedImageUrl = inlineImage || this.artworkUrlFromPodcastId(podcastId);
 
-                    this.trackEvent('web_player_episode_view', {
-                        episode_id: id,
-                        episode_title: content.title,
-                        podcast_id: content.podcastId,
-                        podcast_title: content.podcastTitle
-                    });
+                const content = {
+                    type: 'episode',
+                    id: id,
+                    title: params.get('title') || 'Shared Episode',
+                    description: params.get('desc') || '',
+                    podcastTitle: params.get('podcast') || 'British Radio Player',
+                    podcastId: podcastId,
+                    imageUrl: constructedImageUrl,
+                    audioUrl: inlineAudio || constructedAudioUrl,
+                    pubDate: params.get('date') || '',
+                    durationMins: parseInt(params.get('duration') || '0')
+                };
+                this.currentContent = content;
 
-                    this.render();
+                this.trackEvent('web_player_episode_view', {
+                    episode_id: id,
+                    episode_title: content.title,
+                    podcast_id: content.podcastId,
+                    podcast_title: content.podcastTitle
+                });
 
-                    // Try to enrich description/artwork/audio from the RSS feed in the background.
-                    if (podcastId) {
-                        this.enrichEpisodeFromRss(podcastId, id).catch(() => {});
-                    }
-                    return;
+                this.render();
+
+                // Try to enrich description/artwork/audio from the RSS feed in the background.
+                if (podcastId) {
+                    this.enrichEpisodeFromRss(podcastId, id).catch(() => {});
                 }
-
-                // Compact episode route with no inline audio: fall back to RSS lookup.
-                await this.loadEpisodeByIds(podcastId, id);
+                return;
             }
 
             rssUrlFromPodcastId(podcastId) {
                 if (!podcastId) return '';
                 return `https://podcasts.files.bbci.co.uk/${encodeURIComponent(podcastId)}.rss`;
+            }
+
+            artworkUrlFromPodcastId(podcastId) {
+                if (!podcastId) return '';
+                return `https://ichef.bbci.co.uk/images/ic/640x640/${encodeURIComponent(podcastId)}.jpg`;
+            }
+
+            audioUrlFromEpisodeId(episodeId) {
+                if (!episodeId) return '';
+                return `https://podcasts.files.bbci.co.uk/${encodeURIComponent(episodeId)}.mp3`;
             }
 
             extractEpisodeId(guid) {
@@ -2870,10 +2879,14 @@
                 // Update artwork if now available.
                 const imgEl = document.getElementById('episode-artwork-img');
                 const placeholderEl = document.getElementById('episode-artwork-placeholder');
-                if (imgEl && placeholderEl && updated.imageUrl && !imgEl.src) {
-                    imgEl.src = updated.imageUrl;
-                    imgEl.style.display = '';
-                    placeholderEl.style.display = 'none';
+                if (imgEl && placeholderEl && updated.imageUrl) {
+                    const currentSrc = imgEl.getAttribute('src') || '';
+                    if (!currentSrc || currentSrc !== updated.imageUrl) {
+                        imgEl.src = updated.imageUrl;
+                        imgEl.setAttribute('src', updated.imageUrl);
+                        imgEl.style.display = '';
+                        placeholderEl.style.display = 'none';
+                    }
                 }
 
                 // Update the audio source if we got a fresher URL from the RSS feed
@@ -3310,8 +3323,9 @@
                 const content = this.currentContent || {};
                 if (content.title) params.set('title', content.title);
                 if (content.type === 'episode') {
-                    if (content.podcastTitle) params.set('podcast', content.podcastTitle);
-                    if (content.audioUrl) params.set('audio', content.audioUrl);
+                    if (content.podcastTitle && content.podcastTitle !== 'British Radio Player') {
+                        params.set('podcast', content.podcastTitle);
+                    }
                 }
 
                 if ([...params].length > 0) {

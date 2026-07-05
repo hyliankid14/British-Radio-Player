@@ -114,15 +114,13 @@ object ShareUtil {
             try {
                 val summaryDesc = summarizeTextWithAI(cleanDesc)
 
-                // Hybrid route: podcastId/episodeId plus the minimum metadata needed
-                // for the web player to render and play immediately. Descriptions and
-                // artwork are fetched from the RSS feed on arrival.
+                // Compact route: podcastId/episodeId plus title for immediate display.
+                // The web player constructs the audio URL from the episode ID and
+                // fetches descriptions/artwork from the RSS feed on arrival.
                 val encodedPodcastId = Uri.encode(shareEpisode.podcastId)
                 val encodedEpisodeId = Uri.encode(shareEpisode.id)
                 val encodedTitle = Uri.encode(shareEpisode.title)
-                val encodedPodcast = Uri.encode(sharePodcastTitle)
-                val encodedAudio = Uri.encode(shareEpisode.audioUrl)
-                val webUrl = "$WEB_BASE_URL/#/e/$encodedPodcastId/$encodedEpisodeId?title=$encodedTitle&podcast=$encodedPodcast&audio=$encodedAudio"
+                val webUrl = "$WEB_BASE_URL/#/e/$encodedPodcastId/$encodedEpisodeId?title=$encodedTitle"
 
                 val shortUrl = shortenUrl(webUrl)
                 val shareMessage = buildString {
