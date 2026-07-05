@@ -1949,7 +1949,7 @@
                         || '';
 
                     return {
-                        id: guid || enclosureUrl || item.querySelector('title')?.textContent?.trim() || `episode-${Math.random().toString(36).slice(2)}`,
+                        id: this.extractEpisodeId(guid) || enclosureUrl || item.querySelector('title')?.textContent?.trim() || `episode-${Math.random().toString(36).slice(2)}`,
                         title: item.querySelector('title')?.textContent?.trim() || 'Untitled episode',
                         description: itemDescription,
                         audioUrl: enclosureUrl,
@@ -2098,8 +2098,7 @@
                             const summary = description.length > 240 ? `${description.slice(0, 240)}...` : description;
                             const audioControl = episode.audioUrl
                                 ? `
-                                        <audio controls preload="none" data-podcast-id="${this.escapeHtml(selectedPodcast.id)}" data-episode-id="${this.escapeHtml(episode.id)}">
-                                            <source src="${this.escapeHtml(episode.audioUrl)}" type="audio/mpeg">
+                                        <audio controls preload="metadata" data-podcast-id="${this.escapeHtml(selectedPodcast.id)}" data-episode-id="${this.escapeHtml(episode.id)}" src="${this.escapeHtml(episode.audioUrl)}">
                                             Your browser does not support the audio element.
                                         </audio>
                                   `
@@ -2175,6 +2174,7 @@
 
                 const EPISODE_RESTART_THRESHOLD_SECS = 3;
                 document.querySelectorAll('audio[data-podcast-id][data-episode-id]').forEach(audio => {
+                    this.setupHlsAudioIfNeeded(audio);
                     audio._episodeAnalyticsTimer = null;
                     audio._episodeAnalyticsTracked = false;
                     audio.onplay = () => {
@@ -2548,15 +2548,24 @@
                     return;
                 }
 
-                const match = hash.match(/#\/(p|e)\/([^\/?]+)/);
+                // Support both legacy query-param routes and compact ID-only routes:
+                //   #/p/{podcastId}
+                //   #/e/{podcastId}/{episodeId}
+                //   #/e/{episodeId}?title=...&audio=... (legacy)
+                const match = hash.match(/#\/(p|e)\/([^\/?]+)(?:\/([^\/?]+))?/);
 
                 if (!match) {
                     this.showLandingPage();
                     return;
                 }
 
-                const [, type, id] = match;
-                this.loadContent(type, id);
+                const [, type, firstId, secondId] = match;
+                if (type === 'e' && secondId) {
+                    // Compact episode route: podcastId/episodeId
+                    this.loadContent(type, secondId, { podcastId: decodeURIComponent(firstId) });
+                } else {
+                    this.loadContent(type, decodeURIComponent(firstId));
+                }
             }
 
             showWebAppPage() {
@@ -2574,19 +2583,18 @@
                 this.renderLiveRadioSection();
             }
 
-            async loadContent(type, id) {
-                // Parse URL parameters for real podcast/episode data
+            async loadContent(type, id, options = {}) {
+                // Parse URL parameters for share links that embed title/audio etc.
                 const params = new URLSearchParams(window.location.hash.split('?')[1] || '');
-                
-                console.log('Loading content:', { type, id, params: Object.fromEntries(params) });
-                
+
+                console.log('Loading content:', { type, id, options, params: Object.fromEntries(params) });
+
                 if (type === 'p') {
-                    // Podcast - use inline data from params
                     const title = params.get('title');
                     const desc = params.get('desc');
                     const img = params.get('img');
-                    const rssUrl = params.get('rss');
-                    
+                    const rssUrl = params.get('rss') || this.rssUrlFromPodcastId(id);
+
                     this.currentContent = {
                         type: 'podcast',
                         id: id,
@@ -2595,45 +2603,442 @@
                         imageUrl: img || null,
                         rssUrl: rssUrl
                     };
-                    
-                    // Track podcast view
+
                     this.trackEvent('web_player_podcast_view', {
                         podcast_id: id,
                         podcast_title: this.currentContent.title
                     });
-                    
+
                     this.render();
-                    
-                    // After rendering, load episodes from RSS if available
+
                     if (rssUrl) {
                         await this.loadEpisodes(rssUrl);
                     }
-                } else {
-                    // Episode data from URL params
+                    return;
+                }
+
+                // Episode
+                const podcastId = options.podcastId || params.get('podcastId') || '';
+                const hasAudio = !!params.get('audio');
+
+                if (hasAudio) {
+                    // Render immediately from inline metadata so playback works even if
+                    // RSS fetching fails. Then enrich from the RSS feed in the background.
                     const content = {
                         type: 'episode',
                         id: id,
                         title: params.get('title') || 'Shared Episode',
-                        description: params.get('desc') || 'This episode was shared with you from the British Radio Player app.',
+                        description: params.get('desc') || '',
                         podcastTitle: params.get('podcast') || 'British Radio Player',
-                        podcastId: params.get('podcastId') || '',
+                        podcastId: podcastId,
                         imageUrl: params.get('img') || null,
                         audioUrl: params.get('audio') || null,
                         pubDate: params.get('date') || '',
                         durationMins: parseInt(params.get('duration') || '0')
                     };
                     this.currentContent = content;
-                    
-                    // Track episode view
+
                     this.trackEvent('web_player_episode_view', {
                         episode_id: id,
                         episode_title: content.title,
                         podcast_id: content.podcastId,
                         podcast_title: content.podcastTitle
                     });
-                    
+
+                    this.render();
+
+                    // Try to enrich description/artwork/audio from the RSS feed in the background.
+                    if (podcastId) {
+                        this.enrichEpisodeFromRss(podcastId, id).catch(() => {});
+                    }
+                    return;
+                }
+
+                // Compact episode route with no inline audio: fall back to RSS lookup.
+                await this.loadEpisodeByIds(podcastId, id);
+            }
+
+            rssUrlFromPodcastId(podcastId) {
+                if (!podcastId) return '';
+                return `https://podcasts.files.bbci.co.uk/${encodeURIComponent(podcastId)}.rss`;
+            }
+
+            extractEpisodeId(guid) {
+                if (!guid) return '';
+                const trimmed = String(guid).trim();
+                const match = trimmed.match(/[/:]([a-z0-9]+)$/i);
+                return match ? match[1] : trimmed;
+            }
+
+            async loadPodcastById(podcastId) {
+                const rssUrl = this.rssUrlFromPodcastId(podcastId);
+                if (!rssUrl) {
+                    this.showError('Invalid link', 'This podcast link is missing an ID.');
+                    return;
+                }
+
+                this.currentContent = {
+                    type: 'podcast',
+                    id: podcastId,
+                    title: 'Shared Podcast',
+                    description: 'Loading podcast details...',
+                    imageUrl: null,
+                    rssUrl: rssUrl
+                };
+                this.render();
+
+                try {
+                    const text = await this.fetchPodcastFeedText(rssUrl);
+                    const podcast = this.parsePodcastFeed(text, {
+                        id: podcastId,
+                        title: 'Shared Podcast',
+                        description: 'BBC podcast',
+                        rssUrl: rssUrl,
+                        imageUrl: null,
+                        episodes: [],
+                        episodeCount: 0,
+                        isLoading: false,
+                        loadError: ''
+                    });
+
+                    this.currentContent = {
+                        type: 'podcast',
+                        id: podcastId,
+                        title: podcast.title,
+                        description: podcast.description,
+                        imageUrl: podcast.imageUrl,
+                        rssUrl: rssUrl
+                    };
+
+                    this.trackEvent('web_player_podcast_view', {
+                        podcast_id: podcastId,
+                        podcast_title: this.currentContent.title
+                    });
+
+                    this.render();
+                    await this.renderCompactEpisodeList(podcast.episodes);
+                } catch (error) {
+                    console.error('Failed to load podcast by ID:', error);
+                    this.currentContent = {
+                        type: 'podcast',
+                        id: podcastId,
+                        title: 'Shared Podcast',
+                        description: 'Unable to load podcast details. The feed may be unavailable or the podcast ID may be invalid.',
+                        imageUrl: null,
+                        rssUrl: rssUrl
+                    };
                     this.render();
                 }
+            }
+
+            async loadEpisodeByIds(podcastId, episodeId) {
+                const rssUrl = this.rssUrlFromPodcastId(podcastId);
+                if (!rssUrl) {
+                    this.showError('Invalid link', 'This episode link is missing a podcast ID.');
+                    return;
+                }
+
+                this.currentContent = {
+                    type: 'episode',
+                    id: episodeId,
+                    title: 'Shared Episode',
+                    description: 'Loading episode details...',
+                    podcastTitle: 'British Radio Player',
+                    podcastId: podcastId,
+                    imageUrl: null,
+                    audioUrl: null,
+                    pubDate: '',
+                    durationMins: 0
+                };
+                this.render();
+
+                try {
+                    const text = await this.fetchPodcastFeedText(rssUrl);
+                    const podcast = this.parsePodcastFeed(text, {
+                        id: podcastId,
+                        title: 'Shared Podcast',
+                        description: 'BBC podcast',
+                        rssUrl: rssUrl,
+                        imageUrl: null,
+                        episodes: [],
+                        episodeCount: 0,
+                        isLoading: false,
+                        loadError: ''
+                    });
+
+                    const episode = podcast.episodes.find(ep => ep.id === episodeId);
+                    if (!episode) {
+                        throw new Error('Episode not found in feed');
+                    }
+
+                    this.currentContent = {
+                        type: 'episode',
+                        id: episodeId,
+                        title: episode.title,
+                        description: episode.description,
+                        podcastTitle: podcast.title,
+                        podcastId: podcastId,
+                        imageUrl: episode.imageUrl || podcast.imageUrl,
+                        audioUrl: episode.audioUrl,
+                        pubDate: episode.pubDate,
+                        durationMins: episode.durationMins
+                    };
+
+                    this.trackEvent('web_player_episode_view', {
+                        episode_id: episodeId,
+                        episode_title: episode.title,
+                        podcast_id: podcastId,
+                        podcast_title: podcast.title
+                    });
+
+                    this.render();
+                } catch (error) {
+                    console.error('Failed to load episode by IDs:', error);
+                    this.showError('Episode unavailable', 'We could not load this episode from the podcast feed. It may have expired or the link may be incorrect.');
+                }
+            }
+
+            async enrichEpisodeFromRss(podcastId, episodeId) {
+                const rssUrl = this.rssUrlFromPodcastId(podcastId);
+                if (!rssUrl || !this.currentContent || this.currentContent.type !== 'episode') {
+                    return;
+                }
+
+                try {
+                    const text = await this.fetchPodcastFeedText(rssUrl);
+                    const podcast = this.parsePodcastFeed(text, {
+                        id: podcastId,
+                        title: this.currentContent.podcastTitle || 'Shared Podcast',
+                        description: 'BBC podcast',
+                        rssUrl: rssUrl,
+                        imageUrl: null,
+                        episodes: [],
+                        episodeCount: 0,
+                        isLoading: false,
+                        loadError: ''
+                    });
+
+                    const episode = podcast.episodes.find(ep => ep.id === episodeId);
+                    if (!episode) {
+                        return;
+                    }
+
+                    const updated = {
+                        ...this.currentContent,
+                        description: this.currentContent.description || episode.description,
+                        podcastTitle: podcast.title || this.currentContent.podcastTitle,
+                        imageUrl: this.currentContent.imageUrl || episode.imageUrl || podcast.imageUrl,
+                        pubDate: this.currentContent.pubDate || episode.pubDate,
+                        durationMins: this.currentContent.durationMins || episode.durationMins,
+                        audioUrl: episode.audioUrl || this.currentContent.audioUrl
+                    };
+
+                    // Track that we found richer metadata.
+                    console.log('RSS enrichment succeeded:', {
+                        foundAudio: !!episode.audioUrl,
+                        foundDescription: !!episode.description,
+                        foundImage: !!(episode.imageUrl || podcast.imageUrl)
+                    });
+
+                    this.updateEpisodeDom(updated);
+                } catch (error) {
+                    console.debug('Background RSS enrichment failed:', error?.message || error);
+                }
+            }
+
+            updateEpisodeDom(updated) {
+                this.currentContent = updated;
+
+                // Update description if present.
+                const descEl = document.getElementById('episode-description');
+                if (descEl && updated.description) {
+                    descEl.textContent = this.stripHtml(updated.description);
+                }
+
+                // Update podcast title if present.
+                const fromEl = document.getElementById('episode-podcast-title');
+                if (fromEl && updated.podcastTitle) {
+                    fromEl.textContent = updated.podcastTitle;
+                }
+
+                // Update publication info.
+                const pubEl = document.getElementById('episode-publication-info');
+                if (pubEl) {
+                    pubEl.innerHTML = this.renderEpisodePublicationInfo(updated);
+                }
+
+                // Update artwork if now available.
+                const imgEl = document.getElementById('episode-artwork-img');
+                const placeholderEl = document.getElementById('episode-artwork-placeholder');
+                if (imgEl && placeholderEl && updated.imageUrl && !imgEl.src) {
+                    imgEl.src = updated.imageUrl;
+                    imgEl.style.display = '';
+                    placeholderEl.style.display = 'none';
+                }
+
+                // Update the audio source if we got a fresher URL from the RSS feed
+                // without tearing down the whole player.
+                const audio = document.getElementById('episode-audio-player');
+                if (audio && updated.audioUrl) {
+                    const normalizedUrl = updated.audioUrl
+                        .trim()
+                        .replace(/^http:\/\//i, 'https://')
+                        .replace(/\/proto\/http\//i, '/proto/https/');
+                    const currentSrc = audio.currentSrc || audio.src || '';
+                    if (currentSrc !== normalizedUrl) {
+                        audio.src = normalizedUrl;
+                        audio.load();
+                        this.setupHlsAudioIfNeeded(audio);
+                    }
+                }
+            }
+
+            renderEpisodePublicationInfo(episode) {
+                const parts = [];
+                if (episode.pubDate) {
+                    parts.push(`<span>📅 ${this.escapeHtml(this.formatDate(episode.pubDate))}</span>`);
+                }
+                if (episode.durationMins) {
+                    parts.push(`<span>⏱️ ${episode.durationMins} minutes</span>`);
+                }
+                return parts.join('');
+            }
+
+            async renderCompactEpisodeList(episodes) {
+                const episodesSection = document.getElementById('episodes-section');
+                if (!episodesSection) return;
+
+                if (!episodes || episodes.length === 0) {
+                    episodesSection.innerHTML = `
+                        <div style="margin-top: 30px; text-align: center; padding: 40px 20px; background: #f8f8f8; border-radius: 12px;">
+                            <div style="font-size: 48px; margin-bottom: 16px;">📚</div>
+                            <h3 style="font-size: 20px; margin-bottom: 12px; color: #333;">No playable episodes found</h3>
+                            <p style="font-size: 15px; color: #666; line-height: 1.6; max-width: 500px; margin: 0 auto;">
+                                This feed loaded, but it did not expose recent audio entries the browser could play.
+                            </p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                episodesSection.innerHTML = `
+                    <div style="margin-top: 30px;">
+                        <h3 style="font-size: 20px; margin-bottom: 20px; color: #333;">Recent Episodes</h3>
+                        ${episodes.slice(0, 10).map(episode => {
+                            const description = this.stripHtml(episode.description || '');
+                            const summary = description.length > 240 ? `${description.slice(0, 240)}...` : description;
+                            return `
+                                <div style="background: #f8f8f8; border-radius: 12px; padding: 20px; margin-bottom: 16px;">
+                                    <h4 style="font-size: 16px; margin-bottom: 8px; color: #333;">${this.escapeHtml(episode.title)}</h4>
+                                    <p style="font-size: 13px; color: #666; margin-bottom: 12px; line-height: 1.4;">${this.escapeHtml(summary)}</p>
+                                    ${episode.pubDate ? `<p style="font-size: 12px; color: #999; margin-bottom: 12px;">${this.escapeHtml(this.formatDate(episode.pubDate))}${episode.durationMins ? ` • ${episode.durationMins} min` : ''}</p>` : ''}
+                                    ${episode.audioUrl ? this.renderAudioPlayer(episode.audioUrl) : '<p style="font-size: 13px; color: #999;">Audio unavailable</p>'}
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                `;
+                this.attachAudioListeners();
+            }
+
+            renderAudioPlayer(audioUrl, playerId = '') {
+                if (!audioUrl) return '';
+                const normalizedUrl = String(audioUrl)
+                    .trim()
+                    .replace(/^http:\/\//i, 'https://')
+                    .replace(/\/proto\/http\//i, '/proto/https/');
+                const idAttr = playerId ? `id="${this.escapeHtml(playerId)}"` : '';
+                return `
+                    <audio ${idAttr} controls class="audio-player" preload="metadata" src="${this.escapeHtml(normalizedUrl)}">
+                        Your browser does not support the audio element.
+                    </audio>
+                `;
+            }
+
+            setupHlsAudioIfNeeded(audio) {
+                if (!audio) return;
+                const src = audio.src || '';
+                if (!src) return;
+                if (!/\.m3u8(\?|$)/i.test(src)) return;
+                const canNativePlayHls = audio.canPlayType('application/vnd.apple.mpegurl') ||
+                    audio.canPlayType('application/x-mpegURL');
+                if (canNativePlayHls) return;
+                if (!window.Hls || !window.Hls.isSupported()) return;
+
+                try {
+                    if (audio._hlsPlayer) {
+                        audio._hlsPlayer.destroy();
+                    }
+                    const hls = new window.Hls({ enableWorker: true, lowLatencyMode: false });
+                    hls.loadSource(src);
+                    hls.attachMedia(audio);
+                    audio._hlsPlayer = hls;
+                } catch (error) {
+                    console.debug('Hls.js setup failed:', error?.message || error);
+                }
+            }
+
+            attachAudioErrorHandling(audio) {
+                if (!audio) return;
+                
+                audio.addEventListener('error', (e) => {
+                    const src = audio.currentSrc || audio.src || '';
+                    console.warn('Audio playback error for source:', src, 'Error:', e);
+                    
+                    let errorContainer = document.getElementById('episode-audio-error');
+                    if (!errorContainer) {
+                        errorContainer = document.createElement('div');
+                        errorContainer.id = 'episode-audio-error';
+                        errorContainer.style.cssText = 'margin-top: 10px; padding: 12px; background: #fff3f3; border: 1px solid #ffcdd2; border-radius: 8px; color: #c62828; font-size: 13px; line-height: 1.6;';
+                        audio.parentElement.appendChild(errorContainer);
+                    }
+                    
+                    // Check if this is likely a CORS issue
+                    const isBBC = src.includes('bbc.co.uk') || src.includes('bbci.co.uk');
+                    if (isBBC) {
+                        errorContainer.innerHTML = `
+                            <strong>⚠️ Browser playback not available</strong><br>
+                            Due to BBC's audio hosting restrictions, browser playback is not supported for BBC podcasts. 
+                            Please use one of these alternatives:
+                            <ul style="margin: 8px 0 0 0; padding-left: 20px;">
+                                <li>Open in the British Radio Player app</li>
+                                <li>Subscribe to the podcast RSS feed</li>
+                                <li>Download the episode directly</li>
+                            </ul>
+                        `;
+                    } else {
+                        errorContainer.innerHTML = `
+                            <strong>⚠️ Playback error</strong><br>
+                            This browser could not play the audio link. 
+                            Please try opening the episode in the British Radio Player app or subscribe via the RSS feed.
+                        `;
+                    }
+                });
+                
+                // Also handle stalled loading (often indicates CORS issue)
+                audio.addEventListener('stalled', () => {
+                    // Don't show error immediately, wait a bit to see if it resolves
+                    setTimeout(() => {
+                        if (audio.readyState === 0 && !audio.currentSrc) {
+                            const src = audio.src || '';
+                            const isBBC = src.includes('bbc.co.uk') || src.includes('bbci.co.uk');
+                            if (isBBC) {
+                                let errorContainer = document.getElementById('episode-audio-error');
+                                if (!errorContainer) {
+                                    errorContainer = document.createElement('div');
+                                    errorContainer.id = 'episode-audio-error';
+                                    errorContainer.style.cssText = 'margin-top: 10px; padding: 12px; background: #fff3f3; border: 1px solid #ffcdd2; border-radius: 8px; color: #c62828; font-size: 13px; line-height: 1.6;';
+                                    audio.parentElement.appendChild(errorContainer);
+                                    errorContainer.innerHTML = `
+                                        <strong>⚠️ Browser playback not available</strong><br>
+                                        Due to BBC's audio hosting restrictions, browser playback is not supported for BBC podcasts.
+                                        Please open in the British Radio Player app or subscribe to the podcast RSS feed.
+                                    `;
+                                }
+                            }
+                        }
+                    }, 3000);
+                });
             }
 
             render() {
@@ -2658,6 +3063,10 @@
             attachAudioListeners() {
                 const audioElements = document.querySelectorAll('audio');
                 audioElements.forEach((audio, index) => {
+                    this.setupHlsAudioIfNeeded(audio);
+                    if (audio.id === 'episode-audio-player') {
+                        this.attachAudioErrorHandling(audio);
+                    }
                     audio.addEventListener('play', () => {
                         if (this.currentContent) {
                             clearTimeout(audio._audioAnalyticsTimer);
@@ -2754,6 +3163,20 @@
             }
 
             renderEpisode(episode) {
+                const audioSection = episode.audioUrl
+                    ? `<div class="player-container">
+                            <div class="player-title">Listen Now</div>
+                            ${this.renderAudioPlayer(episode.audioUrl, 'episode-audio-player')}
+                            ${episode.durationMins ? `
+                                <div class="duration-info">Duration: ${episode.durationMins} minutes</div>
+                            ` : ''}
+                        </div>`
+                    : '';
+
+                const descriptionHtml = episode.description
+                    ? this.escapeHtml(episode.description)
+                    : 'Loading episode details…';
+
                 return `
                     <div class="header">
                         <h1>🎙️ British Radio Player</h1>
@@ -2762,10 +3185,10 @@
                     <div class="content">
                         <div class="artwork-container">
                             ${episode.imageUrl
-                                ? `<img src="${this.escapeHtml(episode.imageUrl)}" alt="${this.escapeHtml(episode.title)}" class="artwork" onerror="this.style.display='none'; this.nextElementSibling?.style.display='flex'">`
-                                : ''
+                                ? `<img id="episode-artwork-img" src="${this.escapeHtml(episode.imageUrl)}" alt="${this.escapeHtml(episode.title)}" class="artwork" onerror="this.style.display='none'; document.getElementById('episode-artwork-placeholder').style.display='flex';">`
+                                : '<img id="episode-artwork-img" src="" alt="" class="artwork" style="display:none;" onerror="this.style.display=\'none\';">'
                             }
-                            <div class="artwork-placeholder" style="${episode.imageUrl ? 'display:none;' : ''}">🎧</div>
+                            <div id="episode-artwork-placeholder" class="artwork-placeholder" style="${episode.imageUrl ? 'display:none;' : ''}">🎧</div>
                         </div>
 
                         <div class="info-section">
@@ -2776,36 +3199,20 @@
                         ${episode.podcastTitle ? `
                             <div class="info-section">
                                 <div class="info-title">From</div>
-                                <p class="info-value">${this.escapeHtml(episode.podcastTitle)}</p>
+                                <p id="episode-podcast-title" class="info-value">${this.escapeHtml(episode.podcastTitle)}</p>
                             </div>
                         ` : ''}
 
-                        ${episode.description ? `
-                            <div class="info-section">
-                                <div class="info-title">Description</div>
-                                <div class="info-value description">${this.escapeHtml(episode.description)}</div>
-                            </div>
-                        ` : ''}
+                        <div class="info-section">
+                            <div class="info-title">Description</div>
+                            <div id="episode-description" class="info-value description">${descriptionHtml}</div>
+                        </div>
 
-                        ${episode.audioUrl ? `
-                            <div class="player-container">
-                                <div class="player-title">Listen Now</div>
-                                <audio controls class="audio-player">
-                                    <source src="${this.escapeHtml(episode.audioUrl)}" type="audio/mpeg">
-                                    Your browser does not support the audio element.
-                                </audio>
-                                ${episode.durationMins ? `
-                                    <div class="duration-info">Duration: ${episode.durationMins} minutes</div>
-                                ` : ''}
-                            </div>
-                        ` : ''}
+                        ${audioSection}
 
-                        ${episode.pubDate ? `
-                            <div class="publication-info">
-                                <span>📅 ${this.formatDate(episode.pubDate)}</span>
-                                ${episode.durationMins ? `<span>⏱️ ${episode.durationMins} minutes</span>` : ''}
-                            </div>
-                        ` : ''}
+                        <div id="episode-publication-info" class="publication-info">
+                            ${this.renderEpisodePublicationInfo(episode)}
+                        </div>
 
                         <div class="button-group">
                             <button class="button button-primary" onclick="player.openInApp('episode')">
@@ -2831,26 +3238,32 @@
             }
 
             openInApp(type) {
-                // The share page uses hash-based routing (#/p/id or #/e/id)
+                // The share page uses hash-based routing (#/p/id or #/e/podcastId/episodeId)
                 const hash = window.location.hash;
-                const match = hash.match(/#\/(p|e)\/([^\/?]+)/);
+                const match = hash.match(/#\/(p|e)\/([^\/?]+)(?:\/([^\/?]+))?/);
                 if (!match) return;
 
-                const [, routeType, rawId] = match;
+                const [, routeType, firstId, secondId] = match;
                 const contentType = routeType === 'p' ? 'podcast' : 'episode';
-                const id = decodeURIComponent(rawId || '');
+                // Compact episode route: #/e/{podcastId}/{episodeId}
+                const id = contentType === 'episode' && secondId
+                    ? decodeURIComponent(secondId)
+                    : decodeURIComponent(firstId || '');
+                const podcastId = contentType === 'episode' && secondId
+                    ? decodeURIComponent(firstId)
+                    : (this.currentContent?.podcastId || '');
                 const appHost = contentType === 'podcast' ? 'podcast' : 'episode';
 
                 const params = new URLSearchParams();
-                if (contentType === 'episode' && this.currentContent) {
-                    if (this.currentContent.title) params.set('title', this.currentContent.title);
-                    if (this.currentContent.description) params.set('desc', this.currentContent.description);
-                    if (this.currentContent.podcastTitle) params.set('podcast', this.currentContent.podcastTitle);
-                    if (this.currentContent.podcastId) params.set('podcastId', this.currentContent.podcastId);
-                    if (this.currentContent.audioUrl) params.set('audio', this.currentContent.audioUrl);
-                    if (this.currentContent.imageUrl) params.set('img', this.currentContent.imageUrl);
-                    if (this.currentContent.pubDate) params.set('date', this.currentContent.pubDate);
-                    if (this.currentContent.durationMins) params.set('duration', String(this.currentContent.durationMins));
+                if (contentType === 'episode') {
+                    if (podcastId) params.set('podcastId', podcastId);
+                    if (this.currentContent?.title) params.set('title', this.currentContent.title);
+                    if (this.currentContent?.description) params.set('desc', this.currentContent.description);
+                    if (this.currentContent?.podcastTitle) params.set('podcast', this.currentContent.podcastTitle);
+                    if (this.currentContent?.audioUrl) params.set('audio', this.currentContent.audioUrl);
+                    if (this.currentContent?.imageUrl) params.set('img', this.currentContent.imageUrl);
+                    if (this.currentContent?.pubDate) params.set('date', this.currentContent.pubDate);
+                    if (this.currentContent?.durationMins) params.set('duration', String(this.currentContent.durationMins));
                 }
 
                 const query = params.toString();
@@ -2886,31 +3299,20 @@
                 const originalText = button?.innerHTML || '🔗 Copy Link';
                 if (button) button.innerHTML = '🔗 Shortening...';
 
-                // Build a share URL manually so we can shorten any long description
-                let shareUrl = window.location.origin + window.location.pathname;
                 const hash = window.location.hash;
-                const [route] = hash.split('?'); // e.g. "#/p/id"
-                shareUrl += route;
+                const [route] = hash.split('?');
+                let shareUrl = window.location.origin + window.location.pathname + route;
 
+                // Rebuild a short, functional share URL from the current content.
+                // Descriptions and artwork are omitted to keep links shortener-friendly;
+                // the web player fetches those from the RSS feed on arrival.
                 const params = new URLSearchParams();
                 const content = this.currentContent || {};
                 if (content.title) params.set('title', content.title);
-                if (content.description) {
-                    try {
-                        const shortDesc = await this.shortenTextWithAI(content.description);
-                        params.set('desc', shortDesc);
-                    } catch (aiErr) {
-                        console.warn('AI shorten failed, using original description', aiErr);
-                        params.set('desc', content.description);
-                    }
+                if (content.type === 'episode') {
+                    if (content.podcastTitle) params.set('podcast', content.podcastTitle);
+                    if (content.audioUrl) params.set('audio', content.audioUrl);
                 }
-                if (content.imageUrl) params.set('img', content.imageUrl);
-                if (content.rssUrl) params.set('rss', content.rssUrl);
-                if (content.podcastTitle) params.set('podcast', content.podcastTitle);
-                if (content.podcastId) params.set('podcastId', content.podcastId);
-                if (content.audioUrl) params.set('audio', content.audioUrl);
-                if (content.pubDate) params.set('date', content.pubDate);
-                if (content.durationMins) params.set('duration', content.durationMins);
 
                 if ([...params].length > 0) {
                     shareUrl += '?' + params.toString();
@@ -2946,9 +3348,43 @@
             }
 
             shortenUrl(longUrl) {
-                return fetch(`https://is.gd/create.php?format=json&url=${encodeURIComponent(longUrl)}`)
-                    .then(response => response.json())
-                    .then(data => data.shorturl || longUrl)
+                const encodedUrl = encodeURIComponent(longUrl);
+
+                const callSimple = async () => {
+                    const response = await fetch(`https://is.gd/create.php?format=simple&logstats=0&url=${encodedUrl}`, {
+                        method: 'GET',
+                        cache: 'no-store'
+                    });
+                    const text = (await response.text()).trim();
+                    if (!response.ok) {
+                        throw new Error(`is.gd simple HTTP ${response.status}: ${text}`);
+                    }
+                    if (text.startsWith('http://') || text.startsWith('https://')) {
+                        return text;
+                    }
+                    throw new Error(`is.gd simple error: ${text}`);
+                };
+
+                const callJson = async () => {
+                    const response = await fetch(`https://is.gd/create.php?format=json&logstats=0&url=${encodedUrl}`, {
+                        method: 'GET',
+                        cache: 'no-store'
+                    });
+                    const data = await response.json();
+                    if (data.shorturl) {
+                        return data.shorturl;
+                    }
+                    if (data.errormessage) {
+                        throw new Error(`is.gd error: ${data.errormessage}`);
+                    }
+                    throw new Error('is.gd did not return a short URL');
+                };
+
+                return callSimple()
+                    .catch(error => {
+                        console.warn('is.gd simple format failed, trying JSON:', error.message);
+                        return callJson();
+                    })
                     .catch(error => {
                         console.error('URL shortening failed:', error);
                         return longUrl;
@@ -3235,9 +3671,9 @@
             renderEpisodesList() {
                 const episodesSection = document.getElementById('episodes-section');
                 if (!episodesSection || this.episodes.length === 0) return;
-                
+
                 const hasMore = this.displayedCount < this.allEpisodes.length;
-                
+
                 episodesSection.innerHTML = `
                     <div style="margin-top: 30px;">
                         <h3 style="font-size: 20px; margin-bottom: 20px; color: #333;">Recent Episodes</h3>
@@ -3248,12 +3684,7 @@
                                     ${this.escapeHtml(this.stripHtml(ep.description).substring(0, 150))}${ep.description.length > 150 ? '...' : ''}
                                 </p>
                                 ${ep.pubDate ? `<p style="font-size: 12px; color: #999; margin-bottom: 12px;">${this.formatDate(ep.pubDate)}${ep.duration > 0 ? ` • ${Math.round(ep.duration)} min` : ''}</p>` : ''}
-                                ${ep.audioUrl ? `
-                                    <audio controls style="width: 100%; margin-top: 12px; border-radius: 8px;">
-                                        <source src="${this.escapeHtml(ep.audioUrl)}" type="audio/mpeg">
-                                        Your browser does not support the audio element.
-                                    </audio>
-                                ` : ''}
+                                ${ep.audioUrl ? this.renderAudioPlayer(ep.audioUrl) : ''}
                             </div>
                         `).join('')}
                         ${hasMore ? `
@@ -3276,6 +3707,7 @@
                         ` : ''}
                     </div>
                 `;
+                this.attachAudioListeners();
             }
 
             stripHtml(html) {

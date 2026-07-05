@@ -55,7 +55,7 @@ Notes:
 
 ### Test the Web Player
 
-Visit: `https://yourusername.github.io/British-Radio-Player/p/example-1`
+Visit: `https://yourusername.github.io/British-Radio-Player/#/p/p00tgwjb`
 
 You should see the podcast sharing page load.
 
@@ -80,8 +80,14 @@ Share a podcast from your app and check that the generated URL works:
 
 ### URL Structure
 
-- **Podcasts**: `/p/{podcastId}` → Example: `/p/bbc-sounds-123`
-- **Episodes**: `/e/{episodeId}` → Example: `/e/episode-456`
+The web player uses hash-based routing. Compact ID-only routes are preferred because they produce short, shortener-friendly links; legacy query-parameter routes are still supported for older shares.
+
+- **Podcasts (compact)**: `/#/p/{podcastId}` → Example: `/#/p/p00tgwjb`
+- **Episodes (compact)**: `/#/e/{podcastId}/{episodeId}` → Example: `/#/e/p00tgwjb/p0abc123`
+- **Legacy podcasts**: `/#/p/{podcastId}?title=...&rss=...`
+- **Legacy episodes**: `/#/e/{episodeId}?title=...&audio=...`
+
+For compact routes the web player fetches the podcast RSS feed directly and resolves title, artwork, audio URLs, and episode metadata on load.
 
 ## Customization
 

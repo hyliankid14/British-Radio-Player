@@ -29,12 +29,16 @@ object ShareUtil {
     /**
      * Share a podcast with others.
      * Non-app users will be directed to the web player.
+     *
+     * Uses a compact hash-route URL so the link is short and works reliably with
+     * URL shorteners. The web player resolves title/artwork/episodes from the
+     * podcast RSS feed.
      */
     fun sharePodcast(context: Context, podcast: Podcast) {
         val shareTitle = podcast.title
         val handler = Handler(Looper.getMainLooper())
         val cleanDesc = stripHtmlTags(podcast.description)
-        
+
         // Show progress dialog
         @Suppress("DEPRECATION")
         val progressDialog = ProgressDialog(context).apply {
@@ -42,17 +46,16 @@ object ShareUtil {
             setCancelable(false)
             show()
         }
-        
+
         // Shorten URL on background thread
         Thread {
             try {
                 val summaryDesc = summarizeTextWithAI(cleanDesc)
 
+                // Compact route with title for immediate rendering; the web player
+                // fetches artwork and episodes from the RSS feed on arrival.
                 val encodedTitle = Uri.encode(podcast.title)
-                val encodedDesc = Uri.encode(summaryDesc)
-                val encodedImage = Uri.encode(podcast.imageUrl)
-                val encodedRss = Uri.encode(podcast.rssUrl)
-                val webUrl = "$WEB_BASE_URL/#/p/${podcast.id}?title=$encodedTitle&desc=$encodedDesc&img=$encodedImage&rss=$encodedRss"
+                val webUrl = "$WEB_BASE_URL/#/p/${Uri.encode(podcast.id)}?title=$encodedTitle"
 
                 val shortUrl = shortenUrl(webUrl)
                 val shareMessage = buildString {
@@ -64,7 +67,7 @@ object ShareUtil {
                     append(shortUrl)
                     append("\n\nIf you have the British Radio Player app installed, you can open it directly.")
                 }
-                
+
                 // Post back to main thread to start activity
                 handler.post {
                     progressDialog.dismiss()
@@ -82,10 +85,14 @@ object ShareUtil {
             }
         }.start()
     }
-    
+
     /**
      * Share an episode with others.
      * Non-app users will be directed to the web player.
+     *
+     * Uses a compact hash-route URL (podcast ID + episode ID). The web player
+     * resolves the episode audio URL from the RSS feed, avoiding broken direct
+     * audio links and oversized share URLs.
      */
     fun shareEpisode(context: Context, episode: Episode, podcastTitle: String = "") {
         var shareEpisode = episode
@@ -93,7 +100,7 @@ object ShareUtil {
         var cleanDesc = stripHtmlTags(episode.description)
         val shareTitle = episode.title
         val handler = Handler(Looper.getMainLooper())
-        
+
         // Show progress dialog
         @Suppress("DEPRECATION")
         val progressDialog = ProgressDialog(context).apply {
@@ -101,21 +108,21 @@ object ShareUtil {
             setCancelable(false)
             show()
         }
-        
+
         // Shorten URL on background thread
         Thread {
             try {
                 val summaryDesc = summarizeTextWithAI(cleanDesc)
 
-                val encodedTitle = Uri.encode(shareEpisode.title)
-                val encodedDesc = Uri.encode(summaryDesc)
-                val encodedImage = Uri.encode(shareEpisode.imageUrl)
-                val encodedPodcast = Uri.encode(sharePodcastTitle)
+                // Hybrid route: podcastId/episodeId plus the minimum metadata needed
+                // for the web player to render and play immediately. Descriptions and
+                // artwork are fetched from the RSS feed on arrival.
                 val encodedPodcastId = Uri.encode(shareEpisode.podcastId)
+                val encodedEpisodeId = Uri.encode(shareEpisode.id)
+                val encodedTitle = Uri.encode(shareEpisode.title)
+                val encodedPodcast = Uri.encode(sharePodcastTitle)
                 val encodedAudio = Uri.encode(shareEpisode.audioUrl)
-                val encodedDate = Uri.encode(shareEpisode.pubDate)
-                val encodedDuration = Uri.encode(shareEpisode.durationMins.toString())
-                val webUrl = "$WEB_BASE_URL/#/e/${shareEpisode.id}?title=$encodedTitle&desc=$encodedDesc&img=$encodedImage&podcast=$encodedPodcast&podcastId=$encodedPodcastId&audio=$encodedAudio&date=$encodedDate&duration=$encodedDuration"
+                val webUrl = "$WEB_BASE_URL/#/e/$encodedPodcastId/$encodedEpisodeId?title=$encodedTitle&podcast=$encodedPodcast&audio=$encodedAudio"
 
                 val shortUrl = shortenUrl(webUrl)
                 val shareMessage = buildString {
@@ -130,7 +137,7 @@ object ShareUtil {
                     append(shortUrl)
                     append("\n\nIf you have the British Radio Player app installed, you can open it directly.")
                 }
-                
+
                 // Post back to main thread to start activity
                 handler.post {
                     progressDialog.dismiss()
@@ -166,12 +173,12 @@ object ShareUtil {
     /**
      * Handle incoming deep links from share URLs.
      * Call this from MainActivity's onCreate when processing Intent data.
-     * 
+     *
      * Returns the content type and ID, or null if not a share link.
      */
     fun parseShareLink(intent: Intent): Pair<ShareContentType, String>? {
         val uri = intent.data ?: return null
-        
+
         return when {
             uri.scheme == APP_SCHEME && uri.host == "podcast" -> {
                 val podcastId = uri.pathSegments.getOrNull(0) ?: return null
@@ -182,22 +189,31 @@ object ShareUtil {
                 ShareContentType.EPISODE to episodeId
             }
             uri.scheme == "https" && uri.host == "hyliankid14.github.io" -> {
-                // GitHub Pages URL format: /British-Radio-Player/p/{id} or /British-Radio-Player/e/{id}
+                // GitHub Pages URLs use hash-based routing: /British-Radio-Player/#/p/{id}
+                // or /British-Radio-Player/#/e/{podcastId}/{episodeId}. The fragment is the
+                // authoritative route; pathSegments only contains "British-Radio-Player".
                 // Also accept legacy /BBC-Radio-Player paths for backward compatibility.
-                val segments = uri.pathSegments
-                if (segments.getOrNull(0) == "British-Radio-Player" || segments.getOrNull(0) == "BBC-Radio-Player") {
-                    when (segments.getOrNull(1)) {
-                        "p" -> {
-                            val podcastId = segments.getOrNull(2) ?: return null
-                            ShareContentType.PODCAST to podcastId
-                        }
-                        "e" -> {
-                            val episodeId = segments.getOrNull(2) ?: return null
-                            ShareContentType.EPISODE to episodeId
-                        }
-                        else -> null
+                val path = uri.path?.trim('/') ?: ""
+                if (path != "British-Radio-Player" && path != "BBC-Radio-Player") {
+                    return null
+                }
+                val fragment = uri.fragment ?: return null
+                val fragmentPath = fragment.substringBefore('?')
+                val segments = fragmentPath.split('/').filter { it.isNotEmpty() }
+                return when (segments.getOrNull(0)) {
+                    "p" -> {
+                        val podcastId = segments.getOrNull(1) ?: return null
+                        ShareContentType.PODCAST to podcastId
                     }
-                } else null
+                    "e" -> {
+                        // Episode route: #/e/{podcastId}/{episodeId}. Return the episode ID
+                        // as the share target; callers can use the podcast ID from query params
+                        // if they need it.
+                        val episodeId = segments.getOrNull(2) ?: return null
+                        ShareContentType.EPISODE to episodeId
+                    }
+                    else -> null
+                }
             }
             else -> null
         }
@@ -284,58 +300,75 @@ object ShareUtil {
     }
     
     /**
-     * Shorten a URL using is.gd service
+     * Shorten a URL using the is.gd service.
+     *
+     * Tries the simple (plain-text) API first as it is the most reliable, then
+     * falls back to the JSON API. Returns the original URL on failure so sharing
+     * never breaks.
      */
     private fun shortenUrl(longUrl: String): String {
         return try {
             android.util.Log.d("ShareUtil", "Shortening URL (length: ${longUrl.length}): ${longUrl.take(200)}...")
             val encodedUrl = URLEncoder.encode(longUrl, "UTF-8")
-            val urlStr = "$SHORT_URL_API?format=json&url=$encodedUrl"
-            val connection = (URL(urlStr).openConnection() as java.net.HttpURLConnection).apply {
-                connectTimeout = 4000
-                readTimeout = 4000
-                requestMethod = "GET"
-                setRequestProperty("User-Agent", "British Radio Player/1.0")
+
+            // Try the simple/plain-text endpoint first.
+            val simpleResult = callIsGd("$SHORT_URL_API?format=simple&logstats=0&url=$encodedUrl")
+            if (simpleResult.startsWith("http://") || simpleResult.startsWith("https://")) {
+                android.util.Log.d("ShareUtil", "Successfully shortened to: $simpleResult")
+                return simpleResult
             }
-            
-            val responseCode = connection.responseCode
-            val response = if (responseCode == 200) {
-                connection.inputStream.bufferedReader().use { it.readText() }
-            } else {
-                // For errors, read from error stream
-                connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
+            if (simpleResult.isNotEmpty()) {
+                android.util.Log.w("ShareUtil", "is.gd simple error: $simpleResult")
             }
-            
-            if (responseCode == 200 && response.contains("shorturl")) {
-                // Parse JSON response for shorturl field
-                // Example: { "shorturl": "https://is.gd/abc123" }
-                val shortUrl = response.substringAfter("\"shorturl\"")
+
+            // Fall back to JSON.
+            val jsonResponse = callIsGd("$SHORT_URL_API?format=json&logstats=0&url=$encodedUrl")
+            if (jsonResponse.contains("shorturl")) {
+                val shortUrl = jsonResponse.substringAfter("\"shorturl\"")
                     .substringAfter("\"")
                     .substringBefore("\"")
                     .replace("\\/", "/")
                     .trim()
-                
-                // Validate it's actually a URL
                 if (shortUrl.startsWith("http://") || shortUrl.startsWith("https://")) {
                     android.util.Log.d("ShareUtil", "Successfully shortened to: $shortUrl")
                     return shortUrl
                 }
             }
-            
-            // Log any errors for debugging
-            if (response.contains("errorcode")) {
-                val errorMsg = response.substringAfter("\"errormessage\"")
+            if (jsonResponse.contains("errormessage")) {
+                val errorMsg = jsonResponse.substringAfter("\"errormessage\"")
                     .substringAfter("\"")
                     .substringBefore("\"")
                 android.util.Log.w("ShareUtil", "is.gd error: $errorMsg")
             } else {
-                android.util.Log.w("ShareUtil", "is.gd returned status $responseCode: $response")
+                android.util.Log.w("ShareUtil", "is.gd returned unexpected response: $jsonResponse")
             }
-            
+
             longUrl
         } catch (e: Exception) {
             android.util.Log.w("ShareUtil", "Failed to shorten URL: ${e.message}")
             longUrl
+        }
+    }
+
+    private fun callIsGd(urlStr: String): String {
+        val connection = (URL(urlStr).openConnection() as java.net.HttpURLConnection).apply {
+            connectTimeout = 5000
+            readTimeout = 5000
+            requestMethod = "GET"
+            setRequestProperty("User-Agent", "British Radio Player/1.0")
+            instanceFollowRedirects = true
+        }
+
+        return try {
+            val responseCode = connection.responseCode
+            val response = if (responseCode == 200) {
+                connection.inputStream.bufferedReader().use { it.readText() }
+            } else {
+                connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
+            }
+            response.trim()
+        } finally {
+            connection.disconnect()
         }
     }
     
