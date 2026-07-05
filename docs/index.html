@@ -2590,15 +2590,15 @@
                 console.log('Loading content:', { type, id, options, params: Object.fromEntries(params) });
 
                 if (type === 'p') {
-                    const title = params.get('title');
-                    const desc = params.get('desc');
-                    const img = params.get('img');
-                    const rssUrl = params.get('rss') || this.rssUrlFromPodcastId(id);
+                    const title = decodeURIComponent(params.get('title')) || 'Shared Podcast';
+                    const desc = decodeURIComponent(params.get('desc')) || '';
+                    const img = decodeURIComponent(params.get('img')) || null;
+                    const rssUrl = decodeURIComponent(params.get('rss')) || this.rssUrlFromPodcastId(id);
 
                     this.currentContent = {
                         type: 'podcast',
                         id: id,
-                        title: title || 'Shared Podcast',
+                        title: title,
                         description: desc || 'This podcast was shared with you from the British Radio Player app.',
                         imageUrl: img || null,
                         rssUrl: rssUrl
@@ -2619,42 +2619,43 @@
 
                 // Episode
                 const podcastId = options.podcastId || params.get('podcastId') || '';
-                const inlineAudio = params.get('audio');
-                const inlineImage = params.get('img');
+                const hasAudio = !!params.get('audio');
 
-                // Construct audio and artwork URLs from IDs where possible. This keeps
-                // share links short and avoids depending on RSS for basic playback.
-                const constructedAudioUrl = this.audioUrlFromEpisodeId(id);
-                const constructedImageUrl = inlineImage || this.artworkUrlFromPodcastId(podcastId);
+                if (hasAudio) {
+                    // Render immediately from inline metadata so playback works even if
+                    // RSS fetching fails. Then enrich from the RSS feed in the background.
+                    const content = {
+                        type: 'episode',
+                        id: id,
+                        title: decodeURIComponent(params.get('title')) || 'Shared Episode',
+                        description: decodeURIComponent(params.get('desc')) || '',
+                        podcastTitle: decodeURIComponent(params.get('podcast')) || 'British Radio Player',
+                        podcastId: podcastId,
+                        imageUrl: decodeURIComponent(params.get('img')) || null,
+                        audioUrl: decodeURIComponent(params.get('audio')) || null,
+                        pubDate: decodeURIComponent(params.get('date')) || '',
+                        durationMins: parseInt(decodeURIComponent(params.get('duration')) || '0')
+                    };
+                    this.currentContent = content;
 
-                const content = {
-                    type: 'episode',
-                    id: id,
-                    title: params.get('title') || 'Shared Episode',
-                    description: params.get('desc') || '',
-                    podcastTitle: params.get('podcast') || 'British Radio Player',
-                    podcastId: podcastId,
-                    imageUrl: constructedImageUrl,
-                    audioUrl: inlineAudio || constructedAudioUrl,
-                    pubDate: params.get('date') || '',
-                    durationMins: parseInt(params.get('duration') || '0')
-                };
-                this.currentContent = content;
+                    this.trackEvent('web_player_episode_view', {
+                        episode_id: id,
+                        episode_title: content.title,
+                        podcast_id: content.podcastId,
+                        podcast_title: content.podcastTitle
+                    });
 
-                this.trackEvent('web_player_episode_view', {
-                    episode_id: id,
-                    episode_title: content.title,
-                    podcast_id: content.podcastId,
-                    podcast_title: content.podcastTitle
-                });
+                    this.render();
 
-                this.render();
-
-                // Try to enrich description/artwork/audio from the RSS feed in the background.
-                if (podcastId) {
-                    this.enrichEpisodeFromRss(podcastId, id).catch(() => {});
+                    // Try to enrich description/artwork/audio from the RSS feed in the background.
+                    if (podcastId) {
+                        this.enrichEpisodeFromRss(podcastId, id).catch(() => {});
+                    }
+                    return;
                 }
-                return;
+
+                // Compact episode route with no inline audio: fall back to RSS lookup.
+                await this.loadEpisodeByIds(podcastId, id);
             }
 
             rssUrlFromPodcastId(podcastId) {
