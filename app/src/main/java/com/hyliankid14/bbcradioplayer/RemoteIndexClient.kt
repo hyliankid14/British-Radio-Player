@@ -810,7 +810,7 @@ class RemoteIndexClient(private val context: Context) {
      *   made. Use this for background refresh calls so the UI stays up-to-date after the GCS
      *   snapshot is refreshed by the GitHub Actions workflow.
      */
-    fun fetchPopularPodcastRanks(days: Int = 30, limit: Int = 200, skipCache: Boolean = false): PopularPodcastRanking {
+    fun fetchPopularPodcastRanks(days: Int = 90, limit: Int = 30, skipCache: Boolean = false): PopularPodcastRanking {
         // Step 1: return disk cache immediately if it is still fresh (and not bypassed).
         if (!skipCache) {
             readPopularRanksCache()?.let { cached ->

@@ -1204,7 +1204,7 @@ class PodcastsFragment : Fragment() {
                         // Initial load: use the on-device disk cache if it is still fresh so the
                         // sort order appears instantly without waiting for a network round-trip.
                         val popularRanks = withContext(Dispatchers.IO) {
-                            repository.fetchPopularPodcastRanks(days = 30)
+                            repository.fetchPopularPodcastRanks(days = 90)
                         }
                         analyticsPopularRanks = popularRanks.idRanks
                         analyticsPopularTitleRanks = popularRanks.titleRanks
@@ -1226,7 +1226,7 @@ class PodcastsFragment : Fragment() {
                         // reflected without waiting for the cache TTL to expire.
                         if (popularRanks.fromCache) {
                             val freshRanks = withContext(Dispatchers.IO) {
-                                repository.fetchPopularPodcastRanks(days = 30, skipCache = true)
+                                repository.fetchPopularPodcastRanks(days = 90, skipCache = true)
                             }
                             // Map.equals() compares by content (key-value pairs), so this detects
                             // any change in the network-fetched rankings vs the cached snapshot.
@@ -1377,7 +1377,7 @@ class PodcastsFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             try {
                 val freshRanks = withContext(Dispatchers.IO) {
-                    repository.fetchPopularPodcastRanks(days = 30, skipCache = true)
+                    repository.fetchPopularPodcastRanks(days = 90, skipCache = true)
                 }
 
                 val changed =

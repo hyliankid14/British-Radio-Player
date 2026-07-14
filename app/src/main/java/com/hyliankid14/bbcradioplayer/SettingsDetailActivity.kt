@@ -612,7 +612,7 @@ class SettingsDetailActivity : AppCompatActivity() {
                     null
                 }
                 val popularSnapshot = try {
-                    remoteIndexClient.fetchPopularPodcastRanks(days = 30, skipCache = true)
+                    remoteIndexClient.fetchPopularPodcastRanks(days = 90, skipCache = true)
                 } catch (_: Exception) {
                     null
                 }
