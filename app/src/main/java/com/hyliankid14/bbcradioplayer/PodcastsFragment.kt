@@ -48,6 +48,7 @@ class PodcastsFragment : Fragment() {
     private var cachedNewlyAddedPodcastEpochs: Map<String, Long> = emptyMap()
     private var analyticsPopularRanks: Map<String, Int> = emptyMap()
     private var analyticsPopularTitleRanks: Map<String, Int> = emptyMap()
+    private var analyticsPopularEntries: List<RemoteIndexClient.PopularPodcastEntry> = emptyList()
     private var podcastRatings: Map<String, PodcastRatingSummary> = emptyMap()
     private var ratingsLoadJob: kotlinx.coroutines.Job? = null
     private var isLoadingPopularRanks: Boolean = false
@@ -606,7 +607,7 @@ class PodcastsFragment : Fragment() {
     }
 
     // Pagination / lazy-loading state
-    private val pageSize = 15
+    private val pageSize = 30
     private var currentPage = 0
     private var isLoadingPage = false
     private var filteredList: List<Podcast> = emptyList()
@@ -1088,6 +1089,7 @@ class PodcastsFragment : Fragment() {
             cachedNewlyAddedPodcastEpochs = viewModel.cachedNewlyAddedPodcastEpochs
             analyticsPopularRanks = viewModel.cachedPopularRanks
             analyticsPopularTitleRanks = viewModel.cachedPopularTitleRanks
+            analyticsPopularEntries = viewModel.cachedPopularEntries
             currentFilter = if (searchContextMode) PodcastFilter() else viewModel.cachedFilter
             // Restore sort: use cached sort if available, otherwise use default.
             // In search context mode always use SORT_MOST_RECENT_EPISODES (set above) — never
@@ -1208,8 +1210,10 @@ class PodcastsFragment : Fragment() {
                         }
                         analyticsPopularRanks = popularRanks.idRanks
                         analyticsPopularTitleRanks = popularRanks.titleRanks
+                        analyticsPopularEntries = popularRanks.entries
                         viewModel.cachedPopularRanks = analyticsPopularRanks
                         viewModel.cachedPopularTitleRanks = analyticsPopularTitleRanks
+                        viewModel.cachedPopularEntries = analyticsPopularEntries
                         android.util.Log.d(
                             "PodcastsFragment",
                             "Loaded analytics popularity ranks: ids=${popularRanks.idRanks.size}, titles=${popularRanks.titleRanks.size}, fromCache=${popularRanks.fromCache}"
@@ -1235,8 +1239,10 @@ class PodcastsFragment : Fragment() {
                             ) {
                                 analyticsPopularRanks = freshRanks.idRanks
                                 analyticsPopularTitleRanks = freshRanks.titleRanks
+                                analyticsPopularEntries = freshRanks.entries
                                 viewModel.cachedPopularRanks = analyticsPopularRanks
                                 viewModel.cachedPopularTitleRanks = analyticsPopularTitleRanks
+                                viewModel.cachedPopularEntries = analyticsPopularEntries
                                 android.util.Log.d(
                                     "PodcastsFragment",
                                     "Updated popularity ranks from network: ids=${freshRanks.idRanks.size}, titles=${freshRanks.titleRanks.size}"
@@ -1388,8 +1394,10 @@ class PodcastsFragment : Fragment() {
 
                 analyticsPopularRanks = freshRanks.idRanks
                 analyticsPopularTitleRanks = freshRanks.titleRanks
+                analyticsPopularEntries = freshRanks.entries
                 viewModel.cachedPopularRanks = analyticsPopularRanks
                 viewModel.cachedPopularTitleRanks = analyticsPopularTitleRanks
+                viewModel.cachedPopularEntries = analyticsPopularEntries
 
                 android.util.Log.d(
                     "PodcastsFragment",
@@ -3194,9 +3202,31 @@ class PodcastsFragment : Fragment() {
 
     private fun sortPodcasts(podcasts: List<Podcast>): List<Podcast> {
         return when (normalizeSortValue(currentSort)) {
-            SORT_MOST_POPULAR -> podcasts
-                .filter { hasPopularRank(it) }
-                .sortedWith(compareBy { getPopularRank(it) })
+            SORT_MOST_POPULAR -> {
+                val localIds = podcasts.map { it.id }.toSet()
+                val localTitles = podcasts.map { normalizePodcastTitle(it.title) }.toSet()
+                val syntheticPodcasts = analyticsPopularEntries
+                    .filter { entry ->
+                        !localIds.contains(entry.id) &&
+                        !localTitles.contains(normalizePodcastTitle(entry.name))
+                    }
+                    .map { entry ->
+                        Podcast(
+                            id = entry.id,
+                            title = entry.name,
+                            description = "",
+                            rssUrl = "https://podcasts.files.bbci.co.uk/${entry.id}.rss",
+                            htmlUrl = "",
+                            imageUrl = "",
+                            genres = emptyList(),
+                            typicalDurationMins = 0
+                        )
+                    }
+                val allPodcastsForPopular = podcasts + syntheticPodcasts
+                allPodcastsForPopular
+                    .filter { hasPopularRank(it) }
+                    .sortedWith(compareBy { getPopularRank(it) })
+            }
             SORT_MOST_RECENT_EPISODES -> podcasts.sortedWith(
                 compareByDescending<Podcast> { latestEpisodeEpoch(it) }
                     .thenBy { it.title }

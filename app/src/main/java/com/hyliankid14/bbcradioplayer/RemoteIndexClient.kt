@@ -52,9 +52,16 @@ import java.util.zip.GZIPInputStream
  */
 class RemoteIndexClient(private val context: Context) {
 
+    data class PopularPodcastEntry(
+        val id: String,
+        val name: String,
+        val plays: Int
+    )
+
     data class PopularPodcastRanking(
         val idRanks: Map<String, Int>,
         val titleRanks: Map<String, Int>,
+        val entries: List<PopularPodcastEntry> = emptyList(),
         /** True when these ranks were read from the on-device disk cache rather than fetched live. */
         val fromCache: Boolean = false,
         /** The `generated_at` timestamp from the GCS snapshot that produced these ranks. */
@@ -131,7 +138,10 @@ class RemoteIndexClient(private val context: Context) {
         // interval so the cache expires within one update cycle of the GitHub Actions workflow).
         // The cache is written after each successful network fetch so subsequent
         // app launches return immediately without waiting for the home server.
-        private const val POPULAR_CACHE_FILENAME = "popular_podcast_ranks.json"
+        // The filename includes the days/limit parameters so different windows don't
+        // share stale data.
+        private const val POPULAR_CACHE_FILENAME_PREFIX = "popular_podcast_ranks_"
+        private const val POPULAR_CACHE_FILENAME_SUFFIX = ".json"
         private const val POPULAR_CACHE_TTL_MS = 6 * 60 * 60 * 1_000L
         private const val NEW_PODCASTS_CACHE_FILENAME = "new_podcasts_snapshot.json"
         private const val NEW_PODCASTS_CACHE_TTL_MS = 6 * 60 * 60 * 1_000L
@@ -813,7 +823,7 @@ class RemoteIndexClient(private val context: Context) {
     fun fetchPopularPodcastRanks(days: Int = 90, limit: Int = 30, skipCache: Boolean = false): PopularPodcastRanking {
         // Step 1: return disk cache immediately if it is still fresh (and not bypassed).
         if (!skipCache) {
-            readPopularRanksCache()?.let { cached ->
+            readPopularRanksCache(days, limit)?.let { cached ->
                 Log.d(TAG, "fetchPopularPodcastRanks: returning fresh disk cache")
                 return cached.copy(fromCache = true)
             }
@@ -874,13 +884,16 @@ class RemoteIndexClient(private val context: Context) {
                     }
                 }
 
+                val popularEntries = sorted.map { PopularPodcastEntry(it.id, it.name, it.plays) }
+
                 if (idRanks.isNotEmpty() || titleRanks.isNotEmpty()) {
                     val result = PopularPodcastRanking(
                         idRanks = idRanks,
                         titleRanks = titleRanks,
+                        entries = popularEntries,
                         snapshotGeneratedAt = generatedAt
                     )
-                    savePopularRanksCache(result)
+                    savePopularRanksCache(result, days, limit)
                     return result
                 }
             } catch (e: Exception) {
@@ -1023,8 +1036,11 @@ class RemoteIndexClient(private val context: Context) {
      * Returns null if the cache file does not exist or is older than
      * [POPULAR_CACHE_TTL_MS] (6 hours).
      */
-    private fun readPopularRanksCache(): PopularPodcastRanking? {
-        val cacheFile = File(context.cacheDir, POPULAR_CACHE_FILENAME)
+    private fun popularCacheFilename(days: Int, limit: Int): String =
+        "${POPULAR_CACHE_FILENAME_PREFIX}d${days}_l${limit}${POPULAR_CACHE_FILENAME_SUFFIX}"
+
+    private fun readPopularRanksCache(days: Int, limit: Int): PopularPodcastRanking? {
+        val cacheFile = File(context.cacheDir, popularCacheFilename(days, limit))
         if (!cacheFile.exists()) return null
         if (System.currentTimeMillis() - cacheFile.lastModified() > POPULAR_CACHE_TTL_MS) return null
         return try {
@@ -1035,8 +1051,20 @@ class RemoteIndexClient(private val context: Context) {
             val titleRanks = linkedMapOf<String, Int>()
             idRanksObj.keys().forEach { key -> idRanks[key] = idRanksObj.getInt(key) }
             titleRanksObj.keys().forEach { key -> titleRanks[key] = titleRanksObj.getInt(key) }
+            val entriesArr = json.optJSONArray("entries")
+            val entries = mutableListOf<PopularPodcastEntry>()
+            if (entriesArr != null) {
+                for (i in 0 until entriesArr.length()) {
+                    val item = entriesArr.optJSONObject(i) ?: continue
+                    entries.add(PopularPodcastEntry(
+                        id = item.optString("id", "").trim(),
+                        name = item.optString("name", "").trim(),
+                        plays = item.optInt("plays", 0)
+                    ))
+                }
+            }
             val generatedAt = json.optString("generated_at", "")
-            PopularPodcastRanking(idRanks = idRanks, titleRanks = titleRanks, snapshotGeneratedAt = generatedAt)
+            PopularPodcastRanking(idRanks = idRanks, titleRanks = titleRanks, entries = entries, snapshotGeneratedAt = generatedAt)
         } catch (e: Exception) {
             Log.d(TAG, "Failed to read popular ranks cache: ${e.message}")
             null
@@ -1054,23 +1082,32 @@ class RemoteIndexClient(private val context: Context) {
      * Writes to a temporary file first and renames atomically to prevent a
      * corrupt cache if the app is killed mid-write.
      */
-    private fun savePopularRanksCache(ranking: PopularPodcastRanking) {
-        val cacheFile = File(context.cacheDir, POPULAR_CACHE_FILENAME)
-        val tmpFile = File(context.cacheDir, "$POPULAR_CACHE_FILENAME.tmp")
+    private fun savePopularRanksCache(ranking: PopularPodcastRanking, days: Int, limit: Int) {
+        val cacheFile = File(context.cacheDir, popularCacheFilename(days, limit))
+        val tmpFile = File(context.cacheDir, "${popularCacheFilename(days, limit)}.tmp")
         try {
             val idRanksObj = JSONObject()
             ranking.idRanks.forEach { (k, v) -> idRanksObj.put(k, v) }
             val titleRanksObj = JSONObject()
             ranking.titleRanks.forEach { (k, v) -> titleRanksObj.put(k, v) }
+            val entriesArr = JSONArray()
+            ranking.entries.forEach { entry ->
+                val obj = JSONObject()
+                obj.put("id", entry.id)
+                obj.put("name", entry.name)
+                obj.put("plays", entry.plays)
+                entriesArr.put(obj)
+            }
             val json = JSONObject()
             json.put("id_ranks", idRanksObj)
             json.put("title_ranks", titleRanksObj)
+            json.put("entries", entriesArr)
             if (ranking.snapshotGeneratedAt.isNotBlank()) {
                 json.put("generated_at", ranking.snapshotGeneratedAt)
             }
             tmpFile.writeText(json.toString())
             tmpFile.renameTo(cacheFile)
-            Log.d(TAG, "Saved popular ranks cache: ${ranking.idRanks.size} ids")
+            Log.d(TAG, "Saved popular ranks cache: ${ranking.idRanks.size} ids, ${ranking.entries.size} entries")
         } catch (e: Exception) {
             Log.d(TAG, "Failed to save popular ranks cache: ${e.message}")
             tmpFile.delete()

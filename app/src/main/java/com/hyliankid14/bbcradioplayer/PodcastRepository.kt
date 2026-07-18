@@ -673,7 +673,7 @@ class PodcastRepository(private val context: Context) {
             remote.fetchPopularPodcastRanks(days = days, skipCache = skipCache)
         } catch (e: Exception) {
             Log.w("PodcastRepository", "Error fetching popular podcast ranks", e)
-            RemoteIndexClient.PopularPodcastRanking(idRanks = emptyMap(), titleRanks = emptyMap())
+            RemoteIndexClient.PopularPodcastRanking(idRanks = emptyMap(), titleRanks = emptyMap(), entries = emptyList())
         }
     }
 
