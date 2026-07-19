@@ -2747,11 +2747,27 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
         
         val audioQuality = ThemePreference.getEffectiveAudioQuality(this)
         
-        // Start playback immediately assuming not geo-blocked (most common case)
-        // Geo-probe runs asynchronously in background to avoid blocking station cycling
-        currentStreamCandidates = station.getStreamCandidates(audioQuality, geoBlocked = false)
-        val stationIdForGeoProbe = station.id
+        // Run geo-probe synchronously to determine correct stream immediately
+        // This ensures UK users get UK streams and non-UK users get international streams without delay
         val ukOnlyUrl = station.directStreamUrls.firstOrNull { it.contains("&uk=1") && it.isNotBlank() }
+        val geoBlocked = if (ukOnlyUrl != null) {
+            try {
+                kotlinx.coroutines.runBlocking {
+                    withTimeoutOrNull(2500) { probeGeoBlock(ukOnlyUrl) } ?: false
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Geo-probe failed: ${e.message}")
+                false
+            }
+        } else {
+            false
+        }
+        
+        if (geoBlocked) {
+            Log.d(TAG, "Geo-probe detected blocking, using international streams for ${station.title}")
+        }
+        
+        currentStreamCandidates = station.getStreamCandidates(audioQuality, geoBlocked = geoBlocked)
         if (currentStreamCandidates.isEmpty()) {
             Log.w(TAG, "No stream candidates available for station: ${station.id}")
             return
@@ -2839,31 +2855,6 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
             prepare()
             Log.d(TAG, "Player prepare() called successfully")
         } ?: Log.e(TAG, "Player is null, cannot prepare!")
-        
-        // Async geo-probe: check if UK-only stream is accessible, switch to international if blocked
-        if (ukOnlyUrl != null) {
-            serviceScope.launch(Dispatchers.IO) {
-                try {
-                    val geoBlocked = withTimeoutOrNull(2500) { probeGeoBlock(ukOnlyUrl) } ?: false
-                    if (geoBlocked && currentStationId == stationIdForGeoProbe) {
-                        Log.d(TAG, "Geo-probe detected blocking, switching to international streams")
-                        withContext(Dispatchers.Main) {
-                            currentStreamCandidates = station.getStreamCandidates(audioQuality, geoBlocked = true)
-                            currentStreamCandidateIndex = 0
-                            val newStreamUri = currentStreamCandidates.firstOrNull()
-                            if (newStreamUri != null && newStreamUri != streamUri) {
-                                player?.apply {
-                                    setMediaItem(ExoMediaItem.fromUri(newStreamUri))
-                                    prepare()
-                                }
-                            }
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Async geo-probe failed: ${e.message}")
-                }
-            }
-        }
         
         // Schedule periodic show info refresh (every 30 seconds)
         scheduleShowInfoRefresh()

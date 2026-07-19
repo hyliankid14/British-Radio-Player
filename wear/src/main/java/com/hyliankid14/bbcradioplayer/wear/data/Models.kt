@@ -21,21 +21,20 @@ data class Station(
             }
         }
 
-        // Second: International/worldwide streams (Akamai ww, BBC non-UK)
-        for (url in directStreamUrls.filter { it.isNotBlank() }) {
-            if (!url.contains("&uk=1")) {
-                candidates += url
-            }
-        }
-        for (sid in streamServiceIds.filter { it.isNotBlank() }) {
-            candidates += "https://a.files.bbci.co.uk/media/live/manifesto/audio/simulcast/hls/nonuk/sbr_low/ak/$sid.m3u8"
-        }
-
         if (geoBlocked) {
+            // Only add international streams if geo-blocked
+            for (url in directStreamUrls.filter { it.isNotBlank() }) {
+                if (!url.contains("&uk=1")) {
+                    candidates += url
+                }
+            }
+            for (sid in streamServiceIds.filter { it.isNotBlank() }) {
+                candidates += "https://a.files.bbci.co.uk/media/live/manifesto/audio/simulcast/hls/nonuk/sbr_low/ak/$sid.m3u8"
+            }
             return candidates.distinct()
         }
 
-        // Third: UK streams at other bitrates and generated lsn.lv URLs
+        // Second: UK streams at other bitrates and generated lsn.lv URLs
         for (url in directStreamUrls.filter { it.isNotBlank() }) {
             if (url.contains("&uk=1") && !url.contains("bitrate=$qualityBitrate")) {
                 candidates += url
@@ -47,9 +46,19 @@ data class Station(
             }
         }
 
-        // Fourth: BBC UK HLS as final fallback
+        // Third: BBC UK HLS as fallback
         for (sid in streamServiceIds.filter { it.isNotBlank() }) {
             candidates += "https://a.files.bbci.co.uk/media/live/manifesto/audio/simulcast/hls/uk/sbr_high/ak/$sid.m3u8"
+        }
+
+        // Fourth: International/worldwide streams as last resort (Akamai ww, BBC non-UK)
+        for (url in directStreamUrls.filter { it.isNotBlank() }) {
+            if (!url.contains("&uk=1")) {
+                candidates += url
+            }
+        }
+        for (sid in streamServiceIds.filter { it.isNotBlank() }) {
+            candidates += "https://a.files.bbci.co.uk/media/live/manifesto/audio/simulcast/hls/nonuk/sbr_low/ak/$sid.m3u8"
         }
 
         return candidates.distinct()

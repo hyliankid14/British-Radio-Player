@@ -1300,20 +1300,20 @@
 
             async resolveStationPlayableUrl(serviceId, highQuality = true) {
                 const stationUrl = this.buildStationStreamUrl(serviceId, highQuality);
-                const bbcNonUkUrl = `https://a.files.bbci.co.uk/media/live/manifesto/audio/simulcast/hls/nonuk/sbr_low/ak/${encodeURIComponent(serviceId)}.m3u8`;
                 const bbcUkUrl = `https://a.files.bbci.co.uk/media/live/manifesto/audio/simulcast/hls/uk/sbr_high/ak/${encodeURIComponent(serviceId)}.m3u8`;
+                const bbcNonUkUrl = `https://a.files.bbci.co.uk/media/live/manifesto/audio/simulcast/hls/nonuk/sbr_low/ak/${encodeURIComponent(serviceId)}.m3u8`;
                 
-                // Radio 5 Live: add international Akamai stream as early candidate
+                // Radio 5 Live: add international Akamai stream as last resort
                 const radio5LiveIntlUrl = serviceId === 'bbc_radio_five_live' ? RADIO5LIVE_INTL : null;
                 
                 const endpoints = [
                     stationUrl,
                     `https://api.allorigins.win/raw?url=${encodeURIComponent(stationUrl)}`,
-                    radio5LiveIntlUrl,
+                    bbcUkUrl,
+                    `https://api.allorigins.win/raw?url=${encodeURIComponent(bbcUkUrl)}`,
                     bbcNonUkUrl,
                     `https://api.allorigins.win/raw?url=${encodeURIComponent(bbcNonUkUrl)}`,
-                    bbcUkUrl,
-                    `https://api.allorigins.win/raw?url=${encodeURIComponent(bbcUkUrl)}`
+                    radio5LiveIntlUrl
                 ].filter(u => u !== null);
 
                 for (const endpoint of endpoints) {
@@ -1376,9 +1376,9 @@
                         // Build a list of candidate URLs so Hls.js can fall back on fatal error.
                         // Exclude the primary resolved URL to avoid duplicating it in the fallback list.
                         const fallbackCandidates = [
+                            `https://a.files.bbci.co.uk/media/live/manifesto/audio/simulcast/hls/uk/sbr_high/ak/${encodeURIComponent(station.serviceId)}.m3u8`,
                             `https://a.files.bbci.co.uk/media/live/manifesto/audio/simulcast/hls/nonuk/sbr_low/ak/${encodeURIComponent(station.serviceId)}.m3u8`,
-                            ...(station.serviceId === 'bbc_radio_five_live' ? [RADIO5LIVE_INTL] : []),
-                            `https://a.files.bbci.co.uk/media/live/manifesto/audio/simulcast/hls/uk/sbr_high/ak/${encodeURIComponent(station.serviceId)}.m3u8`
+                            ...(station.serviceId === 'bbc_radio_five_live' ? [RADIO5LIVE_INTL] : [])
                         ].filter(u => u !== resolvedUrl);
                         let fallbackIndex = 0;
 

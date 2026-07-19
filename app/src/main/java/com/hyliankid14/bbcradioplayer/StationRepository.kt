@@ -32,21 +32,20 @@ data class Station(
             }
         }
 
-        // Second: International/worldwide streams (Akamai ww, BBC non-UK) - work from anywhere
-        for (url in directStreamUrls.filter { it.isNotBlank() }) {
-            if (!url.contains("&uk=1")) {
-                candidates += url
-            }
-        }
-        for (sid in streamServiceIds.filter { it.isNotBlank() }) {
-            candidates += "$BBC_HLS_NONUK/$sid.m3u8"
-        }
-
         if (geoBlocked) {
+            // Only add international streams if geo-blocked
+            for (url in directStreamUrls.filter { it.isNotBlank() }) {
+                if (!url.contains("&uk=1")) {
+                    candidates += url
+                }
+            }
+            for (sid in streamServiceIds.filter { it.isNotBlank() }) {
+                candidates += "$BBC_HLS_NONUK/$sid.m3u8"
+            }
             return candidates.distinct()
         }
 
-        // Third: UK streams at other bitrates (if user's quality failed)
+        // Second: UK streams at other bitrates (if user's quality failed)
         for (url in directStreamUrls.filter { it.isNotBlank() }) {
             if (url.contains("&uk=1") && !url.contains("bitrate=$requestedBitrate")) {
                 candidates += url
@@ -58,9 +57,19 @@ data class Station(
             }
         }
 
-        // Fourth: BBC UK HLS as final fallback
+        // Third: BBC UK HLS as fallback
         for (sid in streamServiceIds.filter { it.isNotBlank() }) {
             candidates += "$BBC_HLS_UK/$sid.m3u8"
+        }
+
+        // Fourth: International/worldwide streams as last resort (Akamai ww, BBC non-UK)
+        for (url in directStreamUrls.filter { it.isNotBlank() }) {
+            if (!url.contains("&uk=1")) {
+                candidates += url
+            }
+        }
+        for (sid in streamServiceIds.filter { it.isNotBlank() }) {
+            candidates += "$BBC_HLS_NONUK/$sid.m3u8"
         }
 
         return candidates.distinct()
