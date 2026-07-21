@@ -19,12 +19,12 @@ def analyticsEndpoint = (project.findProperty("ANALYTICS_ENDPOINT_URL") ?: Syste
 
 android {
     namespace "com.hyliankid14.bbcradioplayer.wear"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.hyliankid14.bbcradioplayer"
         minSdk = 30
-        targetSdk = 35
+        targetSdk = 36
         versionCode = wearVersionCode
         versionName = appVersionName
 

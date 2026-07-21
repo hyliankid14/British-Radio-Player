@@ -30,13 +30,13 @@ def analyticsEndpoint = (project.hasProperty("ANALYTICS_ENDPOINT_URL") ? project
 
 android {
     namespace "com.hyliankid14.bbcradioplayer"
-    compileSdk = 35
+    compileSdk = 36
     flavorDimensions += ["distribution"]
 
     defaultConfig {
         applicationId = "com.hyliankid14.bbcradioplayer"
         minSdk = 21
-        targetSdk = 35
+        targetSdk = 36
         versionCode = appVersionCode
         versionName = appVersionName
 
