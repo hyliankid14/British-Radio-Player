@@ -46,7 +46,41 @@ object StationRepository {
             "Radio 5 Sports Extra",
             "bbc_radio_five_live_sports_extra",
             streamServiceIds = listOf("bbc_radio_five_live_sports_extra", "bbc_radio_five_sports_extra"),
-            directStreamUrls = listOf("https://as-hls-uk-live.akamaized.net/pool_47700285/live/uk/bbc_radio_five_live_sports_extra/bbc_radio_five_live_sports_extra.isml/bbc_radio_five_live_sports_extra-audio%3d96000.norewind.m3u8"),
+            directStreamUrls = listOf(
+                "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_live_sports_extra&bitrate=320000&uk=1",
+                "https://as-hls-uk-live.akamaized.net/pool_47700285/live/uk/bbc_radio_five_live_sports_extra/bbc_radio_five_live_sports_extra.isml/bbc_radio_five_live_sports_extra-audio%3d96000.norewind.m3u8",
+                "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_live_sports_extra&bitrate=128000&uk=1",
+                "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_live_sports_extra&bitrate=96000&uk=1",
+                "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_live_sports_extra&bitrate=48000&uk=1"
+            ),
+            category = StationCategory.NATIONAL
+        ),
+        station(
+            "radio5livesportsextra2",
+            "Radio 5 Sports Extra 2",
+            "bbc_radio_five_sports_extra_2",
+            streamServiceIds = listOf("bbc_radio_five_sports_extra_2", "bbc_radio_five_live_sports_extra_2"),
+            directStreamUrls = listOf(
+                "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_sports_extra_2&bitrate=320000&uk=1",
+                "https://a.files.bbci.co.uk/ms6/live/3441A116-B12E-4D2F-ACA8-C1984642FA4B/audio/simulcast/hls/uk/audio_syndication_high_sbr_v1/ak/bbc_radio_five_sports_extra_2.m3u8",
+                "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_sports_extra_2&bitrate=128000&uk=1",
+                "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_sports_extra_2&bitrate=96000&uk=1",
+                "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_sports_extra_2&bitrate=48000&uk=1"
+            ),
+            category = StationCategory.NATIONAL
+        ),
+        station(
+            "radio5livesportsextra3",
+            "Radio 5 Sports Extra 3",
+            "bbc_radio_five_sports_extra_3",
+            streamServiceIds = listOf("bbc_radio_five_sports_extra_3", "bbc_radio_five_live_sports_extra_3"),
+            directStreamUrls = listOf(
+                "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_sports_extra_3&bitrate=320000&uk=1",
+                "https://a.files.bbci.co.uk/ms6/live/3441A116-B12E-4D2F-ACA8-C1984642FA4B/audio/simulcast/hls/uk/audio_syndication_high_sbr_v1/ak/bbc_radio_five_sports_extra_3.m3u8",
+                "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_sports_extra_3&bitrate=128000&uk=1",
+                "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_sports_extra_3&bitrate=96000&uk=1",
+                "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_sports_extra_3&bitrate=48000&uk=1"
+            ),
             category = StationCategory.NATIONAL
         ),
         station("radio6", "Radio 6 Music", "bbc_6music", category = StationCategory.NATIONAL),
