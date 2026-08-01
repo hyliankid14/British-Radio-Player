@@ -800,6 +800,29 @@ class RemoteIndexClient(private val context: Context) {
     }
 
     /**
+     * Fetch search suggestions from the live search endpoint.
+     * Returns a list of podcast titles matching the query prefix.
+     */
+    fun searchSuggestions(query: String, limit: Int = 10): List<String> {
+        if (query.length < 2) return emptyList()
+        return try {
+            val url = "$LIVE_SEARCH_URL/search/suggestions?q=${encode(query)}&limit=$limit"
+            val array = getJsonArray(
+                url,
+                connectTimeoutMs = LIVE_SEARCH_CONNECT_TIMEOUT_MS,
+                readTimeoutMs = LIVE_SEARCH_READ_TIMEOUT_MS
+            ) ?: return emptyList()
+            (0 until array.length()).mapNotNull { i ->
+                val obj = array.optJSONObject(i) ?: return@mapNotNull null
+                obj.optString("title")
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "searchSuggestions failed: ${e.message}")
+            emptyList()
+        }
+    }
+
+    /**
      * Fetch podcast popularity ranks from analytics stats.
      *
      * Returns a map of podcast ID -> 1-based rank, where lower is more popular.

@@ -37,6 +37,15 @@
             android:singleLine="true" />
     </com.google.android.material.textfield.TextInputLayout>
 
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/suggestions_recycler"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:visibility="gone"
+        android:background="?attr/colorSurfaceContainer"
+        android:elevation="2dp" />
+
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

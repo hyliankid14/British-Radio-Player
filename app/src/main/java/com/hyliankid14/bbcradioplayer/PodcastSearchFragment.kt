@@ -10,13 +10,22 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.core.widget.addTextChangedListener
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class PodcastSearchFragment : Fragment() {
 
     private lateinit var history: SearchHistory
     private lateinit var recentAdapter: RecentSearchAdapter
+    private lateinit var suggestionsAdapter: SuggestionsAdapter
+    private lateinit var remoteIndexClient: RemoteIndexClient
+    private var suggestionsJob: Job? = null
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -29,10 +38,12 @@ class PodcastSearchFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         history = SearchHistory(requireContext())
+        remoteIndexClient = RemoteIndexClient(requireContext())
 
         val toolbar = view.findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.podcast_search_toolbar)
         val searchInput = view.findViewById<com.google.android.material.textfield.TextInputEditText>(R.id.podcast_search_input)
         val recentRecycler = view.findViewById<RecyclerView>(R.id.recent_searches_recycler)
+        val suggestionsRecycler = view.findViewById<RecyclerView>(R.id.suggestions_recycler)
 
         toolbar.setNavigationOnClickListener {
             requireActivity().onBackPressedDispatcher.onBackPressed()
@@ -57,14 +68,44 @@ class PodcastSearchFragment : Fragment() {
         )
         recentRecycler.adapter = recentAdapter
 
+        suggestionsRecycler.layoutManager = LinearLayoutManager(requireContext())
+        suggestionsAdapter = SuggestionsAdapter(
+            items = mutableListOf(),
+            onSuggestionClick = { suggestion ->
+                searchInput.setText(suggestion)
+                searchInput.setSelection(suggestion.length)
+                openResults(suggestion)
+            }
+        )
+        suggestionsRecycler.adapter = suggestionsAdapter
+
         val initialQuery = requireArguments().getString(ARG_INITIAL_QUERY).orEmpty()
         searchInput.setText(initialQuery)
         if (initialQuery.isNotEmpty()) {
             searchInput.setSelection(initialQuery.length)
         }
 
-        searchInput.addTextChangedListener {
-            // Browsing-only page: typing here should not trigger inline result rendering.
+        searchInput.addTextChangedListener { text ->
+            val query = text?.toString()?.trim().orEmpty()
+            if (query.length < 2) {
+                suggestionsRecycler.visibility = View.GONE
+                suggestionsJob?.cancel()
+                return@addTextChangedListener
+            }
+
+            suggestionsJob?.cancel()
+            suggestionsJob = viewLifecycleOwner.lifecycleScope.launch {
+                delay(300)
+                val suggestions = withContext(Dispatchers.IO) {
+                    remoteIndexClient.searchSuggestions(query)
+                }
+                if (suggestions.isNotEmpty()) {
+                    suggestionsAdapter.submit(suggestions)
+                    suggestionsRecycler.visibility = View.VISIBLE
+                } else {
+                    suggestionsRecycler.visibility = View.GONE
+                }
+            }
         }
 
         searchInput.setOnEditorActionListener { _, actionId, event ->
@@ -195,6 +236,36 @@ class PodcastSearchFragment : Fragment() {
             holder.itemView.setOnClickListener { onQueryClick(query) }
             holder.saveButton.setOnClickListener { onEditSave(query) }
             holder.deleteButton.setOnClickListener { onDelete(query) }
+        }
+
+        override fun getItemCount(): Int = items.size
+
+        fun submit(newItems: List<String>) {
+            items.clear()
+            items.addAll(newItems)
+            notifyDataSetChanged()
+        }
+    }
+
+    class SuggestionsAdapter(
+        private val items: MutableList<String>,
+        private val onSuggestionClick: (String) -> Unit
+    ) : RecyclerView.Adapter<SuggestionsAdapter.SuggestionViewHolder>() {
+
+        class SuggestionViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+            val suggestionText: TextView = itemView.findViewById(R.id.suggestion_text)
+        }
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): SuggestionViewHolder {
+            val view = LayoutInflater.from(parent.context)
+                .inflate(R.layout.item_search_suggestion, parent, false)
+            return SuggestionViewHolder(view)
+        }
+
+        override fun onBindViewHolder(holder: SuggestionViewHolder, position: Int) {
+            val suggestion = items[position]
+            holder.suggestionText.text = suggestion
+            holder.itemView.setOnClickListener { onSuggestionClick(suggestion) }
         }
 
         override fun getItemCount(): Int = items.size
