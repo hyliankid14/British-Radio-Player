@@ -154,6 +154,8 @@ class RadioService : MediaBrowserServiceCompat() {
     //     finally block clears pendingAutoplayNextEpisode immediately after sending
     //     STATE_STOPPED, so a delayed onPlay() from Android Auto hits the unguarded path.
     @Volatile private var podcastEpisodeEndedNoRestart: Boolean = false
+    @Volatile private var stoppedForTransientFocusLoss: Boolean = false
+    @Volatile private var hasBeenPlayingBeforePause: Boolean = false
     // Set to true when playPodcastEpisode() has queued a new media item but the player
     // has not yet reached STATE_READY.  Cleared by onPlaybackStateChanged when READY
     // fires.  This defers the clearing of podcastEpisodeEndedNoRestart and
@@ -1968,6 +1970,7 @@ class RadioService : MediaBrowserServiceCompat() {
                         // handler the 10-second timer would keep ticking through paused periods and
                         // fire based on wall-clock time rather than actual listen time.
                         if (isPlaying) {
+                            hasBeenPlayingBeforePause = true
                             if (stationAnalyticsPending && !stationAnalyticsScheduled && stationAnalyticsRunnable != null) {
                                 handler.postDelayed(stationAnalyticsRunnable!!, ANALYTICS_MIN_PLAY_MS)
                                 stationAnalyticsScheduled = true
@@ -1975,6 +1978,16 @@ class RadioService : MediaBrowserServiceCompat() {
                             if (episodeAnalyticsPending && !episodeAnalyticsScheduled && episodeAnalyticsRunnable != null) {
                                 handler.postDelayed(episodeAnalyticsRunnable!!, ANALYTICS_MIN_PLAY_MS)
                                 episodeAnalyticsScheduled = true
+                            }
+                            
+                            // If we stopped the player due to transient audio focus loss (to respect
+                            // the pause buffering preference), restart from live edge now that focus returned.
+                            if (stoppedForTransientFocusLoss) {
+                                Log.d(TAG, "Audio focus regained — restarting from live edge")
+                                stoppedForTransientFocusLoss = false
+                                if (currentStationId.isNotEmpty() && !currentStationId.startsWith("podcast_")) {
+                                    playStation(currentStationId)
+                                }
                             }
                         } else {
                             if (stationAnalyticsScheduled) {
@@ -1984,6 +1997,28 @@ class RadioService : MediaBrowserServiceCompat() {
                             if (episodeAnalyticsScheduled) {
                                 episodeAnalyticsRunnable?.let { handler.removeCallbacks(it) }
                                 episodeAnalyticsScheduled = false
+                            }
+                            
+                            // Detect transient audio focus loss: ExoPlayer paused internally but
+                            // playWhenReady is still true (app didn't pause). If pause buffering is
+                            // off for live radio, stop the player to prevent buffering.
+                            // Only trigger if the player was actually playing before (hasBeenPlayingBeforePause)
+                            // to avoid false positives during initial startup buffering.
+                            val currentPlayer = player
+                            if (!isStopped && hasBeenPlayingBeforePause && currentPlayer != null && currentPlayer.playWhenReady && 
+                                (currentPlayer.playbackState == Player.STATE_READY || 
+                                 currentPlayer.playbackState == Player.STATE_BUFFERING)) {
+                                val isLiveRadio = !currentStationId.startsWith("podcast_")
+                                val pauseBufferingEnabled = PlaybackPreference.isLiveRadioPauseBufferingEnabled(this@RadioService)
+                                
+                                if (isLiveRadio && !pauseBufferingEnabled) {
+                                    Log.d(TAG, "Transient audio focus loss detected — stopping player to prevent buffering")
+                                    currentPlayer.stop()
+                                    stoppedForTransientFocusLoss = true
+                                    hasBeenPlayingBeforePause = false
+                                    updatePlaybackState(PlaybackStateCompat.STATE_PAUSED)
+                                    PlaybackStateHelper.setIsPlaying(false)
+                                }
                             }
                         }
                     }
