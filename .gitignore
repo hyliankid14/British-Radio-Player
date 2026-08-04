@@ -76,3 +76,4 @@ scripts/test_email.py
 # Scripts and API directories (not for release)
 /scripts/
 /api/
+/docker/
