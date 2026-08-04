@@ -15,6 +15,10 @@ struct FullPlayerView: View {
     private var elapsed: String { formatTime(audio.currentTime) }
     private var remaining: String { audio.duration > 0 ? "-\(formatTime(audio.duration - audio.currentTime))" : "" }
 
+    @Environment(\.horizontalSizeClass) private var hSizeClass
+
+    private var artworkSize: CGFloat { hSizeClass == .regular ? 180 : 240 }
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 24) {
@@ -26,7 +30,7 @@ struct FullPlayerView: View {
                 } label: {
                     artworkView
                         .id(artworkIdentity)
-                        .frame(width: 240, height: 240)
+                        .frame(width: artworkSize, height: artworkSize)
                         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                         .shadow(radius: 12)
                 }
