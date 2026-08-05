@@ -56,21 +56,76 @@ class RadioService : MediaBrowserServiceCompat() {
     private val audioManager by lazy { getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     private var audioFocusRequest: AudioFocusRequest? = null
     
-    // Audio focus listener — fully stops playback on permanent loss so that switching
-    // to another audio app leaves no lingering notification or service.
-    // Note: ExoPlayer also manages audio focus internally (handleAudioFocus = true),
-    // so this listener receives AUDIOFOCUS_LOSS both from external apps AND from
-    // ExoPlayer's own focus request during startup. The player?.isPlaying guard
-    // prevents a false stopPlayback() during the startup window before playback begins.
+    // Audio focus listener — handles all focus changes to support auto-resume after
+    // transient loss (notifications, Gemini, etc.)
     private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
-        if (focusChange == AudioManager.AUDIOFOCUS_LOSS) {
-            Log.d(TAG, "Audio focus permanently lost — stopping playback")
-            try {
-                if (player?.isPlaying == true) {
-                    stopPlayback()
+        when (focusChange) {
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                Log.d(TAG, "Audio focus regained")
+                try {
+                    if (stoppedForTransientFocusLoss) {
+                        Log.d(TAG, "Resuming after transient focus loss — restarting from live edge")
+                        stoppedForTransientFocusLoss = false
+                        if (currentStationId.isNotEmpty() && !currentStationId.startsWith("podcast_")) {
+                            playStation(currentStationId)
+                        } else if (currentStationId.startsWith("podcast_")) {
+                            player?.play()
+                        }
+                    } else if (player != null && !isStopped && player?.isPlaying == false) {
+                        player?.play()
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error resuming playback on audio focus gain: ${e.message}")
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error stopping playback on focus loss: ${e.message}")
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                Log.d(TAG, "Audio focus temporarily lost")
+                try {
+                    val currentPlayer = player
+                    if (currentPlayer != null && !isStopped && currentPlayer.isPlaying) {
+                        val isLiveRadio = !currentStationId.startsWith("podcast_")
+                        val pauseBufferingEnabled = PlaybackPreference.isLiveRadioPauseBufferingEnabled(this@RadioService)
+                        
+                        if (isLiveRadio && !pauseBufferingEnabled) {
+                            Log.d(TAG, "Transient focus loss — stopping player to prevent buffering")
+                            currentPlayer.stop()
+                            stoppedForTransientFocusLoss = true
+                            hasBeenPlayingBeforePause = false
+                            updatePlaybackState(PlaybackStateCompat.STATE_PAUSED)
+                            PlaybackStateHelper.setIsPlaying(false)
+                        } else {
+                            currentPlayer.pause()
+                            updatePlaybackState(PlaybackStateCompat.STATE_PAUSED)
+                            PlaybackStateHelper.setIsPlaying(false)
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error handling transient audio focus loss: ${e.message}")
+                }
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                Log.d(TAG, "Audio focus temporarily lost (duck)")
+                try {
+                    player?.let {
+                        if (!isStopped && it.isPlaying) {
+                            it.pause()
+                            updatePlaybackState(PlaybackStateCompat.STATE_PAUSED)
+                            PlaybackStateHelper.setIsPlaying(false)
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error handling duck audio focus loss: ${e.message}")
+                }
+            }
+            AudioManager.AUDIOFOCUS_LOSS -> {
+                Log.d(TAG, "Audio focus permanently lost — stopping playback")
+                try {
+                    if (player?.isPlaying == true) {
+                        stopPlayback()
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error stopping playback on focus loss: ${e.message}")
+                }
             }
         }
     }
@@ -1854,12 +1909,14 @@ class RadioService : MediaBrowserServiceCompat() {
                 .setMediaSourceFactory(mediaSourceFactory)
                 .build().apply {
                 // Configure audio attributes for music playback
+                // handleAudioFocus = false: We manage audio focus manually to support auto-resume
+                // after transient loss (notifications, Gemini, etc.) in Android Auto
                 setAudioAttributes(
                     ExoAudioAttributes.Builder()
                         .setUsage(androidx.media3.common.C.USAGE_MEDIA)
                         .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MUSIC)
                         .build(),
-                    true
+                    false
                 )
                 
                 addListener(object : Player.Listener {
@@ -1980,15 +2037,7 @@ class RadioService : MediaBrowserServiceCompat() {
                                 episodeAnalyticsScheduled = true
                             }
                             
-                            // If we stopped the player due to transient audio focus loss (to respect
-                            // the pause buffering preference), restart from live edge now that focus returned.
-                            if (stoppedForTransientFocusLoss) {
-                                Log.d(TAG, "Audio focus regained — restarting from live edge")
-                                stoppedForTransientFocusLoss = false
-                                if (currentStationId.isNotEmpty() && !currentStationId.startsWith("podcast_")) {
-                                    playStation(currentStationId)
-                                }
-                            }
+                            // Audio focus regain is now handled in audioFocusChangeListener
                         } else {
                             if (stationAnalyticsScheduled) {
                                 stationAnalyticsRunnable?.let { handler.removeCallbacks(it) }
@@ -1997,28 +2046,6 @@ class RadioService : MediaBrowserServiceCompat() {
                             if (episodeAnalyticsScheduled) {
                                 episodeAnalyticsRunnable?.let { handler.removeCallbacks(it) }
                                 episodeAnalyticsScheduled = false
-                            }
-                            
-                            // Detect transient audio focus loss: ExoPlayer paused internally but
-                            // playWhenReady is still true (app didn't pause). If pause buffering is
-                            // off for live radio, stop the player to prevent buffering.
-                            // Only trigger if the player was actually playing before (hasBeenPlayingBeforePause)
-                            // to avoid false positives during initial startup buffering.
-                            val currentPlayer = player
-                            if (!isStopped && hasBeenPlayingBeforePause && currentPlayer != null && currentPlayer.playWhenReady && 
-                                (currentPlayer.playbackState == Player.STATE_READY || 
-                                 currentPlayer.playbackState == Player.STATE_BUFFERING)) {
-                                val isLiveRadio = !currentStationId.startsWith("podcast_")
-                                val pauseBufferingEnabled = PlaybackPreference.isLiveRadioPauseBufferingEnabled(this@RadioService)
-                                
-                                if (isLiveRadio && !pauseBufferingEnabled) {
-                                    Log.d(TAG, "Transient audio focus loss detected — stopping player to prevent buffering")
-                                    currentPlayer.stop()
-                                    stoppedForTransientFocusLoss = true
-                                    hasBeenPlayingBeforePause = false
-                                    updatePlaybackState(PlaybackStateCompat.STATE_PAUSED)
-                                    PlaybackStateHelper.setIsPlaying(false)
-                                }
                             }
                         }
                     }
@@ -2059,11 +2086,34 @@ class RadioService : MediaBrowserServiceCompat() {
     }
 
     private fun requestAudioFocus() {
-        // ExoPlayer already requests and manages audio focus when configured with
-        // setAudioAttributes(..., handleAudioFocus = true). A second manual request
-        // here can race and trigger immediate focus-loss callbacks on resume.
-        // Keep this method as a no-op so existing call sites remain simple.
-        return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            audioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build())
+                .setOnAudioFocusChangeListener(audioFocusChangeListener)
+                .build()
+            
+            val result = audioManager.requestAudioFocus(audioFocusRequest!!)
+            if (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+                Log.d(TAG, "Audio focus granted")
+            } else {
+                Log.w(TAG, "Audio focus request failed with result: $result")
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            val result = audioManager.requestAudioFocus(
+                audioFocusChangeListener,
+                AudioManager.STREAM_MUSIC,
+                AudioManager.AUDIOFOCUS_GAIN
+            )
+            if (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+                Log.d(TAG, "Audio focus granted (legacy)")
+            } else {
+                Log.w(TAG, "Audio focus request failed (legacy) with result: $result")
+            }
+        }
     }
 
     private fun registerBluetoothDisconnectCallback() {
