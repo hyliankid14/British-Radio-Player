@@ -71,7 +71,7 @@ class RadioService : MediaBrowserServiceCompat() {
                         } else if (currentStationId.startsWith("podcast_")) {
                             player?.play()
                         }
-                    } else if (player != null && !isStopped && !player!.isPlaying) {
+                    } else if (player != null && !isStopped && player?.isPlaying == false) {
                         player?.play()
                     }
                 } catch (e: Exception) {
