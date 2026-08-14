@@ -1847,6 +1847,7 @@ class MainActivity : AppCompatActivity() {
         // Ensure saved episodes UI is hidden when switching to All Stations
         refreshSavedEpisodesSection()
         updateVpnWarningBanner()
+        updateOfflineBanner()
         
         // Hide filter buttons if not available
         filterButtonsContainer?.visibility = View.VISIBLE
@@ -1881,6 +1882,7 @@ class MainActivity : AppCompatActivity() {
         // Ensure the favourites toggle group is visible when in Favorites
         try { updateFavoritesToggleVisibility() } catch (_: Exception) { }
         updateVpnWarningBanner()
+        updateOfflineBanner()
 
         // Key for persisting the last-selected Favorites sub-tab (declare once)
         val LAST_FAV_TAB_KEY = "last_fav_tab_id"
@@ -2948,6 +2950,7 @@ class MainActivity : AppCompatActivity() {
         stationsList.visibility = View.GONE
         filterButtonsContainer?.visibility = View.GONE
         settingsContainer.visibility = View.VISIBLE
+        updateOfflineBanner()
         // Ensure action bar reflects the section and clear any podcast-specific up affordance
         supportActionBar?.apply {
             show()
@@ -2968,6 +2971,7 @@ class MainActivity : AppCompatActivity() {
         // Disable swipe navigation in Podcasts
         disableSwipeNavigation()
         currentMode = "podcasts"
+        updateOfflineBanner()
         returnToFavoritesOnBack = false
         returnToSavedSearchesOnBack = false
         returnToScheduleOnBack = false

@@ -13,8 +13,14 @@ object NetworkQualityDetector {
                 val network = connectivityManager.activeNetwork ?: return false
                 val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
                 val hasInternet = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                val validated = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-                return hasInternet && (validated || capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) || capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET))
+                if (!hasInternet) return false
+                
+                @Suppress("DEPRECATION")
+                val activeNetworkInfo = connectivityManager.activeNetworkInfo
+                if (activeNetworkInfo?.isConnected != true) return false
+
+                return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) ||
+                       capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED)
             } else {
                 @Suppress("DEPRECATION")
                 val activeNetworkInfo = connectivityManager.activeNetworkInfo
