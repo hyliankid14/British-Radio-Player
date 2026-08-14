@@ -3923,28 +3923,33 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
             }
             val playbackUri = try {
                 val downloadedEntry = DownloadedEpisodes.getDownloadedEntry(this, episode)
-                val localRef = downloadedEntry?.localFilePath
+                val localRef = downloadedEntry?.localFilePath?.trim()
                 when {
-                    localRef.isNullOrBlank() -> android.net.Uri.parse(effectiveAudioUrl)
-                    localRef.startsWith("content://") -> android.net.Uri.parse(localRef)
-                    localRef.startsWith("file://") -> android.net.Uri.parse(localRef)
-                    localRef.startsWith("http://") || localRef.startsWith("https://") -> android.net.Uri.parse(localRef)
-                    localRef.startsWith("/") -> {
-                        // Absolute file path - create proper Uri with FileProvider
-                        android.net.Uri.fromFile(java.io.File(localRef))
-                    }
-                    else -> {
-                        // Try parsing as-is first
-                        try {
-                            android.net.Uri.fromFile(java.io.File(localRef))
-                        } catch (_: Exception) {
+                    !localRef.isNullOrBlank() && (localRef.startsWith("/") || localRef.startsWith("file://")) -> {
+                        val cleanPath = if (localRef.startsWith("file://")) {
+                            android.net.Uri.parse(localRef).path ?: localRef.removePrefix("file://")
+                        } else {
+                            localRef
+                        }
+                        val localFile = java.io.File(cleanPath)
+                        if (localFile.exists() && localFile.length() > 0L) {
+                            Log.d(TAG, "Playing downloaded podcast episode offline from: ${localFile.absolutePath}")
+                            android.net.Uri.fromFile(localFile)
+                        } else if (effectiveAudioUrl.isNotBlank()) {
                             android.net.Uri.parse(effectiveAudioUrl)
+                        } else {
+                            android.net.Uri.EMPTY
                         }
                     }
+                    !localRef.isNullOrBlank() && localRef.startsWith("content://") -> {
+                        android.net.Uri.parse(localRef)
+                    }
+                    effectiveAudioUrl.isNotBlank() -> android.net.Uri.parse(effectiveAudioUrl)
+                    else -> android.net.Uri.EMPTY
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Error checking for downloaded episode, using remote URL: ${e.message}")
-                android.net.Uri.parse(effectiveAudioUrl)
+                if (effectiveAudioUrl.isNotBlank()) android.net.Uri.parse(effectiveAudioUrl) else android.net.Uri.EMPTY
             }
 
             val mediaMetadataBuilder = MediaMetadata.Builder()

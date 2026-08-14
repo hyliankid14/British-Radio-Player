@@ -165,32 +165,40 @@ object DownloadedEpisodes {
     }
 
     fun isDownloaded(context: Context, episodeId: String): Boolean {
-        return getDownloadedEntries(context).any { it.id == episodeId }
+        return getDownloadedEntry(context, episodeId) != null
     }
 
     fun isDownloaded(context: Context, episode: Episode): Boolean {
-        val byId = getDownloadedEntry(context, episode.id)
-        if (byId != null) return true
-
-        val audioKey = normalizeUrl(episode.audioUrl)
-        if (audioKey.isNotBlank() && getDownloadedEntries(context).any { normalizeUrl(it.audioUrl) == audioKey }) return true
-
-        return findDownloadedFileForEpisode(context, episode) != null
+        return getDownloadedEntry(context, episode) != null
     }
 
     fun getDownloadedEntry(context: Context, episodeId: String): Entry? {
-        return getDownloadedEntries(context).firstOrNull { it.id == episodeId }
+        val entry = getDownloadedEntries(context).firstOrNull { it.id == episodeId }
+        if (entry != null) {
+            if (hasReadableLocalFile(entry.localFilePath)) {
+                return entry.copy(localFilePath = normaliseLocalPath(entry.localFilePath))
+            }
+            val ep = Episode(
+                id = entry.id,
+                title = entry.title,
+                description = entry.description,
+                imageUrl = entry.imageUrl,
+                audioUrl = entry.audioUrl,
+                pubDate = entry.pubDate,
+                durationMins = entry.durationMins,
+                podcastId = entry.podcastId
+            )
+            val fallback = findDownloadedFileForEpisode(context, ep)
+            if (fallback != null) {
+                return entry.copy(localFilePath = fallback.absolutePath)
+            }
+            return if (hasReadableLocalFile(entry.localFilePath)) entry else null
+        }
+        return null
     }
 
     fun getDownloadedEntry(context: Context, episode: Episode): Entry? {
         getDownloadedEntry(context, episode.id)?.let { byId ->
-            if (hasReadableLocalFile(byId.localFilePath)) {
-                return byId.copy(localFilePath = normaliseLocalPath(byId.localFilePath))
-            }
-            val fallback = findDownloadedFileForEpisode(context, episode)
-            if (fallback != null) {
-                return byId.copy(localFilePath = fallback.absolutePath)
-            }
             return byId
         }
 
@@ -204,7 +212,7 @@ object DownloadedEpisodes {
                 if (fallback != null) {
                     return byAudio.copy(localFilePath = fallback.absolutePath)
                 }
-                return byAudio
+                return if (hasReadableLocalFile(byAudio.localFilePath)) byAudio else null
             }
         }
 
