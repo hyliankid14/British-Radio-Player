@@ -188,6 +188,14 @@ class ScheduleActivity : AppCompatActivity() {
             return
         }
 
+        if (!NetworkQualityDetector.isOnline(this)) {
+            showLoading(false)
+            empty.text = "You're offline. Station schedules require an internet connection."
+            empty.visibility = View.VISIBLE
+            recycler.visibility = View.GONE
+            return
+        }
+
         // Otherwise fetch from network
         showLoading(true)
         activityScope.launch {

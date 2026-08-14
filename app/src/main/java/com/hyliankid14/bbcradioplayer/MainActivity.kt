@@ -371,18 +371,29 @@ class MainActivity : AppCompatActivity() {
             // listener's side-effects (caller will handle navigation). Honor that here.
             if (suppressBottomNavSelection) return@setOnItemSelectedListener true
 
+            val isOnline = NetworkQualityDetector.isOnline(this)
             when (item.itemId) {
                 R.id.navigation_favorites -> {
                     showFavorites()
                     true
                 }
                 R.id.navigation_list -> {
-                    showAllStations()
-                    true
+                    if (!isOnline) {
+                        Toast.makeText(this, "Live radio is not available while offline. Showing downloaded content.", Toast.LENGTH_SHORT).show()
+                        false
+                    } else {
+                        showAllStations()
+                        true
+                    }
                 }
                 R.id.navigation_podcasts -> {
-                    showPodcasts()
-                    true
+                    if (!isOnline) {
+                        Toast.makeText(this, "Podcast directory is not available while offline. Showing downloaded content.", Toast.LENGTH_SHORT).show()
+                        false
+                    } else {
+                        showPodcasts()
+                        true
+                    }
                 }
                 R.id.navigation_settings -> {
                     showSettings()
@@ -1783,9 +1794,63 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateOfflineBanner() {
-        val banner = findViewById<View>(R.id.offline_banner) ?: return
+        updateOfflineModeUI()
+    }
+
+    private fun updateOfflineModeUI() {
         val isOnline = NetworkQualityDetector.isOnline(this)
-        banner.visibility = if (!isOnline) View.VISIBLE else View.GONE
+
+        // 1. Update Top Offline Banner
+        val banner = findViewById<View?>(R.id.offline_banner)
+        banner?.visibility = if (!isOnline) View.VISIBLE else View.GONE
+
+        // 2. Control Bottom Navigation items (prevent access to live stations & podcast directory when offline)
+        if (::bottomNavigation.isInitialized) {
+            val listNav = bottomNavigation.menu.findItem(R.id.navigation_list)
+            val podcastsNav = bottomNavigation.menu.findItem(R.id.navigation_podcasts)
+
+            if (!isOnline) {
+                listNav?.isEnabled = false
+                podcastsNav?.isEnabled = false
+
+                // If currently in a network-requiring mode, redirect to Favorites (Playlists / Downloads)
+                if (currentMode == "list" || currentMode == "podcasts") {
+                    suppressBottomNavSelection = true
+                    try { bottomNavigation.selectedItemId = R.id.navigation_favorites } catch (_: Exception) { }
+                    suppressBottomNavSelection = false
+                    showFavorites()
+                }
+            } else {
+                listNav?.isEnabled = true
+                podcastsNav?.isEnabled = true
+            }
+        }
+
+        // 3. Control Favorites sub-tabs (Stations and Searches require network)
+        val stationsTab = findViewById<com.google.android.material.button.MaterialButton?>(R.id.fav_tab_stations)
+        val searchesTab = findViewById<com.google.android.material.button.MaterialButton?>(R.id.fav_tab_searches)
+        if (!isOnline) {
+            stationsTab?.isEnabled = false
+            stationsTab?.alpha = 0.4f
+            searchesTab?.isEnabled = false
+            searchesTab?.alpha = 0.4f
+
+            // If selected sub-tab is Stations or Searches, automatically switch to Playlists (Saved)
+            val prefs = getPreferences(Context.MODE_PRIVATE)
+            val lastChecked = prefs.getInt("last_fav_tab_id", R.id.fav_tab_stations)
+            if (lastChecked == R.id.fav_tab_stations || lastChecked == R.id.fav_tab_searches) {
+                prefs.edit().putInt("last_fav_tab_id", R.id.fav_tab_saved).apply()
+                if (currentMode == "favorites") {
+                    updateFavoritesToggleVisuals(R.id.fav_tab_saved)
+                    showFavoritesTab("saved")
+                }
+            }
+        } else {
+            stationsTab?.isEnabled = true
+            stationsTab?.alpha = 1.0f
+            searchesTab?.isEnabled = true
+            searchesTab?.alpha = 1.0f
+        }
     }
 
     private fun updateVpnWarningBanner() {
@@ -1801,7 +1866,7 @@ class MainActivity : AppCompatActivity() {
                     vpnWarningDismissed = false
                 }
                 updateVpnWarningBanner()
-                updateOfflineBanner()
+                updateOfflineModeUI()
             }
         }
     }
@@ -1991,6 +2056,10 @@ class MainActivity : AppCompatActivity() {
 
         // Set up click listeners for each button (since we're not using MaterialButtonToggleGroup anymore)
         findViewById<com.google.android.material.button.MaterialButton>(R.id.fav_tab_stations).setOnClickListener {
+            if (!NetworkQualityDetector.isOnline(this)) {
+                Toast.makeText(this, "Live radio is not available while offline.", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
             try { prefs.edit().putInt(LAST_FAV_TAB_KEY, R.id.fav_tab_stations).apply() } catch (_: Exception) { }
             updateFavoritesToggleVisuals(R.id.fav_tab_stations)
             showFavoritesTab("stations")
@@ -2007,6 +2076,10 @@ class MainActivity : AppCompatActivity() {
             showFavoritesTab("saved")
         }
         findViewById<com.google.android.material.button.MaterialButton>(R.id.fav_tab_searches).setOnClickListener {
+            if (!NetworkQualityDetector.isOnline(this)) {
+                Toast.makeText(this, "Saved searches require an internet connection.", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
             try { prefs.edit().putInt(LAST_FAV_TAB_KEY, R.id.fav_tab_searches).apply() } catch (_: Exception) { }
             updateFavoritesToggleVisuals(R.id.fav_tab_searches)
             showFavoritesTab("searches")
@@ -4015,6 +4088,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun playStation(id: String) {
+        if (!NetworkQualityDetector.isOnline(this)) {
+            Toast.makeText(this, "Cannot play live radio while offline. Only downloaded podcasts can be played.", Toast.LENGTH_LONG).show()
+            return
+        }
         val intent = Intent(this, RadioService::class.java).apply {
             action = RadioService.ACTION_PLAY_STATION
             putExtra(RadioService.EXTRA_STATION_ID, id)
@@ -4050,6 +4127,7 @@ class MainActivity : AppCompatActivity() {
         // Defensive sync for intermittent cases where the action bar remains hidden
         // after returning from fragment-heavy flows.
         syncActionBarVisibility()
+        updateOfflineModeUI()
 
         // If returning to Favorites ensure the last-selected sub-tab is restored and its
         // content (Saved / History) is refreshed so it doesn't remain hidden after navigation.

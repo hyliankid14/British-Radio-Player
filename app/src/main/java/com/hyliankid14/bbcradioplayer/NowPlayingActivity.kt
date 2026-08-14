@@ -893,6 +893,13 @@ class NowPlayingActivity : AppCompatActivity() {
     }
 
     private fun playEpisodePreview(episode: Episode) {
+        val downloadedEntry = DownloadedEpisodes.getDownloadedEntry(this, episode)
+        val isDownloaded = downloadedEntry != null && java.io.File(downloadedEntry.localFilePath).exists()
+        if (!isDownloaded && !NetworkQualityDetector.isOnline(this)) {
+            android.widget.Toast.makeText(this, "Episode is not downloaded. Connect to the internet to stream.", android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
+
         // Do not clear lastArtworkUrl here — keep the preview artwork visible until the service
         // provides the official station artwork to avoid visual disappearance on play.
 
@@ -1552,6 +1559,14 @@ class NowPlayingActivity : AppCompatActivity() {
 
     private fun togglePlayPause() {
         val isCurrentlyPlaying = PlaybackStateHelper.getIsPlaying()
+        val station = PlaybackStateHelper.getCurrentStation()
+        val isPodcast = station?.id?.startsWith("podcast_") == true
+        
+        if (!isCurrentlyPlaying && !isPodcast && !NetworkQualityDetector.isOnline(this)) {
+            android.widget.Toast.makeText(this, "Cannot play live radio while offline. Only downloaded podcasts can be played.", android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
+
         PlaybackStateHelper.setIsPlaying(!isCurrentlyPlaying)
         
         val intent = Intent(this, RadioService::class.java).apply {

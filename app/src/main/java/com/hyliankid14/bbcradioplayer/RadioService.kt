@@ -2792,6 +2792,13 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
 
     private fun playStation(stationId: String) {
         Log.d(TAG, "playStation called with stationId: $stationId. Current isStopped: $isStopped, mediaSession.isActive: ${mediaSession.isActive}")
+        if (!NetworkQualityDetector.isOnline(this)) {
+            Log.w(TAG, "playStation aborted: device is offline")
+            handler.post {
+                android.widget.Toast.makeText(this, "Cannot play live radio while offline. Only downloaded podcasts can be played.", android.widget.Toast.LENGTH_LONG).show()
+            }
+            return
+        }
         isStopped = false
         playerReconnectRunnable?.let { handler.removeCallbacks(it); playerReconnectRunnable = null }
         if (!mediaSession.isActive) {
@@ -3950,6 +3957,15 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
             } catch (e: Exception) {
                 Log.w(TAG, "Error checking for downloaded episode, using remote URL: ${e.message}")
                 if (effectiveAudioUrl.isNotBlank()) android.net.Uri.parse(effectiveAudioUrl) else android.net.Uri.EMPTY
+            }
+
+            val isLocalFile = playbackUri.scheme == "file" || playbackUri.scheme == "content"
+            if (!isLocalFile && !NetworkQualityDetector.isOnline(this)) {
+                Log.w(TAG, "playPodcastEpisode aborted: episode not downloaded and device is offline")
+                handler.post {
+                    android.widget.Toast.makeText(this, "Episode is not downloaded. Connect to the internet to stream.", android.widget.Toast.LENGTH_LONG).show()
+                }
+                return
             }
 
             val mediaMetadataBuilder = MediaMetadata.Builder()

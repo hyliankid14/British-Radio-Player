@@ -1297,7 +1297,8 @@ class PodcastsFragment : Fragment() {
 
                 // STEP 2: If the cache is stale or missing, fetch fresh data from the network.
                 //         This runs in the background after the local data is already displayed.
-                if (needsRefresh) {
+                val isOnline = context?.let { NetworkQualityDetector.isOnline(it) } ?: false
+                if (needsRefresh && isOnline) {
                     // forceRefresh=false: use the network only when the TTL has expired
                     val fresh = withContext(Dispatchers.IO) { repository.fetchPodcasts(forceRefresh = false) }
                     android.util.Log.d("PodcastsFragment", "Network refresh: loaded ${fresh.size} podcasts")
@@ -1333,10 +1334,8 @@ class PodcastsFragment : Fragment() {
                     viewModel.cachedNewlyAddedPodcastEpochs = freshNewlyAdded
                     displayPodcasts(fresh, freshEarliest, loadingIndicator, emptyState, recyclerView, genreSpinner, sortSpinner)
                 } else if (immediate.isEmpty()) {
-                    // This branch should not occur in practice: a fresh cache implies data exists.
-                    // Handled defensively to avoid leaving the UI in a broken state.
                     hideLoadingFeedback(loadingIndicator, emptyState)
-                    emptyState.text = "No podcasts found. Try refreshing the app."
+                    emptyState.text = if (!isOnline) "You're offline. Podcast directory requires an internet connection." else "No podcasts found. Try refreshing the app."
                     emptyState.visibility = View.VISIBLE
                     return@launch
                 }
