@@ -242,6 +242,15 @@ class MainActivity : AppCompatActivity() {
         syncActionBarVisibility()
     }
 
+    private val connectivityReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: android.content.Intent?) {
+            runOnUiThread {
+                updateVpnWarningBanner()
+                updateOfflineBanner()
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         // Apply theme before creating the view
         val theme = ThemePreference.getTheme(this)
@@ -339,6 +348,7 @@ class MainActivity : AppCompatActivity() {
             updateVpnWarningBanner()
         }
         updateVpnWarningBanner()
+        updateOfflineBanner()
         
         // Try multiple ids because some build/tooling combinations either generate the include id
         // or only the ids from the included layout itself. Fall back to a hidden placeholder if none found.
@@ -2892,6 +2902,10 @@ class MainActivity : AppCompatActivity() {
         try {
             registerReceiver(recentSongsChangedReceiver, android.content.IntentFilter(RecentSongsPreference.ACTION_RECENT_SONGS_CHANGED), receiverFlags)
         } catch (_: Exception) {}
+        try {
+            @Suppress("DEPRECATION")
+            registerReceiver(connectivityReceiver, android.content.IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION))
+        } catch (_: Exception) {}
     }
 
 
@@ -2899,6 +2913,9 @@ class MainActivity : AppCompatActivity() {
     override fun onStop() {
         super.onStop()
         unregisterVpnStatusMonitoring()
+        try {
+            unregisterReceiver(connectivityReceiver)
+        } catch (_: Exception) {}
         try {
             unregisterReceiver(playedStatusReceiver)
         } catch (_: Exception) {}

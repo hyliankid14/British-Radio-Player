@@ -2,6 +2,8 @@ package com.hyliankid14.bbcradioplayer
 
 import android.content.Intent
 import android.os.Bundle
+import android.content.Context
+import android.net.ConnectivityManager
 import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
@@ -40,6 +42,20 @@ class ScheduleActivity : AppCompatActivity() {
     private lateinit var loading: CircularProgressIndicator
     private lateinit var empty: TextView
     private lateinit var tabs: TabLayout
+
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+
+    private val connectivityReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            runOnUiThread { updateOfflineBanner() }
+        }
+    }
+
+    private fun updateOfflineBanner() {
+        val banner = findViewById<View>(R.id.offline_banner) ?: return
+        val isOnline = NetworkQualityDetector.isOnline(this)
+        banner.visibility = if (!isOnline) View.VISIBLE else View.GONE
+    }
 
     private var stationId = ""
     private var stationTitle = ""
@@ -103,6 +119,31 @@ class ScheduleActivity : AppCompatActivity() {
             override fun onTabUnselected(tab: TabLayout.Tab) {}
             override fun onTabReselected(tab: TabLayout.Tab) {}
         })
+
+        updateOfflineBanner()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        updateOfflineBanner()
+        networkCallback = NetworkQualityDetector.registerNetworkCallback(this) {
+            runOnUiThread { updateOfflineBanner() }
+        }
+        try {
+            @Suppress("DEPRECATION")
+            registerReceiver(connectivityReceiver, android.content.IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION))
+        } catch (_: Exception) {}
+    }
+
+    override fun onPause() {
+        super.onPause()
+        networkCallback?.let {
+            NetworkQualityDetector.unregisterNetworkCallback(this, it)
+            networkCallback = null
+        }
+        try {
+            unregisterReceiver(connectivityReceiver)
+        } catch (_: Exception) {}
     }
 
     private fun buildDateTabs() {

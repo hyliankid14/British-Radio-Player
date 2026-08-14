@@ -29,10 +29,23 @@ import java.util.Locale
 import android.view.View
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
+import android.net.ConnectivityManager
 import androidx.core.view.updatePadding
 
 class NowPlayingActivity : AppCompatActivity() {
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+
+    private val connectivityReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context?, intent: Intent?) {
+            runOnUiThread { updateOfflineBanner() }
+        }
+    }
+
+    private fun updateOfflineBanner() {
+        val banner = findViewById<View>(R.id.offline_banner) ?: return
+        val isOnline = NetworkQualityDetector.isOnline(this)
+        banner.visibility = if (!isOnline) View.VISIBLE else View.GONE
+    }
     private lateinit var stationArtwork: ImageView
     private lateinit var rootLayout: androidx.constraintlayout.widget.ConstraintLayout
     private lateinit var toolbar: com.google.android.material.appbar.MaterialToolbar
@@ -181,6 +194,7 @@ class NowPlayingActivity : AppCompatActivity() {
             insets
         }
         ViewCompat.requestApplyInsets(rootLayout)
+        updateOfflineBanner()
         stationArtwork = findViewById(R.id.now_playing_artwork)
         showName = findViewById(R.id.now_playing_show_name)
         nextShowView = findViewById(R.id.now_playing_next_show)
@@ -511,6 +525,15 @@ class NowPlayingActivity : AppCompatActivity() {
         super.onResume()
         startPlaybackStateUpdates()
         updateUI()
+        updateOfflineBanner()
+
+        networkCallback = NetworkQualityDetector.registerNetworkCallback(this) {
+            runOnUiThread { updateOfflineBanner() }
+        }
+        try {
+            @Suppress("DEPRECATION")
+            registerReceiver(connectivityReceiver, android.content.IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION))
+        } catch (_: Exception) {}
         
         // Register download complete receiver
         try {
@@ -525,6 +548,13 @@ class NowPlayingActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         stopPlaybackStateUpdates()
+        networkCallback?.let {
+            NetworkQualityDetector.unregisterNetworkCallback(this, it)
+            networkCallback = null
+        }
+        try {
+            unregisterReceiver(connectivityReceiver)
+        } catch (_: Exception) {}
         
         // Unregister download complete receiver
         try {
