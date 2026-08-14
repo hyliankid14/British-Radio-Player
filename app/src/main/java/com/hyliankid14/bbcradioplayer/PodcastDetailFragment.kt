@@ -933,6 +933,13 @@ class PodcastDetailFragment : Fragment() {
 
             if (page.isEmpty()) {
                 if (currentOffset == 0) {
+                    val isOnline = NetworkQualityDetector.isOnline(requireContext())
+                    val hasDownloads = DownloadedEpisodes.getDownloadedEpisodesForPodcast(requireContext(), podcast.id).isNotEmpty()
+                    if (!isOnline && !hasDownloads) {
+                        empty.text = "You're offline and no episodes have been downloaded for this podcast."
+                    } else {
+                        empty.text = "No episodes available"
+                    }
                     empty.visibility = View.VISIBLE
                     recycler.visibility = View.GONE
                 }

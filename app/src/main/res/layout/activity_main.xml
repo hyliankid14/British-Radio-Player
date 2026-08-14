@@ -17,6 +17,39 @@
         app:navigationIconTint="?attr/colorOnSurface"
         android:elevation="4dp" />
 
+    <!-- Offline Banner at top of app -->
+    <LinearLayout
+        android:id="@+id/offline_banner"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#37474F"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="16dp"
+        android:paddingTop="8dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="8dp"
+        android:visibility="gone">
+
+        <ImageView
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:src="@android:drawable/stat_sys_warning"
+            app:tint="#ECEFF1"
+            android:contentDescription="Offline" />
+
+        <TextView
+            android:id="@+id/offline_banner_text"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="10dp"
+            android:text="You're offline. Downloaded files are available to play."
+            android:textColor="#ECEFF1"
+            android:textSize="13sp" />
+
+    </LinearLayout>
+
     <!-- Fill the small gap under the app bar with the same surface colour -->
     <View
         android:layout_width="match_parent"

@@ -1772,6 +1772,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun updateOfflineBanner() {
+        val banner = findViewById<View>(R.id.offline_banner) ?: return
+        val isOnline = NetworkQualityDetector.isOnline(this)
+        banner.visibility = if (!isOnline) View.VISIBLE else View.GONE
+    }
+
     private fun updateVpnWarningBanner() {
         if (!::vpnWarningBanner.isInitialized) return
         vpnWarningBanner.visibility = if (shouldShowVpnWarningBanner()) View.VISIBLE else View.GONE
@@ -1785,6 +1791,7 @@ class MainActivity : AppCompatActivity() {
                     vpnWarningDismissed = false
                 }
                 updateVpnWarningBanner()
+                updateOfflineBanner()
             }
         }
     }
@@ -2859,12 +2866,14 @@ class MainActivity : AppCompatActivity() {
             }
         }
         updateVpnWarningBanner()
+        updateOfflineBanner()
     }
 
     override fun onStart() {
         super.onStart()
         registerVpnStatusMonitoring()
         updateVpnWarningBanner()
+        updateOfflineBanner()
         val receiverFlags = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             android.content.Context.RECEIVER_NOT_EXPORTED
         } else 0

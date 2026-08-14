@@ -438,34 +438,48 @@ class PodcastRepository(private val context: Context) {
         }
     }
 
+    private fun getDownloadedEpisodesAsFallback(podcastId: String): List<Episode> {
+        val downloaded = DownloadedEpisodes.getDownloadedEpisodesForPodcast(context, podcastId)
+        return downloaded.map { d ->
+            Episode(
+                id = d.id,
+                title = d.title,
+                description = d.description,
+                imageUrl = d.imageUrl,
+                audioUrl = d.audioUrl,
+                pubDate = d.pubDate,
+                durationMins = d.durationMins,
+                podcastId = d.podcastId
+            )
+        }
+    }
+
     suspend fun fetchEpisodes(podcast: Podcast): List<Episode> = withContext(Dispatchers.IO) {
         try {
             Log.d("PodcastRepository", "Fetching episodes for ${podcast.title}")
-            RSSParser.fetchAndParseRSS(podcast.rssUrl, podcast.id)
+            val parsed = RSSParser.fetchAndParseRSS(podcast.rssUrl, podcast.id)
+            if (parsed.isNotEmpty()) parsed else getDownloadedEpisodesAsFallback(podcast.id)
         } catch (e: Exception) {
             Log.e("PodcastRepository", "Error fetching episodes", e)
-            emptyList()
+            getDownloadedEpisodesAsFallback(podcast.id)
         }
     }
 
     suspend fun fetchEpisodesPaged(podcast: Podcast, startIndex: Int, count: Int): List<Episode> = withContext(Dispatchers.IO) {
         try {
             Log.d("PodcastRepository", "Fetching episodes page for ${podcast.title} start=$startIndex count=$count")
-            // Always fetch and cache the full episode list so that pagination is consistent
-            // regardless of the BBC feed's native sort order (some feeds are oldest-first).
-            // Subsequent calls for the same podcast reuse the in-memory cache to avoid
-            // redundant HTTP requests and to guarantee stable pagination.
-            // The cache lives for the lifetime of this PodcastRepository instance (i.e. the
-            // current screen/session). It is not persisted to disk, so it is effectively
-            // cleared on app restart. It can also be bypassed via fetchEpisodesIfNeeded with
-            // forceRefresh=true for an explicit pull-to-refresh flow.
             val all = episodesCache[podcast.id]?.takeIf { it.isNotEmpty() } ?: run {
-                val eps = RSSParser.fetchAndParseRSS(podcast.rssUrl, podcast.id)
-                if (eps.isNotEmpty()) {
-                    episodesCache[podcast.id] = eps
-                    episodesIndex[podcast.id] = eps.map { it.title.lowercase(Locale.getDefault()) to it.description.lowercase(Locale.getDefault()) }
+                val eps = try {
+                    RSSParser.fetchAndParseRSS(podcast.rssUrl, podcast.id)
+                } catch (e: Exception) {
+                    emptyList()
                 }
-                eps
+                val finalEps = if (eps.isNotEmpty()) eps else getDownloadedEpisodesAsFallback(podcast.id)
+                if (finalEps.isNotEmpty()) {
+                    episodesCache[podcast.id] = finalEps
+                    episodesIndex[podcast.id] = finalEps.map { it.title.lowercase(Locale.getDefault()) to it.description.lowercase(Locale.getDefault()) }
+                }
+                finalEps
             }
             if (all.isEmpty()) return@withContext emptyList()
 
@@ -476,7 +490,13 @@ class PodcastRepository(private val context: Context) {
             return@withContext sorted.subList(from, to)
         } catch (e: Exception) {
             Log.e("PodcastRepository", "Error fetching paged episodes", e)
-            emptyList()
+            val fallback = getDownloadedEpisodesAsFallback(podcast.id)
+            if (fallback.isEmpty()) return@withContext emptyList()
+            val sorted = sortEpisodesForPodcast(podcast.id, fallback)
+            val from = startIndex.coerceAtLeast(0)
+            val to = kotlin.math.min(sorted.size, startIndex + count)
+            if (from >= to) return@withContext emptyList()
+            return@withContext sorted.subList(from, to)
         }
     }
 
@@ -558,15 +578,21 @@ class PodcastRepository(private val context: Context) {
         try {
             Log.d("PodcastRepository", "Fetching episodes for ${podcast.title} (forceRefresh=$forceRefresh)")
             val eps = RSSParser.fetchAndParseRSS(podcast.rssUrl, podcast.id)
-            if (eps.isNotEmpty()) {
-                episodesCache[podcast.id] = eps
-                episodesIndex[podcast.id] = eps.map { it.title.lowercase(Locale.getDefault()) to it.description.lowercase(Locale.getDefault()) }
-                Log.d("PodcastRepository", "Fetched ${eps.size} episodes for ${podcast.title}")
+            val finalEps = if (eps.isNotEmpty()) eps else getDownloadedEpisodesAsFallback(podcast.id)
+            if (finalEps.isNotEmpty()) {
+                episodesCache[podcast.id] = finalEps
+                episodesIndex[podcast.id] = finalEps.map { it.title.lowercase(Locale.getDefault()) to it.description.lowercase(Locale.getDefault()) }
+                Log.d("PodcastRepository", "Fetched ${finalEps.size} episodes for ${podcast.title}")
             }
-            return@withContext eps
+            return@withContext finalEps
         } catch (e: Exception) {
             Log.w("PodcastRepository", "fetchEpisodesIfNeeded failed for ${podcast.title}: ${e.message}")
-            return@withContext emptyList()
+            val fallback = getDownloadedEpisodesAsFallback(podcast.id)
+            if (fallback.isNotEmpty()) {
+                episodesCache[podcast.id] = fallback
+                episodesIndex[podcast.id] = fallback.map { it.title.lowercase(Locale.getDefault()) to it.description.lowercase(Locale.getDefault()) }
+            }
+            return@withContext fallback
         }
     }
 
