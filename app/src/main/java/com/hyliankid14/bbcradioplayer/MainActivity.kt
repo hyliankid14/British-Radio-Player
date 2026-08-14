@@ -415,6 +415,12 @@ class MainActivity : AppCompatActivity() {
                         updateActionBarTitle()
                         return
                     }
+                    // If viewing a playlist in Favorites, back returns to the playlists list
+                    if (currentMode == "favorites" && isButtonChecked(R.id.fav_tab_saved) && activePlaylistId != null) {
+                        activePlaylistId = null
+                        refreshSavedEpisodesSection()
+                        return
+                    }
                     val top = supportFragmentManager.findFragmentById(R.id.fragment_container)
                     if (returnToFavoritesOnBack && top is PodcastDetailFragment) {
                         returnToFavoritesOnBack = false
@@ -930,8 +936,15 @@ class MainActivity : AppCompatActivity() {
                 return
             }
 
+            val isOffline = !NetworkQualityDetector.isOnline(this)
             val savedTabActive = isButtonChecked(R.id.fav_tab_saved)
             val playlists = PodcastPlaylists.getPlaylists(this, includeDownloaded = true)
+
+            // In offline mode, default to Downloaded files playlist if not already viewing a playlist
+            if (isOffline && activePlaylistId == null && savedTabActive) {
+                activePlaylistId = PodcastPlaylists.DOWNLOADED_PLAYLIST_ID
+            }
+
             val currentPlaylistId = activePlaylistId?.takeIf { requestedId -> playlists.any { it.id == requestedId } }
             if (activePlaylistId != currentPlaylistId) activePlaylistId = currentPlaylistId
 
@@ -1164,7 +1177,13 @@ class MainActivity : AppCompatActivity() {
             if (savedTabActive) {
                 savedContainer.visibility = View.VISIBLE
                 savedRecycler.visibility = if (playlistEntries.isNotEmpty()) View.VISIBLE else View.GONE
-                savedEmpty.text = if (playlistId == PodcastPlaylists.DOWNLOADED_PLAYLIST_ID) "No downloaded files yet" else "No episodes in this playlist yet"
+                savedEmpty.text = if (playlistId == PodcastPlaylists.DOWNLOADED_PLAYLIST_ID) {
+                    "No downloaded episodes yet\nDownload episodes while online to listen offline."
+                } else if (isOffline) {
+                    "No downloaded episodes in this playlist"
+                } else {
+                    "No episodes in this playlist yet"
+                }
                 savedEmpty.visibility = if (playlistEntries.isEmpty()) View.VISIBLE else View.GONE
             } else {
                 savedContainer.visibility = View.GONE
@@ -1840,9 +1859,15 @@ class MainActivity : AppCompatActivity() {
             val lastChecked = prefs.getInt("last_fav_tab_id", R.id.fav_tab_stations)
             if (lastChecked == R.id.fav_tab_stations || lastChecked == R.id.fav_tab_searches) {
                 prefs.edit().putInt("last_fav_tab_id", R.id.fav_tab_saved).apply()
+                activePlaylistId = PodcastPlaylists.DOWNLOADED_PLAYLIST_ID
                 if (currentMode == "favorites") {
                     updateFavoritesToggleVisuals(R.id.fav_tab_saved)
                     showFavoritesTab("saved")
+                }
+            } else if (lastChecked == R.id.fav_tab_saved && activePlaylistId == null) {
+                activePlaylistId = PodcastPlaylists.DOWNLOADED_PLAYLIST_ID
+                if (currentMode == "favorites") {
+                    refreshSavedEpisodesSection()
                 }
             }
         } else {
@@ -2071,7 +2096,8 @@ class MainActivity : AppCompatActivity() {
         }
         findViewById<com.google.android.material.button.MaterialButton>(R.id.fav_tab_saved).setOnClickListener {
             try { prefs.edit().putInt(LAST_FAV_TAB_KEY, R.id.fav_tab_saved).apply() } catch (_: Exception) { }
-            activePlaylistId = null
+            val isOffline = !NetworkQualityDetector.isOnline(this)
+            activePlaylistId = if (isOffline) PodcastPlaylists.DOWNLOADED_PLAYLIST_ID else null
             updateFavoritesToggleVisuals(R.id.fav_tab_saved)
             showFavoritesTab("saved")
         }

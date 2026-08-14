@@ -202,17 +202,39 @@ object PodcastPlaylists {
     }
 
     fun getPlaylists(context: Context, includeDownloaded: Boolean = false): List<PlaylistSummary> {
-        val userPlaylists = loadPlaylists(context).map { playlist ->
-            PlaylistSummary(
-                id = playlist.id,
-                name = playlist.name,
-                createdAtMs = playlist.createdAtMs,
-                updatedAtMs = playlist.updatedAtMs,
-                itemCount = playlist.entries.size,
-                isDefault = playlist.isDefault
-            )
+        val isOffline = !NetworkQualityDetector.isOnline(context)
+        val allPlaylists = loadPlaylists(context)
+
+        val userPlaylists = if (isOffline) {
+            allPlaylists.mapNotNull { playlist ->
+                val downloadedCount = playlist.entries.count { DownloadedEpisodes.isDownloaded(context, it.id) }
+                if (downloadedCount == 0) {
+                    null // Hide playlist in offline mode if it contains no downloaded episodes
+                } else {
+                    PlaylistSummary(
+                        id = playlist.id,
+                        name = playlist.name,
+                        createdAtMs = playlist.createdAtMs,
+                        updatedAtMs = playlist.updatedAtMs,
+                        itemCount = downloadedCount,
+                        isDefault = playlist.isDefault
+                    )
+                }
+            }
+        } else {
+            allPlaylists.map { playlist ->
+                PlaylistSummary(
+                    id = playlist.id,
+                    name = playlist.name,
+                    createdAtMs = playlist.createdAtMs,
+                    updatedAtMs = playlist.updatedAtMs,
+                    itemCount = playlist.entries.size,
+                    isDefault = playlist.isDefault
+                )
+            }
         }
-        if (includeDownloaded) {
+
+        if (includeDownloaded || isOffline) {
             val downloadCount = DownloadedEpisodes.getDownloadedEntries(context).size
             val downloadedSummary = PlaylistSummary(
                 id = DOWNLOADED_PLAYLIST_ID,
@@ -244,7 +266,13 @@ object PodcastPlaylists {
                 )
             }
         }
-        return loadPlaylists(context).firstOrNull { it.id == playlistId }?.entries ?: emptyList()
+        val entries = loadPlaylists(context).firstOrNull { it.id == playlistId }?.entries ?: emptyList()
+        val isOffline = !NetworkQualityDetector.isOnline(context)
+        return if (isOffline) {
+            entries.filter { DownloadedEpisodes.isDownloaded(context, it.id) }
+        } else {
+            entries
+        }
     }
 
     fun getDefaultPlaylist(context: Context): PlaylistSummary {
