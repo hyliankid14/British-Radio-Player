@@ -896,10 +896,6 @@ class MainActivity : AppCompatActivity() {
             val playlistsEmpty = findViewById<TextView>(R.id.playlists_empty)
             val playlistsRecycler = findViewById<RecyclerView>(R.id.playlists_recycler)
             val savedRecycler = findViewById<RecyclerView>(R.id.saved_episodes_recycler)
-            val downloadedContainer = findViewById<View>(R.id.downloaded_files_container)
-            val downloadedHeader = findViewById<TextView>(R.id.downloaded_files_header)
-            val downloadedEmpty = findViewById<TextView>(R.id.downloaded_episodes_empty)
-            val downloadedRecycler = findViewById<RecyclerView>(R.id.downloaded_episodes_recycler)
 
             if (currentMode != "favorites") {
                 clearPlaylistEpisodeSelection()
@@ -908,16 +904,13 @@ class MainActivity : AppCompatActivity() {
                 playlistsEmpty.visibility = View.GONE
                 playlistsRecycler.visibility = View.GONE
                 savedRecycler.visibility = View.GONE
-                downloadedContainer?.visibility = View.GONE
-                downloadedEmpty?.visibility = View.GONE
-                downloadedRecycler?.visibility = View.GONE
                 supportActionBar?.setDisplayHomeAsUpEnabled(false)
                 invalidateOptionsMenu()
                 return
             }
 
             val savedTabActive = isButtonChecked(R.id.fav_tab_saved)
-            val playlists = PodcastPlaylists.getPlaylists(this)
+            val playlists = PodcastPlaylists.getPlaylists(this, includeDownloaded = true)
             val currentPlaylistId = activePlaylistId?.takeIf { requestedId -> playlists.any { it.id == requestedId } }
             if (activePlaylistId != currentPlaylistId) activePlaylistId = currentPlaylistId
 
@@ -942,144 +935,14 @@ class MainActivity : AppCompatActivity() {
                     ).also { playlistsRecycler.adapter = it }
                 adapter.updatePlaylists(playlists)
 
-                // Populate Downloaded Files subsection
-                val downloadedEntries = DownloadedEpisodes.getDownloadedEntries(this)
-                val totalDownloadSize = DownloadedEpisodes.getTotalDownloadedSize(this)
-                val formattedSize = if (totalDownloadSize > 0) {
-                    android.text.format.Formatter.formatShortFileSize(this, totalDownloadSize)
-                } else ""
-                val countText = when {
-                    downloadedEntries.isEmpty() -> "Downloaded Files"
-                    formattedSize.isNotBlank() -> "Downloaded Files (${downloadedEntries.size} • $formattedSize)"
-                    downloadedEntries.size == 1 -> "Downloaded Files (1 file)"
-                    else -> "Downloaded Files (${downloadedEntries.size} files)"
-                }
-                downloadedHeader?.text = countText
-
-                if (downloadedRecycler != null) {
-                    downloadedRecycler.layoutManager = LinearLayoutManager(this)
-                    downloadedRecycler.isNestedScrollingEnabled = false
-                    val downloadedAdapter = (downloadedRecycler.adapter as? DownloadedEpisodesAdapter)
-                        ?: DownloadedEpisodesAdapter(
-                            context = this,
-                            entries = downloadedEntries,
-                            onPlayEpisode = { episode, podcastTitle, podcastImage ->
-                                val intent = android.content.Intent(this, RadioService::class.java).apply {
-                                    action = RadioService.ACTION_PLAY_PODCAST_EPISODE
-                                    putExtra(RadioService.EXTRA_EPISODE, episode)
-                                    putExtra(RadioService.EXTRA_PODCAST_ID, episode.podcastId)
-                                    putExtra(RadioService.EXTRA_PODCAST_TITLE, podcastTitle)
-                                    putExtra(RadioService.EXTRA_PODCAST_IMAGE, episode.imageUrl.takeIf { it.isNotEmpty() } ?: podcastImage)
-                                }
-                                startService(intent)
-                            },
-                            onOpenEpisode = { episode, podcastTitle, podcastImage ->
-                                val intent = android.content.Intent(this, NowPlayingActivity::class.java).apply {
-                                    putExtra("preview_episode", episode)
-                                    putExtra("preview_use_play_ui", true)
-                                    putExtra("preview_podcast_title", podcastTitle)
-                                    putExtra("preview_podcast_image", episode.imageUrl.takeIf { it.isNotEmpty() } ?: podcastImage)
-                                    putExtra("back_source", "playlists")
-                                }
-                                startActivity(intent)
-                            },
-                            onDeleteDownload = { episodeId ->
-                                EpisodeDownloadManager.deleteDownload(this, episodeId, showToast = true)
-                                refreshSavedEpisodesSection()
-                            },
-                            onEpisodeOverflowClick = { anchorView, entry ->
-                                showDownloadedEpisodeOverflowMenu(anchorView, entry)
-                            }
-                        ).also { downloadedRecycler.adapter = it }
-                    downloadedAdapter.updateDownloadedEntries(downloadedEntries)
-
-                    if (downloadedItemTouchHelper == null) {
-                        val dlSwipeCallback = object : ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.LEFT or ItemTouchHelper.RIGHT) {
-                            override fun onMove(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder, target: RecyclerView.ViewHolder): Boolean = false
-                            override fun isItemViewSwipeEnabled(): Boolean = true
-
-                            override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
-                                val pos = viewHolder.bindingAdapterPosition
-                                if (pos != RecyclerView.NO_POSITION) {
-                                    val currentDlAdapter = downloadedRecycler.adapter as? DownloadedEpisodesAdapter
-                                    val removedEntry = currentDlAdapter?.getDownloadedEntryAt(pos)
-                                    if (removedEntry == null) {
-                                        try { downloadedRecycler.adapter?.notifyItemChanged(pos) } catch (_: Exception) { }
-                                        return
-                                    }
-                                    EpisodeDownloadManager.deleteDownload(this@MainActivity, removedEntry.id, showToast = true)
-                                    refreshSavedEpisodesSection()
-
-                                    com.google.android.material.snackbar.Snackbar
-                                        .make(findViewById(android.R.id.content), "Downloaded file deleted", com.google.android.material.snackbar.Snackbar.LENGTH_LONG)
-                                        .setAnchorView(findViewById(R.id.saved_episodes_container))
-                                        .show()
-                                }
-                            }
-
-                            override fun clearView(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder) {
-                                super.clearView(recyclerView, viewHolder)
-                                viewHolder.itemView.invalidate()
-                            }
-
-                            override fun onChildDraw(c: android.graphics.Canvas, recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder, dX: Float, dY: Float, actionState: Int, isCurrentlyActive: Boolean) {
-                                if (kotlin.math.abs(dX) < 0.5f && !isCurrentlyActive) {
-                                    super.onChildDraw(c, recyclerView, viewHolder, dX, dY, actionState, isCurrentlyActive)
-                                    return
-                                }
-                                val itemView = viewHolder.itemView
-                                val paint = android.graphics.Paint()
-                                val icon = ContextCompat.getDrawable(this@MainActivity, android.R.drawable.ic_menu_delete)
-                                paint.color = android.graphics.Color.parseColor("#f44336")
-                                if (dX > 0) {
-                                    val rect = android.graphics.RectF(itemView.left.toFloat(), itemView.top.toFloat(), itemView.left + dX, itemView.bottom.toFloat())
-                                    c.drawRect(rect, paint)
-                                    icon?.let {
-                                        val iconTop = itemView.top + (itemView.height - it.intrinsicHeight) / 2
-                                        val iconMargin = (itemView.height - it.intrinsicHeight) / 2
-                                        val iconLeft = itemView.left + iconMargin
-                                        val iconRight = iconLeft + it.intrinsicWidth
-                                        val iconBottom = iconTop + it.intrinsicHeight
-                                        it.setBounds(iconLeft, iconTop, iconRight, iconBottom)
-                                        it.draw(c)
-                                    }
-                                } else if (dX < 0) {
-                                    val rect = android.graphics.RectF(itemView.right.toFloat() + dX, itemView.top.toFloat(), itemView.right.toFloat(), itemView.bottom.toFloat())
-                                    c.drawRect(rect, paint)
-                                    icon?.let {
-                                        val iconTop = itemView.top + (itemView.height - it.intrinsicHeight) / 2
-                                        val iconMargin = (itemView.height - it.intrinsicHeight) / 2
-                                        val iconRight = itemView.right - iconMargin
-                                        val iconLeft = iconRight - it.intrinsicWidth
-                                        val iconBottom = iconTop + it.intrinsicHeight
-                                        it.setBounds(iconLeft, iconTop, iconRight, iconBottom)
-                                        it.draw(c)
-                                    }
-                                }
-                                super.onChildDraw(c, recyclerView, viewHolder, dX, dY, actionState, isCurrentlyActive)
-                            }
-                        }
-                        downloadedItemTouchHelper = ItemTouchHelper(dlSwipeCallback).also { it.attachToRecyclerView(downloadedRecycler) }
-                    }
-                }
-
                 if (savedTabActive) {
                     savedContainer.visibility = View.VISIBLE
                     playlistsRecycler.visibility = View.VISIBLE
                     playlistsEmpty.visibility = View.GONE
-                    downloadedContainer?.visibility = View.VISIBLE
-                    if (downloadedEntries.isEmpty()) {
-                        downloadedRecycler?.visibility = View.GONE
-                        downloadedEmpty?.visibility = View.VISIBLE
-                    } else {
-                        downloadedRecycler?.visibility = View.VISIBLE
-                        downloadedEmpty?.visibility = View.GONE
-                    }
                 } else {
                     savedContainer.visibility = View.GONE
                     playlistsRecycler.visibility = View.GONE
                     playlistsEmpty.visibility = View.GONE
-                    downloadedContainer?.visibility = View.GONE
                 }
                 return
             }
@@ -1096,9 +959,6 @@ class MainActivity : AppCompatActivity() {
             invalidateOptionsMenu()
             playlistsRecycler.visibility = View.GONE
             playlistsEmpty.visibility = View.GONE
-            downloadedContainer?.visibility = View.GONE
-            downloadedEmpty?.visibility = View.GONE
-            downloadedRecycler?.visibility = View.GONE
 
             savedRecycler.layoutManager = LinearLayoutManager(this)
             savedRecycler.isNestedScrollingEnabled = false
@@ -1190,8 +1050,9 @@ class MainActivity : AppCompatActivity() {
                             selectedPlaylistEpisodeEntries.remove(removedEntry.id)
                             refreshSavedEpisodesSection()
 
+                            val snackbarText = if (currentPlaylist == PodcastPlaylists.DOWNLOADED_PLAYLIST_ID) "Downloaded file deleted" else "Episode removed from playlist"
                             com.google.android.material.snackbar.Snackbar
-                                .make(findViewById(android.R.id.content), "Episode removed from playlist", com.google.android.material.snackbar.Snackbar.LENGTH_LONG)
+                                .make(findViewById(android.R.id.content), snackbarText, com.google.android.material.snackbar.Snackbar.LENGTH_LONG)
                                 .setAction("Undo") {
                                     PodcastPlaylists.addEntry(this@MainActivity, currentPlaylist, removedEntry)
                                     refreshSavedEpisodesSection()
@@ -1282,6 +1143,7 @@ class MainActivity : AppCompatActivity() {
             if (savedTabActive) {
                 savedContainer.visibility = View.VISIBLE
                 savedRecycler.visibility = if (playlistEntries.isNotEmpty()) View.VISIBLE else View.GONE
+                savedEmpty.text = if (playlistId == PodcastPlaylists.DOWNLOADED_PLAYLIST_ID) "No downloaded files yet" else "No episodes in this playlist yet"
                 savedEmpty.visibility = if (playlistEntries.isEmpty()) View.VISIBLE else View.GONE
             } else {
                 savedContainer.visibility = View.GONE

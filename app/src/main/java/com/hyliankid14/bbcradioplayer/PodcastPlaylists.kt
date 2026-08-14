@@ -10,6 +10,7 @@ object PodcastPlaylists {
     private const val KEY_MIGRATED = "migrated_saved_episodes"
 
     const val DEFAULT_PLAYLIST_ID = "saved"
+    const val DOWNLOADED_PLAYLIST_ID = "downloaded"
     const val ACTION_PLAYLISTS_CHANGED = "com.hyliankid14.bbcradioplayer.action.PLAYLISTS_CHANGED"
 
     private const val LEGACY_SAVED_PREFS = "saved_episodes_prefs"
@@ -200,8 +201,8 @@ object PodcastPlaylists {
         try { context.sendBroadcast(android.content.Intent(ACTION_PLAYLISTS_CHANGED)) } catch (_: Exception) { }
     }
 
-    fun getPlaylists(context: Context): List<PlaylistSummary> {
-        return loadPlaylists(context).map { playlist ->
+    fun getPlaylists(context: Context, includeDownloaded: Boolean = false): List<PlaylistSummary> {
+        val userPlaylists = loadPlaylists(context).map { playlist ->
             PlaylistSummary(
                 id = playlist.id,
                 name = playlist.name,
@@ -211,9 +212,38 @@ object PodcastPlaylists {
                 isDefault = playlist.isDefault
             )
         }
+        if (includeDownloaded) {
+            val downloadCount = DownloadedEpisodes.getDownloadedEntries(context).size
+            val downloadedSummary = PlaylistSummary(
+                id = DOWNLOADED_PLAYLIST_ID,
+                name = "Downloaded files",
+                createdAtMs = 0L,
+                updatedAtMs = 0L,
+                itemCount = downloadCount,
+                isDefault = true
+            )
+            return listOf(downloadedSummary) + userPlaylists
+        }
+        return userPlaylists
     }
 
     fun getPlaylistEntries(context: Context, playlistId: String): List<Entry> {
+        if (playlistId == DOWNLOADED_PLAYLIST_ID) {
+            return DownloadedEpisodes.getDownloadedEntries(context).map { d ->
+                Entry(
+                    id = d.id,
+                    title = d.title,
+                    description = d.description,
+                    imageUrl = d.imageUrl,
+                    audioUrl = d.audioUrl,
+                    pubDate = d.pubDate,
+                    durationMins = d.durationMins,
+                    podcastId = d.podcastId,
+                    podcastTitle = d.podcastTitle,
+                    savedAtMs = d.downloadedAtMs
+                )
+            }
+        }
         return loadPlaylists(context).firstOrNull { it.id == playlistId }?.entries ?: emptyList()
     }
 
@@ -222,11 +252,15 @@ object PodcastPlaylists {
     }
 
     fun getPlaylistName(context: Context, playlistId: String): String {
+        if (playlistId == DOWNLOADED_PLAYLIST_ID) return "Downloaded files"
         return getPlaylists(context).firstOrNull { it.id == playlistId }?.name
             ?: if (playlistId == DEFAULT_PLAYLIST_ID) "Saved Episodes" else "Playlist"
     }
 
     fun isEpisodeInPlaylist(context: Context, playlistId: String, episodeId: String): Boolean {
+        if (playlistId == DOWNLOADED_PLAYLIST_ID) {
+            return DownloadedEpisodes.isDownloaded(context, episodeId)
+        }
         return getPlaylistEntries(context, playlistId).any { it.id == episodeId }
     }
 
@@ -254,7 +288,7 @@ object PodcastPlaylists {
     }
 
     fun renamePlaylist(context: Context, playlistId: String, name: String): Boolean {
-        if (playlistId == DEFAULT_PLAYLIST_ID) return false
+        if (playlistId == DEFAULT_PLAYLIST_ID || playlistId == DOWNLOADED_PLAYLIST_ID) return false
         val trimmed = name.trim()
         if (trimmed.isEmpty()) return false
         val playlists = loadPlaylists(context)
@@ -268,7 +302,7 @@ object PodcastPlaylists {
     }
 
     fun deletePlaylist(context: Context, playlistId: String): Boolean {
-        if (playlistId == DEFAULT_PLAYLIST_ID) return false
+        if (playlistId == DEFAULT_PLAYLIST_ID || playlistId == DOWNLOADED_PLAYLIST_ID) return false
         val playlists = loadPlaylists(context)
         val removed = playlists.removeAll { it.id == playlistId }
         if (removed) {
@@ -279,6 +313,7 @@ object PodcastPlaylists {
     }
 
     fun addEntry(context: Context, playlistId: String, entry: Entry): Boolean {
+        if (playlistId == DOWNLOADED_PLAYLIST_ID) return false
         val playlists = loadPlaylists(context)
         val index = playlists.indexOfFirst { it.id == playlistId }
         if (index < 0) return false
@@ -295,6 +330,11 @@ object PodcastPlaylists {
     }
 
     fun removeEpisode(context: Context, playlistId: String, episodeId: String): Boolean {
+        if (playlistId == DOWNLOADED_PLAYLIST_ID) {
+            EpisodeDownloadManager.deleteDownload(context, episodeId, showToast = false)
+            notifyChanged(context)
+            return true
+        }
         val playlists = loadPlaylists(context)
         val index = playlists.indexOfFirst { it.id == playlistId }
         if (index < 0) return false

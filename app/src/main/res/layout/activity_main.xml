@@ -366,51 +366,6 @@
                     android:background="?attr/colorSurface"
                     android:visibility="gone" />
 
-                <!-- Subsection in Playlists page showing downloaded files -->
-                <LinearLayout
-                    android:id="@+id/downloaded_files_container"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="16dp"
-                    android:orientation="vertical"
-                    android:visibility="gone">
-
-                    <TextView
-                        android:id="@+id/downloaded_files_header"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:paddingStart="8dp"
-                        android:paddingEnd="8dp"
-                        android:paddingTop="12dp"
-                        android:paddingBottom="6dp"
-                        android:text="Downloaded Files"
-                        android:textAppearance="@style/TextAppearance.MaterialComponents.Subtitle1"
-                        android:textStyle="bold"
-                        android:textColor="?attr/colorOnSurface" />
-
-                    <androidx.recyclerview.widget.RecyclerView
-                        android:id="@+id/downloaded_episodes_recycler"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:visibility="gone"
-                        android:clipToPadding="true"
-                        android:scrollbars="vertical"
-                        android:background="?attr/colorSurface" />
-
-                    <TextView
-                        android:id="@+id/downloaded_episodes_empty"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="No downloaded files"
-                        android:textSize="14sp"
-                        android:textColor="?attr/colorOnSurfaceVariant"
-                        android:gravity="center"
-                        android:padding="16dp"
-                        android:background="?attr/colorSurface"
-                        android:visibility="gone" />
-
-                </LinearLayout>
-
             </LinearLayout>
 
             <LinearLayout
