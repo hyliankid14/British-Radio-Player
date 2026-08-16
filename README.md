@@ -82,6 +82,10 @@ interface with useful features for listeners.
 
 ### Recent Releases
 
+- **v1.9.0** (Aug 2026): **Offline Mode:** Full offline mode support with network connectivity detection, app-wide offline warning banner, dedicated Downloaded Files section in Playlists, and offline-filtered podcast episode feeds. **Audio Service:** Auto-resume playback after transient audio focus loss and improved transient detection. **UI & Search:** Search suggestions dropdown with RecyclerView and adaptive artwork sizing across multiple screen form factors.
+
+- **v1.8.5–v1.8.6** (Jul–Aug 2026): Added BBC Radio 5 Sports Extra 2 & 3 stations on Phone and Wear OS; updated compileSdk and targetSdk to 36; streamlined geo-block detection and asynchronous UK geo-probe; updated popular podcast rankings.
+
 - **v1.8.4** (Jul 2026): **Startup & Navigation:** Redesigned startup page preferences with improved UI for subscribed podcasts and playlists. **Performance:** Optimised new podcasts loading and prefetching for faster browsing. **Streaming:** Prioritised worldwide streams over UK-only streams for better global accessibility.
 
 - **v1.8.3** (Jun 2026): **Podcast Display:** Fixed release order in "New Podcasts" section to show episodes chronologically. **Language Support:** Added common non-English language codes to improve detection accuracy. **Playback:** Removed redundant podcast autoplay logic for cleaner state management.
