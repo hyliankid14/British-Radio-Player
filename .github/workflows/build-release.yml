@@ -1,0 +1,144 @@
+name: Build and Publish Release APKs
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build (e.g. v1.9.0)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Determine Version
+        id: version
+        run: |
+          INPUT_TAG="${{ github.event.inputs.tag }}"
+          REF_NAME="${{ github.ref_name }}"
+          TAG="${INPUT_TAG:-$REF_NAME}"
+          if [[ -z "$TAG" || "$TAG" == "main" ]]; then
+            TAG_NAME=$(grep -Po '(?<=APP_VERSION_NAME=).+' gradle.properties)
+            TAG="v${TAG_NAME}"
+          fi
+          echo "Building for tag: $TAG"
+          VERSION_NAME="${TAG#v}"
+          VERSION_CODE=$(grep -Po '(?<=APP_VERSION_CODE=).+' gradle.properties)
+          WEAR_VERSION_CODE=$(( VERSION_CODE * 10 + 1 ))
+          echo "version_name=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
+          echo "version_code=${VERSION_CODE}" >> "$GITHUB_OUTPUT"
+          echo "wear_version_code=${WEAR_VERSION_CODE}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Build Android Phone release APK and Wear OS release APK
+        run: |
+          ./gradlew :app:assembleGithubRelease :wear:assembleRelease \
+            -PAPP_VERSION_NAME="${{ steps.version.outputs.version_name }}" \
+            -PAPP_VERSION_CODE="${{ steps.version.outputs.version_code }}" \
+            -PWEAR_VERSION_CODE="${{ steps.version.outputs.wear_version_code }}" \
+            -PGCS_INDEX_URL="https://raspberrypi.tailc23afa.ts.net:8443/data/podcast-index.json.gz" \
+            -PGCS_META_URL="https://raspberrypi.tailc23afa.ts.net:8443/data/podcast-index-meta.json" \
+            -PGCS_STATS_URL="https://raspberrypi.tailc23afa.ts.net:8443/data/popular-podcasts.json" \
+            -PGCS_NEW_PODCASTS_URL="https://raspberrypi.tailc23afa.ts.net:8443/data/new-podcasts.json" \
+            -PCLOUD_FUNCTION_URL="https://raspberrypi.tailc23afa.ts.net:8443"
+
+      - name: Prepare Release Assets
+        id: assets
+        run: |
+          mkdir -p release-assets
+          
+          PHONE_APK=$(find app/build/outputs/apk/github/release -name "*.apk" ! -name "*-unsigned.apk" | head -1)
+          if [ -z "$PHONE_APK" ]; then
+            echo "Error: Phone APK not found" >&2
+            exit 1
+          fi
+          
+          WEAR_APK=$(find wear/build/outputs/apk/release -name "*.apk" ! -name "*-unsigned.apk" | head -1)
+          if [ -z "$WEAR_APK" ]; then
+            echo "Error: Wear APK not found" >&2
+            exit 1
+          fi
+          
+          cp "$PHONE_APK" release-assets/british-radio-player.apk
+          cp "$PHONE_APK" release-assets/android-british-radio-player.apk
+          cp "$WEAR_APK" release-assets/wear-british-radio-player.apk
+          
+          ls -la release-assets
+
+      - name: Publish Release to GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          PREV_TAG=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | grep -v "^${TAG}$" | head -1 || true)
+          TITLE="British Radio Player (${TAG})"
+          
+          NOTES_FILE=$(mktemp)
+          cat << 'EOF' > "$NOTES_FILE"
+          ## British Radio Player (${{ steps.version.outputs.tag }})
+
+          ### 📴 Offline Mode
+          - Full offline mode support with network connectivity detection and app-wide offline warning banner
+          - Dedicated Downloaded Files section in Playlists for easy offline access
+          - Offline-filtered podcast episode feeds and hide empty playlists when offline
+
+          ### 🎧 Audio Service & Playback
+          - Auto-resume playback after transient audio focus loss and improved transient detection
+
+          ### 🔍 UI Polish & Search
+          - Search suggestions dropdown with fast RecyclerView display
+          - Adaptive artwork sizing across multiple screen form factors
+
+          ### 📱 Wear OS Companion
+          - Updated Wear OS release build with sync and performance updates
+
+          ### 📦 Release Artifacts
+          - `british-radio-player.apk` / `android-british-radio-player.apk`: Phone and Android Auto APK
+          - `wear-british-radio-player.apk`: Wear OS companion APK
+          EOF
+
+          if [ -n "$PREV_TAG" ]; then
+            echo "" >> "$NOTES_FILE"
+            echo "**Full Changelog**: https://github.com/hyliankid14/British-Radio-Player/compare/${PREV_TAG}...${TAG}" >> "$NOTES_FILE"
+          fi
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" \
+              release-assets/british-radio-player.apk \
+              release-assets/android-british-radio-player.apk \
+              release-assets/wear-british-radio-player.apk \
+              --clobber
+            gh release edit "$TAG" --title "$TITLE" --notes-file "$NOTES_FILE"
+          else
+            gh release create "$TAG" \
+              release-assets/british-radio-player.apk \
+              release-assets/android-british-radio-player.apk \
+              release-assets/wear-british-radio-player.apk \
+              --title "$TITLE" \
+              --notes-file "$NOTES_FILE"
+          fi
+          
+          rm -f "$NOTES_FILE"
