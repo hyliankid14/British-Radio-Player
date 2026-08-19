@@ -195,8 +195,8 @@ jobs:
           ### 📦 Release Artifacts
           - `british-radio-player.apk` / `android-british-radio-player.apk`: Phone and Android Auto APK
           - `wear-british-radio-player.apk`: Wear OS companion APK
-          - `british-radio-player-${{ steps.version.outputs.tag }}-play-release.aab`: Signed Google Play App Bundle with native debug symbols & 16 KB page alignment
-          - `wear-british-radio-player-${{ steps.version.outputs.tag }}-release.aab`: Signed Wear OS Google Play App Bundle
+          - `british-radio-player-${{ steps.version.outputs.tag }}-play-release.aab`: Google Play App Bundle with native debug symbols & 16 KB page alignment
+          - `wear-british-radio-player-${{ steps.version.outputs.tag }}-release.aab`: Wear OS Google Play App Bundle
           - `native-debug-symbols-${{ steps.version.outputs.tag }}.zip`: Native crash/ANR debug symbols for Play Console
           - `mapping-${{ steps.version.outputs.tag }}.txt`: ProGuard/R8 deobfuscation mapping file
           EOF
@@ -206,11 +206,17 @@ jobs:
             echo "**Full Changelog**: https://github.com/hyliankid14/British-Radio-Player/compare/${PREV_TAG}...${TAG}" >> "$NOTES_FILE"
           fi
 
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" release-assets/* --clobber
-            gh release edit "$TAG" --title "$TITLE" --notes-file "$NOTES_FILE"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "$TITLE" --notes-file "$NOTES_FILE"
           else
-            gh release create "$TAG" release-assets/* --title "$TITLE" --notes-file "$NOTES_FILE"
+            gh release edit "$TAG" --title "$TITLE" --notes-file "$NOTES_FILE"
           fi
+
+          for f in release-assets/*; do
+            if [ -f "$f" ]; then
+              echo "Uploading $f to release $TAG..."
+              gh release upload "$TAG" "$f" --clobber
+            fi
+          done
           
           rm -f "$NOTES_FILE"
