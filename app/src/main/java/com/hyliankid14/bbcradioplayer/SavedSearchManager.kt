@@ -6,6 +6,17 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 object SavedSearchManager {
+    // Maximum age of an episode to qualify for a "new episode match" push notification.
+    // Prevents historical or archive episodes (e.g. from months or years ago) from triggering
+    // push notifications when re-indexed or re-added to an RSS feed.
+    private const val MAX_NOTIFICATION_EPISODE_AGE_MS = 14 * 24 * 60 * 60 * 1000L // 14 days
+
+    // Grace period before search creation date to consider episodes "new" if no previous match exists.
+    private const val SEARCH_CREATION_GRACE_PERIOD_MS = 48 * 60 * 60 * 1000L // 48 hours
+
+    // Maximum number of seen episode IDs retained per saved search.
+    private const val MAX_SEEN_EPISODE_IDS = 200
+
     suspend fun checkForUpdates(context: Context) {
         withContext(Dispatchers.IO) {
             try {
@@ -24,6 +35,8 @@ object SavedSearchManager {
                 }
 
                 val remote = RemoteIndexClient(context)
+                val now = System.currentTimeMillis()
+                val freshnessThreshold = now - MAX_NOTIFICATION_EPISODE_AGE_MS
 
                 for (search in searches) {
                     val filter = PodcastFilter(
@@ -41,37 +54,25 @@ object SavedSearchManager {
                     } catch (_: Exception) {
                         try { index.searchEpisodes(search.query, 500) } catch (_: Exception) { emptyList() }
                     }
-                    if (matches.isEmpty()) {
-                        // Don't reset lastMatchEpoch to 0 for non-notification searches — an empty
-                        // result may be transient (network error, FTS failure). Wiping the stored date
-                        // would cause "No matches yet" to appear until the next successful check.
-                        if (search.notificationsEnabled) {
-                            SavedSearchesPreference.updateLastSeenEpisodeIds(context, search.id, emptyList(), 0L)
-                        }
-                        continue
-                    }
+                    if (matches.isEmpty()) continue
 
                     val filtered = matches.filter { allowed.contains(it.podcastId) }
-                    val ids = filtered.map { it.episodeId }.distinct().take(50)
+                    if (filtered.isEmpty()) continue
 
-                    if (ids.isEmpty()) {
-                        if (search.notificationsEnabled) {
-                            SavedSearchesPreference.updateLastSeenEpisodeIds(context, search.id, emptyList(), 0L)
+                    // Resolve publication epoch for each episode and sort newest-first
+                    val sortedWithEpoch = filtered.map { ep ->
+                        var epoch = EpisodeDateParser.parsePubDateToEpoch(ep.pubDate)
+                        if (epoch == 0L) {
+                            epoch = index.getLatestEpisodePubDateEpoch(listOf(ep.episodeId))
                         }
-                        continue
-                    }
+                        ep to epoch
+                    }.sortedByDescending { it.second }
 
-                    var latestEpoch = filtered.maxOfOrNull { EpisodeDateParser.parsePubDateToEpoch(it.pubDate) } ?: 0L
-                    if (latestEpoch == 0L) {
-                        // pubDate strings were missing or unparseable — fall back to the
-                        // pre-computed pubEpoch values stored in the local SQLite index.
-                        latestEpoch = index.getLatestEpisodePubDateEpoch(ids)
-                    }
+                    val latestEpoch = sortedWithEpoch.firstOrNull()?.second ?: 0L
+                    val currentMatchIds = sortedWithEpoch.map { it.first.episodeId }.distinct()
 
-                    // Only persist a non-zero epoch to avoid overwriting a valid stored date with 0
-                    // when pubDate strings are missing or unparseable. Passing null to
-                    // updateLastSeenEpisodeIds preserves the existing lastMatchEpoch value.
-                    val epochToStore = latestEpoch.takeIf { it > 0L }
+                    // Only persist a non-zero epoch and ensure lastMatchEpoch never decreases
+                    val epochToStore = maxOf(search.lastMatchEpoch, latestEpoch).takeIf { it > 0L }
 
                     if (search.notificationsEnabled) {
                         val lastSeen = search.lastSeenEpisodeIds.toSet()
@@ -79,18 +80,41 @@ object SavedSearchManager {
                         if (lastSeen.isEmpty()) {
                             // First run or after reinstall: seed state without notifying so that
                             // only genuinely new episodes trigger a notification next time.
-                            SavedSearchesPreference.updateLastSeenEpisodeIds(context, search.id, ids, epochToStore)
+                            SavedSearchesPreference.updateLastSeenEpisodeIds(
+                                context,
+                                search.id,
+                                currentMatchIds.take(MAX_SEEN_EPISODE_IDS),
+                                epochToStore
+                            )
                         } else {
-                            val newIds = ids.filterNot { lastSeen.contains(it) }
-
-                            if (newIds.isNotEmpty()) {
-                                val exampleTitle = filtered.firstOrNull { newIds.contains(it.episodeId) }?.title ?: ""
-                                SavedSearchNotifier.notifyNewMatches(context, search, exampleTitle, newIds.size)
+                            // An episode is only a "new match" if:
+                            // 1. Its ID has not been seen before.
+                            // 2. Its publication date is valid (> 0L).
+                            // 3. Its publication date is within the freshness window (last 14 days) —
+                            //    preventing archive episodes from months/years ago triggering notifications.
+                            // 4. It is strictly newer than the previously recorded latest match date
+                            //    (or if lastMatchEpoch == 0, published after search creation).
+                            val newEpisodes = sortedWithEpoch.filter { (ep, epEpoch) ->
+                                !lastSeen.contains(ep.episodeId) &&
+                                epEpoch > 0L &&
+                                epEpoch >= freshnessThreshold &&
+                                if (search.lastMatchEpoch > 0L) {
+                                    epEpoch > search.lastMatchEpoch
+                                } else {
+                                    epEpoch >= (search.createdAt - SEARCH_CREATION_GRACE_PERIOD_MS)
+                                }
                             }
 
-                            SavedSearchesPreference.updateLastSeenEpisodeIds(context, search.id, ids, epochToStore)
+                            if (newEpisodes.isNotEmpty()) {
+                                val exampleTitle = newEpisodes.first().first.title
+                                SavedSearchNotifier.notifyNewMatches(context, search, exampleTitle, newEpisodes.size)
+                            }
+
+                            // Accumulate seen IDs with newest first, capped to MAX_SEEN_EPISODE_IDS
+                            val updatedSeenIds = (currentMatchIds + lastSeen).distinct().take(MAX_SEEN_EPISODE_IDS)
+                            SavedSearchesPreference.updateLastSeenEpisodeIds(context, search.id, updatedSeenIds, epochToStore)
                         }
-                    } else if (epochToStore != null) {
+                    } else if (epochToStore != null && epochToStore != search.lastMatchEpoch) {
                         SavedSearchesPreference.updateLastMatchEpoch(context, search.id, epochToStore)
                     }
                 }
@@ -161,10 +185,10 @@ object SavedSearchManager {
                         }
                     }
 
-                    // Only persist when we have a confirmed positive epoch to avoid
-                    // overwriting a valid stored date with 0 due to a transient failure.
-                    if (latestEpoch > 0L) {
-                        SavedSearchesPreference.updateLastMatchEpoch(context, search.id, latestEpoch)
+                    // Only persist when we have a confirmed positive epoch and it advances the stored date.
+                    val newEpoch = maxOf(search.lastMatchEpoch, latestEpoch)
+                    if (newEpoch > 0L && newEpoch != search.lastMatchEpoch) {
+                        SavedSearchesPreference.updateLastMatchEpoch(context, search.id, newEpoch)
                     }
                 }
             } catch (_: Exception) {
