@@ -1,0 +1,63 @@
+import React, { useEffect } from "react";
+import { Stack } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { SafeAreaProvider } from "react-native-safe-area-context";
+import TrackPlayer from "react-native-track-player";
+import { LogBox } from "react-native";
+import { setupPlayer, playbackService } from "../src/audio/trackPlayerService";
+import { usePlayerStore } from "../src/store/playerStore";
+
+LogBox.ignoreAllLogs();
+
+// Register playback service
+TrackPlayer.registerPlaybackService(() => playbackService);
+
+export default function RootLayout() {
+  const initStore = usePlayerStore((state) => state.init);
+
+  useEffect(() => {
+    async function start() {
+      await setupPlayer();
+      await initStore();
+    }
+    start();
+  }, [initStore]);
+
+  return (
+    <SafeAreaProvider>
+      <StatusBar style="light" />
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: "#F3EDF7" }
+        }}
+      >
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="modal/now-playing"
+          options={{
+            presentation: "modal",
+            headerShown: false,
+            gestureEnabled: true
+          }}
+        />
+        <Stack.Screen
+          name="modal/podcast-detail"
+          options={{
+            presentation: "modal",
+            headerShown: false,
+            gestureEnabled: true
+          }}
+        />
+        <Stack.Screen
+          name="modal/schedule"
+          options={{
+            presentation: "modal",
+            headerShown: false,
+            gestureEnabled: true
+          }}
+        />
+      </Stack>
+    </SafeAreaProvider>
+  );
+}

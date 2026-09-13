@@ -1,0 +1,186 @@
+import { createMMKV } from "react-native-mmkv";
+import { AudioQuality } from "../data/stations";
+
+let storage: {
+  getString: (key: string) => string | undefined;
+  set: (key: string, value: string | boolean | number) => void;
+  getBoolean: (key: string) => boolean | undefined;
+  getNumber: (key: string) => number | undefined;
+  remove: (key: string) => boolean;
+  clearAll: () => void;
+};
+
+try {
+  storage = createMMKV({ id: "british-radio-player-prefs" });
+} catch {
+  // In-memory fallback for unit tests / web environments
+  const memoryStore = new Map<string, any>();
+  storage = {
+    getString: (key: string) => memoryStore.get(key),
+    set: (key: string, value: any) => memoryStore.set(key, value),
+    getBoolean: (key: string) => memoryStore.get(key),
+    getNumber: (key: string) => memoryStore.get(key),
+    remove: (key: string) => memoryStore.delete(key),
+    clearAll: () => memoryStore.clear()
+  };
+}
+
+const KEYS = {
+  FAVORITES: "pref_favorite_stations",
+  AUDIO_QUALITY: "pref_audio_quality",
+  GEO_BLOCKED: "pref_geo_blocked",
+  THEME: "pref_theme_mode",
+  LAST_STATION: "pref_last_station_id",
+  LAST_PODCAST_POSITIONS: "pref_podcast_positions",
+  SUBSCRIBED_PODCASTS: "pref_subscribed_podcasts",
+  RECENTLY_PLAYED: "pref_recently_played_stations",
+  OFFLINE_MODE: "pref_offline_mode"
+};
+
+export const Preferences = {
+  getFavorites(): string[] {
+    const raw = storage.getString(KEYS.FAVORITES);
+    if (!raw) return ["radio1", "radio2", "radio4", "radio5live", "radio6"];
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return [];
+    }
+  },
+
+  setFavorites(stationIds: string[]): void {
+    const normalised = Array.from(new Set(stationIds.filter(Boolean)));
+    storage.set(KEYS.FAVORITES, JSON.stringify(normalised));
+  },
+
+  saveFavoritesOrder(orderedIds: string[]): void {
+    this.setFavorites(orderedIds);
+  },
+
+  toggleFavorite(stationId: string): boolean {
+    const favorites = this.getFavorites();
+    const index = favorites.indexOf(stationId);
+    let isFav = false;
+    if (index >= 0) {
+      favorites.splice(index, 1);
+      isFav = false;
+    } else {
+      favorites.push(stationId);
+      isFav = true;
+    }
+    this.setFavorites(favorites);
+    return isFav;
+  },
+
+  isFavorite(stationId: string): boolean {
+    return this.getFavorites().includes(stationId);
+  },
+
+  getAudioQuality(): AudioQuality {
+    return (storage.getString(KEYS.AUDIO_QUALITY) as AudioQuality) || "HIGH";
+  },
+
+  setAudioQuality(quality: AudioQuality): void {
+    storage.set(KEYS.AUDIO_QUALITY, quality);
+  },
+
+  getGeoBlocked(): boolean {
+    return storage.getBoolean(KEYS.GEO_BLOCKED) ?? false;
+  },
+
+  setGeoBlocked(val: boolean): void {
+    storage.set(KEYS.GEO_BLOCKED, val);
+  },
+
+  getTheme(): "system" | "dark" | "light" {
+    return (storage.getString(KEYS.THEME) as any) || "system";
+  },
+
+  setTheme(theme: "system" | "dark" | "light"): void {
+    storage.set(KEYS.THEME, theme);
+  },
+
+  getLastStationId(): string {
+    return storage.getString(KEYS.LAST_STATION) || "radio1";
+  },
+
+  setLastStationId(stationId: string): void {
+    storage.set(KEYS.LAST_STATION, stationId);
+  },
+
+  getPodcastPosition(episodeId: string): number {
+    const raw = storage.getString(KEYS.LAST_PODCAST_POSITIONS);
+    if (!raw) return 0;
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed[episodeId] || 0;
+    } catch {
+      return 0;
+    }
+  },
+
+  setPodcastPosition(episodeId: string, positionSeconds: number): void {
+    const raw = storage.getString(KEYS.LAST_PODCAST_POSITIONS);
+    let parsed: Record<string, number> = {};
+    if (raw) {
+      try {
+        parsed = JSON.parse(raw);
+      } catch {}
+    }
+    parsed[episodeId] = Math.floor(positionSeconds);
+    storage.set(KEYS.LAST_PODCAST_POSITIONS, JSON.stringify(parsed));
+  },
+
+  getSubscribedPodcasts(): string[] {
+    const raw = storage.getString(KEYS.SUBSCRIBED_PODCASTS);
+    if (!raw) return [];
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return [];
+    }
+  },
+
+  setSubscribedPodcasts(podcastIds: string[]): void {
+    storage.set(KEYS.SUBSCRIBED_PODCASTS, JSON.stringify(podcastIds));
+  },
+
+  togglePodcastSubscription(podcastId: string): boolean {
+    const subscribed = this.getSubscribedPodcasts();
+    const index = subscribed.indexOf(podcastId);
+    let isSub = false;
+    if (index >= 0) {
+      subscribed.splice(index, 1);
+      isSub = false;
+    } else {
+      subscribed.push(podcastId);
+      isSub = true;
+    }
+    this.setSubscribedPodcasts(subscribed);
+    return isSub;
+  },
+
+  exportBackup(): string {
+    return JSON.stringify({
+      favorites: this.getFavorites(),
+      audioQuality: this.getAudioQuality(),
+      geoBlocked: this.getGeoBlocked(),
+      theme: this.getTheme(),
+      exportedAt: new Date().toISOString(),
+      version: 1
+    }, null, 2);
+  },
+
+  importBackup(jsonString: string): boolean {
+    try {
+      const data = JSON.parse(jsonString);
+      if (Array.isArray(data.favorites)) this.setFavorites(data.favorites);
+      if (data.audioQuality) this.setAudioQuality(data.audioQuality);
+      if (typeof data.geoBlocked === "boolean") this.setGeoBlocked(data.geoBlocked);
+      if (data.theme) this.setTheme(data.theme);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+};
