@@ -58,6 +58,14 @@
                 <data android:scheme="https" android:host="bbcradioplayer.app" android:pathPrefix="/p/" />
                 <data android:scheme="https" android:host="bbcradioplayer.app" android:pathPrefix="/e/" />
             </intent-filter>
+
+            <!-- Deep link for Last.fm OAuth callback -->
+            <intent-filter android:label="Last.fm Auth">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="bbcradioplayer" android:host="lastfm-auth" />
+            </intent-filter>
         </activity>
 
         <activity 

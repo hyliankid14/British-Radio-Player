@@ -26,6 +26,11 @@ object WatchAppStateSync {
     private const val KEY_EPISODE_PROGRESS_JSON = "episode_progress_json"
     private const val KEY_HAS_EPISODE_SNAPSHOT = "has_episode_snapshot"
     private const val KEY_UPDATED_AT = "updated_at"
+    private const val KEY_LASTFM_SESSION_KEY = "lastfm_session_key"
+    private const val KEY_LASTFM_USERNAME = "lastfm_username"
+    private const val KEY_LASTFM_DIRECT_ENABLED = "lastfm_direct_enabled"
+    private const val KEY_LASTFM_BROADCAST_ENABLED = "lastfm_broadcast_enabled"
+    private const val KEY_LASTFM_SCROBBLE_PODCASTS = "lastfm_scrobble_podcasts"
     private const val TAG = "WatchAppStateSync"
 
     fun requestPhoneState(context: Context) {
@@ -99,6 +104,7 @@ object WatchAppStateSync {
     }
 
     fun applyStateFromDataItem(
+        context: Context,
         favouritesStore: FavouritesStore,
         subscriptionStore: SubscriptionStore,
         episodeSyncStore: EpisodeSyncStore,
@@ -122,9 +128,27 @@ object WatchAppStateSync {
             episodeSyncStore.replaceAll(playedEpisodeIds, progressMap, historyEpisodeIds)
             Log.d(TAG, "Applied episode sync from DataItem played=${playedEpisodeIds.size} history=${historyEpisodeIds.size} progress=${progressMap.size}")
         }
+
+        if (item.dataMap.containsKey(KEY_LASTFM_SESSION_KEY) || item.dataMap.containsKey(KEY_LASTFM_DIRECT_ENABLED)) {
+            val sessionKey = item.dataMap.getString(KEY_LASTFM_SESSION_KEY).orEmpty()
+            val username = item.dataMap.getString(KEY_LASTFM_USERNAME).orEmpty()
+            val directEnabled = item.dataMap.getBoolean(KEY_LASTFM_DIRECT_ENABLED, true)
+            val broadcastEnabled = item.dataMap.getBoolean(KEY_LASTFM_BROADCAST_ENABLED, true)
+            val scrobblePodcasts = item.dataMap.getBoolean(KEY_LASTFM_SCROBBLE_PODCASTS, false)
+            com.hyliankid14.bbcradioplayer.wear.playback.WearLastFmPreference.updateFromSync(
+                context,
+                sessionKey,
+                username,
+                directEnabled,
+                broadcastEnabled,
+                scrobblePodcasts
+            )
+            Log.d(TAG, "Applied Last.fm state from DataItem user=$username direct=$directEnabled")
+        }
     }
 
     fun applyStateFromPayload(
+        context: Context,
         favouritesStore: FavouritesStore,
         subscriptionStore: SubscriptionStore,
         episodeSyncStore: EpisodeSyncStore,
@@ -194,6 +218,23 @@ object WatchAppStateSync {
             }
             episodeSyncStore.replaceAll(playedEpisodeIds, progressMap, historyEpisodeIds)
             Log.d(TAG, "Applied episode sync from payload played=${playedEpisodeIds.size} history=${historyEpisodeIds.size} progress=${progressMap.size}")
+        }
+
+        if (json.has(KEY_LASTFM_SESSION_KEY) || json.has(KEY_LASTFM_DIRECT_ENABLED)) {
+            val sessionKey = json.optString(KEY_LASTFM_SESSION_KEY, "")
+            val username = json.optString(KEY_LASTFM_USERNAME, "")
+            val directEnabled = json.optBoolean(KEY_LASTFM_DIRECT_ENABLED, true)
+            val broadcastEnabled = json.optBoolean(KEY_LASTFM_BROADCAST_ENABLED, true)
+            val scrobblePodcasts = json.optBoolean(KEY_LASTFM_SCROBBLE_PODCASTS, false)
+            com.hyliankid14.bbcradioplayer.wear.playback.WearLastFmPreference.updateFromSync(
+                context,
+                sessionKey,
+                username,
+                directEnabled,
+                broadcastEnabled,
+                scrobblePodcasts
+            )
+            Log.d(TAG, "Applied Last.fm state from payload user=$username direct=$directEnabled")
         }
     }
 

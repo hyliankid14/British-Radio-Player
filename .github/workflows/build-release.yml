@@ -90,6 +90,8 @@ jobs:
             "-PGCS_STATS_URL=https://raspberrypi.tailc23afa.ts.net:8443/data/popular-podcasts.json"
             "-PGCS_NEW_PODCASTS_URL=https://raspberrypi.tailc23afa.ts.net:8443/data/new-podcasts.json"
             "-PCLOUD_FUNCTION_URL=https://raspberrypi.tailc23afa.ts.net:8443"
+            "-PLASTFM_API_KEY=${{ secrets.LASTFM_API_KEY }}"
+            "-PLASTFM_API_SECRET=${{ secrets.LASTFM_API_SECRET }}"
           )
 
           if [ "${{ steps.keystore.outputs.has_signing }}" = "true" ]; then

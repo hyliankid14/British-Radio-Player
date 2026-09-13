@@ -23,6 +23,11 @@ object WearAppStateSync {
     private const val KEY_EPISODE_PROGRESS_JSON = "episode_progress_json"
     private const val KEY_HAS_EPISODE_SNAPSHOT = "has_episode_snapshot"
     private const val KEY_UPDATED_AT = "updated_at"
+    const val KEY_LASTFM_SESSION_KEY = "lastfm_session_key"
+    const val KEY_LASTFM_USERNAME = "lastfm_username"
+    const val KEY_LASTFM_DIRECT_ENABLED = "lastfm_direct_enabled"
+    const val KEY_LASTFM_BROADCAST_ENABLED = "lastfm_broadcast_enabled"
+    const val KEY_LASTFM_SCROBBLE_PODCASTS = "lastfm_scrobble_podcasts"
     private const val TAG = "WearAppStateSync"
 
     fun pushCurrentState(context: Context) {
@@ -48,6 +53,11 @@ object WearAppStateSync {
                 episodeProgress.forEach { (episodeId, positionMs) -> put(episodeId, positionMs) }
             }
             dataMap.putString(KEY_EPISODE_PROGRESS_JSON, progressJson.toString())
+            dataMap.putString(KEY_LASTFM_SESSION_KEY, LastFmPreference.getSessionKey(context) ?: "")
+            dataMap.putString(KEY_LASTFM_USERNAME, LastFmPreference.getUsername(context) ?: "")
+            dataMap.putBoolean(KEY_LASTFM_DIRECT_ENABLED, LastFmPreference.isDirectScrobbleEnabled(context))
+            dataMap.putBoolean(KEY_LASTFM_BROADCAST_ENABLED, LastFmPreference.isBroadcastScrobbleEnabled(context))
+            dataMap.putBoolean(KEY_LASTFM_SCROBBLE_PODCASTS, LastFmPreference.shouldScrobblePodcasts(context))
             dataMap.putLong(KEY_UPDATED_AT, System.currentTimeMillis())
         }.asPutDataRequest().setUrgent()
 
@@ -75,6 +85,11 @@ object WearAppStateSync {
                     .forEach { (episodeId, positionMs) -> put(episodeId, positionMs) }
             }
             put(KEY_EPISODE_PROGRESS_JSON, progressJson.toString())
+            put(KEY_LASTFM_SESSION_KEY, LastFmPreference.getSessionKey(context) ?: "")
+            put(KEY_LASTFM_USERNAME, LastFmPreference.getUsername(context) ?: "")
+            put(KEY_LASTFM_DIRECT_ENABLED, LastFmPreference.isDirectScrobbleEnabled(context))
+            put(KEY_LASTFM_BROADCAST_ENABLED, LastFmPreference.isBroadcastScrobbleEnabled(context))
+            put(KEY_LASTFM_SCROBBLE_PODCASTS, LastFmPreference.shouldScrobblePodcasts(context))
         }
         return payload.toString().toByteArray(Charsets.UTF_8)
     }

@@ -2037,6 +2037,7 @@ class RadioService : MediaBrowserServiceCompat() {
                                 episodeAnalyticsScheduled = true
                             }
                             
+                            try { ScrobbleManager.onPlaybackResumed(this@RadioService) } catch (_: Exception) { }
                             // Audio focus regain is now handled in audioFocusChangeListener
                         } else {
                             if (stationAnalyticsScheduled) {
@@ -2047,6 +2048,7 @@ class RadioService : MediaBrowserServiceCompat() {
                                 episodeAnalyticsRunnable?.let { handler.removeCallbacks(it) }
                                 episodeAnalyticsScheduled = false
                             }
+                            try { ScrobbleManager.onPlaybackPaused(this@RadioService) } catch (_: Exception) { }
                         }
                     }
 
@@ -3247,6 +3249,16 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
                 stationId,
                 currentStationTitle
             )
+            val durationSec = ((currentShowInfo.segmentDurationMs ?: 0L) / 1000L).toInt()
+            val isPodcast = stationId.startsWith("podcast_")
+            ScrobbleManager.onTrackStarted(
+                context = this,
+                artist = currentShowInfo.secondary ?: "",
+                track = currentShowInfo.tertiary ?: "",
+                album = currentStationTitle,
+                durationSec = durationSec,
+                isPodcast = isPodcast
+            )
         } catch (_: Exception) { }
     }
 
@@ -3326,7 +3338,7 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
         val titleVal: String = if (isPodcast) {
             if (titleCandidate.isNotBlank() && !titleCandidate.equals(currentStationTitle, ignoreCase = true)) titleCandidate else ""
         } else if (hasSongData) {
-            currentShowInfo.getFormattedTitle().ifEmpty { currentStationTitle.orEmpty() }
+            trackStr.ifEmpty { currentShowInfo.getFormattedTitle().ifEmpty { currentStationTitle.orEmpty() } }
         } else {
             currentStationTitle.orEmpty()
         }
@@ -3335,7 +3347,7 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
             // artist field can carry author/host or show name for podcasts
             currentShowName.orEmpty()
         } else if (hasSongData) {
-            artistTrackStr.orEmpty()
+            artistStr.ifEmpty { artistTrackStr.orEmpty() }
         } else {
             currentShowName.orEmpty()
         }
@@ -3348,7 +3360,7 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
             .putString(android.support.v4.media.MediaMetadataCompat.METADATA_KEY_MEDIA_ID, mediaIdVal)
             // Podcast mapping: TITLE=episode, ALBUM=podcast; keep ARTIST/COMPOSER for compatibility
             .putString(android.support.v4.media.MediaMetadataCompat.METADATA_KEY_TITLE, titleVal)
-            .putString(android.support.v4.media.MediaMetadataCompat.METADATA_KEY_ALBUM, if (isPodcast) currentStationTitle.orEmpty() else if (hasSongData) trackStr.orEmpty() else currentShowName.ifEmpty { "Live Stream" })
+            .putString(android.support.v4.media.MediaMetadataCompat.METADATA_KEY_ALBUM, if (isPodcast) currentStationTitle.orEmpty() else if (hasSongData) currentStationTitle.ifEmpty { "Live Stream" } else currentShowName.ifEmpty { "Live Stream" })
             .putString(android.support.v4.media.MediaMetadataCompat.METADATA_KEY_ARTIST, artistVal)
             .putString(android.support.v4.media.MediaMetadataCompat.METADATA_KEY_COMPOSER, currentEpisodeTitle.orEmpty())
             // Redundant artist fields for head-units that read alternate keys; set to combined string when possible
@@ -3530,6 +3542,7 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
         }
 
         player?.stop()
+        try { ScrobbleManager.onPlaybackStopped(this) } catch (_: Exception) { }
         stopForeground(STOP_FOREGROUND_REMOVE)
         try {
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -3895,6 +3908,17 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
             // episode to play instead of the correct next playlist entry).
             PlaybackPreference.setLastMediaId(this, "podcast_episode_${episode.id}")
             PlaybackPreference.setLastPlaylistId(this, currentPlaylistId)
+            try {
+                val durationSec = episode.durationMins * 60
+                ScrobbleManager.onTrackStarted(
+                    context = this,
+                    artist = syntheticStation.title,
+                    track = episode.title,
+                    album = syntheticStation.title,
+                    durationSec = durationSec,
+                    isPodcast = true
+                )
+            } catch (_: Exception) { }
 
             // Record this episode in the recent-played history and notify UI
             try {

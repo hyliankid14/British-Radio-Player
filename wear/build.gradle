@@ -14,8 +14,15 @@ def releaseKeyAlias = project.findProperty("RELEASE_KEY_ALIAS") ?: System.getenv
 def releaseKeyPassword = project.findProperty("RELEASE_KEY_PASSWORD") ?: System.getenv("RELEASE_KEY_PASSWORD")
 def hasReleaseSigning = releaseStoreFile && releaseStorePassword && releaseKeyAlias && releaseKeyPassword
 
+// Load local.properties
+ext.localProps = new Properties()
+def _lpf = rootProject.file('local.properties')
+if (_lpf.exists()) { _lpf.withInputStream { s -> ext.localProps.load(s) } }
+
 // Analytics endpoint URL — set in local.properties or env to override the default.
-def analyticsEndpoint = (project.findProperty("ANALYTICS_ENDPOINT_URL") ?: System.getenv("ANALYTICS_ENDPOINT_URL") ?: "").toString()
+def analyticsEndpoint = (project.hasProperty("ANALYTICS_ENDPOINT_URL") ? project.property("ANALYTICS_ENDPOINT_URL") : ext.localProps.getProperty("ANALYTICS_ENDPOINT_URL") ?: System.getenv("ANALYTICS_ENDPOINT_URL") ?: "").toString()
+def lastfmApiKey    = (project.hasProperty("LASTFM_API_KEY")    ? project.property("LASTFM_API_KEY")    : ext.localProps.getProperty("LASTFM_API_KEY")    ?: System.getenv("LASTFM_API_KEY")    ?: "").toString()
+def lastfmApiSecret = (project.hasProperty("LASTFM_API_SECRET") ? project.property("LASTFM_API_SECRET") : ext.localProps.getProperty("LASTFM_API_SECRET") ?: System.getenv("LASTFM_API_SECRET") ?: "").toString()
 
 android {
     namespace "com.hyliankid14.bbcradioplayer.wear"
@@ -31,6 +38,8 @@ android {
         // Analytics endpoint URL — set via local.properties or env.
         // Falls back to the hardcoded default in PrivacyAnalytics.kt if blank.
         buildConfigField "String", "ANALYTICS_ENDPOINT_URL", "\"${analyticsEndpoint}\""
+        buildConfigField "String", "LASTFM_API_KEY", "\"${lastfmApiKey}\""
+        buildConfigField "String", "LASTFM_API_SECRET", "\"${lastfmApiSecret}\""
     }
 
     signingConfigs {

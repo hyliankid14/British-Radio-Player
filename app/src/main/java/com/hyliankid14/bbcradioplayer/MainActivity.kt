@@ -805,6 +805,27 @@ class MainActivity : AppCompatActivity() {
                         startActivity(nowPlayingIntent)
                     }, 100)
                 }
+
+                uri.scheme == LastFmApiClient.CALLBACK_SCHEME && uri.host == LastFmApiClient.CALLBACK_HOST -> {
+                    val token = uri.getQueryParameter("token")
+                    if (!token.isNullOrBlank()) {
+                        lifecycleScope.launch {
+                            Toast.makeText(this@MainActivity, "Connecting to Last.fm...", Toast.LENGTH_SHORT).show()
+                            val result = LastFmApiClient.fetchSession(this@MainActivity, token)
+                            if (result.success && result.username != null && result.sessionKey != null) {
+                                LastFmPreference.saveSession(this@MainActivity, result.username, result.sessionKey)
+                                Toast.makeText(this@MainActivity, "Connected to Last.fm as ${result.username}", Toast.LENGTH_LONG).show()
+                                val settingsIntent = Intent(this@MainActivity, SettingsDetailActivity::class.java).apply {
+                                    putExtra(SettingsDetailActivity.EXTRA_SECTION, SettingsDetailActivity.SECTION_LASTFM)
+                                }
+                                startActivity(settingsIntent)
+                            } else {
+                                val errorMsg = result.errorMessage ?: "Failed to authenticate with Last.fm"
+                                Toast.makeText(this@MainActivity, errorMsg, Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
+                }
             }
         } catch (e: Exception) {
             android.util.Log.w("MainActivity", "Failed to handle deep link: ${e.message}")
@@ -4052,6 +4073,13 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.settings_playback_card)?.setOnClickListener {
             val intent = Intent(this, SettingsDetailActivity::class.java).apply {
                 putExtra(SettingsDetailActivity.EXTRA_SECTION, SettingsDetailActivity.SECTION_PLAYBACK)
+            }
+            startActivity(intent)
+        }
+
+        findViewById<View>(R.id.settings_lastfm_card)?.setOnClickListener {
+            val intent = Intent(this, SettingsDetailActivity::class.java).apply {
+                putExtra(SettingsDetailActivity.EXTRA_SECTION, SettingsDetailActivity.SECTION_LASTFM)
             }
             startActivity(intent)
         }

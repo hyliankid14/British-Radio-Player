@@ -21,6 +21,7 @@ class WatchWearSyncListenerService : WearableListenerService() {
             Log.d("WatchWearSync", "onDataChanged path=${event.dataItem.uri.path}")
             try {
                 WatchAppStateSync.applyStateFromDataItem(
+                    context = this,
                     favouritesStore = favouritesStore,
                     subscriptionStore = subscriptionStore,
                     episodeSyncStore = episodeSyncStore,
@@ -45,6 +46,7 @@ class WatchWearSyncListenerService : WearableListenerService() {
         if (messageEvent.path == WatchAppStateSync.PATH_STATE_PAYLOAD) {
             try {
                 WatchAppStateSync.applyStateFromPayload(
+                    context = this,
                     favouritesStore = favouritesStore,
                     subscriptionStore = subscriptionStore,
                     episodeSyncStore = episodeSyncStore,

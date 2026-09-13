@@ -84,6 +84,7 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
     private var episodeAnalyticsJob: Job? = null
     private var progressTickerJob: Job? = null
     private var lastTrackedEpisodeAnalyticsId: String? = null
+    private var currentSegment: SegmentNowPlaying? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -170,11 +171,28 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
             )
             addListener(object : Player.Listener {
                 override fun onPlaybackStateChanged(playbackState: Int) {
+                    if (playbackState == Player.STATE_READY && !currentIsLive) {
+                        val durationSec = (player.duration.takeIf { it > 0 } ?: 0L) / 1000L
+                        if (durationSec > 0) {
+                            try {
+                                WearScrobbleManager.updateTrackDuration(durationSec.toInt())
+                            } catch (_: Exception) { }
+                        }
+                    }
                     updateProgressTicker()
                     refreshSessionAndNotification()
                 }
 
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
+                    if (isPlaying) {
+                        try {
+                            WearScrobbleManager.onPlaybackResumed(this@WearPlaybackService)
+                        } catch (_: Exception) { }
+                    } else {
+                        try {
+                            WearScrobbleManager.onPlaybackPaused(this@WearPlaybackService)
+                        } catch (_: Exception) { }
+                    }
                     updateProgressTicker()
                     refreshSessionAndNotification()
                 }
@@ -219,6 +237,7 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
                 currentIsLive = intent.getBooleanExtra(EXTRA_IS_LIVE, true)
                 currentEpisodeId = null
                 currentPodcastId = null
+                currentSegment = null
                 lastProgressSyncAtMs = 0L
                 lastSavedPositionMs = 0L
                 scheduleStationAnalytics(currentStationId.orEmpty(), currentTitle)
@@ -281,6 +300,18 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
                     WatchAppStateSync.pushCurrentState(this, favouritesStore, subscriptionStore, episodeSyncStore)
 
                     stopLiveMetadataPolling()
+                    currentSegment = null
+                    val durationSec = intent.getIntExtra(EXTRA_DURATION_SEC, 0)
+                    try {
+                        WearScrobbleManager.onTrackStarted(
+                            context = this,
+                            artist = currentSubtitle,
+                            track = currentTitle,
+                            album = currentSubtitle,
+                            durationSec = durationSec,
+                            isPodcast = true
+                        )
+                    } catch (_: Exception) { }
                     scheduleEpisodeAnalytics(
                         podcastId = currentPodcastId.orEmpty(),
                         episodeId = currentEpisodeId.orEmpty(),
@@ -333,6 +364,10 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
     }
 
     override fun onDestroy() {
+        try {
+            WearScrobbleManager.onPlaybackStopped(this)
+        } catch (_: Exception) { }
+        currentSegment = null
         persistEpisodeState(force = true)
         WearPlaybackStateStore.publish(null)
         stopLiveMetadataPolling()
@@ -373,6 +408,10 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
     }
 
     private fun stopPlayback() {
+        try {
+            WearScrobbleManager.onPlaybackStopped(this)
+        } catch (_: Exception) { }
+        currentSegment = null
         persistEpisodeState(force = true)
         player.stop()
         candidates = emptyList()
@@ -533,14 +572,23 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
 
     private fun buildMetadata(): MediaMetadataCompat {
         val builder = MediaMetadataCompat.Builder()
-            .putString(MediaMetadataCompat.METADATA_KEY_TITLE, currentTitle)
-            .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_TITLE, currentTitle)
-            .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, currentSubtitle)
-            .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, currentSubtitle)
-            .putLong(
-                MediaMetadataCompat.METADATA_KEY_DURATION,
-                if (currentIsLive) -1L else (player.duration.takeIf { it > 0 } ?: 0L)
-            )
+        val seg = currentSegment
+        if (currentIsLive && seg != null && seg.artist.isNotBlank() && seg.track.isNotBlank()) {
+            builder.putString(MediaMetadataCompat.METADATA_KEY_ARTIST, seg.artist)
+            builder.putString(MediaMetadataCompat.METADATA_KEY_TITLE, seg.track)
+            builder.putString(MediaMetadataCompat.METADATA_KEY_ALBUM, currentSubtitle)
+            builder.putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_TITLE, currentTitle)
+            builder.putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, currentSubtitle)
+        } else {
+            builder.putString(MediaMetadataCompat.METADATA_KEY_TITLE, currentTitle)
+            builder.putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_TITLE, currentTitle)
+            builder.putString(MediaMetadataCompat.METADATA_KEY_ARTIST, currentSubtitle)
+            builder.putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, currentSubtitle)
+        }
+        builder.putLong(
+            MediaMetadataCompat.METADATA_KEY_DURATION,
+            if (currentIsLive) -1L else (player.duration.takeIf { it > 0 } ?: 0L)
+        )
         if (!currentArtwork.isNullOrBlank()) {
             builder.putString(MediaMetadataCompat.METADATA_KEY_ALBUM_ART_URI, currentArtwork)
         } else {
@@ -628,6 +676,20 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
                     .onSuccess { update ->
                         if (update != null && currentIsLive && currentServiceId == serviceId) {
                             var changed = false
+                            val previousSegment = currentSegment
+                            currentSegment = update.segment
+                            if (update.segment != null && update.segment.artist.isNotBlank() && update.segment.track.isNotBlank()) {
+                                try {
+                                    WearScrobbleManager.onTrackStarted(
+                                        context = this@WearPlaybackService,
+                                        artist = update.segment.artist,
+                                        track = update.segment.track,
+                                        album = update.subtitle.ifBlank { currentTitle },
+                                        durationSec = update.segment.durationSec,
+                                        isPodcast = false
+                                    )
+                                } catch (_: Exception) { }
+                            }
                             if (update.title.isNotBlank() && update.title != currentTitle) {
                                 currentTitle = update.title
                                 changed = true
@@ -640,7 +702,7 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
                                 currentArtwork = update.artworkUrl
                                 changed = true
                             }
-                            if (changed) {
+                            if (changed || previousSegment != currentSegment) {
                                 refreshSessionAndNotification()
                             }
                         }
@@ -676,7 +738,7 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
             showDetail.ifBlank { showName.ifBlank { "On air now" } }
         }
         val artwork = normaliseUrl(segment?.imageUrl ?: schedule?.imageUrl)
-        LiveNowPlayingUpdate(title = title, subtitle = subtitle, artworkUrl = artwork)
+        LiveNowPlayingUpdate(title = title, subtitle = subtitle, artworkUrl = artwork, segment = segment)
     }
 
     private fun fetchCurrentScheduleShow(serviceId: String): ScheduleShow? {
@@ -769,10 +831,11 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
                 .replace("\\/", "/")
                 .replace("{recipe}", "320x320")
                 .takeIf { it.startsWith("http") }
+            val durationSec = latest.optString("duration").toIntOrNull() ?: 0
             if (artist.isBlank() && track.isBlank()) {
                 return@runCatching null
             }
-            SegmentNowPlaying(artist = artist, track = track, imageUrl = normaliseUrl(imageUrl))
+            SegmentNowPlaying(artist = artist, track = track, imageUrl = normaliseUrl(imageUrl), durationSec = durationSec)
         }.getOrNull()
     }
 
@@ -904,6 +967,7 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
         const val EXTRA_START_POSITION_MS = "extra_start_position_ms"
         const val EXTRA_SEEK_DELTA_MS = "extra_seek_delta_ms"
         const val EXTRA_VOLUME_DIRECTION = "extra_volume_direction"
+        const val EXTRA_DURATION_SEC = "extra_duration_sec"
 
         private const val CHANNEL_ID = "wear_playback"
         private const val NOTIFICATION_ID = 1001
@@ -928,12 +992,14 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
     private data class SegmentNowPlaying(
         val artist: String,
         val track: String,
-        val imageUrl: String?
+        val imageUrl: String?,
+        val durationSec: Int = 0
     )
 
     private data class LiveNowPlayingUpdate(
         val title: String,
         val subtitle: String,
-        val artworkUrl: String?
+        val artworkUrl: String?,
+        val segment: SegmentNowPlaying? = null
     )
 }
