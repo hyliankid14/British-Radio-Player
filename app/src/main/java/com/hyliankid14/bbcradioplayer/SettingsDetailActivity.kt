@@ -44,6 +44,7 @@ class SettingsDetailActivity : AppCompatActivity() {
         const val SECTION_ALARM = "alarm"
         const val SECTION_ABOUT = "about"
         const val SECTION_STARTUP_PAGE = "startup_page"
+        const val SECTION_LASTFM = "lastfm"
         private const val BACKUP_META_PREFS = "backup_meta_prefs"
         private const val KEY_LAST_BACKUP_TIME = "last_backup_time"
     }
@@ -55,6 +56,7 @@ class SettingsDetailActivity : AppCompatActivity() {
     private var lastSeenIndexPercent = 0
     private var updateDownloadId: Long? = null
     private var updateDownloadReceiver: BroadcastReceiver? = null
+    private var lastFmReceiver: BroadcastReceiver? = null
 
     private val githubReleasesUrl = "https://github.com/hyliankid14/British-Radio-Player/releases"
 
@@ -106,6 +108,10 @@ class SettingsDetailActivity : AppCompatActivity() {
                 setContentView(R.layout.settings_startup_page)
                 setupStartupPageSettings()
             }
+            SECTION_LASTFM -> {
+                setContentView(R.layout.settings_lastfm)
+                setupLastFmSettings()
+            }
         }
         
         // Set up the toolbar as the action bar
@@ -139,6 +145,7 @@ class SettingsDetailActivity : AppCompatActivity() {
             SECTION_ALARM -> "Alarm"
             SECTION_ABOUT -> "About"
             SECTION_STARTUP_PAGE -> "Startup page"
+            SECTION_LASTFM -> "Last.fm Scrobbler"
             else -> "Settings"
         }
         supportActionBar?.apply {
@@ -155,6 +162,9 @@ class SettingsDetailActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         unregisterUpdateReceiver()
+        try {
+            lastFmReceiver?.let { unregisterReceiver(it) }
+        } catch (_: Exception) { }
         super.onDestroy()
     }
 
@@ -1407,6 +1417,96 @@ Source code: github.com/hyliankid14/British-Radio-Player""".trimIndent()
             registerReceiver(updateDownloadReceiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), RECEIVER_NOT_EXPORTED)
         } else {
             registerReceiver(updateDownloadReceiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE))
+        }
+    }
+
+    private fun setupLastFmSettings() {
+        val statusTitle = findViewById<TextView>(R.id.lastfm_account_status_title) ?: return
+        val statusSubtitle = findViewById<TextView>(R.id.lastfm_account_status_subtitle) ?: return
+        val authButton = findViewById<Button>(R.id.lastfm_auth_button) ?: return
+        val directSwitch = findViewById<androidx.appcompat.widget.SwitchCompat>(R.id.lastfm_direct_switch) ?: return
+        val broadcastSwitch = findViewById<androidx.appcompat.widget.SwitchCompat>(R.id.lastfm_broadcast_switch) ?: return
+        val podcastsSwitch = findViewById<androidx.appcompat.widget.SwitchCompat>(R.id.lastfm_podcasts_switch) ?: return
+        val lastScrobbledText = findViewById<TextView>(R.id.lastfm_last_scrobbled_text) ?: return
+
+        fun updateUi() {
+            val loggedIn = LastFmPreference.isLoggedIn(this)
+            val username = LastFmPreference.getUsername(this)
+            if (loggedIn && !username.isNullOrEmpty()) {
+                statusTitle.text = "Connected as $username"
+                statusSubtitle.text = "Scrobbles will be added to your Last.fm profile"
+                authButton.text = "Disconnect from Last.fm"
+                directSwitch.isEnabled = true
+            } else {
+                statusTitle.text = "Not connected"
+                statusSubtitle.text = "Connect your Last.fm account to scrobble songs directly"
+                authButton.text = "Connect to Last.fm"
+                directSwitch.isEnabled = false
+            }
+
+            directSwitch.isChecked = LastFmPreference.isDirectScrobbleEnabled(this)
+            broadcastSwitch.isChecked = LastFmPreference.isBroadcastScrobbleEnabled(this)
+            podcastsSwitch.isChecked = LastFmPreference.shouldScrobblePodcasts(this)
+
+            val lastScrobbled = LastFmPreference.getLastScrobbled(this)
+            if (lastScrobbled != null && lastScrobbled.first.isNotBlank()) {
+                val dateStr = try {
+                    java.text.SimpleDateFormat("MMM d, HH:mm", java.util.Locale.getDefault())
+                        .format(java.util.Date(lastScrobbled.second))
+                } catch (_: Exception) { "" }
+                lastScrobbledText.text = if (dateStr.isNotEmpty()) "${lastScrobbled.first}\n($dateStr)" else lastScrobbled.first
+            } else {
+                lastScrobbledText.text = "No tracks scrobbled yet"
+            }
+        }
+
+        updateUi()
+
+        directSwitch.setOnCheckedChangeListener { _, isChecked ->
+            LastFmPreference.setDirectScrobbleEnabled(this, isChecked)
+        }
+
+        broadcastSwitch.setOnCheckedChangeListener { _, isChecked ->
+            LastFmPreference.setBroadcastScrobbleEnabled(this, isChecked)
+        }
+
+        podcastsSwitch.setOnCheckedChangeListener { _, isChecked ->
+            LastFmPreference.setScrobblePodcasts(this, isChecked)
+        }
+
+        authButton.setOnClickListener {
+            if (LastFmPreference.isLoggedIn(this)) {
+                AlertDialog.Builder(this)
+                    .setTitle("Disconnect Last.fm")
+                    .setMessage("Are you sure you want to disconnect your Last.fm account? Songs will no longer be scrobbled directly.")
+                    .setPositiveButton("Disconnect") { _, _ ->
+                        LastFmPreference.clearSession(this)
+                        updateUi()
+                        Toast.makeText(this, "Disconnected from Last.fm", Toast.LENGTH_SHORT).show()
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            } else {
+                try {
+                    val authUrl = LastFmApiClient.getAuthUrl(this)
+                    val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(authUrl))
+                    startActivity(browserIntent)
+                } catch (e: Exception) {
+                    Toast.makeText(this, "Failed to open browser: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+
+        lastFmReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                updateUi()
+            }
+        }
+        val filter = IntentFilter(LastFmPreference.ACTION_LASTFM_STATE_CHANGED)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(lastFmReceiver, filter, RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(lastFmReceiver, filter)
         }
     }
 

@@ -27,6 +27,8 @@ def gcsStatsUrl       = (project.hasProperty("GCS_STATS_URL")       ? project.pr
 def gcsNewPodcastsUrl = (project.hasProperty("GCS_NEW_PODCASTS_URL")? project.property("GCS_NEW_PODCASTS_URL"): ext.localProps.getProperty("GCS_NEW_PODCASTS_URL")?: System.getenv("GCS_NEW_PODCASTS_URL")?: "").toString()
 def cloudFunctionUrl  = (project.hasProperty("CLOUD_FUNCTION_URL")  ? project.property("CLOUD_FUNCTION_URL")  : ext.localProps.getProperty("CLOUD_FUNCTION_URL")  ?: System.getenv("CLOUD_FUNCTION_URL")  ?: "").toString()
 def analyticsEndpoint = (project.hasProperty("ANALYTICS_ENDPOINT_URL") ? project.property("ANALYTICS_ENDPOINT_URL") : ext.localProps.getProperty("ANALYTICS_ENDPOINT_URL") ?: System.getenv("ANALYTICS_ENDPOINT_URL") ?: "").toString()
+def lastfmApiKey    = (project.hasProperty("LASTFM_API_KEY")    ? project.property("LASTFM_API_KEY")    : ext.localProps.getProperty("LASTFM_API_KEY")    ?: System.getenv("LASTFM_API_KEY")    ?: "").toString()
+def lastfmApiSecret = (project.hasProperty("LASTFM_API_SECRET") ? project.property("LASTFM_API_SECRET") : ext.localProps.getProperty("LASTFM_API_SECRET") ?: System.getenv("LASTFM_API_SECRET") ?: "").toString()
 
 android {
     namespace "com.hyliankid14.bbcradioplayer"
@@ -62,6 +64,8 @@ android {
         buildConfigField "String", "GCS_NEW_PODCASTS_URL", "\"${gcsNewPodcastsUrl}\""
         buildConfigField "String", "CLOUD_FUNCTION_URL", "\"${cloudFunctionUrl}\""
         buildConfigField "String", "ANALYTICS_ENDPOINT_URL", "\"${analyticsEndpoint}\""
+        buildConfigField "String", "LASTFM_API_KEY", "\"${lastfmApiKey}\""
+        buildConfigField "String", "LASTFM_API_SECRET", "\"${lastfmApiSecret}\""
         buildConfigField "boolean", "ENABLE_GITHUB_UPDATER", "false"
         buildConfigField "String", "DISTRIBUTION_CHANNEL", "\"unknown\""
     }
@@ -213,4 +217,6 @@ dependencies {
     // implementation 'androidx.room:room-runtime:2.6.1'
     // implementation 'androidx.room:room-ktx:2.6.1'
     // kapt 'androidx.room:room-compiler:2.6.1'
+
+    testImplementation 'junit:junit:4.13.2'
 }
