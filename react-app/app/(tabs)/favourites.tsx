@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useRef } from "react";
+import React, { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -8,7 +8,8 @@ import {
   LayoutAnimation,
   Platform,
   UIManager,
-  PanResponder
+  PanResponder,
+  Animated
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -26,71 +27,56 @@ type FavCategory = "Stations" | "Subscribed" | "Playlists" | "Searches" | "Histo
 
 const ITEM_HEIGHT = 72;
 
-interface ReorderableRowProps {
+interface StationRowProps {
   station: Station;
-  index: number;
-  total: number;
-  isReordering: boolean;
-  onMove: (fromIndex: number, toIndex: number) => void;
+  isDragging: boolean;
+  panY: Animated.Value;
+  scaleAnim: Animated.Value;
+  translationY: Animated.Value;
+  panHandlers: any;
   onPlay: (station: Station) => void;
   onSchedule: (station: Station) => void;
   onToggleFavorite: (stationId: string) => void;
   theme: any;
 }
 
-function ReorderableStationRow({
+function StationRow({
   station,
-  index,
-  total,
-  isReordering,
-  onMove,
+  isDragging,
+  panY,
+  scaleAnim,
+  translationY,
+  panHandlers,
   onPlay,
   onSchedule,
   onToggleFavorite,
   theme
-}: ReorderableRowProps) {
-  const currentIndexRef = useRef(index);
-  currentIndexRef.current = index;
-
-  const panResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dy) > 4,
-        onPanResponderMove: (_, gesture) => {
-          const dy = gesture.dy;
-          const currIdx = currentIndexRef.current;
-          if (dy < -ITEM_HEIGHT * 0.6 && currIdx > 0) {
-            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-            onMove(currIdx, currIdx - 1);
-            gesture.dy = 0;
-          } else if (dy > ITEM_HEIGHT * 0.6 && currIdx < total - 1) {
-            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-            onMove(currIdx, currIdx + 1);
-            gesture.dy = 0;
-          }
-        },
-        onPanResponderRelease: () => {},
-        onPanResponderTerminate: () => {}
-      }),
-    [onMove, total]
-  );
+}: StationRowProps) {
+  const transform = isDragging
+    ? [{ translateY: panY }, { scale: scaleAnim }]
+    : [{ translateY: translationY }];
 
   return (
-    <View style={[styles.stationRow, { backgroundColor: theme.surface }]}>
-      {/* Drag handle matching item_station.xml / station_list_item.xml */}
-      <View
-        {...panResponder.panHandlers}
-        style={styles.dragHandleContainer}
-        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-      >
-        <MaterialIcons
-          name="drag-handle"
-          size={24}
-          color={isReordering ? theme.primary : theme.outline}
-        />
-      </View>
-
+    <Animated.View
+      style={[
+        styles.stationRow,
+        {
+          backgroundColor: isDragging
+            ? (theme.surfaceVariant || "#2b2930")
+            : theme.surface,
+          zIndex: isDragging ? 9999 : 1,
+          elevation: isDragging ? 24 : 0,
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: 10 },
+          shadowOpacity: isDragging ? 0.5 : 0,
+          shadowRadius: isDragging ? 14 : 0,
+          borderRadius: isDragging ? 12 : 0,
+          borderColor: isDragging ? theme.primary : "transparent",
+          borderWidth: isDragging ? 1.5 : 0,
+          transform
+        }
+      ]}
+    >
       <TouchableOpacity
         style={styles.stationMainTouchable}
         activeOpacity={0.7}
@@ -108,48 +94,24 @@ function ReorderableStationRow({
         </View>
       </TouchableOpacity>
 
-      {/* When Reordering is toggled on, show Up/Down buttons for accessible one-tap movement */}
-      {isReordering && (
-        <View style={styles.reorderButtonsRow}>
-          <TouchableOpacity
-            style={[styles.actionButton, index === 0 && styles.disabledButton]}
-            disabled={index === 0}
-            onPress={() => {
-              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-              onMove(index, index - 1);
-            }}
-            hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
-          >
-            <MaterialIcons
-              name="arrow-upward"
-              size={20}
-              color={index === 0 ? theme.outlineVariant : theme.primary}
-            />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.actionButton, index === total - 1 && styles.disabledButton]}
-            disabled={index === total - 1}
-            onPress={() => {
-              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-              onMove(index, index + 1);
-            }}
-            hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
-          >
-            <MaterialIcons
-              name="arrow-downward"
-              size={20}
-              color={index === total - 1 ? theme.outlineVariant : theme.primary}
-            />
-          </TouchableOpacity>
-        </View>
-      )}
+      {/* Drag handle to the left of the schedule icon matching Kotlin station_list_item.xml */}
+      <View
+        {...panHandlers}
+        style={styles.dragHandleContainer}
+        hitSlop={{ top: 14, bottom: 14, left: 10, right: 10 }}
+      >
+        <MaterialIcons
+          name="drag-handle"
+          size={24}
+          color={isDragging ? theme.primary : theme.outline}
+        />
+      </View>
 
       {/* Schedule Button */}
       <TouchableOpacity
         style={styles.actionButton}
         onPress={() => onSchedule(station)}
-        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        hitSlop={{ top: 12, bottom: 12, left: 4, right: 4 }}
       >
         <MaterialIcons
           name="calendar-today"
@@ -162,7 +124,7 @@ function ReorderableStationRow({
       <TouchableOpacity
         style={styles.actionButton}
         onPress={() => onToggleFavorite(station.id)}
-        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        hitSlop={{ top: 12, bottom: 12, left: 4, right: 8 }}
       >
         <MaterialIcons
           name="star"
@@ -170,7 +132,7 @@ function ReorderableStationRow({
           color={theme.star}
         />
       </TouchableOpacity>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -179,38 +141,47 @@ export default function FavouritesScreen() {
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
   const [activeCategory, setActiveCategory] = useState<FavCategory>("Stations");
-  const [isReordering, setIsReordering] = useState(false);
+  const [draggingStationId, setDraggingStationId] = useState<string | null>(null);
 
   const {
+    favorites,
     currentStation,
-    isPlaying,
     playStation,
     togglePlayPause,
-    favorites,
     toggleFavorite,
     setFavoritesOrder
   } = usePlayerStore();
 
   const allStations = useMemo(() => StationRepository.getAll(), []);
+  const [orderedList, setOrderedList] = useState<Station[]>([]);
 
-  // Guarantee stations are ordered strictly by the user's favorites array order
-  const favoriteStations = useMemo(() => {
+  // Sync orderedList whenever favorites change externally or on load
+  useEffect(() => {
     const map = new Map(allStations.map((s) => [s.id, s]));
-    return favorites
+    const list = favorites
       .map((id) => map.get(id))
       .filter((s): s is Station => s !== undefined);
+    setOrderedList(list);
   }, [allStations, favorites]);
 
-  const handleMove = useCallback(
-    (fromIndex: number, toIndex: number) => {
-      if (fromIndex < 0 || toIndex < 0 || fromIndex >= favorites.length || toIndex >= favorites.length) return;
-      const updated = [...favorites];
-      const [moved] = updated.splice(fromIndex, 1);
-      updated.splice(toIndex, 0, moved);
-      setFavoritesOrder(updated);
-    },
-    [favorites, setFavoritesOrder]
-  );
+  // Keep a ref to the latest orderedList for panResponder callbacks
+  const orderedListRef = useRef<Station[]>([]);
+  orderedListRef.current = orderedList;
+
+  // Native-driven animation values for 60/120 FPS buttery smooth drag & hover
+  const panY = useRef(new Animated.Value(0)).current;
+  const scaleAnim = useRef(new Animated.Value(1.0)).current;
+  const dragStartIndexRef = useRef<number>(0);
+  const currentTargetIndexRef = useRef<number>(0);
+  const isDraggingRef = useRef<boolean>(false);
+
+  const neighborTranslations = useRef<Record<string, Animated.Value>>({});
+  const getTranslation = useCallback((id: string) => {
+    if (!neighborTranslations.current[id]) {
+      neighborTranslations.current[id] = new Animated.Value(0);
+    }
+    return neighborTranslations.current[id];
+  }, []);
 
   const handlePlayStation = useCallback(
     (station: Station) => {
@@ -236,15 +207,140 @@ export default function FavouritesScreen() {
     [router]
   );
 
+  const createPanResponder = useCallback(
+    (startIndex: number, station: Station) =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onStartShouldSetPanResponderCapture: () => true,
+        onMoveShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponderCapture: () => true,
+        onPanResponderTerminationRequest: () => false,
+        onPanResponderGrant: () => {
+          isDraggingRef.current = true;
+          dragStartIndexRef.current = startIndex;
+          currentTargetIndexRef.current = startIndex;
+          panY.setValue(0);
+          setDraggingStationId(station.id);
+          Animated.spring(scaleAnim, {
+            toValue: 1.04,
+            friction: 6,
+            tension: 120,
+            useNativeDriver: true
+          }).start();
+        },
+        onPanResponderMove: (_, gestureState) => {
+          panY.setValue(gestureState.dy);
+
+          const fromIdx = dragStartIndexRef.current;
+          const currentList = orderedListRef.current;
+          const target = Math.max(
+            0,
+            Math.min(
+              currentList.length - 1,
+              fromIdx + Math.round(gestureState.dy / ITEM_HEIGHT)
+            )
+          );
+
+          if (target !== currentTargetIndexRef.current) {
+            currentTargetIndexRef.current = target;
+
+            currentList.forEach((item, j) => {
+              if (item.id === station.id) return;
+              let shift = 0;
+              if (target > fromIdx) {
+                if (j > fromIdx && j <= target) {
+                  shift = -ITEM_HEIGHT;
+                }
+              } else if (target < fromIdx) {
+                if (j >= target && j < fromIdx) {
+                  shift = ITEM_HEIGHT;
+                }
+              }
+              Animated.spring(getTranslation(item.id), {
+                toValue: shift,
+                friction: 9,
+                tension: 140,
+                useNativeDriver: true
+              }).start();
+            });
+          }
+        },
+        onPanResponderRelease: () => {
+          const fromIdx = dragStartIndexRef.current;
+          const finalTarget = currentTargetIndexRef.current;
+          const landingY = (finalTarget - fromIdx) * ITEM_HEIGHT;
+          const currentList = orderedListRef.current;
+
+          Animated.parallel([
+            Animated.spring(panY, {
+              toValue: landingY,
+              friction: 8,
+              tension: 110,
+              useNativeDriver: true
+            }),
+            Animated.spring(scaleAnim, {
+              toValue: 1.0,
+              friction: 8,
+              tension: 110,
+              useNativeDriver: true
+            })
+          ]).start(() => {
+            // First reset animated values and dragging state so no translation offsets linger
+            currentList.forEach((s) => {
+              getTranslation(s.id).setValue(0);
+            });
+            panY.setValue(0);
+            isDraggingRef.current = false;
+            setDraggingStationId(null);
+
+            if (finalTarget !== fromIdx) {
+              const updated = [...currentList];
+              const [moved] = updated.splice(fromIdx, 1);
+              updated.splice(finalTarget, 0, moved);
+              setOrderedList(updated);
+
+              const newIds = updated.map((s) => s.id);
+              const otherFavorites = favorites.filter((id) => !newIds.includes(id));
+              setFavoritesOrder([...newIds, ...otherFavorites]);
+            }
+          });
+        },
+        onPanResponderTerminate: () => {
+          Animated.parallel([
+            Animated.spring(panY, {
+              toValue: 0,
+              useNativeDriver: true
+            }),
+            Animated.spring(scaleAnim, {
+              toValue: 1.0,
+              useNativeDriver: true
+            })
+          ]).start(() => {
+            orderedListRef.current.forEach((s) => {
+              getTranslation(s.id).setValue(0);
+            });
+            panY.setValue(0);
+            isDraggingRef.current = false;
+            setDraggingStationId(null);
+          });
+        }
+      }),
+    [favorites, getTranslation, panY, scaleAnim, setFavoritesOrder]
+  );
+
   const renderStationItem = useCallback(
     ({ item, index }: { item: Station; index: number }) => {
+      const isDragging = item.id === draggingStationId;
+      const panResponder = createPanResponder(index, item);
+
       return (
-        <ReorderableStationRow
+        <StationRow
           station={item}
-          index={index}
-          total={favoriteStations.length}
-          isReordering={isReordering}
-          onMove={handleMove}
+          isDragging={isDragging}
+          panY={panY}
+          scaleAnim={scaleAnim}
+          translationY={getTranslation(item.id)}
+          panHandlers={panResponder.panHandlers}
           onPlay={handlePlayStation}
           onSchedule={handleOpenSchedule}
           onToggleFavorite={toggleFavorite}
@@ -252,7 +348,7 @@ export default function FavouritesScreen() {
         />
       );
     },
-    [favoriteStations.length, isReordering, handleMove, handlePlayStation, handleOpenSchedule, toggleFavorite, theme]
+    [draggingStationId, createPanResponder, panY, scaleAnim, getTranslation, handlePlayStation, handleOpenSchedule, toggleFavorite, theme]
   );
 
   return (
@@ -273,33 +369,6 @@ export default function FavouritesScreen() {
         <Text style={[styles.topAppBarTitle, { color: theme.onSurface }]}>
           Favourite Stations
         </Text>
-
-        {activeCategory === "Stations" && favoriteStations.length > 1 && (
-          <TouchableOpacity
-            style={[
-              styles.reorderToggleButton,
-              isReordering && { backgroundColor: theme.primaryContainer }
-            ]}
-            onPress={() => {
-              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-              setIsReordering(!isReordering);
-            }}
-          >
-            <MaterialIcons
-              name={isReordering ? "check" : "sort"}
-              size={22}
-              color={isReordering ? theme.primary : theme.onSurfaceVariant}
-            />
-            <Text
-              style={[
-                styles.reorderToggleText,
-                { color: isReordering ? theme.primary : theme.onSurfaceVariant }
-              ]}
-            >
-              {isReordering ? "Done" : "Reorder"}
-            </Text>
-          </TouchableOpacity>
-        )}
       </View>
 
       {/* Pill group under Top App Bar matching favorites_toggle_group */}
@@ -338,10 +407,12 @@ export default function FavouritesScreen() {
       {/* Content */}
       {activeCategory === "Stations" ? (
         <FlatList
-          data={favoriteStations}
+          data={orderedList}
           keyExtractor={(item) => item.id}
           renderItem={renderStationItem}
-          style={{ backgroundColor: theme.surface }}
+          scrollEnabled={!draggingStationId}
+          removeClippedSubviews={false}
+          style={{ backgroundColor: theme.surface, overflow: "visible" }}
           contentContainerStyle={[styles.listContent, { paddingBottom: 170 + insets.bottom }]}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
@@ -382,18 +453,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 0
   },
-  reorderToggleButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 16,
-    gap: 4
-  },
-  reorderToggleText: {
-    fontSize: 13,
-    fontWeight: "600"
-  },
   pillGroupContainer: {
     flexDirection: "row",
     paddingHorizontal: 12,
@@ -414,25 +473,25 @@ const styles = StyleSheet.create({
     height: ITEM_HEIGHT,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 8,
+    paddingHorizontal: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "rgba(0,0,0,0.06)"
   },
   dragHandleContainer: {
-    width: 36,
-    height: 48,
+    width: 40,
+    height: 40,
+    marginLeft: 8,
     alignItems: "center",
     justifyContent: "center"
   },
   stationMainTouchable: {
     flex: 1,
     flexDirection: "row",
-    alignItems: "center",
-    marginLeft: 4
+    alignItems: "center"
   },
   stationInfo: {
     flex: 1,
-    marginLeft: 12,
+    marginLeft: 16,
     justifyContent: "center"
   },
   stationTitle: {
@@ -440,19 +499,12 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 0.15
   },
-  reorderButtonsRow: {
-    flexDirection: "row",
-    alignItems: "center"
-  },
   actionButton: {
-    width: 38,
-    height: 38,
+    width: 40,
+    height: 40,
+    marginLeft: 4,
     alignItems: "center",
-    justifyContent: "center",
-    marginHorizontal: 1
-  },
-  disabledButton: {
-    opacity: 0.3
+    justifyContent: "center"
   },
   emptyContainer: {
     padding: 32,
