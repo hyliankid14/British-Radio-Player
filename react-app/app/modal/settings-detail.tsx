@@ -11,6 +11,7 @@ import {
   View
 } from "react-native";
 import * as Linking from "expo-linking";
+import * as DocumentPicker from "expo-document-picker";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
@@ -244,14 +245,37 @@ function CarPlayPage() {
 }
 
 function BackupPage() {
+  const [isImporting, setIsImporting] = useState(false);
+  const importSettings = async () => {
+    const result = await DocumentPicker.getDocumentAsync({
+      type: "application/json",
+      copyToCacheDirectory: true,
+      multiple: false
+    });
+    if (result.canceled || !result.assets?.[0]) return;
+    setIsImporting(true);
+    try {
+      const response = await fetch(result.assets[0].uri);
+      const json = await response.text();
+      const imported = Preferences.importKotlinBackup(json) || Preferences.importBackup(json);
+      Alert.alert(
+        imported ? "Import successful" : "Import failed",
+        imported ? "Your settings have been restored." : "The selected file is not a valid BBC Radio Player backup."
+      );
+    } catch {
+      Alert.alert("Import failed", "The selected backup could not be read.");
+    } finally {
+      setIsImporting(false);
+    }
+  };
   return <>
     <Card title="Backup & restore" subtitle="Export and import app settings">
     <TouchableOpacity style={styles.primaryButton} onPress={() => Share.share({ title: "British Radio Player Backup", message: Preferences.exportBackup() })}>
       <Text style={styles.primaryButtonText}>Export settings</Text>
     </TouchableOpacity>
     <Text style={styles.body}>Last backup: Never</Text>
-    <TouchableOpacity style={styles.secondaryButton} onPress={() => Alert.alert("Import Settings", "Select a JSON backup file using the iOS Files app, then import it from the share sheet.")}>
-      <Text style={styles.secondaryButtonText}>Import settings</Text>
+    <TouchableOpacity style={styles.secondaryButton} onPress={() => void importSettings()} disabled={isImporting}>
+      <Text style={styles.secondaryButtonText}>{isImporting ? "Importing…" : "Import settings"}</Text>
     </TouchableOpacity>
     </Card>
   </>;

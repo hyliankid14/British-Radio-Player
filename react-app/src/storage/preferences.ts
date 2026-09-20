@@ -475,5 +475,117 @@ export const Preferences = {
     } catch {
       return false;
     }
-  }
+  },
+
+  importKotlinBackup(jsonString: string): boolean {
+    try {
+      const root = JSON.parse(jsonString) as Record<string, unknown>;
+      const isKotlinBackup = [
+        "favorites_prefs",
+        "podcast_subscriptions",
+        "saved_searches_prefs",
+        "playback_prefs",
+        "theme_prefs"
+      ].some((name) => Object.prototype.hasOwnProperty.call(root, name));
+      if (!isKotlinBackup) return false;
+      const group = (name: string): Record<string, unknown> => {
+        const value = root[name];
+        return value && typeof value === "object" && !Array.isArray(value)
+          ? value as Record<string, unknown>
+          : {};
+      };
+      const stringArray = (value: unknown): string[] | null => {
+        if (!Array.isArray(value)) return null;
+        return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+      };
+      const setIfPresent = (key: string, value: unknown) => {
+        if (typeof value === "string" || typeof value === "boolean" || typeof value === "number") {
+          storage.set(key, value);
+        }
+      };
+
+      const favorites = group("favorites_prefs");
+      const favoriteIds = stringArray(favorites.favorite_stations) ||
+        (typeof favorites.favorite_stations_order_string === "string"
+          ? favorites.favorite_stations_order_string.split(",").filter(Boolean)
+          : null);
+      if (favoriteIds) this.setFavorites(favoriteIds);
+
+      const subscriptions = group("podcast_subscriptions");
+      const subscribedIds = stringArray(subscriptions.subscribed_ids);
+      if (subscribedIds) this.setSubscribedPodcasts(subscribedIds);
+      const notificationIds = stringArray(subscriptions.notifications_enabled);
+      if (notificationIds) {
+        notificationIds.forEach((podcastId) => storage.set(`pref_podcast_notifications_${podcastId}`, true));
+      }
+
+      const savedSearches = group("saved_searches_prefs").saved_searches_json;
+      if (typeof savedSearches === "string") {
+        const parsed = JSON.parse(savedSearches);
+        if (Array.isArray(parsed)) {
+          const searches = parsed
+            .filter((item) => item && typeof item === "object")
+            .map((item) => {
+              const search = item as Record<string, unknown>;
+              return {
+                id: String(search.id || `search-${Date.now()}`),
+                name: String(search.name || search.query || "Saved search"),
+                query: String(search.query || ""),
+                notificationsEnabled: Boolean(search.notificationsEnabled),
+                latestResultDate: typeof search.lastMatchEpoch === "number" && search.lastMatchEpoch > 0
+                  ? new Date(search.lastMatchEpoch).toISOString()
+                  : undefined
+              };
+            })
+            .filter((item) => item.query.trim().length > 0);
+          storage.set("pref_saved_podcast_searches", JSON.stringify(searches));
+        }
+      }
+
+      const theme = group("theme_prefs");
+      const selectedTheme = theme.selected_theme;
+      if (selectedTheme === "light" || selectedTheme === "dark" || selectedTheme === "system") {
+        this.setTheme(selectedTheme);
+      }
+      const quality = theme.audio_quality;
+      const qualityMap: Record<string, AudioQuality> = {
+        "320kbps": "HIGH",
+        "128kbps": "MEDIUM",
+        "96kbps": "LOW",
+        "48kbps": "LOW"
+      };
+      if (typeof quality === "string" && qualityMap[quality]) this.setAudioQuality(qualityMap[quality]);
+      if (typeof theme.auto_detect_quality === "boolean") this.setSetting("pref_auto_quality", theme.auto_detect_quality);
+
+      const playback = group("playback_prefs");
+      const playbackMap: Record<string, string> = {
+        live_radio_pause_buffering: "pref_pause_buffering",
+        shake_random_podcast: "pref_shake_random",
+        autoplay_next_episode: "pref_autoplay_next",
+        auto_resume_android_auto: "pref_carplay_auto_resume",
+        hide_played_android_auto: "pref_carplay_hide_played"
+      };
+      Object.entries(playbackMap).forEach(([source, target]) => setIfPresent(target, playback[source]));
+      setIfPresent("pref_stop_bluetooth", playback.stop_on_bluetooth_disconnect);
+
+      const scrolling = group("scrolling_prefs");
+      setIfPresent("pref_scroll_mode", scrolling.scroll_mode);
+      const indexing = group("index_prefs");
+      setIfPresent("pref_index_notifications", indexing.notify_on_new_podcasts);
+      const filters = group("podcast_filter_prefs");
+      setIfPresent("pref_exclude_non_english", filters.exclude_non_english);
+      const subscriptionsSettings = group("subscription_refresh_prefs");
+      setIfPresent("pref_subscription_refresh", subscriptionsSettings.refresh_interval_minutes);
+      const downloads = group("download_prefs");
+      [
+        ["auto_download_enabled", "pref_auto_download"],
+        ["auto_download_limit", "pref_auto_download_limit"],
+        ["download_on_wifi_only", "pref_download_wifi"],
+        ["delete_on_played", "pref_delete_played"]
+      ].forEach(([source, target]) => setIfPresent(target, downloads[source]));
+      return true;
+    } catch {
+      return false;
+    }
+  },
 };
