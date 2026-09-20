@@ -46,9 +46,8 @@
       "package": "com.hyliankid14.bbcradioplayer.react",
       "adaptiveIcon": {
         "backgroundColor": "#1E1B2E",
-        "foregroundImage": "./assets/icon.png",
-        "backgroundImage": "./assets/icon.png",
-        "monochromeImage": "./assets/icon.png"
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "permissions": [
         "FOREGROUND_SERVICE",
