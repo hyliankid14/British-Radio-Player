@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
@@ -7,12 +7,25 @@ import { Podcast, Episode, decodeXmlEntities } from "../../src/api/podcasts";
 import { useAppTheme } from "../../src/theme/colors";
 import { usePlayerStore } from "../../src/store/playerStore";
 
+function formatEpisodeDate(raw: string): string {
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    return new Intl.DateTimeFormat("en-GB", {
+      weekday: "short",
+      day: "2-digit",
+      month: "short",
+      year: "numeric"
+    }).format(parsed);
+  }
+  return raw.includes(":") ? raw.split(":")[0].trim() : raw.trim();
+}
+
 export default function EpisodeDetailModal() {
   const router = useRouter();
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ podcastData?: string; episodeData?: string }>();
-  const [showFullDescription, setShowFullDescription] = useState(false);
+  const [descriptionModalVisible, setDescriptionModalVisible] = useState(false);
   const { playEpisode, pause, resume, stop, isPlaying, currentEpisode } = usePlayerStore();
 
   let podcast: Podcast | null = null;
@@ -76,22 +89,20 @@ export default function EpisodeDetailModal() {
         </Text>
         {episode.pubDate ? (
           <Text style={[styles.releaseDate, { color: theme.onSurfaceVariant }]}>
-            {episode.pubDate}
+            {formatEpisodeDate(episode.pubDate)}
           </Text>
         ) : null}
 
         <View style={styles.descriptionContainer}>
           <Text
             style={[styles.description, { color: theme.onSurfaceVariant }]}
-            numberOfLines={showFullDescription ? undefined : 4}
+            numberOfLines={4}
           >
             {decodeXmlEntities(episode.description || "No description available.")}
           </Text>
           {episode.description.length > 240 ? (
-            <TouchableOpacity onPress={() => setShowFullDescription(!showFullDescription)}>
-              <Text style={[styles.showMore, { color: theme.primary }]}>
-                {showFullDescription ? "Show less" : "Show more"}
-              </Text>
+            <TouchableOpacity onPress={() => setDescriptionModalVisible(true)}>
+              <Text style={[styles.showMore, { color: theme.primary }]}>Show more</Text>
             </TouchableOpacity>
           ) : null}
         </View>
@@ -134,6 +145,31 @@ export default function EpisodeDetailModal() {
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      <Modal
+        visible={descriptionModalVisible}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setDescriptionModalVisible(false)}
+      >
+        <SafeAreaView style={[styles.descriptionModal, { backgroundColor: theme.surfaceContainer }]}>
+          <View style={[styles.descriptionModalHeader, { borderBottomColor: theme.outlineVariant }]}>
+            <Text style={[styles.descriptionModalTitle, { color: theme.onSurface }]}>Episode description</Text>
+            <TouchableOpacity
+              onPress={() => setDescriptionModalVisible(false)}
+              style={styles.descriptionModalClose}
+              accessibilityLabel="Close description"
+            >
+              <MaterialIcons name="close" size={24} color={theme.onSurface} />
+            </TouchableOpacity>
+          </View>
+          <ScrollView contentContainerStyle={styles.descriptionModalContent}>
+            <Text style={[styles.fullDescription, { color: theme.onSurfaceVariant }]}>
+              {decodeXmlEntities(episode.description || "No description available.")}
+            </Text>
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -152,6 +188,19 @@ const styles = StyleSheet.create({
   descriptionContainer: { width: "100%", paddingHorizontal: 24, marginTop: 10 },
   description: { fontSize: 15, lineHeight: 21, textAlign: "center" },
   showMore: { textAlign: "center", fontSize: 13, padding: 8 },
+  descriptionModal: { flex: 1 },
+  descriptionModalHeader: {
+    minHeight: 56,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingLeft: 20,
+    paddingRight: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth
+  },
+  descriptionModalTitle: { flex: 1, fontSize: 18, fontWeight: "700" },
+  descriptionModalClose: { width: 48, height: 48, alignItems: "center", justifyContent: "center" },
+  descriptionModalContent: { padding: 20 },
+  fullDescription: { fontSize: 16, lineHeight: 24 },
   openPodcastButton: { borderWidth: 1, borderRadius: 22, paddingHorizontal: 18, paddingVertical: 11, marginTop: 8 },
   openPodcastText: { fontSize: 14, fontWeight: "600" },
   playbackControls: { flexDirection: "row", alignItems: "center", justifyContent: "center", width: "100%", marginTop: 24, marginBottom: 12 },

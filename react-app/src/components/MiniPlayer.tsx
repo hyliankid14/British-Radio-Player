@@ -36,15 +36,26 @@ export function MiniPlayer() {
     ? (currentShow ? formatShowDisplayTitle(currentShow) : "Radio")
     : (currentPodcast?.title || "BBC Podcast");
   const artworkUrl = currentEpisode?.imageUrl || currentPodcast?.imageUrl;
+  const openNowPlaying = () => {
+    if (currentStation) {
+      router.push("/modal/now-playing");
+    } else if (currentPodcast && currentEpisode) {
+      router.push({
+        pathname: "/modal/episode-detail",
+        params: {
+          podcastData: JSON.stringify(currentPodcast),
+          episodeData: JSON.stringify(currentEpisode)
+        }
+      });
+    }
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: theme.miniPlayerBg }]}>
       {/* Station / Podcast Artwork */}
       <TouchableOpacity
         activeOpacity={0.8}
-        onPress={() => {
-          if (currentStation) router.push("/modal/now-playing");
-        }}
+        onPress={openNowPlaying}
         style={styles.artworkContainer}
       >
         {currentStation ? (
@@ -75,9 +86,7 @@ export function MiniPlayer() {
       <View style={styles.contentColumn}>
         <TouchableOpacity
           activeOpacity={0.8}
-          onPress={() => {
-            if (currentStation) router.push("/modal/now-playing");
-          }}
+          onPress={openNowPlaying}
           style={styles.textContainer}
         >
           <Text
