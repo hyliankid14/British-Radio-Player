@@ -55,7 +55,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const candidates = getStreamCandidates(station, quality, geoBlocked);
     const streamUrl = candidates[0] || station.directStreamUrls[0] || `https://lsn.lv/bbcradio.m3u8?station=${station.serviceId}&bitrate=320000`;
 
-    set({ currentStation: station, isBuffering: true });
+    set({ currentStation: station, currentShow: null, isBuffering: true });
     Preferences.setLastStationId(station.id);
 
     try {

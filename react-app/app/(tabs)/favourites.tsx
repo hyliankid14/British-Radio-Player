@@ -9,15 +9,19 @@ import {
   Platform,
   UIManager,
   PanResponder,
-  Animated
+  Animated,
+  Image
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { MaterialIcons } from "@expo/vector-icons";
 import { Station, StationRepository } from "../../src/data/stations";
 import { usePlayerStore } from "../../src/store/playerStore";
 import { StationLogo } from "../../src/components/StationLogo";
 import { useAppTheme } from "../../src/theme/colors";
+import { fetchShowInfo } from "../../src/api/showInfo";
+import { Podcast, PodcastApi, decodeXmlEntities } from "../../src/api/podcasts";
+import { Preferences } from "../../src/storage/preferences";
 
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -26,6 +30,13 @@ if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental
 type FavCategory = "Stations" | "Subscribed" | "Playlists" | "Searches" | "History";
 
 const ITEM_HEIGHT = 72;
+const FAVOURITE_SECTION_TITLES: Record<FavCategory, string> = {
+  Stations: "Favourite Stations",
+  Subscribed: "Subscribed Podcasts",
+  Playlists: "Playlists",
+  Searches: "Saved Searches",
+  History: "Listening History"
+};
 
 interface StationRowProps {
   station: Station;
@@ -37,6 +48,7 @@ interface StationRowProps {
   onPlay: (station: Station) => void;
   onSchedule: (station: Station) => void;
   onToggleFavorite: (stationId: string) => void;
+  showTitle?: string;
   theme: any;
 }
 
@@ -50,6 +62,7 @@ function StationRow({
   onPlay,
   onSchedule,
   onToggleFavorite,
+  showTitle,
   theme
 }: StationRowProps) {
   const transform = isDragging
@@ -91,6 +104,14 @@ function StationRow({
           >
             {station.title}
           </Text>
+          {showTitle ? (
+            <Text
+              style={[styles.stationSubtitle, { color: theme.onSurfaceVariant }]}
+              numberOfLines={1}
+            >
+              {showTitle}
+            </Text>
+          ) : null}
         </View>
       </TouchableOpacity>
 
@@ -142,10 +163,14 @@ export default function FavouritesScreen() {
   const insets = useSafeAreaInsets();
   const [activeCategory, setActiveCategory] = useState<FavCategory>("Stations");
   const [draggingStationId, setDraggingStationId] = useState<string | null>(null);
+  const [showTitles, setShowTitles] = useState<Record<string, string>>({});
+  const [subscribedPodcasts, setSubscribedPodcasts] = useState<Podcast[]>([]);
+  const [newEpisodeIds, setNewEpisodeIds] = useState<Set<string>>(new Set());
 
   const {
     favorites,
     currentStation,
+    currentShow,
     playStation,
     togglePlayPause,
     toggleFavorite,
@@ -163,6 +188,69 @@ export default function FavouritesScreen() {
       .filter((s): s is Station => s !== undefined);
     setOrderedList(list);
   }, [allStations, favorites]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadShowTitles() {
+      const results = await Promise.all(
+        favorites.map(async (stationId) => {
+          try {
+            const show = await fetchShowInfo(stationId);
+            return [stationId, show.title !== "BBC Radio" ? show.title : ""] as const;
+          } catch {
+            return [stationId, ""] as const;
+          }
+        })
+      );
+
+      if (isMounted) {
+        setShowTitles(Object.fromEntries(results));
+      }
+    }
+
+    loadShowTitles();
+    return () => {
+      isMounted = false;
+    };
+  }, [favorites]);
+
+  useFocusEffect(
+    useCallback(() => {
+      let isMounted = true;
+      const subscribedIds = Preferences.getSubscribedPodcasts();
+
+      setSubscribedPodcasts((current) =>
+        current.filter((podcast) => subscribedIds.includes(podcast.id))
+      );
+
+      PodcastApi.fetchLiveCatalog().then((catalog) => {
+        if (!isMounted) return;
+        const subscribed = new Set(Preferences.getSubscribedPodcasts());
+        const subscribedPodcasts = catalog.filter((podcast) => subscribed.has(podcast.id));
+        setSubscribedPodcasts(subscribedPodcasts);
+
+        Promise.all(
+          subscribedPodcasts.map(async (podcast) => {
+            const episodes = await PodcastApi.fetchEpisodes(podcast.rssUrl, podcast.id);
+            const latestEpisode = episodes[0];
+            return latestEpisode &&
+              Preferences.getPodcastPosition(latestEpisode.id) <= 0
+              ? podcast.id
+              : null;
+          })
+        ).then((newIds) => {
+          if (isMounted) {
+            setNewEpisodeIds(new Set(newIds.filter((id): id is string => id !== null)));
+          }
+        });
+      });
+
+      return () => {
+        isMounted = false;
+      };
+    }, [])
+  );
 
   // Keep a ref to the latest orderedList for panResponder callbacks
   const orderedListRef = useRef<Station[]>([]);
@@ -344,11 +432,16 @@ export default function FavouritesScreen() {
           onPlay={handlePlayStation}
           onSchedule={handleOpenSchedule}
           onToggleFavorite={toggleFavorite}
+          showTitle={
+            currentStation?.id === item.id && currentShow?.title !== "BBC Radio"
+              ? currentShow?.title
+              : showTitles[item.id]
+          }
           theme={theme}
         />
       );
     },
-    [draggingStationId, createPanResponder, panY, scaleAnim, getTranslation, handlePlayStation, handleOpenSchedule, toggleFavorite, theme]
+    [draggingStationId, createPanResponder, panY, scaleAnim, getTranslation, handlePlayStation, handleOpenSchedule, toggleFavorite, currentStation?.id, currentShow, showTitles, theme]
   );
 
   return (
@@ -367,7 +460,7 @@ export default function FavouritesScreen() {
         ]}
       >
         <Text style={[styles.topAppBarTitle, { color: theme.onSurface }]}>
-          Favourite Stations
+          {FAVOURITE_SECTION_TITLES[activeCategory]}
         </Text>
       </View>
 
@@ -422,10 +515,83 @@ export default function FavouritesScreen() {
             </View>
           }
         />
+      ) : activeCategory === "Subscribed" ? (
+        <FlatList
+          data={subscribedPodcasts}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={[styles.listContent, { paddingBottom: 170 + insets.bottom }]}
+          style={{ backgroundColor: theme.surface }}
+          renderItem={({ item }) => (
+            <TouchableOpacity
+              style={[
+                styles.podcastRow,
+                { backgroundColor: theme.surface, borderBottomColor: theme.outlineVariant }
+              ]}
+              activeOpacity={0.7}
+              onPress={() => {
+                router.push({
+                  pathname: "/modal/podcast-detail",
+                  params: {
+                    podcastId: item.id,
+                    podcastData: JSON.stringify(item)
+                  }
+                });
+              }}
+            >
+              {item.imageUrl ? (
+                <Image source={{ uri: item.imageUrl }} style={styles.podcastArtwork} />
+              ) : (
+                <View style={[styles.podcastArtworkFallback, { backgroundColor: theme.primaryContainer }]}>
+                  <MaterialIcons name="podcasts" size={32} color={theme.primary} />
+                </View>
+              )}
+              <View style={styles.podcastInfo}>
+                <Text
+                  style={[styles.podcastTitle, { color: theme.onSurface }]}
+                  numberOfLines={2}
+                >
+                  {decodeXmlEntities(item.title)}
+                </Text>
+                <Text
+                  style={[styles.podcastDescription, { color: theme.onSurfaceVariant }]}
+                  numberOfLines={2}
+                >
+                  {decodeXmlEntities(item.description)}
+                </Text>
+                {item.genres.length > 0 ? (
+                  <View style={styles.categoryChipRow}>
+                    {item.genres.map((genre) => (
+                      <View
+                        key={`${item.id}-${genre}`}
+                        style={[styles.categoryChip, { backgroundColor: theme.surfaceVariant }]}
+                      >
+                        <Text
+                          style={[styles.categoryChipText, { color: theme.onSurfaceVariant }]}
+                          numberOfLines={1}
+                        >
+                          {decodeXmlEntities(genre)}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
+              </View>
+              {newEpisodeIds.has(item.id) ? (
+                <View style={styles.newEpisodeDot} accessibilityLabel="New episodes available" />
+              ) : null}
+            </TouchableOpacity>
+          )}
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Text style={[styles.emptyText, { color: theme.onSurfaceVariant }]}>
+                No subscribed podcasts yet
+              </Text>
+            </View>
+          }
+        />
       ) : (
         <View style={[styles.emptyContainer, { backgroundColor: theme.surface, flex: 1 }]}>
           <Text style={[styles.emptyText, { color: theme.onSurfaceVariant }]}>
-            {activeCategory === "Subscribed" && "No subscribed podcasts yet"}
             {activeCategory === "Playlists" && "No playlists yet"}
             {activeCategory === "Searches" && "No saved searches yet"}
             {activeCategory === "History" && "No history yet"}
@@ -498,6 +664,63 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "700",
     letterSpacing: 0.15
+  },
+  stationSubtitle: {
+    fontSize: 13,
+    marginTop: 2
+  },
+  podcastRow: {
+    minHeight: 96,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth
+  },
+  podcastArtwork: {
+    width: 80,
+    height: 80,
+    borderRadius: 8
+  },
+  podcastArtworkFallback: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  podcastInfo: {
+    flex: 1,
+    marginHorizontal: 12
+  },
+  podcastTitle: {
+    fontSize: 16,
+    fontWeight: "700"
+  },
+  podcastDescription: {
+    fontSize: 13,
+    marginTop: 4
+  },
+  categoryChipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 4,
+    marginTop: 6
+  },
+  categoryChip: {
+    borderRadius: 10,
+    paddingHorizontal: 7,
+    paddingVertical: 3
+  },
+  categoryChipText: {
+    fontSize: 10
+  },
+  newEpisodeDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "#d32f2f",
+    marginLeft: 6
   },
   actionButton: {
     width: 40,
