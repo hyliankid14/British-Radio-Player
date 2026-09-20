@@ -11,7 +11,6 @@ import {
   View
 } from "react-native";
 import * as Linking from "expo-linking";
-import * as DocumentPicker from "expo-document-picker";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
@@ -247,11 +246,29 @@ function CarPlayPage() {
 function BackupPage() {
   const [isImporting, setIsImporting] = useState(false);
   const importSettings = async () => {
-    const result = await DocumentPicker.getDocumentAsync({
-      type: "application/json",
-      copyToCacheDirectory: true,
-      multiple: false
-    });
+    let documentPicker: typeof import("expo-document-picker");
+    try {
+      // Lazy loading keeps older native builds usable until they are rebuilt
+      // with expo-document-picker included.
+      documentPicker = require("expo-document-picker") as typeof import("expo-document-picker");
+    } catch {
+      Alert.alert(
+        "Import unavailable",
+        "This build does not include the iOS document picker. Rebuild the app before importing a backup."
+      );
+      return;
+    }
+    let result: Awaited<ReturnType<typeof documentPicker.getDocumentAsync>>;
+    try {
+      result = await documentPicker.getDocumentAsync({
+        type: "application/json",
+        copyToCacheDirectory: true,
+        multiple: false
+      });
+    } catch {
+      Alert.alert("Import failed", "The document picker could not be opened.");
+      return;
+    }
     if (result.canceled || !result.assets?.[0]) return;
     setIsImporting(true);
     try {
