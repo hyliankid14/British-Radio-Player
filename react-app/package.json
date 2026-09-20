@@ -28,6 +28,7 @@
   "scripts": {
     "start": "expo start",
     "android": "expo run:android",
+    "install:android": "../scripts/install-react-debug.sh",
     "ios": "expo run:ios",
     "ios:dev": "expo start --dev-client --localhost",
     "ios:simulator": "../scripts/launch-ios-simulator.sh",
