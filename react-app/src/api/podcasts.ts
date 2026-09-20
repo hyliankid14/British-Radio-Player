@@ -95,6 +95,9 @@ function parseDurationSeconds(durationStr: string): number {
 }
 
 export const PodcastApi = {
+  getRatingsBaseUrl(): string {
+    return PI_BASE_URL;
+  },
   /**
    * Search podcasts on Raspberry Pi database via /search/podcasts
    */

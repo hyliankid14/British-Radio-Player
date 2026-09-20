@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -7,7 +7,9 @@ import {
   Image,
   StyleSheet,
   ActivityIndicator,
-  Share
+  Share,
+  Modal,
+  ScrollView
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -46,7 +48,13 @@ export default function PodcastDetailModal() {
     return true;
   });
   const [isSubscribed, setIsSubscribed] = useState(false);
-  const [showFullDescription, setShowFullDescription] = useState(false);
+  const [descriptionModalVisible, setDescriptionModalVisible] = useState(false);
+  const [visibleEpisodeCount, setVisibleEpisodeCount] = useState(20);
+  const [rating, setRating] = useState<{ average: number; count: number; mine: number }>({ average: 0, count: 0, mine: 0 });
+  const [ratingModalVisible, setRatingModalVisible] = useState(false);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const [toastMessage, setToastMessage] = useState("");
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { playEpisode, currentEpisode, isPlaying } = usePlayerStore();
 
@@ -62,7 +70,10 @@ export default function PodcastDetailModal() {
 
       if (currentPod) {
         const subscribed = Preferences.getSubscribedPodcasts();
-        if (mounted) setIsSubscribed(subscribed.includes(currentPod.id));
+        if (mounted) {
+          setIsSubscribed(subscribed.includes(currentPod.id));
+          setNotificationsEnabled(Preferences.isPodcastNotificationsEnabled(currentPod.id));
+        }
 
         const cached = PodcastApi.getEpisodesFromCache(currentPod.id);
         if (cached && cached.length > 0) {
@@ -77,6 +88,7 @@ export default function PodcastDetailModal() {
         const eps = await PodcastApi.fetchEpisodes(currentPod.rssUrl, currentPod.id);
         if (mounted) {
           setEpisodes(eps);
+          setVisibleEpisodeCount(20);
           setIsLoadingEpisodes(false);
         }
       }
@@ -87,11 +99,61 @@ export default function PodcastDetailModal() {
     };
   }, [params.podcastId]);
 
+  useEffect(() => {
+    if (!podcast) return;
+    fetch(`${PodcastApi.getRatingsBaseUrl()}/ratings?podcast_ids=${encodeURIComponent(podcast.id)}`)
+      .then((response) => response.json())
+      .then((payload) => {
+        const summary = payload?.ratings?.[podcast.id];
+        if (summary) {
+          setRating({
+            average: Number(summary.average_rating) || 0,
+            count: Number(summary.rating_count) || 0,
+            mine: Number(summary.my_rating) || 0
+          });
+        }
+      })
+      .catch(() => {});
+  }, [podcast]);
+
+  const submitRating = async (value: number) => {
+    if (!podcast) return;
+    if (!Preferences.getSetting("pref_analytics", true)) {
+      setToastMessage("Enable analytics in Settings to submit ratings");
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+      toastTimer.current = setTimeout(() => setToastMessage(""), 2500);
+      return;
+    }
+    setRatingModalVisible(false);
+    setRating((current) => ({ ...current, mine: value }));
+    try {
+      await fetch(`${PodcastApi.getRatingsBaseUrl()}/rating`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ podcast_id: podcast.id, rating: value, podcast_title: podcast.title, platform: "ios" })
+      });
+    } catch {}
+  };
+
   const handleToggleSubscribe = () => {
     if (!podcast) return;
     const newState = Preferences.togglePodcastSubscription(podcast.id);
     setIsSubscribed(newState);
+    if (!newState) setNotificationsEnabled(false);
   };
+
+  const handleToggleNotifications = () => {
+    if (!podcast || !isSubscribed) return;
+    const enabled = Preferences.togglePodcastNotifications(podcast.id);
+    setNotificationsEnabled(enabled);
+    setToastMessage(enabled ? "Notifications enabled" : "Notifications disabled");
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToastMessage(""), 2500);
+  };
+
+  useEffect(() => () => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+  }, []);
 
   const handleShare = async () => {
     if (!podcast) return;
@@ -123,21 +185,19 @@ export default function PodcastDetailModal() {
               </Text>
               <Text
                 style={[styles.podcastDescription, { color: theme.onSurfaceVariant }]}
-                numberOfLines={showFullDescription ? undefined : 3}
+                numberOfLines={3}
               >
                 {decodeXmlEntities(podcast.description)}
               </Text>
               {podcast.description.length > 100 && (
-                <TouchableOpacity onPress={() => setShowFullDescription(!showFullDescription)}>
-                  <Text style={[styles.showMoreText, { color: theme.primary }]}>
-                    {showFullDescription ? "Show less" : "Show more"}
-                  </Text>
+                <TouchableOpacity onPress={() => setDescriptionModalVisible(true)}>
+                  <Text style={[styles.showMoreText, { color: theme.primary }]}>Show more</Text>
                 </TouchableOpacity>
               )}
             </View>
           </View>
 
-          {/* Action Row: Subscribe & Share */}
+          {/* Action Row: Subscribe, rating, share and notifications */}
           <View style={styles.actionRow}>
             <TouchableOpacity
               onPress={handleToggleSubscribe}
@@ -163,32 +223,55 @@ export default function PodcastDetailModal() {
               </Text>
             </TouchableOpacity>
 
+            <TouchableOpacity
+              onPress={() => setRatingModalVisible(true)}
+              style={styles.ratingGroup}
+              accessibilityLabel="Rate podcast"
+            >
+              <View style={styles.inlineRating}>
+                {[1, 2, 3, 4, 5].map((value) => (
+                  <MaterialIcons
+                    key={value}
+                    name={value <= (rating.mine || rating.average) ? "star" : "star-border"}
+                    size={20}
+                    color={theme.primary}
+                  />
+                ))}
+              </View>
+              <Text style={[styles.ratingSummary, { color: theme.onSurfaceVariant }]}>
+                {rating.average > 0 ? `${rating.average.toFixed(1)}/5 (${rating.count})` : "No ratings yet"}
+              </Text>
+            </TouchableOpacity>
+
             <TouchableOpacity onPress={handleShare} style={styles.iconButton}>
               <MaterialIcons name="share" size={22} color={theme.onSurface} />
             </TouchableOpacity>
-          </View>
 
-          {/* Genres Chips */}
-          {podcast.genres.length > 0 && (
-            <View style={styles.genresRow}>
-              {podcast.genres.map((g, idx) => (
-                <View key={idx} style={[styles.genreChip, { backgroundColor: theme.surface, borderColor: theme.outlineVariant }]}>
-                  <Text style={[styles.genreChipText, { color: theme.onSurfaceVariant }]}>{decodeXmlEntities(g)}</Text>
-                </View>
-              ))}
-            </View>
-          )}
+            {isSubscribed && (
+              <TouchableOpacity
+                onPress={handleToggleNotifications}
+                style={styles.iconButton}
+                accessibilityLabel={notificationsEnabled ? "Disable podcast notifications" : "Enable podcast notifications"}
+              >
+                <MaterialIcons
+                  name={notificationsEnabled ? "notifications" : "notifications-off"}
+                  size={22}
+                  color={notificationsEnabled ? theme.primary : theme.onSurfaceVariant}
+                />
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
 
         {/* Episodes Header */}
         <View style={[styles.episodesHeaderContainer, { backgroundColor: theme.surface }]}>
           <Text style={[styles.episodesTitle, { color: theme.onSurface }]}>
-            Episodes {episodes.length > 0 ? `(${episodes.length})` : ""}
+            Episodes
           </Text>
         </View>
       </View>
     );
-  }, [podcast, theme, isSubscribed, showFullDescription, episodes.length]);
+  }, [podcast, theme, isSubscribed, notificationsEnabled, episodes.length]);
 
   const renderEpisodeItem = useCallback(
     ({ item: ep }: { item: Episode }) => {
@@ -285,18 +368,75 @@ export default function PodcastDetailModal() {
       </View>
 
       <FlatList
-        data={episodes}
         keyExtractor={(item) => item.id}
         renderItem={renderEpisodeItem}
         ListHeaderComponent={renderHeader}
         ListEmptyComponent={renderEmpty}
-        initialNumToRender={20}
+        data={episodes.slice(0, visibleEpisodeCount)}
+        initialNumToRender={10}
         maxToRenderPerBatch={20}
         windowSize={7}
         removeClippedSubviews={true}
+        onEndReached={() => {
+          if (visibleEpisodeCount < episodes.length) {
+            setVisibleEpisodeCount((count) => Math.min(count + 20, episodes.length));
+          }
+        }}
+        onEndReachedThreshold={0.6}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: 120 + insets.bottom }]}
         showsVerticalScrollIndicator={false}
       />
+      <Modal
+        visible={ratingModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setRatingModalVisible(false)}
+      >
+        <View style={styles.ratingBackdrop}>
+          <View style={[styles.ratingSheet, { backgroundColor: theme.surfaceContainer }]}>
+            <Text style={[styles.ratingSheetTitle, { color: theme.onSurface }]}>Rate this podcast</Text>
+            <View style={styles.ratingChoices}>
+              {[1, 2, 3, 4, 5].map((value) => (
+                <TouchableOpacity key={value} onPress={() => void submitRating(value)} style={styles.ratingChoice}>
+                  <MaterialIcons name={value <= rating.mine ? "star" : "star-border"} size={34} color={theme.primary} />
+                </TouchableOpacity>
+              ))}
+            </View>
+            <TouchableOpacity onPress={() => setRatingModalVisible(false)} style={styles.closeRatingButton}>
+              <Text style={[styles.rateAction, { color: theme.primary }]}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+      <Modal
+        visible={descriptionModalVisible}
+        animationType="slide"
+        onRequestClose={() => setDescriptionModalVisible(false)}
+      >
+        <SafeAreaView style={[styles.descriptionModal, { backgroundColor: theme.surfaceContainer }]}>
+          <View style={[styles.descriptionModalHeader, { borderBottomColor: theme.outlineVariant }]}>
+            <Text style={[styles.descriptionModalTitle, { color: theme.onSurface }]}>Podcast description</Text>
+            <TouchableOpacity
+              onPress={() => setDescriptionModalVisible(false)}
+              style={styles.descriptionModalClose}
+              accessibilityLabel="Close podcast description"
+            >
+              <MaterialIcons name="close" size={24} color={theme.onSurface} />
+            </TouchableOpacity>
+          </View>
+          <ScrollView contentContainerStyle={styles.descriptionModalContent}>
+            <Text style={[styles.descriptionModalText, { color: theme.onSurface }]}>
+              {decodeXmlEntities(podcast?.description)}
+            </Text>
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+      {toastMessage ? (
+        <View pointerEvents="none" style={[styles.toast, { backgroundColor: theme.primaryContainer }]}>
+          <MaterialIcons name="check-circle" size={18} color={theme.onPrimaryContainer} />
+          <Text style={[styles.toastText, { color: theme.onPrimaryContainer }]}>{toastMessage}</Text>
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -390,6 +530,15 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginLeft: 6
   },
+  inlineRating: {
+    flexDirection: "row",
+    alignItems: "center"
+  },
+  ratingGroup: {
+    alignItems: "center",
+    marginRight: "auto",
+    paddingVertical: 2
+  },
   iconButton: {
     width: 40,
     height: 40,
@@ -412,6 +561,92 @@ const styles = StyleSheet.create({
   genreChipText: {
     fontSize: 11,
     fontWeight: "500"
+  },
+  ratingSummary: {
+    fontSize: 14,
+    marginTop: 4
+  },
+  rateAction: {
+    fontSize: 13,
+    fontWeight: "600"
+  },
+  ratingBackdrop: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(0,0,0,0.4)"
+  },
+  ratingSheet: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 24,
+    alignItems: "center"
+  },
+  ratingSheetTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    marginBottom: 18
+  },
+  ratingChoices: {
+    flexDirection: "row",
+    alignItems: "center"
+  },
+  ratingChoice: {
+    paddingHorizontal: 3
+  },
+  closeRatingButton: {
+    marginTop: 16,
+    padding: 8
+  },
+  toast: {
+    position: "absolute",
+    left: 20,
+    right: 20,
+    bottom: 24,
+    minHeight: 48,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    elevation: 4,
+    shadowColor: "#000",
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 }
+  },
+  toastText: {
+    fontSize: 14,
+    fontWeight: "600"
+  },
+  descriptionModal: {
+    flex: 1
+  },
+  descriptionModalHeader: {
+    minHeight: 56,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingLeft: 20,
+    borderBottomWidth: 1
+  },
+  descriptionModalTitle: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: "700"
+  },
+  descriptionModalClose: {
+    width: 56,
+    height: 56,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  descriptionModalContent: {
+    padding: 20,
+    paddingBottom: 40
+  },
+  descriptionModalText: {
+    fontSize: 15,
+    lineHeight: 23
   },
   episodesHeaderContainer: {
     marginTop: 8,

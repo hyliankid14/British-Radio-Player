@@ -242,6 +242,17 @@ export const Preferences = {
     storage.set(KEYS.SUBSCRIBED_PODCASTS, JSON.stringify(podcastIds));
   },
 
+  isPodcastNotificationsEnabled(podcastId: string): boolean {
+    if (!this.getSubscribedPodcasts().includes(podcastId)) return false;
+    return storage.getBoolean(`pref_podcast_notifications_${podcastId}`) ?? false;
+  },
+
+  togglePodcastNotifications(podcastId: string): boolean {
+    const enabled = !this.isPodcastNotificationsEnabled(podcastId);
+    storage.set(`pref_podcast_notifications_${podcastId}`, enabled);
+    return enabled;
+  },
+
   getPodcastTags(podcastId: string, defaultTags: string[] = []): string[] {
     const raw = storage.getString(`pref_podcast_tags_${podcastId}`);
     if (!raw) {
