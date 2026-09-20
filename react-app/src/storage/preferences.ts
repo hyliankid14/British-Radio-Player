@@ -145,6 +145,113 @@ export const Preferences = {
     storage.set(KEYS.SUBSCRIBED_PODCASTS, JSON.stringify(podcastIds));
   },
 
+  getPodcastTags(podcastId: string, defaultTags: string[] = []): string[] {
+    const raw = storage.getString(`pref_podcast_tags_${podcastId}`);
+    if (!raw) {
+      return defaultTags.filter((tag) => !/^podcasts?$/i.test(tag));
+    }
+    try {
+      const tags = JSON.parse(raw);
+      return Array.isArray(tags) ? tags.filter((tag): tag is string => typeof tag === "string" && tag.trim().length > 0) : [];
+    } catch {
+      return [];
+    }
+  },
+
+  setPodcastTags(podcastId: string, tags: string[]): void {
+    const normalised = Array.from(
+      new Set(tags.map((tag) => tag.trim()).filter(Boolean))
+    );
+    storage.set(`pref_podcast_tags_${podcastId}`, JSON.stringify(normalised));
+  },
+
+  addPodcastTag(podcastId: string, defaultTags: string[], tag: string): void {
+    this.setPodcastTags(podcastId, [...this.getPodcastTags(podcastId, defaultTags), tag]);
+  },
+
+  removePodcastTag(podcastId: string, defaultTags: string[], tag: string): void {
+    this.setPodcastTags(
+      podcastId,
+      this.getPodcastTags(podcastId, defaultTags).filter((existing) => existing !== tag)
+    );
+  },
+
+  getSubscribedPodcastSort(): string {
+    return storage.getString("pref_subscribed_podcast_sort") || "most_recently_updated";
+  },
+
+  setSubscribedPodcastSort(sort: string): void {
+    storage.set("pref_subscribed_podcast_sort", sort);
+  },
+
+  getSubscribedPodcastManualOrder(): string[] {
+    const raw = storage.getString("pref_subscribed_podcast_manual_order");
+    if (!raw) return [];
+    try {
+      const order = JSON.parse(raw);
+      return Array.isArray(order) ? order.filter((id): id is string => typeof id === "string") : [];
+    } catch {
+      return [];
+    }
+  },
+
+  setSubscribedPodcastManualOrder(ids: string[]): void {
+    storage.set("pref_subscribed_podcast_manual_order", JSON.stringify(ids));
+  },
+
+  getPodcastPlaylists(): { id: string; name: string; isDefault: boolean; itemCount: number }[] {
+    const raw = storage.getString("pref_podcast_playlists");
+    const defaults = [
+      { id: "saved", name: "Saved Episodes", isDefault: true, itemCount: 0 },
+      { id: "downloaded", name: "Downloaded Files", isDefault: true, itemCount: 0 }
+    ];
+    if (!raw) return defaults;
+    try {
+      const playlists = JSON.parse(raw);
+      return Array.isArray(playlists) ? [...defaults, ...playlists.filter((item) =>
+        item && typeof item.id === "string" && typeof item.name === "string"
+      ).map((item) => ({
+        ...item,
+        isDefault: false,
+        itemCount: typeof item.itemCount === "number" ? item.itemCount : 0
+      }))] : defaults;
+    } catch {
+      return defaults;
+    }
+  },
+
+  setPodcastPlaylists(playlists: { id: string; name: string; isDefault: boolean; itemCount: number }[]): void {
+    storage.set(
+      "pref_podcast_playlists",
+      JSON.stringify(playlists.filter((playlist) => !playlist.isDefault))
+    );
+  },
+
+  createPodcastPlaylist(name: string): void {
+    const playlists = this.getPodcastPlaylists();
+    playlists.push({ id: `playlist-${Date.now()}`, name: name.trim(), isDefault: false, itemCount: 0 });
+    this.setPodcastPlaylists(playlists);
+  },
+
+  renamePodcastPlaylist(id: string, name: string): void {
+    const playlists = this.getPodcastPlaylists().map((playlist) =>
+      playlist.id === id ? { ...playlist, name: name.trim() } : playlist
+    );
+    this.setPodcastPlaylists(playlists);
+  },
+
+  deletePodcastPlaylist(id: string): void {
+    this.setPodcastPlaylists(this.getPodcastPlaylists().filter((playlist) => playlist.id !== id));
+  },
+
+  getHidePlayedEpisodesInPlaylists(): boolean {
+    return storage.getBoolean("pref_hide_played_episodes_in_playlists") ?? false;
+  },
+
+  setHidePlayedEpisodesInPlaylists(hidden: boolean): void {
+    storage.set("pref_hide_played_episodes_in_playlists", hidden);
+  },
+
   togglePodcastSubscription(podcastId: string): boolean {
     const subscribed = this.getSubscribedPodcasts();
     const index = subscribed.indexOf(podcastId);

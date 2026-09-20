@@ -10,7 +10,9 @@ import {
   UIManager,
   PanResponder,
   Animated,
-  Image
+  Image,
+  ScrollView,
+  Alert
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -28,6 +30,8 @@ if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental
 }
 
 type FavCategory = "Stations" | "Subscribed" | "Playlists" | "Searches" | "History";
+type PodcastSort = "most_recently_updated" | "least_recently_updated" | "alphabetical" | "manual" | "tags";
+type PlaylistSummary = { id: string; name: string; isDefault: boolean; itemCount: number };
 
 const ITEM_HEIGHT = 72;
 const FAVOURITE_SECTION_TITLES: Record<FavCategory, string> = {
@@ -166,6 +170,17 @@ export default function FavouritesScreen() {
   const [showTitles, setShowTitles] = useState<Record<string, string>>({});
   const [subscribedPodcasts, setSubscribedPodcasts] = useState<Podcast[]>([]);
   const [newEpisodeIds, setNewEpisodeIds] = useState<Set<string>>(new Set());
+  const [podcastSort, setPodcastSort] = useState<PodcastSort>(
+    () => Preferences.getSubscribedPodcastSort() as PodcastSort
+  );
+  const [latestEpisodeTimes, setLatestEpisodeTimes] = useState<Record<string, number>>({});
+  const [playlists, setPlaylists] = useState<PlaylistSummary[]>(
+    () => Preferences.getPodcastPlaylists()
+  );
+  const [hidePlayedEpisodes, setHidePlayedEpisodes] = useState(
+    () => Preferences.getHidePlayedEpisodesInPlaylists()
+  );
+  const [, forceTagUpdate] = useState(0);
 
   const {
     favorites,
@@ -234,6 +249,12 @@ export default function FavouritesScreen() {
           subscribedPodcasts.map(async (podcast) => {
             const episodes = await PodcastApi.fetchEpisodes(podcast.rssUrl, podcast.id);
             const latestEpisode = episodes[0];
+            if (latestEpisode) {
+              setLatestEpisodeTimes((current) => ({
+                ...current,
+                [podcast.id]: new Date(latestEpisode.pubDate).getTime() || 0
+              }));
+            }
             return latestEpisode &&
               Preferences.getPodcastPosition(latestEpisode.id) <= 0
               ? podcast.id
@@ -251,6 +272,89 @@ export default function FavouritesScreen() {
       };
     }, [])
   );
+
+  const sortedSubscribedPodcasts = useMemo(() => {
+    const podcasts = [...subscribedPodcasts];
+    const byLatest = (podcast: Podcast) => latestEpisodeTimes[podcast.id] || 0;
+
+    if (podcastSort === "alphabetical") {
+      return podcasts.sort((a, b) => a.title.localeCompare(b.title));
+    }
+    if (podcastSort === "least_recently_updated") {
+      return podcasts.sort((a, b) => byLatest(a) - byLatest(b));
+    }
+    if (podcastSort === "manual") {
+      const order = new Map(
+        Preferences.getSubscribedPodcastManualOrder().map((id, index) => [id, index])
+      );
+      return podcasts.sort((a, b) =>
+        (order.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
+        (order.get(b.id) ?? Number.MAX_SAFE_INTEGER)
+      );
+    }
+    if (podcastSort === "tags") {
+      return podcasts.sort((a, b) =>
+        Preferences.getPodcastTags(a.id, a.genres)[0]?.localeCompare(
+          Preferences.getPodcastTags(b.id, b.genres)[0] || ""
+        ) || 0
+      );
+    }
+    return podcasts.sort((a, b) => byLatest(b) - byLatest(a));
+  }, [latestEpisodeTimes, podcastSort, subscribedPodcasts]);
+
+  const selectPodcastSort = useCallback(() => {
+    const options: Array<[string, PodcastSort]> = [
+      ["Most recently updated", "most_recently_updated"],
+      ["Least recently updated", "least_recently_updated"],
+      ["Alphabetical (A-Z)", "alphabetical"],
+      ["Manual sort", "manual"],
+      ["Sort by tags", "tags"]
+    ];
+    Alert.alert(
+      "Sort subscribed podcasts",
+      undefined,
+      [
+        ...options.map(([label, value]) => ({
+          text: value === podcastSort ? `${label} ✓` : label,
+          onPress: () => {
+            if (value === "manual" && Preferences.getSubscribedPodcastManualOrder().length === 0) {
+              Preferences.setSubscribedPodcastManualOrder(subscribedPodcasts.map((podcast) => podcast.id));
+            }
+            Preferences.setSubscribedPodcastSort(value);
+            setPodcastSort(value);
+          }
+        })),
+        { text: "Cancel", style: "cancel" as const }
+      ]
+    );
+  }, [podcastSort, subscribedPodcasts]);
+
+  const createPlaylist = useCallback(() => {
+    Alert.prompt("Create playlist", "Enter a name", (value) => {
+      const name = value.trim();
+      if (!name) return;
+      Preferences.createPodcastPlaylist(name);
+      setPlaylists(Preferences.getPodcastPlaylists());
+    }, "plain-text");
+  }, []);
+
+  const showPlaylistMenu = useCallback(() => {
+    Alert.alert(
+      "Playlist options",
+      undefined,
+      [
+        {
+          text: hidePlayedEpisodes ? "Hide played episodes ✓" : "Hide played episodes",
+          onPress: () => {
+            const next = !hidePlayedEpisodes;
+            Preferences.setHidePlayedEpisodesInPlaylists(next);
+            setHidePlayedEpisodes(next);
+          }
+        },
+        { text: "Cancel", style: "cancel" as const }
+      ]
+    );
+  }, [hidePlayedEpisodes]);
 
   // Keep a ref to the latest orderedList for panResponder callbacks
   const orderedListRef = useRef<Station[]>([]);
@@ -462,6 +566,32 @@ export default function FavouritesScreen() {
         <Text style={[styles.topAppBarTitle, { color: theme.onSurface }]}>
           {FAVOURITE_SECTION_TITLES[activeCategory]}
         </Text>
+        {activeCategory === "Subscribed" ? (
+          <TouchableOpacity
+            style={styles.overflowButton}
+            onPress={selectPodcastSort}
+            accessibilityLabel="Sort subscribed podcasts"
+          >
+            <MaterialIcons name="more-vert" size={24} color={theme.onSurface} />
+          </TouchableOpacity>
+        ) : activeCategory === "Playlists" ? (
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              style={styles.overflowButton}
+              onPress={createPlaylist}
+              accessibilityLabel="Create playlist"
+            >
+              <MaterialIcons name="add" size={25} color={theme.onSurface} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.overflowButton}
+              onPress={showPlaylistMenu}
+              accessibilityLabel="Playlist options"
+            >
+              <MaterialIcons name="more-vert" size={24} color={theme.onSurface} />
+            </TouchableOpacity>
+          </View>
+        ) : null}
       </View>
 
       {/* Pill group under Top App Bar matching favorites_toggle_group */}
@@ -517,7 +647,7 @@ export default function FavouritesScreen() {
         />
       ) : activeCategory === "Subscribed" ? (
         <FlatList
-          data={subscribedPodcasts}
+          data={sortedSubscribedPodcasts}
           keyExtractor={(item) => item.id}
           contentContainerStyle={[styles.listContent, { paddingBottom: 170 + insets.bottom }]}
           style={{ backgroundColor: theme.surface }}
@@ -558,23 +688,52 @@ export default function FavouritesScreen() {
                 >
                   {decodeXmlEntities(item.description)}
                 </Text>
-                {item.genres.length > 0 ? (
-                  <View style={styles.categoryChipRow}>
-                    {item.genres.map((genre) => (
-                      <View
-                        key={`${item.id}-${genre}`}
-                        style={[styles.categoryChip, { backgroundColor: theme.surfaceVariant }]}
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.categoryChipScroller}
+                  contentContainerStyle={styles.categoryChipRow}
+                >
+                  {Preferences.getPodcastTags(item.id, item.genres).map((tag) => (
+                    <TouchableOpacity
+                      key={`${item.id}-${tag}`}
+                      style={[styles.categoryChip, { backgroundColor: theme.surfaceVariant }]}
+                      onPress={() => {
+                        Preferences.removePodcastTag(item.id, item.genres, tag);
+                        forceTagUpdate((value) => value + 1);
+                      }}
+                      accessibilityLabel={`Remove ${tag} category`}
+                    >
+                      <Text
+                        style={[styles.categoryChipText, { color: theme.onSurfaceVariant }]}
+                        numberOfLines={1}
                       >
-                        <Text
-                          style={[styles.categoryChipText, { color: theme.onSurfaceVariant }]}
-                          numberOfLines={1}
-                        >
-                          {decodeXmlEntities(genre)}
-                        </Text>
-                      </View>
-                    ))}
-                  </View>
-                ) : null}
+                        {decodeXmlEntities(tag)}
+                      </Text>
+                      <MaterialIcons name="close" size={12} color={theme.onSurfaceVariant} />
+                    </TouchableOpacity>
+                  ))}
+                  <TouchableOpacity
+                    style={[styles.addCategoryChip, { borderColor: theme.outline }]}
+                    onPress={() => {
+                      Alert.prompt(
+                        "Add category",
+                        "Enter a category for this podcast",
+                        (value) => {
+                          const tag = value.trim();
+                          if (tag) {
+                            Preferences.addPodcastTag(item.id, item.genres, tag);
+                            forceTagUpdate((current) => current + 1);
+                          }
+                        },
+                        "plain-text"
+                      );
+                    }}
+                    accessibilityLabel="Add category"
+                  >
+                    <MaterialIcons name="add" size={14} color={theme.primary} />
+                  </TouchableOpacity>
+                </ScrollView>
               </View>
               {newEpisodeIds.has(item.id) ? (
                 <View style={styles.newEpisodeDot} accessibilityLabel="New episodes available" />
@@ -589,10 +748,38 @@ export default function FavouritesScreen() {
             </View>
           }
         />
+      ) : activeCategory === "Playlists" ? (
+        <FlatList
+          data={playlists}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={[styles.listContent, { paddingBottom: 170 + insets.bottom }]}
+          style={{ backgroundColor: theme.surface }}
+          renderItem={({ item }) => (
+            <TouchableOpacity
+              style={[styles.playlistRow, { backgroundColor: theme.surface, borderBottomColor: theme.outlineVariant }]}
+              activeOpacity={0.7}
+              onPress={() => Alert.alert(item.name, item.isDefault ? "Built-in playlist" : "Custom playlist")}
+            >
+              <View style={[styles.playlistIcon, { backgroundColor: theme.primaryContainer }]}>
+                <MaterialIcons
+                  name={item.id === "downloaded" ? "file-download" : "bookmark"}
+                  size={28}
+                  color={theme.primary}
+                />
+              </View>
+              <View style={styles.playlistInfo}>
+                <Text style={[styles.playlistTitle, { color: theme.onSurface }]}>{item.name}</Text>
+                <Text style={[styles.playlistSubtitle, { color: theme.onSurfaceVariant }]}>
+                  {item.itemCount ?? 0} {item.itemCount === 1 ? "Episode" : "Episodes"}
+                </Text>
+              </View>
+              <MaterialIcons name="chevron-right" size={24} color={theme.onSurfaceVariant} />
+            </TouchableOpacity>
+          )}
+        />
       ) : (
         <View style={[styles.emptyContainer, { backgroundColor: theme.surface, flex: 1 }]}>
           <Text style={[styles.emptyText, { color: theme.onSurfaceVariant }]}>
-            {activeCategory === "Playlists" && "No playlists yet"}
             {activeCategory === "Searches" && "No saved searches yet"}
             {activeCategory === "History" && "No history yet"}
           </Text>
@@ -618,6 +805,16 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: "700",
     letterSpacing: 0
+  },
+  overflowButton: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center"
   },
   pillGroupContainer: {
     flexDirection: "row",
@@ -691,6 +888,7 @@ const styles = StyleSheet.create({
   },
   podcastInfo: {
     flex: 1,
+    flexShrink: 1,
     marginHorizontal: 12
   },
   podcastTitle: {
@@ -703,17 +901,32 @@ const styles = StyleSheet.create({
   },
   categoryChipRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
     gap: 4,
     marginTop: 6
   },
+  categoryChipScroller: {
+    width: "100%",
+    alignSelf: "stretch",
+    marginTop: 2
+  },
   categoryChip: {
+    flexDirection: "row",
+    alignItems: "center",
     borderRadius: 10,
     paddingHorizontal: 7,
-    paddingVertical: 3
+    paddingVertical: 3,
+    gap: 3
   },
   categoryChipText: {
     fontSize: 10
+  },
+  addCategoryChip: {
+    width: 24,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: "center",
+    justifyContent: "center"
   },
   newEpisodeDot: {
     width: 10,
@@ -721,6 +934,32 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     backgroundColor: "#d32f2f",
     marginLeft: 6
+  },
+  playlistRow: {
+    minHeight: 88,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth
+  },
+  playlistIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  playlistInfo: {
+    flex: 1,
+    marginLeft: 16
+  },
+  playlistTitle: {
+    fontSize: 16,
+    fontWeight: "700"
+  },
+  playlistSubtitle: {
+    fontSize: 13,
+    marginTop: 4
   },
   actionButton: {
     width: 40,
