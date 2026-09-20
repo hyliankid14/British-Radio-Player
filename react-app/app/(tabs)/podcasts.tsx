@@ -9,6 +9,7 @@ import {
   Image,
   StyleSheet,
   ActivityIndicator,
+  Alert,
   NativeSyntheticEvent,
   NativeScrollEvent
 } from "react-native";
@@ -57,6 +58,76 @@ function getGenreIcon(genre: string): any {
   return "podcasts";
 }
 
+type BooleanSearchNode =
+  | { type: "term"; value: string }
+  | { type: "not"; child: BooleanSearchNode }
+  | { type: "and" | "or"; left: BooleanSearchNode; right: BooleanSearchNode };
+
+function parseBooleanSearch(query: string): BooleanSearchNode | null {
+  const normalisedQuery = query.replace(/[“”]/g, '"');
+  const tokens = normalisedQuery.match(/"[^"]+"|\(|\)|\bAND\b|\bOR\b|\bNOT\b|[^\s()]+/gi) || [];
+  let index = 0;
+  const peek = () => tokens[index]?.toUpperCase();
+  const parsePrimary = (): BooleanSearchNode | null => {
+    if (peek() === "NOT") {
+      index++;
+      const child = parsePrimary();
+      return child ? { type: "not", child } : null;
+    }
+    if (tokens[index] === "(") {
+      index++;
+      const expression = parseOr();
+      if (tokens[index] === ")") index++;
+      return expression;
+    }
+    const token = tokens[index++];
+    if (!token || /^(AND|OR|NOT)$/i.test(token)) return null;
+    return { type: "term", value: token.replace(/^["“”]|["“”]$/g, "").toLowerCase() };
+  };
+  const parseAnd = (): BooleanSearchNode | null => {
+    let left = parsePrimary();
+    while (left && (peek() === "AND" || (tokens[index] && tokens[index] !== ")" && peek() !== "OR"))) {
+      if (peek() === "AND") index++;
+      const right = parsePrimary();
+      if (!right) break;
+      left = { type: "and", left, right };
+    }
+    return left;
+  };
+  const parseOr = (): BooleanSearchNode | null => {
+    let left = parseAnd();
+    while (left && peek() === "OR") {
+      index++;
+      const right = parseAnd();
+      if (!right) break;
+      left = { type: "or", left, right };
+    }
+    return left;
+  };
+  return parseOr();
+}
+
+function matchesBooleanSearch(query: string, text: string): boolean {
+  const expression = parseBooleanSearch(query);
+  if (!expression) return false;
+  const haystack = text
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  const evaluate = (node: BooleanSearchNode): boolean => {
+    if (node.type === "term") {
+      const term = node.value.replace(/\s+/g, " ").trim();
+      return haystack.includes(term);
+    }
+    if (node.type === "not") return !evaluate(node.child);
+    if (node.type === "and") return evaluate(node.left) && evaluate(node.right);
+    return evaluate(node.left) || evaluate(node.right);
+  };
+  return evaluate(expression);
+}
+
 export default function PodcastsScreen() {
   const router = useRouter();
   const theme = useAppTheme();
@@ -81,9 +152,14 @@ export default function PodcastsScreen() {
   const [isSearching, setIsSearching] = useState(false);
   const [searchPodcastMatches, setSearchPodcastMatches] = useState<Podcast[]>([]);
   const [searchEpisodeMatches, setSearchEpisodeMatches] = useState<SearchEpisodeResult[]>([]);
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const searchDebounceTimer = useRef<any>(null);
 
   const { playEpisode } = usePlayerStore();
+
+  useEffect(() => {
+    setRecentSearches(Preferences.getRecentPodcastSearches());
+  }, [showSearchBar]);
 
   // Load catalog and Pi metadata on mount
   useEffect(() => {
@@ -143,6 +219,35 @@ export default function PodcastsScreen() {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [catalog]);
 
+  const saveSearch = useCallback(() => {
+    const query = searchQuery.trim();
+    if (!query) return;
+    Alert.prompt("Save search", "Name this search", (name) => {
+      const trimmedName = name.trim();
+      if (!trimmedName) return;
+      Alert.alert("Search alerts", "Receive an alert when new episodes match this search?", [
+        {
+          text: "Enable alerts",
+          onPress: () => Preferences.savePodcastSearch({
+            id: `search-${Date.now()}`,
+            name: trimmedName,
+            query,
+            notificationsEnabled: true
+          })
+        },
+        {
+          text: "Not now",
+          onPress: () => Preferences.savePodcastSearch({
+            id: `search-${Date.now()}`,
+            name: trimmedName,
+            query,
+            notificationsEnabled: false
+          })
+        }
+      ]);
+    }, "plain-text", searchQuery);
+  }, [searchQuery]);
+
   // Handle Search Input querying the Raspberry Pi database
   const handleSearchChange = useCallback(
     (text: string) => {
@@ -169,23 +274,25 @@ export default function PodcastsScreen() {
           ]);
 
           // Enrich podcast matches with catalog artwork and genres
-          const enriched = PodcastApi.enrichSearchResults(piPodcasts, catalog);
+          const enriched = PodcastApi.enrichSearchResults(piPodcasts, catalog).filter((podcast) =>
+            matchesBooleanSearch(q, `${podcast.title} ${podcast.description} ${podcast.genres.join(" ")}`)
+          );
 
           // If Pi returned empty or is offline, fallback to in-memory filter
           if (enriched.length === 0 && catalog.length > 0) {
-            const lowerQ = q.toLowerCase();
-            const fallback = catalog.filter(
-              (p) =>
-                p.title.toLowerCase().includes(lowerQ) ||
-                p.description.toLowerCase().includes(lowerQ) ||
-                p.genres.some((g) => g.toLowerCase().includes(lowerQ))
+            const fallback = catalog.filter((p) =>
+              matchesBooleanSearch(q, `${p.title} ${p.description} ${p.genres.join(" ")}`)
             );
             setSearchPodcastMatches(fallback);
           } else {
             setSearchPodcastMatches(enriched);
           }
 
-          setSearchEpisodeMatches(piEpisodes);
+          setSearchEpisodeMatches(
+            piEpisodes.filter((episode) =>
+              matchesBooleanSearch(q, `${episode.title} ${episode.description}`)
+            )
+          );
         } catch (err) {
           console.warn("Search failed:", err);
         } finally {
@@ -226,6 +333,44 @@ export default function PodcastsScreen() {
   );
 
   const [resolvingEpisodeId, setResolvingEpisodeId] = useState<string | null>(null);
+
+  const openSearchEpisode = useCallback(
+    async (ep: SearchEpisodeResult) => {
+      const parentPodcast = catalog.find((p) => p.id === ep.podcastId) || {
+        id: ep.podcastId,
+        title: "BBC Podcast",
+        description: "",
+        rssUrl: `https://podcasts.files.bbci.co.uk/${ep.podcastId}.rss`,
+        htmlUrl: "",
+        imageUrl: "",
+        genres: [],
+        typicalDurationMins: 0
+      };
+
+      setResolvingEpisodeId(ep.episodeId);
+      try {
+        const episodes = await PodcastApi.fetchEpisodes(parentPodcast.rssUrl, parentPodcast.id);
+        const resolved =
+          episodes.find((e) => e.id === ep.episodeId || e.id.includes(ep.episodeId) || ep.episodeId.includes(e.id)) ||
+          episodes.find((e) => e.title.toLowerCase() === ep.title.toLowerCase());
+
+        if (resolved) {
+          router.push({
+            pathname: "/modal/episode-detail",
+            params: {
+              podcastData: JSON.stringify(parentPodcast),
+              episodeData: JSON.stringify(resolved)
+            }
+          });
+        }
+      } catch (err) {
+        console.warn("Failed to open episode:", err);
+      } finally {
+        setResolvingEpisodeId(null);
+      }
+    },
+    [catalog, router]
+  );
 
   // Play an episode directly from search results
   const handlePlaySearchEpisode = useCallback(
@@ -356,23 +501,50 @@ export default function PodcastsScreen() {
             <MaterialIcons name="search" size={22} color={theme.onSurfaceVariant} style={styles.searchIcon} />
             <TextInput
               style={[styles.searchInput, { color: theme.onSurface }]}
-              placeholder="Search Raspberry Pi podcast database..."
+              placeholder="Search podcasts"
               placeholderTextColor={theme.onSurfaceVariant}
               value={searchQuery}
               onChangeText={handleSearchChange}
+              onSubmitEditing={() => {
+                const query = searchQuery.trim();
+                if (query) {
+                  Preferences.addRecentPodcastSearch(query);
+                  setRecentSearches(Preferences.getRecentPodcastSearches());
+                }
+              }}
               autoFocus={showSearchBar && !searchQuery}
-              clearButtonMode="while-editing"
+              clearButtonMode="never"
             />
             {searchQuery ? (
-              <TouchableOpacity onPress={() => handleSearchChange("")} style={styles.clearSearchBtn}>
-                <MaterialIcons name="cancel" size={20} color={theme.onSurfaceVariant} />
-              </TouchableOpacity>
+              <View style={styles.searchActions}>
+                <TouchableOpacity onPress={saveSearch} style={styles.clearSearchBtn} accessibilityLabel="Save search">
+                  <MaterialIcons name="star-border" size={20} color={theme.onSurfaceVariant} />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => handleSearchChange("")} style={styles.clearSearchBtn}>
+                  <MaterialIcons name="cancel" size={20} color={theme.onSurfaceVariant} />
+                </TouchableOpacity>
+              </View>
             ) : (
               <TouchableOpacity onPress={handleShuffle} style={styles.clearSearchBtn}>
                 <MaterialIcons name="shuffle" size={20} color={theme.onSurfaceVariant} />
               </TouchableOpacity>
             )}
           </View>
+          {!searchQuery.trim() && recentSearches.length > 0 ? (
+            <View style={[styles.recentSearches, { backgroundColor: theme.surface }]}>
+              <Text style={[styles.recentSearchesTitle, { color: theme.onSurfaceVariant }]}>Recent searches</Text>
+              {recentSearches.map((search) => (
+                <TouchableOpacity
+                  key={search}
+                  style={styles.recentSearchRow}
+                  onPress={() => handleSearchChange(search)}
+                >
+                  <MaterialIcons name="history" size={18} color={theme.onSurfaceVariant} />
+                  <Text style={[styles.recentSearchText, { color: theme.onSurface }]}>{search}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : null}
         </View>
       ) : null}
 
@@ -451,7 +623,7 @@ export default function PodcastsScreen() {
             <View style={styles.searchLoadingBanner}>
               <ActivityIndicator size="small" color={theme.primary} />
               <Text style={[styles.searchLoadingText, { color: theme.onSurfaceVariant }]}>
-                Querying Raspberry Pi database...
+                Searching podcasts...
               </Text>
             </View>
           )}
@@ -499,7 +671,7 @@ export default function PodcastsScreen() {
                     <TouchableOpacity
                       style={styles.episodeResultText}
                       activeOpacity={0.7}
-                      onPress={() => handleOpenPodcast(parentPod)}
+                      onPress={() => openSearchEpisode(ep)}
                     >
                       <Text style={[styles.episodeResultTitle, { color: theme.onSurface }]} numberOfLines={2}>
                         {decodeXmlEntities(ep.title)}
@@ -680,6 +852,31 @@ const styles = StyleSheet.create({
   },
   clearSearchBtn: {
     padding: 4
+  },
+  searchActions: {
+    flexDirection: "row",
+    alignItems: "center"
+  },
+  recentSearches: {
+    marginTop: 4,
+    paddingVertical: 8,
+    borderRadius: 8
+  },
+  recentSearchesTitle: {
+    fontSize: 12,
+    fontWeight: "600",
+    paddingHorizontal: 14,
+    paddingVertical: 6
+  },
+  recentSearchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 9
+  },
+  recentSearchText: {
+    fontSize: 14
   },
   tabsContainer: {
     borderBottomWidth: StyleSheet.hairlineWidth,

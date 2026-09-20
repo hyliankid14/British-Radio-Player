@@ -252,6 +252,77 @@ export const Preferences = {
     storage.set("pref_hide_played_episodes_in_playlists", hidden);
   },
 
+  getRecentPodcastSearches(): string[] {
+    const raw = storage.getString("pref_recent_podcast_searches");
+    if (!raw) return [];
+    try {
+      const searches = JSON.parse(raw);
+      if (!Array.isArray(searches)) return [];
+      const validSearches = searches.filter(
+        (search): search is string => typeof search === "string" && search.trim().length > 0
+      );
+      return validSearches.filter(
+        (search, index) =>
+          !validSearches.some(
+            (other, otherIndex) =>
+              index !== otherIndex &&
+              other.length > search.length &&
+              other.toLowerCase().startsWith(search.toLowerCase())
+          )
+      );
+    } catch {
+      return [];
+    }
+  },
+
+  addRecentPodcastSearch(query: string): void {
+    const value = query.trim();
+    if (!value) return;
+    this.setRecentPodcastSearches([
+      value,
+      ...this.getRecentPodcastSearches().filter((search) => search.toLowerCase() !== value.toLowerCase())
+    ].slice(0, 10));
+  },
+
+  setRecentPodcastSearches(searches: string[]): void {
+    storage.set("pref_recent_podcast_searches", JSON.stringify(searches));
+  },
+
+  getSavedPodcastSearches(): { id: string; name: string; query: string; notificationsEnabled: boolean }[] {
+    const raw = storage.getString("pref_saved_podcast_searches");
+    if (!raw) return [];
+    try {
+      const searches = JSON.parse(raw);
+      return Array.isArray(searches) ? searches.filter((search) =>
+        search && typeof search.id === "string" && typeof search.name === "string" &&
+        typeof search.query === "string"
+      ) : [];
+    } catch {
+      return [];
+    }
+  },
+
+  savePodcastSearch(
+    search: { id: string; name: string; query: string; notificationsEnabled: boolean }
+  ): void {
+    const searches = this.getSavedPodcastSearches().filter((item) => item.id !== search.id);
+    storage.set("pref_saved_podcast_searches", JSON.stringify([...searches, search]));
+  },
+
+  updatePodcastSearchNotifications(id: string, enabled: boolean): void {
+    const searches = this.getSavedPodcastSearches().map((search) =>
+      search.id === id ? { ...search, notificationsEnabled: enabled } : search
+    );
+    storage.set("pref_saved_podcast_searches", JSON.stringify(searches));
+  },
+
+  removePodcastSearch(id: string): void {
+    storage.set(
+      "pref_saved_podcast_searches",
+      JSON.stringify(this.getSavedPodcastSearches().filter((search) => search.id !== id))
+    );
+  },
+
   togglePodcastSubscription(podcastId: string): boolean {
     const subscribed = this.getSubscribedPodcasts();
     const index = subscribed.indexOf(podcastId);

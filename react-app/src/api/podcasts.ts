@@ -101,7 +101,11 @@ export const PodcastApi = {
   async searchPodcastsOnPi(query: string, limit: number = 50): Promise<SearchPodcastResult[]> {
     if (!query.trim()) return [];
     try {
-      const url = `${PI_BASE_URL}/search/podcasts?q=${encodeURIComponent(query.trim())}&limit=${limit}`;
+      // The index endpoint tokenises terms but does not understand phrase
+      // delimiters; phrase matching is enforced by the client-side Boolean
+      // evaluator after the broad result set has been returned.
+      const backendQuery = query.trim().replace(/[“”"]/g, "");
+      const url = `${PI_BASE_URL}/search/podcasts?q=${encodeURIComponent(backendQuery)}&limit=${limit}`;
       const res = await fetch(url, {
         headers: { Accept: "application/json" }
       });
@@ -120,13 +124,28 @@ export const PodcastApi = {
   async searchEpisodesOnPi(query: string, limit: number = 30, offset: number = 0): Promise<SearchEpisodeResult[]> {
     if (!query.trim()) return [];
     try {
-      const url = `${PI_BASE_URL}/search/episodes?q=${encodeURIComponent(query.trim())}&limit=${limit}&offset=${offset}`;
-      const res = await fetch(url, {
-        headers: { Accept: "application/json" }
-      });
-      if (!res.ok) return [];
-      const data = await res.json();
-      return Array.isArray(data) ? data : [];
+      const backendQuery = query.trim().replace(/[“”"]/g, "");
+      const search = async (value: string, resultLimit: number) => {
+        const url = `${PI_BASE_URL}/search/episodes?q=${encodeURIComponent(value)}&limit=${resultLimit}&offset=${offset}`;
+        const res = await fetch(url, {
+          headers: { Accept: "application/json" }
+        });
+        if (!res.ok) return [];
+        const data = await res.json();
+        return Array.isArray(data) ? data as SearchEpisodeResult[] : [];
+      };
+
+      const results = await search(backendQuery, limit);
+      if (!query.includes('"')) return results;
+
+      // Phrase searches need a broad candidate set because the index ranks
+      // individual terms and may omit the exact phrase from a small page.
+      const terms = Array.from(
+        new Set((backendQuery.match(/[^\s()]+/g) || []).filter((term) => !/^(AND|OR|NOT)$/i.test(term)))
+      );
+      const broadened = await Promise.all(terms.map((term) => search(term, Math.max(limit, 100))));
+      const merged = [...results, ...broadened.flat()];
+      return Array.from(new Map(merged.map((episode) => [episode.episodeId, episode])).values());
     } catch (err) {
       console.warn("Failed to search episodes on Raspberry Pi:", err);
       return [];

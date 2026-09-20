@@ -50,6 +50,13 @@ export default function RootLayout() {
           }}
         />
         <Stack.Screen
+          name="modal/episode-detail"
+          options={{
+            presentation: "modal",
+            headerShown: false
+          }}
+        />
+        <Stack.Screen
           name="modal/schedule"
           options={{
             presentation: "modal",

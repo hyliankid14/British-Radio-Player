@@ -32,6 +32,7 @@ if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental
 type FavCategory = "Stations" | "Subscribed" | "Playlists" | "Searches" | "History";
 type PodcastSort = "most_recently_updated" | "least_recently_updated" | "alphabetical" | "manual" | "tags";
 type PlaylistSummary = { id: string; name: string; isDefault: boolean; itemCount: number };
+type SavedPodcastSearch = { id: string; name: string; query: string; notificationsEnabled: boolean };
 
 const ITEM_HEIGHT = 72;
 const FAVOURITE_SECTION_TITLES: Record<FavCategory, string> = {
@@ -180,6 +181,9 @@ export default function FavouritesScreen() {
   const [hidePlayedEpisodes, setHidePlayedEpisodes] = useState(
     () => Preferences.getHidePlayedEpisodesInPlaylists()
   );
+  const [savedSearches, setSavedSearches] = useState<SavedPodcastSearch[]>(
+    () => Preferences.getSavedPodcastSearches()
+  );
   const [, forceTagUpdate] = useState(0);
 
   const {
@@ -270,6 +274,12 @@ export default function FavouritesScreen() {
       return () => {
         isMounted = false;
       };
+    }, [])
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      setSavedSearches(Preferences.getSavedPodcastSearches());
     }, [])
   );
 
@@ -777,10 +787,56 @@ export default function FavouritesScreen() {
             </TouchableOpacity>
           )}
         />
+      ) : activeCategory === "Searches" ? (
+        <FlatList
+          data={savedSearches}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={[styles.listContent, { paddingBottom: 170 + insets.bottom }]}
+          style={{ backgroundColor: theme.surface }}
+          renderItem={({ item }) => (
+            <View style={[styles.savedSearchRow, { backgroundColor: theme.surface, borderBottomColor: theme.outlineVariant }]}>
+              <TouchableOpacity style={styles.savedSearchMain} onPress={() => Alert.alert(item.name, item.query)}>
+                <MaterialIcons name="search" size={26} color={theme.primary} />
+                <View style={styles.savedSearchInfo}>
+                  <Text style={[styles.savedSearchName, { color: theme.onSurface }]}>{item.name}</Text>
+                  <Text style={[styles.savedSearchQuery, { color: theme.onSurfaceVariant }]}>{item.query}</Text>
+                </View>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.savedSearchAction}
+                onPress={() => {
+                  Preferences.updatePodcastSearchNotifications(item.id, !item.notificationsEnabled);
+                  setSavedSearches(Preferences.getSavedPodcastSearches());
+                }}
+                accessibilityLabel={item.notificationsEnabled ? "Disable search alerts" : "Enable search alerts"}
+              >
+                <MaterialIcons
+                  name={item.notificationsEnabled ? "notifications-active" : "notifications-none"}
+                  size={22}
+                  color={item.notificationsEnabled ? theme.primary : theme.onSurfaceVariant}
+                />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.savedSearchAction}
+                onPress={() => {
+                  Preferences.removePodcastSearch(item.id);
+                  setSavedSearches(Preferences.getSavedPodcastSearches());
+                }}
+                accessibilityLabel="Remove saved search"
+              >
+                <MaterialIcons name="delete-outline" size={22} color={theme.onSurfaceVariant} />
+              </TouchableOpacity>
+            </View>
+          )}
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Text style={[styles.emptyText, { color: theme.onSurfaceVariant }]}>No saved searches yet</Text>
+            </View>
+          }
+        />
       ) : (
         <View style={[styles.emptyContainer, { backgroundColor: theme.surface, flex: 1 }]}>
           <Text style={[styles.emptyText, { color: theme.onSurfaceVariant }]}>
-            {activeCategory === "Searches" && "No saved searches yet"}
             {activeCategory === "History" && "No history yet"}
           </Text>
         </View>
@@ -960,6 +1016,36 @@ const styles = StyleSheet.create({
   playlistSubtitle: {
     fontSize: 13,
     marginTop: 4
+  },
+  savedSearchRow: {
+    minHeight: 72,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth
+  },
+  savedSearchMain: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center"
+  },
+  savedSearchInfo: {
+    flex: 1,
+    marginLeft: 14
+  },
+  savedSearchName: {
+    fontSize: 16,
+    fontWeight: "700"
+  },
+  savedSearchQuery: {
+    fontSize: 13,
+    marginTop: 3
+  },
+  savedSearchAction: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center"
   },
   actionButton: {
     width: 40,
