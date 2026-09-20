@@ -2,19 +2,24 @@ import React, { useState, useMemo, useEffect } from "react";
 import {
   View,
   Text,
+  Image,
   FlatList,
   TouchableOpacity,
+  Modal,
+  Alert,
+  Linking,
   StyleSheet,
   ActivityIndicator
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { MaterialIcons } from "@expo/vector-icons";
+import { FontAwesome5, MaterialIcons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { Station, StationCategory, StationRepository } from "../../src/data/stations";
 import { usePlayerStore } from "../../src/store/playerStore";
 import { StationLogo } from "../../src/components/StationLogo";
 import { useAppTheme } from "../../src/theme/colors";
 import { fetchShowInfo } from "../../src/api/showInfo";
+import { Preferences } from "../../src/storage/preferences";
 
 type SubCategoryTab = "National" | "Regions" | "Local" | "Songs";
 
@@ -24,9 +29,12 @@ export default function AllStationsScreen() {
   const insets = useSafeAreaInsets();
   const [activeSubTab, setActiveSubTab] = useState<SubCategoryTab>("National");
   const [showTitles, setShowTitles] = useState<Record<string, string>>({});
+  const [recentSongs, setRecentSongs] = useState(Preferences.getRecentSongs());
+  const [selectedSong, setSelectedSong] = useState<(typeof recentSongs)[number] | null>(null);
 
   const {
     currentStation,
+    currentShow,
     isPlaying,
     playStation,
     togglePlayPause,
@@ -59,6 +67,49 @@ export default function AllStationsScreen() {
       isMounted = false;
     };
   }, [allStations]);
+
+  useEffect(() => {
+    if (activeSubTab === "Songs") setRecentSongs(Preferences.getRecentSongs());
+  }, [activeSubTab, currentShow]);
+
+  const openSongInMusicApp = (song: (typeof recentSongs)[number]) => {
+    if (!`${song.artist} ${song.track}`.trim()) return;
+    setSelectedSong(song);
+  };
+
+  const musicServices = selectedSong
+    ? (() => {
+        const encodedQuery = encodeURIComponent(
+          `${selectedSong.artist} ${selectedSong.track}`.trim()
+        );
+        return [
+          { name: "Spotify", icon: "spotify" as const, colour: "#1DB954", url: `https://open.spotify.com/search/${encodedQuery}` },
+          { name: "YouTube Music", icon: "youtube" as const, colour: "#FF0000", url: `https://music.youtube.com/search?q=${encodedQuery}` },
+          { name: "Amazon Music", icon: "amazon" as const, colour: "#00A8E1", url: `https://music.amazon.co.uk/search/${encodedQuery}` },
+          { name: "Apple Music", icon: "apple" as const, colour: theme.onSurface, url: `https://music.apple.com/gb/search?term=${encodedQuery}` },
+          { name: "Deezer", icon: "deezer" as const, colour: "#A238FF", url: `https://www.deezer.com/search/${encodedQuery}` }
+        ];
+      })()
+    : [];
+
+  const openMusicService = (service: (typeof musicServices)[number]) => {
+    setSelectedSong(null);
+    Linking.openURL(service.url).catch(() => {
+      Alert.alert("Unable to open link", `Could not open ${service.name}.`);
+    });
+  };
+
+  useEffect(() => {
+    if (!currentStation || !currentShow || (!currentShow.artist && !currentShow.track)) return;
+    Preferences.addRecentSong({
+      artist: currentShow.artist || "",
+      track: currentShow.track || "",
+      imageUrl: currentShow.imageUrl || currentStation.logoUrl,
+      stationId: currentStation.id,
+      stationName: currentStation.title
+    });
+    if (activeSubTab === "Songs") setRecentSongs(Preferences.getRecentSongs());
+  }, [activeSubTab, currentShow, currentStation]);
 
   const filteredStations = useMemo(() => {
     if (activeSubTab === "National") {
@@ -216,25 +267,98 @@ export default function AllStationsScreen() {
         )}
       </View>
 
-      {/* Station List */}
-      <FlatList
-        data={filteredStations}
-        keyExtractor={(item) => item.id}
-        renderItem={renderStationItem}
-        style={{ backgroundColor: theme.surface }}
-        contentContainerStyle={[styles.listContent, { paddingBottom: 170 + insets.bottom }]}
-        ListEmptyComponent={
-          activeSubTab === "Songs" ? (
+      {activeSubTab === "Songs" ? (
+        <FlatList
+          data={recentSongs}
+          keyExtractor={(item, index) => `${item.playedAtMs}_${index}`}
+          style={{ backgroundColor: theme.surface }}
+          contentContainerStyle={[styles.listContent, { paddingBottom: 170 + insets.bottom }]}
+          renderItem={({ item }) => (
+            <TouchableOpacity
+              style={[styles.stationRow, { backgroundColor: theme.surface }]}
+              onPress={() => openSongInMusicApp(item)}
+              activeOpacity={0.7}
+            >
+              {item.imageUrl ? (
+                <Image
+                  source={{ uri: item.imageUrl }}
+                  style={styles.songArtwork}
+                  resizeMode="cover"
+                />
+              ) : (
+                <StationLogo stationId={item.stationId} size={56} borderRadius={12} />
+              )}
+              <View style={styles.stationInfo}>
+                <Text style={[styles.stationTitle, { color: theme.onSurface }]} numberOfLines={1}>
+                  {item.track || "Unknown track"}
+                </Text>
+                <Text style={[styles.stationSubtitle, { color: theme.onSurfaceVariant }]} numberOfLines={1}>
+                  {item.artist} • {item.stationName}
+                </Text>
+              </View>
+              <MaterialIcons
+                name="open-in-new"
+                size={22}
+                color={theme.onSurfaceVariant}
+                accessibilityLabel="Listen in an external music application"
+              />
+            </TouchableOpacity>
+          )}
+          ListEmptyComponent={
             <View style={styles.emptyContainer}>
-              <Text
-                style={[styles.emptyText, { color: theme.onSurfaceVariant }]}
-              >
+              <Text style={[styles.emptyText, { color: theme.onSurfaceVariant }]}>
                 {"No recently played songs yet.\nSongs detected while a station is playing will appear here."}
               </Text>
             </View>
-          ) : null
-        }
-      />
+          }
+        />
+      ) : (
+        <FlatList
+          data={filteredStations}
+          keyExtractor={(item) => item.id}
+          renderItem={renderStationItem}
+          style={{ backgroundColor: theme.surface }}
+          contentContainerStyle={[styles.listContent, { paddingBottom: 170 + insets.bottom }]}
+        />
+      )}
+      <Modal
+        visible={selectedSong !== null}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setSelectedSong(null)}
+      >
+        <View style={styles.musicSheetBackdrop}>
+          <View style={[styles.musicSheet, { backgroundColor: theme.surfaceContainer }]}>
+            <View style={styles.musicSheetHeader}>
+              <Text style={[styles.musicSheetTitle, { color: theme.onSurface }]}>
+                Listen to: {selectedSong?.track || selectedSong?.artist}
+              </Text>
+              <TouchableOpacity
+                onPress={() => setSelectedSong(null)}
+                style={styles.musicSheetClose}
+                accessibilityLabel="Close music applications"
+              >
+                <MaterialIcons name="close" size={24} color={theme.onSurfaceVariant} />
+              </TouchableOpacity>
+            </View>
+            {musicServices.map((service) => (
+              <TouchableOpacity
+                key={service.name}
+                style={styles.musicServiceRow}
+                onPress={() => openMusicService(service)}
+                activeOpacity={0.7}
+              >
+                <View style={styles.musicServiceIcon}>
+                  <FontAwesome5 name={service.icon} size={20} color={service.colour} />
+                </View>
+                <Text style={[styles.musicServiceName, { color: theme.onSurface }]}>
+                  {service.name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -295,12 +419,61 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 2
   },
+  songArtwork: {
+    width: 56,
+    height: 56,
+    borderRadius: 12
+  },
   actionButton: {
     width: 40,
     height: 40,
     alignItems: "center",
     justifyContent: "center",
     marginLeft: 4
+  },
+  musicSheetBackdrop: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(0, 0, 0, 0.45)"
+  },
+  musicSheet: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 28
+  },
+  musicSheetHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    minHeight: 48,
+    marginBottom: 8
+  },
+  musicSheetTitle: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: "700"
+  },
+  musicSheetClose: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  musicServiceRow: {
+    minHeight: 56,
+    flexDirection: "row",
+    alignItems: "center"
+  },
+  musicServiceIcon: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  musicServiceName: {
+    marginLeft: 12,
+    fontSize: 16
   },
   emptyContainer: {
     padding: 32,

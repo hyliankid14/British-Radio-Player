@@ -34,10 +34,52 @@ const KEYS = {
   LAST_PODCAST_POSITIONS: "pref_podcast_positions",
   SUBSCRIBED_PODCASTS: "pref_subscribed_podcasts",
   RECENTLY_PLAYED: "pref_recently_played_stations",
-  OFFLINE_MODE: "pref_offline_mode"
+  OFFLINE_MODE: "pref_offline_mode",
+  RECENT_SONGS: "pref_recent_songs"
 };
 
 export const Preferences = {
+  getRecentSongs(): {
+    artist: string;
+    track: string;
+    imageUrl: string;
+    stationId: string;
+    stationName: string;
+    playedAtMs: number;
+  }[] {
+    const raw = storage.getString(KEYS.RECENT_SONGS);
+    if (!raw) return [];
+    try {
+      const songs = JSON.parse(raw);
+      return Array.isArray(songs) ? songs.filter((song) => song && typeof song === "object") : [];
+    } catch {
+      return [];
+    }
+  },
+
+  addRecentSong(song: {
+    artist: string;
+    track: string;
+    imageUrl: string;
+    stationId: string;
+    stationName: string;
+  }): void {
+    if (!song.artist.trim() && !song.track.trim()) return;
+    const now = Date.now();
+    const recent = this.getRecentSongs();
+    const duplicate = recent.some(
+      (entry) =>
+        now - entry.playedAtMs < 5 * 60 * 1000 &&
+        entry.artist === song.artist &&
+        entry.track === song.track
+    );
+    if (duplicate) return;
+    storage.set(
+      KEYS.RECENT_SONGS,
+      JSON.stringify([{ ...song, playedAtMs: now }, ...recent].slice(0, 50))
+    );
+  },
+
   getFavorites(): string[] {
     const raw = storage.getString(KEYS.FAVORITES);
     if (!raw) return ["radio1", "radio2", "radio4", "radio5live", "radio6"];

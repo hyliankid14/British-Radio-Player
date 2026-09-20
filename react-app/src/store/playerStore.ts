@@ -75,6 +75,15 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       // Fetch show info immediately
       const show = await fetchShowInfo(station.id);
       set({ currentShow: show });
+      if (show.artist || show.track) {
+        Preferences.addRecentSong({
+          artist: show.artist || "",
+          track: show.track || "",
+          imageUrl: show.imageUrl || station.logoUrl,
+          stationId: station.id,
+          stationName: station.title
+        });
+      }
 
       // Update TrackPlayer metadata with live show info
       await TrackPlayer.updateMetadataForTrack(0, {
@@ -90,6 +99,15 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         if (currentStation && isPlaying) {
           const updated = await fetchShowInfo(currentStation.id);
           set({ currentShow: updated });
+          if (updated.artist || updated.track) {
+            Preferences.addRecentSong({
+              artist: updated.artist || "",
+              track: updated.track || "",
+              imageUrl: updated.imageUrl || currentStation.logoUrl,
+              stationId: currentStation.id,
+              stationName: currentStation.title
+            });
+          }
           await TrackPlayer.updateMetadataForTrack(0, {
             title: updated.track ? `${updated.artist} - ${updated.track}` : updated.title,
             artist: updated.track ? currentStation.title : (updated.episodeTitle || currentStation.title),

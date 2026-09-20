@@ -148,6 +148,7 @@ export default function PodcastsScreen() {
 
   // Search state
   const [showSearchBar, setShowSearchBar] = useState(false);
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [searchPodcastMatches, setSearchPodcastMatches] = useState<Podcast[]>([]);
@@ -469,7 +470,10 @@ export default function PodcastsScreen() {
         <View style={styles.toolbarActions}>
           <TouchableOpacity
             style={styles.toolbarIconButton}
-            onPress={() => setShowSearchBar(!showSearchBar)}
+            onPress={() => {
+              setShowSearchBar(!showSearchBar);
+              if (showSearchBar) setIsSearchFocused(false);
+            }}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
             <MaterialIcons
@@ -505,6 +509,8 @@ export default function PodcastsScreen() {
               placeholderTextColor={theme.onSurfaceVariant}
               value={searchQuery}
               onChangeText={handleSearchChange}
+              onFocus={() => setIsSearchFocused(true)}
+              onBlur={() => setIsSearchFocused(false)}
               onSubmitEditing={() => {
                 const query = searchQuery.trim();
                 if (query) {
@@ -524,13 +530,9 @@ export default function PodcastsScreen() {
                   <MaterialIcons name="cancel" size={20} color={theme.onSurfaceVariant} />
                 </TouchableOpacity>
               </View>
-            ) : (
-              <TouchableOpacity onPress={handleShuffle} style={styles.clearSearchBtn}>
-                <MaterialIcons name="shuffle" size={20} color={theme.onSurfaceVariant} />
-              </TouchableOpacity>
-            )}
+            ) : null}
           </View>
-          {!searchQuery.trim() && recentSearches.length > 0 ? (
+          {isSearchFocused && !searchQuery.trim() && recentSearches.length > 0 ? (
             <View style={[styles.recentSearches, { backgroundColor: theme.surface }]}>
               <Text style={[styles.recentSearchesTitle, { color: theme.onSurfaceVariant }]}>Recent searches</Text>
               {recentSearches.map((search) => (

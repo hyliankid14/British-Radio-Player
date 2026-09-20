@@ -184,6 +184,7 @@ export default function FavouritesScreen() {
   const [savedSearches, setSavedSearches] = useState<SavedPodcastSearch[]>(
     () => Preferences.getSavedPodcastSearches()
   );
+  const [recentSongs, setRecentSongs] = useState(() => Preferences.getRecentSongs());
   const [, forceTagUpdate] = useState(0);
 
   const {
@@ -280,6 +281,7 @@ export default function FavouritesScreen() {
   useFocusEffect(
     useCallback(() => {
       setSavedSearches(Preferences.getSavedPodcastSearches());
+      setRecentSongs(Preferences.getRecentSongs());
     }, [])
   );
 
@@ -835,11 +837,36 @@ export default function FavouritesScreen() {
           }
         />
       ) : (
-        <View style={[styles.emptyContainer, { backgroundColor: theme.surface, flex: 1 }]}>
-          <Text style={[styles.emptyText, { color: theme.onSurfaceVariant }]}>
-            {activeCategory === "History" && "No history yet"}
-          </Text>
-        </View>
+        <FlatList
+          data={recentSongs}
+          keyExtractor={(item, index) => `${item.playedAtMs}-${index}`}
+          contentContainerStyle={[styles.listContent, { paddingBottom: 170 + insets.bottom }]}
+          style={{ backgroundColor: theme.surface }}
+          renderItem={({ item }) => (
+            <View style={[styles.playlistRow, { backgroundColor: theme.surface, borderBottomColor: theme.outlineVariant }]}>
+              {item.imageUrl ? (
+                <Image source={{ uri: item.imageUrl }} style={styles.historyArtwork} />
+              ) : (
+                <View style={[styles.playlistIcon, { backgroundColor: theme.primaryContainer }]}>
+                  <MaterialIcons name="music-note" size={28} color={theme.primary} />
+                </View>
+              )}
+              <View style={styles.playlistInfo}>
+                <Text style={[styles.playlistTitle, { color: theme.onSurface }]} numberOfLines={1}>
+                  {item.track || "Unknown track"}
+                </Text>
+                <Text style={[styles.playlistSubtitle, { color: theme.onSurfaceVariant }]} numberOfLines={1}>
+                  {item.artist}{item.stationName ? ` • ${item.stationName}` : ""}
+                </Text>
+              </View>
+            </View>
+          )}
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Text style={[styles.emptyText, { color: theme.onSurfaceVariant }]}>No history yet</Text>
+            </View>
+          }
+        />
       )}
     </SafeAreaView>
   );
@@ -1016,6 +1043,11 @@ const styles = StyleSheet.create({
   playlistSubtitle: {
     fontSize: 13,
     marginTop: 4
+  },
+  historyArtwork: {
+    width: 56,
+    height: 56,
+    borderRadius: 10
   },
   savedSearchRow: {
     minHeight: 72,

@@ -35,7 +35,9 @@ export function MiniPlayer() {
   const subtitle = currentStation
     ? (currentShow ? formatShowDisplayTitle(currentShow) : "Radio")
     : (currentPodcast?.title || "BBC Podcast");
-  const artworkUrl = currentEpisode?.imageUrl || currentPodcast?.imageUrl;
+  const artworkUrl = currentStation
+    ? currentShow?.imageUrl || currentStation.logoUrl
+    : currentEpisode?.imageUrl || currentPodcast?.imageUrl;
   const openNowPlaying = () => {
     if (currentStation) {
       router.push("/modal/now-playing");
@@ -58,14 +60,14 @@ export function MiniPlayer() {
         onPress={openNowPlaying}
         style={styles.artworkContainer}
       >
-        {currentStation ? (
-          <StationLogo stationId={currentStation.id} size={72} borderRadius={10} />
-        ) : artworkUrl ? (
+        {artworkUrl ? (
           <Image
             source={{ uri: artworkUrl }}
             style={{ width: 72, height: 72, borderRadius: 10 }}
             resizeMode="cover"
           />
+        ) : currentStation ? (
+          <StationLogo stationId={currentStation.id} size={72} borderRadius={10} />
         ) : (
           <View
             style={{

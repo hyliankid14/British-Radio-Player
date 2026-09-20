@@ -70,6 +70,7 @@ export default function ScheduleModal() {
   const [podcastMap, setPodcastMap] = useState<Map<string, Podcast>>(new Map());
 
   const tabScrollRef = useRef<ScrollView>(null);
+  const scheduleListRef = useRef<FlatList<ScheduleEntry>>(null);
 
   // Center "Today" tab on mount
   useEffect(() => {
@@ -118,13 +119,40 @@ export default function ScheduleModal() {
     };
   }, [params.stationId, selectedTabIndex, tabs]);
 
-  const nowMs = Date.now();
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const isSelectedDateToday = tabs[selectedTabIndex]?.isToday ?? false;
+  const activeScheduleIndex = useMemo(() => {
+    if (!isSelectedDateToday || schedule.length === 0) return -1;
+    const containingIndex = schedule.findIndex(
+      (item) => nowMs >= item.startTimeMs && nowMs <= item.endTimeMs
+    );
+    if (containingIndex >= 0) return containingIndex;
+    const nextIndex = schedule.findIndex((item) => item.startTimeMs > nowMs);
+    return nextIndex > 0 ? nextIndex - 1 : nextIndex;
+  }, [isSelectedDateToday, nowMs, schedule]);
+
+  useEffect(() => {
+    if (!isSelectedDateToday) return;
+    const timer = setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, [isSelectedDateToday]);
+
+  useEffect(() => {
+    if (isLoading || activeScheduleIndex < 0) return;
+    if (activeScheduleIndex >= 0) {
+      requestAnimationFrame(() => {
+        scheduleListRef.current?.scrollToIndex({
+          index: activeScheduleIndex,
+          animated: false,
+          viewPosition: 0.35
+        });
+      });
+    }
+  }, [activeScheduleIndex, isLoading]);
 
   const renderScheduleItem = useCallback(
     ({ item }: { item: ScheduleEntry }) => {
-      const isNow =
-        isSelectedDateToday && nowMs >= item.startTimeMs && nowMs <= item.endTimeMs;
+      const isNow = isSelectedDateToday && schedule.indexOf(item) === activeScheduleIndex;
 
       // Check if this show has a matching podcast
       const matchedPodcast = podcastMap.get(item.title.toLowerCase().trim());
@@ -135,7 +163,7 @@ export default function ScheduleModal() {
             styles.entryRow,
             {
               borderBottomColor: theme.outlineVariant,
-              backgroundColor: isNow ? theme.surfaceVariant + "40" : theme.surface
+              backgroundColor: isNow ? theme.primaryContainer : theme.surface
             }
           ]}
         >
@@ -172,7 +200,7 @@ export default function ScheduleModal() {
             <Text
               style={[
                 styles.showTitle,
-                { color: isNow ? theme.primary : theme.onSurface }
+                { color: isNow ? theme.onPrimaryContainer : theme.onSurface }
               ]}
               numberOfLines={2}
             >
@@ -180,7 +208,10 @@ export default function ScheduleModal() {
             </Text>
             {item.episodeTitle ? (
               <Text
-                style={[styles.showSubtitle, { color: theme.onSurfaceVariant }]}
+                style={[
+                  styles.showSubtitle,
+                  { color: isNow ? theme.onPrimaryContainer : theme.onSurfaceVariant }
+                ]}
                 numberOfLines={1}
               >
                 {item.episodeTitle}
@@ -216,7 +247,7 @@ export default function ScheduleModal() {
         </View>
       );
     },
-    [isSelectedDateToday, nowMs, podcastMap, router, theme]
+    [activeScheduleIndex, isSelectedDateToday, podcastMap, router, schedule, theme]
   );
 
   return (
@@ -294,6 +325,7 @@ export default function ScheduleModal() {
         </View>
       ) : (
         <FlatList
+          ref={scheduleListRef}
           data={schedule}
           keyExtractor={(item, index) => `${item.startTimeMs}_${index}`}
           renderItem={renderScheduleItem}
@@ -302,6 +334,21 @@ export default function ScheduleModal() {
           windowSize={7}
           contentContainerStyle={[styles.listContent, { paddingBottom: 60 + insets.bottom }]}
           showsVerticalScrollIndicator={false}
+          onContentSizeChange={() => {
+            if (activeScheduleIndex >= 0) {
+              scheduleListRef.current?.scrollToIndex({
+                index: activeScheduleIndex,
+                animated: false,
+                viewPosition: 0.35
+              });
+            }
+          }}
+          onScrollToIndexFailed={({ index }) => {
+            scheduleListRef.current?.scrollToOffset({
+              offset: Math.max(0, index * 72 - 120),
+              animated: false
+            });
+          }}
         />
       )}
     </SafeAreaView>
