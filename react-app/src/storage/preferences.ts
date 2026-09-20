@@ -396,7 +396,7 @@ export const Preferences = {
     storage.set("pref_recent_podcast_searches", JSON.stringify(searches));
   },
 
-  getSavedPodcastSearches(): { id: string; name: string; query: string; notificationsEnabled: boolean }[] {
+  getSavedPodcastSearches(): { id: string; name: string; query: string; notificationsEnabled: boolean; latestResultDate?: string }[] {
     const raw = storage.getString("pref_saved_podcast_searches");
     if (!raw) return [];
     try {
@@ -411,10 +411,17 @@ export const Preferences = {
   },
 
   savePodcastSearch(
-    search: { id: string; name: string; query: string; notificationsEnabled: boolean }
+    search: { id: string; name: string; query: string; notificationsEnabled: boolean; latestResultDate?: string }
   ): void {
     const searches = this.getSavedPodcastSearches().filter((item) => item.id !== search.id);
     storage.set("pref_saved_podcast_searches", JSON.stringify([...searches, search]));
+  },
+
+  updatePodcastSearchLatestResult(id: string, latestResultDate?: string): void {
+    const searches = this.getSavedPodcastSearches().map((search) =>
+      search.id === id ? { ...search, latestResultDate } : search
+    );
+    storage.set("pref_saved_podcast_searches", JSON.stringify(searches));
   },
 
   updatePodcastSearchNotifications(id: string, enabled: boolean): void {

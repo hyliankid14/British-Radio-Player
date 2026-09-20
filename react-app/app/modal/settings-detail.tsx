@@ -170,7 +170,77 @@ function LastFmPage() {
 }
 
 function CarPlayPage() {
-  return <InfoPage title="CarPlay" text="CarPlay playback preferences are managed by iOS and the connected vehicle." />;
+  const theme = useAppTheme();
+  const insets = useSafeAreaInsets();
+  const stations = StationRepository.getAll();
+  const [settings, setSettings] = useState({
+    station: Preferences.getSetting("pref_carplay_station", ""),
+    autoResume: Preferences.getSetting("pref_carplay_auto_resume", true),
+    hidePlayed: Preferences.getSetting("pref_carplay_hide_played", false)
+  });
+  const [stationPickerVisible, setStationPickerVisible] = useState(false);
+  const selectedStation = stations.find((station) => station.id === settings.station);
+  const update = (key: keyof typeof settings, value: string | boolean) => {
+    const preferenceKey = {
+      station: "pref_carplay_station",
+      autoResume: "pref_carplay_auto_resume",
+      hidePlayed: "pref_carplay_hide_played"
+    }[key];
+    Preferences.setSetting(preferenceKey, value);
+    setSettings((current) => ({ ...current, [key]: value }));
+  };
+
+  return <>
+    <Card title="Default station" subtitle="Station selected when CarPlay starts playback">
+      <TouchableOpacity
+        style={[styles.dropdown, { borderColor: theme.outline, backgroundColor: theme.surfaceContainer }]}
+        onPress={() => setStationPickerVisible(true)}
+        activeOpacity={0.7}
+      >
+        <Text style={[styles.dropdownText, { color: selectedStation ? theme.onSurface : theme.onSurfaceVariant }]}>
+          {selectedStation?.title || "Select a station"}
+        </Text>
+        <MaterialIcons name="arrow-drop-down" size={24} color={theme.onSurfaceVariant} />
+      </TouchableOpacity>
+    </Card>
+    <Card title="Playback" subtitle="Control playback behaviour in CarPlay">
+      <SwitchRow
+        title="Automatically resume playback"
+        subtitle="Resume the last station when CarPlay connects"
+        value={settings.autoResume}
+        onChange={(value) => update("autoResume", value)}
+      />
+      <SwitchRow
+        title="Hide played episodes"
+        subtitle="Hide episodes already marked as played"
+        value={settings.hidePlayed}
+        onChange={(value) => update("hidePlayed", value)}
+      />
+    </Card>
+    <Modal visible={stationPickerVisible} animationType="slide" onRequestClose={() => setStationPickerVisible(false)}>
+      <View style={[styles.stationPicker, { backgroundColor: theme.surface, paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+        <View style={[styles.stationPickerHeader, { borderBottomColor: theme.outlineVariant }]}>
+          <Text style={[styles.stationPickerTitle, { color: theme.onSurface }]}>Select a CarPlay station</Text>
+          <TouchableOpacity style={styles.stationPickerClose} onPress={() => setStationPickerVisible(false)} accessibilityLabel="Cancel station selection">
+            <MaterialIcons name="close" size={24} color={theme.onSurface} />
+          </TouchableOpacity>
+        </View>
+        <ScrollView contentContainerStyle={styles.stationPickerContent}>
+          <TouchableOpacity style={styles.stationOption} onPress={() => { update("station", ""); setStationPickerVisible(false); }}>
+            <View style={styles.stationOptionPlaceholder}><MaterialIcons name="block" size={24} color={theme.onSurfaceVariant} /></View>
+            <Text style={[styles.stationOptionText, { color: theme.onSurface }]}>No station selected</Text>
+          </TouchableOpacity>
+          {stations.map((station) => (
+            <TouchableOpacity key={station.id} style={styles.stationOption} onPress={() => { update("station", station.id); setStationPickerVisible(false); }}>
+              <StationLogo stationId={station.id} size={48} borderRadius={10} />
+              <Text style={[styles.stationOptionText, { color: theme.onSurface }]} numberOfLines={1}>{station.title}</Text>
+              {settings.station === station.id && <MaterialIcons name="check" size={22} color={theme.primary} />}
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+    </Modal>
+  </>;
 }
 
 function BackupPage() {

@@ -14,7 +14,7 @@ import {
   NativeScrollEvent
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useAppTheme } from "../../src/theme/colors";
 import {
@@ -130,6 +130,7 @@ function matchesBooleanSearch(query: string, text: string): boolean {
 
 export default function PodcastsScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ search?: string; savedSearchId?: string }>();
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
   const flatListRef = useRef<FlatList>(null);
@@ -289,11 +290,17 @@ export default function PodcastsScreen() {
             setSearchPodcastMatches(enriched);
           }
 
-          setSearchEpisodeMatches(
-            piEpisodes.filter((episode) =>
-              matchesBooleanSearch(q, `${episode.title} ${episode.description}`)
-            )
+          const matchingEpisodes = piEpisodes.filter((episode) =>
+            matchesBooleanSearch(q, `${episode.title} ${episode.description}`)
           );
+          setSearchEpisodeMatches(matchingEpisodes);
+          const latestResultDate = matchingEpisodes
+            .map((episode) => episode.pubDate)
+            .filter((date) => Number.isFinite(Date.parse(date)))
+            .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
+          if (params.savedSearchId && latestResultDate) {
+            Preferences.updatePodcastSearchLatestResult(params.savedSearchId, latestResultDate);
+          }
         } catch (err) {
           console.warn("Search failed:", err);
         } finally {
@@ -303,6 +310,15 @@ export default function PodcastsScreen() {
     },
     [catalog]
   );
+
+  useEffect(() => {
+    const savedQuery = typeof params.search === "string" ? params.search : "";
+    if (savedQuery.trim()) {
+      setShowSearchBar(true);
+      setIsSearchFocused(true);
+      handleSearchChange(savedQuery);
+    }
+  }, [params.search, handleSearchChange]);
 
   // Shuffle button: Pick a random podcast and open its detail
   const handleShuffle = useCallback(() => {

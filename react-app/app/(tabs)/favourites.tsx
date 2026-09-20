@@ -32,7 +32,7 @@ if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental
 type FavCategory = "Stations" | "Subscribed" | "Playlists" | "Searches" | "History";
 type PodcastSort = "most_recently_updated" | "least_recently_updated" | "alphabetical" | "manual" | "tags";
 type PlaylistSummary = { id: string; name: string; isDefault: boolean; itemCount: number };
-type SavedPodcastSearch = { id: string; name: string; query: string; notificationsEnabled: boolean };
+type SavedPodcastSearch = { id: string; name: string; query: string; notificationsEnabled: boolean; latestResultDate?: string };
 
 const ITEM_HEIGHT = 72;
 const FAVOURITE_SECTION_TITLES: Record<FavCategory, string> = {
@@ -280,8 +280,27 @@ export default function FavouritesScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      setSavedSearches(Preferences.getSavedPodcastSearches());
+      let active = true;
+      const searches = Preferences.getSavedPodcastSearches();
+      setSavedSearches(searches);
       setRecentSongs(Preferences.getRecentSongs());
+      void Promise.all(
+        searches.map(async (search) => {
+          const results = await PodcastApi.searchEpisodesOnPi(search.query, 100);
+          const latestResultDate = results
+            .map((episode) => episode.pubDate)
+            .filter((date) => Number.isFinite(Date.parse(date)))
+            .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
+          if (latestResultDate && latestResultDate !== search.latestResultDate) {
+            Preferences.updatePodcastSearchLatestResult(search.id, latestResultDate);
+          }
+        })
+      ).then(() => {
+        if (active) setSavedSearches(Preferences.getSavedPodcastSearches());
+      });
+      return () => {
+        active = false;
+      };
     }, [])
   );
 
@@ -797,11 +816,23 @@ export default function FavouritesScreen() {
           style={{ backgroundColor: theme.surface }}
           renderItem={({ item }) => (
             <View style={[styles.savedSearchRow, { backgroundColor: theme.surface, borderBottomColor: theme.outlineVariant }]}>
-              <TouchableOpacity style={styles.savedSearchMain} onPress={() => Alert.alert(item.name, item.query)}>
+              <TouchableOpacity
+                style={styles.savedSearchMain}
+                onPress={() =>
+                  router.push({
+                    pathname: "/(tabs)/podcasts",
+                    params: { search: item.query, savedSearchId: item.id }
+                  })
+                }
+              >
                 <MaterialIcons name="search" size={26} color={theme.primary} />
                 <View style={styles.savedSearchInfo}>
                   <Text style={[styles.savedSearchName, { color: theme.onSurface }]}>{item.name}</Text>
-                  <Text style={[styles.savedSearchQuery, { color: theme.onSurfaceVariant }]}>{item.query}</Text>
+                  {item.latestResultDate ? (
+                    <Text style={[styles.savedSearchQuery, { color: theme.onSurfaceVariant }]}>
+                      Latest: {new Date(item.latestResultDate).toLocaleDateString()}
+                    </Text>
+                  ) : null}
                 </View>
               </TouchableOpacity>
               <TouchableOpacity
