@@ -421,11 +421,13 @@ export default function PodcastsScreen() {
 
     switch (activeTab) {
       case "popular": {
-        return [...list].sort((a, b) => {
+        return list
+          .filter((podcast) => popularRanks.has(podcast.id))
+          .sort((a, b) => {
           const rankA = popularRanks.get(a.id) ?? 99999;
           const rankB = popularRanks.get(b.id) ?? 99999;
           return rankA - rankB;
-        });
+          });
       }
       case "last_updated": {
         // Keep original OPML order or ID order
