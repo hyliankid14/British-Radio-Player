@@ -4,6 +4,7 @@ import { Station, StationRepository, AudioQuality, getStreamCandidates } from ".
 import { Preferences } from "../storage/preferences";
 import { CurrentShow, fetchShowInfo } from "../api/showInfo";
 import { Podcast, Episode } from "../api/podcasts";
+import { LastFmApi } from "../api/lastfm";
 
 interface PlayerState {
   currentStation: Station | null;
@@ -30,6 +31,28 @@ interface PlayerState {
 }
 
 let showInfoInterval: any = null;
+let scrobbleTimer: any = null;
+let activeScrobbleKey = "";
+
+function beginScrobble(artist: string, track: string, durationSec = 0, isPodcast = false): void {
+  const settings = Preferences.getLastFm();
+  if (isPodcast && !settings.podcasts) return;
+  if (!settings.sessionKey || !settings.direct || !artist.trim() || !track.trim()) return;
+  const key = `${artist.trim().toLowerCase()}|${track.trim().toLowerCase()}`;
+  if (key === activeScrobbleKey) return;
+  activeScrobbleKey = key;
+  if (scrobbleTimer) clearTimeout(scrobbleTimer);
+  LastFmApi.updateNowPlaying(artist.trim(), track.trim(), durationSec || undefined).catch(() => {});
+  const threshold = durationSec > 0
+    ? Math.max(30000, Math.min(durationSec * 500, 240000))
+    : 60000;
+  scrobbleTimer = setTimeout(() => {
+    const current = Preferences.getLastFm();
+    if (current.sessionKey && current.direct) {
+      LastFmApi.scrobble(artist.trim(), track.trim(), Math.floor(Date.now() / 1000)).catch(() => {});
+    }
+  }, threshold);
+}
 
 export const usePlayerStore = create<PlayerState>((set, get) => ({
   currentStation: null,
@@ -75,6 +98,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       // Fetch show info immediately
       const show = await fetchShowInfo(station.id);
       set({ currentShow: show });
+      beginScrobble(show.artist || "", show.track || "");
       if (show.artist || show.track) {
         Preferences.addRecentSong({
           artist: show.artist || "",
@@ -99,6 +123,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         if (currentStation && isPlaying) {
           const updated = await fetchShowInfo(currentStation.id);
           set({ currentShow: updated });
+          beginScrobble(updated.artist || "", updated.track || "");
           if (updated.artist || updated.track) {
             Preferences.addRecentSong({
               artist: updated.artist || "",
@@ -147,6 +172,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       });
       await TrackPlayer.play();
       set({ isPlaying: true, isBuffering: false });
+      beginScrobble(podcast.title, episode.title, episode.durationMins * 60, true);
     } catch (err) {
       console.warn("Error playing podcast episode:", err);
       set({ isBuffering: false, isPlaying: false });
@@ -168,6 +194,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         clearInterval(showInfoInterval);
         showInfoInterval = null;
       }
+      if (scrobbleTimer) {
+        clearTimeout(scrobbleTimer);
+        scrobbleTimer = null;
+      }
+      activeScrobbleKey = "";
       await TrackPlayer.reset();
       set({
         currentStation: null,

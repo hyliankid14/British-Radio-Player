@@ -64,6 +64,10 @@ export default function RootLayout() {
             gestureEnabled: true
           }}
         />
+        <Stack.Screen
+          name="modal/settings-detail"
+          options={{ presentation: "card", headerShown: false }}
+        />
       </Stack>
     </SafeAreaProvider>
   );

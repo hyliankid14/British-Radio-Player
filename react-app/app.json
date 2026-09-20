@@ -3,6 +3,7 @@
     "name": "British Radio (React)",
     "slug": "british-radio-player-react",
     "version": "1.0.0",
+    "scheme": "bbcradioplayer",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",

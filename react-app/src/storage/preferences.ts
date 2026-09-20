@@ -35,10 +35,65 @@ const KEYS = {
   SUBSCRIBED_PODCASTS: "pref_subscribed_podcasts",
   RECENTLY_PLAYED: "pref_recently_played_stations",
   OFFLINE_MODE: "pref_offline_mode",
-  RECENT_SONGS: "pref_recent_songs"
+  RECENT_SONGS: "pref_recent_songs",
+  LASTFM_SESSION_KEY: "pref_lastfm_session_key",
+  LASTFM_USERNAME: "pref_lastfm_username",
+  LASTFM_DIRECT: "pref_lastfm_direct",
+  LASTFM_BROADCAST: "pref_lastfm_broadcast",
+  LASTFM_PODCASTS: "pref_lastfm_podcasts"
+  ,AUTO_QUALITY: "pref_auto_quality"
+  ,PODCAST_ARTWORK: "pref_podcast_artwork"
+  ,PAUSE_BUFFERING: "pref_pause_buffering"
+  ,SCROLL_MODE: "pref_scroll_mode"
+  ,SHAKE_RANDOM: "pref_shake_random"
+  ,STOP_BLUETOOTH: "pref_stop_bluetooth"
+  ,AUTOPLAY_NEXT: "pref_autoplay_next"
+  ,SUB_REFRESH: "pref_subscription_refresh"
+  ,AUTO_DOWNLOAD: "pref_auto_download"
+  ,AUTO_DOWNLOAD_LIMIT: "pref_auto_download_limit"
+  ,AUTO_DOWNLOAD_SAVED: "pref_auto_download_saved"
+  ,DOWNLOAD_WIFI: "pref_download_wifi"
+  ,DELETE_PLAYED: "pref_delete_played"
+  ,INDEX_NOTIFICATIONS: "pref_index_notifications"
+  ,EXCLUDE_NON_ENGLISH: "pref_exclude_non_english"
+  ,ANALYTICS: "pref_analytics"
+  ,STARTUP_PAGE: "pref_startup_page"
+  ,ALARM: "pref_alarm"
 };
 
 export const Preferences = {
+  getLastFm(): { sessionKey: string; username: string; direct: boolean; broadcast: boolean; podcasts: boolean } {
+    return {
+      sessionKey: storage.getString(KEYS.LASTFM_SESSION_KEY) || "",
+      username: storage.getString(KEYS.LASTFM_USERNAME) || "",
+      direct: storage.getBoolean(KEYS.LASTFM_DIRECT) ?? true,
+      broadcast: storage.getBoolean(KEYS.LASTFM_BROADCAST) ?? true,
+      podcasts: storage.getBoolean(KEYS.LASTFM_PODCASTS) ?? false
+    };
+  },
+
+  setLastFmSession(username: string, sessionKey: string): void {
+    storage.set(KEYS.LASTFM_USERNAME, username);
+    storage.set(KEYS.LASTFM_SESSION_KEY, sessionKey);
+    storage.set(KEYS.LASTFM_DIRECT, true);
+  },
+
+  clearLastFmSession(): void {
+    storage.remove(KEYS.LASTFM_USERNAME);
+    storage.remove(KEYS.LASTFM_SESSION_KEY);
+    storage.remove(KEYS.LASTFM_DIRECT);
+  },
+
+  setLastFmDirect(value: boolean): void { storage.set(KEYS.LASTFM_DIRECT, value); },
+  setLastFmBroadcast(value: boolean): void { storage.set(KEYS.LASTFM_BROADCAST, value); },
+  setLastFmPodcasts(value: boolean): void { storage.set(KEYS.LASTFM_PODCASTS, value); },
+  getSetting<T extends string | boolean | number>(key: string, fallback: T): T {
+    const value = typeof fallback === "boolean" ? storage.getBoolean(key) : typeof fallback === "number" ? storage.getNumber(key) : storage.getString(key);
+    return (value ?? fallback) as T;
+  },
+  setSetting(key: string, value: string | boolean | number): void { storage.set(key, value); },
+  getLastFmLastScrobbled(): string { return storage.getString("pref_lastfm_last_scrobbled") || ""; },
+  setLastFmLastScrobbled(value: string): void { storage.set("pref_lastfm_last_scrobbled", value); },
   getRecentSongs(): {
     artist: string;
     track: string;

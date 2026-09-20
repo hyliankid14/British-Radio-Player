@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -9,24 +9,22 @@ import {
   Share,
   StyleSheet
 } from "react-native";
+import * as Linking from "expo-linking";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
 import { Preferences } from "../../src/storage/preferences";
 import { AUDIO_QUALITIES, AudioQuality } from "../../src/data/stations";
 import { usePlayerStore } from "../../src/store/playerStore";
 import { useAppTheme } from "../../src/theme/colors";
+import { LastFmApi } from "../../src/api/lastfm";
+import { useRouter } from "expo-router";
 
 export default function SettingsScreen() {
   const theme = useAppTheme();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const { audioQuality, setAudioQuality } = usePlayerStore();
-  const [geoBlocked, setGeoBlocked] = useState(Preferences.getGeoBlocked());
-  const [showQualityPicker, setShowQualityPicker] = useState(false);
-
-  const handleGeoBlockedToggle = (val: boolean) => {
-    setGeoBlocked(val);
-    Preferences.setGeoBlocked(val);
-  };
+  const [lastFm, setLastFm] = useState(Preferences.getLastFm());
 
   const handleExportBackup = async () => {
     try {
@@ -38,6 +36,45 @@ export default function SettingsScreen() {
     } catch (e) {
       Alert.alert("Export Error", "Failed to export settings backup.");
     }
+  };
+
+  useEffect(() => {
+    const handleUrl = async ({ url }: { url: string }) => {
+      const parsed = Linking.parse(url);
+      const token = typeof parsed.queryParams?.token === "string" ? parsed.queryParams.token : null;
+      if (!token) return;
+      try {
+        const session = await LastFmApi.exchangeToken(token);
+        Preferences.setLastFmSession(session.username, session.sessionKey);
+        setLastFm(Preferences.getLastFm());
+        Alert.alert("Last.fm connected", `Connected as ${session.username}.`);
+      } catch (error) {
+        Alert.alert("Last.fm connection failed", error instanceof Error ? error.message : "Could not connect to Last.fm.");
+      }
+    };
+    const subscription = Linking.addEventListener("url", handleUrl);
+    Linking.getInitialURL().then((url) => {
+      if (url) void handleUrl({ url });
+    });
+    return () => subscription.remove();
+  }, []);
+
+  const connectLastFm = async () => {
+    if (!LastFmApi.isConfigured()) {
+      Alert.alert("Last.fm setup required", "Add EXPO_PUBLIC_LASTFM_API_KEY and EXPO_PUBLIC_LASTFM_API_SECRET to the React app environment.");
+      return;
+    }
+    await Linking.openURL(LastFmApi.authUrl());
+  };
+
+  const disconnectLastFm = () => {
+    Alert.alert("Disconnect Last.fm?", "Songs will no longer be scrobbled directly.", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Disconnect", style: "destructive", onPress: () => {
+        Preferences.clearLastFmSession();
+        setLastFm(Preferences.getLastFm());
+      } }
+    ]);
   };
 
   return (
@@ -63,7 +100,7 @@ export default function SettingsScreen() {
         <TouchableOpacity
           style={styles.settingItem}
           activeOpacity={0.7}
-          onPress={() => setShowQualityPicker(!showQualityPicker)}
+          onPress={() => router.push({ pathname: "/modal/settings-detail", params: { section: "playback" } })}
         >
           <MaterialIcons
             name="play-arrow"
@@ -76,73 +113,30 @@ export default function SettingsScreen() {
               Playback
             </Text>
             <Text style={[styles.itemSubtitle, { color: theme.onSurfaceVariant }]}>
-              Audio quality ({AUDIO_QUALITIES[audioQuality]?.label || "High"}), controls and behaviour
+              Audio quality, controls and behaviour
             </Text>
           </View>
-          <MaterialIcons
-            name={showQualityPicker ? "expand-less" : "expand-more"}
-            size={24}
-            color={theme.onSurfaceVariant}
-          />
         </TouchableOpacity>
-
-        {/* Quality Options Submenu */}
-        {showQualityPicker && (
-          <View style={[styles.qualityPickerContainer, { backgroundColor: theme.surfaceContainer }]}>
-            {(["HIGH", "MEDIUM", "LOW", "AUTO"] as AudioQuality[]).map((q) => {
-              const config = AUDIO_QUALITIES[q];
-              const isSelected = audioQuality === q;
-              return (
-                <TouchableOpacity
-                  key={q}
-                  style={styles.qualityOptionRow}
-                  onPress={() => {
-                    setAudioQuality(q);
-                    setShowQualityPicker(false);
-                  }}
-                >
-                  <Text
-                    style={[
-                      styles.qualityOptionText,
-                      { color: isSelected ? theme.primary : theme.onSurface, fontWeight: isSelected ? "700" : "400" }
-                    ]}
-                  >
-                    {config.label}
-                  </Text>
-                  {isSelected && (
-                    <MaterialIcons name="check" size={20} color={theme.primary} />
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        )}
 
         <View style={[styles.divider, { backgroundColor: theme.outlineVariant }]} />
 
-        {/* Prioritize International Streams Item */}
-        <View style={styles.settingItem}>
-          <MaterialIcons
-            name="public"
-            size={24}
-            color={theme.onSurface}
-            style={styles.leadingIcon}
-          />
-          <View style={styles.textColumn}>
-            <Text style={[styles.itemTitle, { color: theme.onSurface }]}>
-              Prioritize International Streams
-            </Text>
-            <Text style={[styles.itemSubtitle, { color: theme.onSurfaceVariant }]}>
-              Use when travelling outside the UK or on restricted networks
-            </Text>
-          </View>
-          <Switch
-            value={geoBlocked}
-            onValueChange={handleGeoBlockedToggle}
-            trackColor={{ false: theme.outlineVariant, true: theme.primary }}
-            thumbColor={geoBlocked ? "#FFFFFF" : theme.onSurfaceVariant}
-          />
-        </View>
+        <SettingsRow
+          theme={theme}
+          icon="music-note"
+          title="Last.fm Scrobbler"
+          subtitle="Connect account and scrobble played songs"
+          onPress={() => router.push({ pathname: "/modal/settings-detail", params: { section: "lastfm" } })}
+        />
+
+        <View style={[styles.divider, { backgroundColor: theme.outlineVariant }]} />
+
+        <SettingsRow
+          theme={theme}
+          icon="notifications"
+          title="Alarm"
+          subtitle="Wake-up alarms and station start options"
+          onPress={() => router.push({ pathname: "/modal/settings-detail", params: { section: "alarm" } })}
+        />
 
         {/* Personalisation Section */}
         <Text style={[styles.sectionTitle, { color: theme.onSurfaceVariant, marginTop: 24 }]}>
@@ -153,7 +147,7 @@ export default function SettingsScreen() {
           style={styles.settingItem}
           activeOpacity={0.7}
           onPress={() => {
-            Alert.alert("Theme", "Theme follows system light/dark mode automatically.");
+            router.push({ pathname: "/modal/settings-detail", params: { section: "theme" } });
           }}
         >
           <MaterialIcons
@@ -178,7 +172,7 @@ export default function SettingsScreen() {
           style={styles.settingItem}
           activeOpacity={0.7}
           onPress={() => {
-            Alert.alert("Startup page", "Default landing screen is All Stations.");
+            router.push({ pathname: "/modal/settings-detail", params: { section: "startup_page" } });
           }}
         >
           <MaterialIcons
@@ -198,6 +192,40 @@ export default function SettingsScreen() {
         </TouchableOpacity>
 
         {/* Data & Privacy Section */}
+        <View style={[styles.divider, { backgroundColor: theme.outlineVariant }]} />
+
+        <SettingsRow
+          theme={theme}
+          icon="directions-car"
+          title="CarPlay"
+          subtitle="In-car playback preferences"
+          onPress={() => router.push({ pathname: "/modal/settings-detail", params: { section: "carplay" } })}
+        />
+
+        {/* Podcasts Section */}
+        <Text style={[styles.sectionTitle, { color: theme.onSurfaceVariant, marginTop: 24 }]}>
+          Podcasts
+        </Text>
+
+        <SettingsRow
+          theme={theme}
+          icon="podcasts"
+          title="Subscriptions"
+          subtitle="Auto refresh and download controls"
+          onPress={() => router.push({ pathname: "/modal/settings-detail", params: { section: "subscriptions" } })}
+        />
+
+        <View style={[styles.divider, { backgroundColor: theme.outlineVariant }]} />
+
+        <SettingsRow
+          theme={theme}
+          icon="search"
+          title="Indexing"
+          subtitle="Search index status"
+          onPress={() => router.push({ pathname: "/modal/settings-detail", params: { section: "indexing" } })}
+        />
+
+        {/* Data & Privacy Section */}
         <Text style={[styles.sectionTitle, { color: theme.onSurfaceVariant, marginTop: 24 }]}>
           Data & privacy
         </Text>
@@ -205,7 +233,7 @@ export default function SettingsScreen() {
         <TouchableOpacity
           style={styles.settingItem}
           activeOpacity={0.7}
-          onPress={handleExportBackup}
+          onPress={() => router.push({ pathname: "/modal/settings-detail", params: { section: "backup" } })}
         >
           <MaterialIcons
             name="cloud-sync"
@@ -218,17 +246,31 @@ export default function SettingsScreen() {
               Backup & restore
             </Text>
             <Text style={[styles.itemSubtitle, { color: theme.onSurfaceVariant }]}>
-              Export and import app settings & favorites
+              Export and import app settings
             </Text>
           </View>
         </TouchableOpacity>
+
+        <View style={[styles.divider, { backgroundColor: theme.outlineVariant }]} />
+
+        <SettingsRow
+          theme={theme}
+          icon="settings"
+          title="Privacy"
+          subtitle="Permissions and data collection"
+          onPress={() => router.push({ pathname: "/modal/settings-detail", params: { section: "privacy" } })}
+        />
 
         {/* About Section */}
         <Text style={[styles.sectionTitle, { color: theme.onSurfaceVariant, marginTop: 24 }]}>
           About
         </Text>
 
-        <View style={styles.settingItem}>
+        <TouchableOpacity
+          style={styles.settingItem}
+          activeOpacity={0.7}
+          onPress={() => router.push({ pathname: "/modal/settings-detail", params: { section: "about" } })}
+        >
           <MaterialIcons
             name="info"
             size={24}
@@ -243,13 +285,63 @@ export default function SettingsScreen() {
               Version 2.0.0 (React Cross-Platform Native)
             </Text>
           </View>
-        </View>
+        </TouchableOpacity>
 
         <Text style={[styles.disclaimerText, { color: theme.onSurfaceVariant }]}>
           Unofficial third-party client. BBC and station trademarks are property of the British Broadcasting Corporation. Streams use public BBC APIs.
         </Text>
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+function SettingsRow({
+  theme,
+  icon,
+  title,
+  subtitle,
+  onPress
+}: {
+  theme: ReturnType<typeof useAppTheme>;
+  icon: React.ComponentProps<typeof MaterialIcons>["name"];
+  title: string;
+  subtitle: string;
+  onPress: () => void;
+}) {
+  return (
+    <TouchableOpacity style={styles.settingItem} activeOpacity={0.7} onPress={onPress}>
+      <MaterialIcons name={icon} size={24} color={theme.onSurface} style={styles.leadingIcon} />
+      <View style={styles.textColumn}>
+        <Text style={[styles.itemTitle, { color: theme.onSurface }]}>{title}</Text>
+        <Text style={[styles.itemSubtitle, { color: theme.onSurfaceVariant }]}>{subtitle}</Text>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+function SettingsSwitch({
+  theme,
+  title,
+  subtitle,
+  value,
+  disabled,
+  onValueChange
+}: {
+  theme: ReturnType<typeof useAppTheme>;
+  title: string;
+  subtitle: string;
+  value: boolean;
+  disabled?: boolean;
+  onValueChange: (value: boolean) => void;
+}) {
+  return (
+    <View style={styles.optionRow}>
+      <View style={styles.textColumn}>
+        <Text style={[styles.itemTitle, { color: disabled ? theme.onSurfaceVariant : theme.onSurface }]}>{title}</Text>
+        <Text style={[styles.itemSubtitle, { color: theme.onSurfaceVariant }]}>{subtitle}</Text>
+      </View>
+      <Switch value={value} disabled={disabled} onValueChange={onValueChange} />
+    </View>
   );
 }
 
@@ -327,5 +419,24 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginTop: 24,
     paddingHorizontal: 24
+  },
+  lastFmOptions: {
+    paddingHorizontal: 20,
+    paddingBottom: 8
+  },
+  optionHeading: {
+    fontSize: 14,
+    fontWeight: "600",
+    marginBottom: 4
+  },
+  optionRow: {
+    minHeight: 64,
+    flexDirection: "row",
+    alignItems: "center"
+  },
+  disconnect: {
+    fontSize: 15,
+    fontWeight: "600",
+    paddingVertical: 12
   }
 });
