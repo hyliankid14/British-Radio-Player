@@ -6,6 +6,8 @@ import { MaterialIcons } from "@expo/vector-icons";
 import { Podcast, Episode, decodeXmlEntities } from "../../src/api/podcasts";
 import { useAppTheme } from "../../src/theme/colors";
 import { usePlayerStore } from "../../src/store/playerStore";
+import { MiniPlayer } from "../../src/components/MiniPlayer";
+import { AppNavigation } from "../../src/components/AppNavigation";
 
 function formatEpisodeDate(raw: string): string {
   const parsed = new Date(raw);
@@ -70,7 +72,7 @@ export default function EpisodeDetailModal() {
       </View>
 
       <ScrollView
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: 32 + insets.bottom }]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: 192 + insets.bottom }]}
         showsVerticalScrollIndicator={false}
       >
         {episode.imageUrl || podcast.imageUrl ? (
@@ -81,9 +83,6 @@ export default function EpisodeDetailModal() {
           </View>
         )}
 
-        <Text style={[styles.showName, { color: theme.onSurface }]} numberOfLines={2}>
-          {decodeXmlEntities(podcast.title)}
-        </Text>
         <Text style={[styles.episodeTitle, { color: theme.onSurface }]} numberOfLines={2}>
           {decodeXmlEntities(episode.title)}
         </Text>
@@ -146,6 +145,13 @@ export default function EpisodeDetailModal() {
         </View>
       </ScrollView>
 
+      <View style={[styles.miniPlayerWrapper, { bottom: insets.bottom + 80 }]}>
+        <MiniPlayer />
+      </View>
+      <View style={[styles.navigationWrapper, { bottom: insets.bottom }]}>
+        <AppNavigation />
+      </View>
+
       <Modal
         visible={descriptionModalVisible}
         animationType="slide"
@@ -180,9 +186,8 @@ const styles = StyleSheet.create({
   backButton: { width: 56, height: 56, alignItems: "center", justifyContent: "center" },
   appBarTitle: { flex: 1, fontSize: 18, fontWeight: "700", marginRight: 16 },
   scrollContent: { alignItems: "center", paddingTop: 16 },
-  artwork: { width: "82%", aspectRatio: 1, maxWidth: 360, borderRadius: 2 },
-  artworkFallback: { width: "82%", aspectRatio: 1, maxWidth: 360, alignItems: "center", justifyContent: "center" },
-  showName: { fontSize: 23, lineHeight: 29, fontWeight: "600", textAlign: "center", marginTop: 12, paddingHorizontal: 24 },
+  artwork: { width: "62%", aspectRatio: 1, maxWidth: 280, borderRadius: 2 },
+  artworkFallback: { width: "62%", aspectRatio: 1, maxWidth: 280, alignItems: "center", justifyContent: "center" },
   episodeTitle: { fontSize: 16, lineHeight: 22, textAlign: "center", marginTop: 5, paddingHorizontal: 24 },
   releaseDate: { fontSize: 12, textAlign: "center", marginTop: 6 },
   descriptionContainer: { width: "100%", paddingHorizontal: 24, marginTop: 10 },
@@ -204,6 +209,8 @@ const styles = StyleSheet.create({
   openPodcastButton: { borderWidth: 1, borderRadius: 22, paddingHorizontal: 18, paddingVertical: 11, marginTop: 8 },
   openPodcastText: { fontSize: 14, fontWeight: "600" },
   playbackControls: { flexDirection: "row", alignItems: "center", justifyContent: "center", width: "100%", marginTop: 24, marginBottom: 12 },
+  miniPlayerWrapper: { position: "absolute", left: 0, right: 0 },
+  navigationWrapper: { position: "absolute", left: 0, right: 0 },
   controlButton: { width: 48, height: 48, alignItems: "center", justifyContent: "center", marginHorizontal: 2 },
   playPauseButton: { width: 64, height: 64, borderRadius: 32, alignItems: "center", justifyContent: "center", marginHorizontal: 4 }
 });

@@ -197,9 +197,9 @@ export default function SettingsScreen() {
         <SettingsRow
           theme={theme}
           icon="directions-car"
-          title="CarPlay"
+          title="Android Auto"
           subtitle="In-car playback preferences"
-          onPress={() => router.push({ pathname: "/modal/settings-detail", params: { section: "carplay" } })}
+          onPress={() => router.push({ pathname: "/modal/settings-detail", params: { section: "android_auto" } })}
         />
 
         {/* Podcasts Section */}

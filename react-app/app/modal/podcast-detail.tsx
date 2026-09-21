@@ -18,6 +18,8 @@ import { useAppTheme } from "../../src/theme/colors";
 import { Podcast, Episode, PodcastApi, decodeXmlEntities } from "../../src/api/podcasts";
 import { usePlayerStore } from "../../src/store/playerStore";
 import { Preferences } from "../../src/storage/preferences";
+import { MiniPlayer } from "../../src/components/MiniPlayer";
+import { AppNavigation } from "../../src/components/AppNavigation";
 
 export default function PodcastDetailModal() {
   const router = useRouter();
@@ -56,7 +58,7 @@ export default function PodcastDetailModal() {
   const [toastMessage, setToastMessage] = useState("");
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const { playEpisode, currentEpisode, isPlaying } = usePlayerStore();
+  const { playEpisode, pause, resume, currentEpisode, isPlaying } = usePlayerStore();
 
   useEffect(() => {
     let mounted = true;
@@ -180,9 +182,6 @@ export default function PodcastDetailModal() {
               </View>
             )}
             <View style={styles.headerInfo}>
-              <Text style={[styles.podcastTitle, { color: theme.onSurface }]} numberOfLines={2}>
-                {decodeXmlEntities(podcast.title)}
-              </Text>
               <Text
                 style={[styles.podcastDescription, { color: theme.onSurfaceVariant }]}
                 numberOfLines={3}
@@ -276,9 +275,35 @@ export default function PodcastDetailModal() {
   const renderEpisodeItem = useCallback(
     ({ item: ep }: { item: Episode }) => {
       if (!podcast) return null;
-      const isCurrentPlaying = currentEpisode?.id === ep.id && isPlaying;
+      const isCurrentEpisode = currentEpisode?.id === ep.id;
+      const isCurrentPlaying = isCurrentEpisode && isPlaying;
+
+      const openEpisode = () => {
+        router.push({
+          pathname: "/modal/episode-detail",
+          params: {
+            podcastData: JSON.stringify(podcast),
+            episodeData: JSON.stringify(ep)
+          }
+        });
+      };
+
+      const handlePlayPause = () => {
+        if (isCurrentEpisode) {
+          if (isPlaying) {
+            pause();
+          } else {
+            resume();
+          }
+        } else {
+          playEpisode(podcast, ep);
+        }
+      };
+
       return (
-        <View
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={openEpisode}
           style={[styles.episodeItem, { borderBottomColor: theme.outlineVariant, backgroundColor: theme.surface }]}
         >
           <View style={styles.episodeTextContainer}>
@@ -306,7 +331,7 @@ export default function PodcastDetailModal() {
 
           <TouchableOpacity
             style={[styles.playIconButton, { backgroundColor: theme.primary }]}
-            onPress={() => playEpisode(podcast, ep)}
+            onPress={handlePlayPause}
           >
             <MaterialIcons
               name={isCurrentPlaying ? "pause" : "play-arrow"}
@@ -314,10 +339,10 @@ export default function PodcastDetailModal() {
               color={theme.onPrimary}
             />
           </TouchableOpacity>
-        </View>
+        </TouchableOpacity>
       );
     },
-    [podcast, currentEpisode?.id, isPlaying, playEpisode, theme]
+    [podcast, currentEpisode?.id, isPlaying, playEpisode, pause, resume, router, theme]
   );
 
   const renderEmpty = useCallback(() => {
@@ -357,7 +382,7 @@ export default function PodcastDetailModal() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.surfaceContainer }]} edges={["top"]}>
-      {/* 56dp Top App Bar */}
+      {/* 56dp Top App Bar (title shown once, in the header card below) */}
       <View style={[styles.appBar, { borderBottomColor: theme.outlineVariant }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <MaterialIcons name="arrow-back" size={24} color={theme.onSurface} />
@@ -383,7 +408,7 @@ export default function PodcastDetailModal() {
           }
         }}
         onEndReachedThreshold={0.6}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: 120 + insets.bottom }]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: 200 + insets.bottom }]}
         showsVerticalScrollIndicator={false}
       />
       <Modal
@@ -437,6 +462,12 @@ export default function PodcastDetailModal() {
           <Text style={[styles.toastText, { color: theme.onPrimaryContainer }]}>{toastMessage}</Text>
         </View>
       ) : null}
+      <View style={[styles.miniPlayerWrapper, { bottom: insets.bottom + 80 }]}>
+        <MiniPlayer />
+      </View>
+      <View style={[styles.navigationWrapper, { bottom: insets.bottom }]}>
+        <AppNavigation />
+      </View>
     </SafeAreaView>
   );
 }
@@ -458,12 +489,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center"
   },
+  miniPlayerWrapper: {
+    position: "absolute",
+    left: 0,
+    right: 0
+  },
   appBarTitle: {
     flex: 1,
     fontSize: 18,
     fontWeight: "700",
     marginLeft: 8,
     marginRight: 16
+  },
+  navigationWrapper: {
+    position: "absolute",
+    left: 0,
+    right: 0
   },
   scrollContent: {
     paddingBottom: 40
@@ -495,11 +536,6 @@ const styles = StyleSheet.create({
   headerInfo: {
     flex: 1,
     marginLeft: 14
-  },
-  podcastTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    marginBottom: 6
   },
   podcastDescription: {
     fontSize: 13,

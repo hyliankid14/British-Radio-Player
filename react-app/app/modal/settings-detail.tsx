@@ -28,7 +28,7 @@ const TITLES: Record<string, string> = {
   lastfm: "Last.fm Scrobbler",
   alarm: "Alarm",
   startup_page: "Startup page",
-  carplay: "CarPlay",
+  android_auto: "Android Auto",
   subscriptions: "Subscriptions",
   indexing: "Indexing",
   backup: "Backup",
@@ -53,7 +53,7 @@ export default function SettingsDetail() {
         {section === "theme" && <ThemePage />}
         {section === "playback" && <PlaybackPage />}
         {section === "lastfm" && <LastFmPage />}
-        {section === "carplay" && <CarPlayPage />}
+        {section === "android_auto" && <AndroidAutoPage />}
         {section === "backup" && <BackupPage />}
         {section === "about" && <AboutPage />}
         {section === "privacy" && <PrivacyPage />}
@@ -169,7 +169,7 @@ function LastFmPage() {
   </>;
 }
 
-function CarPlayPage() {
+function AndroidAutoPage() {
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
   const stations = StationRepository.getAll();
@@ -191,7 +191,7 @@ function CarPlayPage() {
   };
 
   return <>
-    <Card title="Default station" subtitle="Station selected when CarPlay starts playback">
+    <Card title="Default station" subtitle="Station selected when Android Auto starts playback">
       <TouchableOpacity
         style={[styles.dropdown, { borderColor: theme.outline, backgroundColor: theme.surfaceContainer }]}
         onPress={() => setStationPickerVisible(true)}
@@ -203,10 +203,10 @@ function CarPlayPage() {
         <MaterialIcons name="arrow-drop-down" size={24} color={theme.onSurfaceVariant} />
       </TouchableOpacity>
     </Card>
-    <Card title="Playback" subtitle="Control playback behaviour in CarPlay">
+    <Card title="Playback" subtitle="Control playback behaviour in Android Auto">
       <SwitchRow
         title="Automatically resume playback"
-        subtitle="Resume the last station when CarPlay connects"
+        subtitle="Resume the last station when Android Auto connects"
         value={settings.autoResume}
         onChange={(value) => update("autoResume", value)}
       />
@@ -220,7 +220,7 @@ function CarPlayPage() {
     <Modal visible={stationPickerVisible} animationType="slide" onRequestClose={() => setStationPickerVisible(false)}>
       <View style={[styles.stationPicker, { backgroundColor: theme.surface, paddingTop: insets.top, paddingBottom: insets.bottom }]}>
         <View style={[styles.stationPickerHeader, { borderBottomColor: theme.outlineVariant }]}>
-          <Text style={[styles.stationPickerTitle, { color: theme.onSurface }]}>Select a CarPlay station</Text>
+          <Text style={[styles.stationPickerTitle, { color: theme.onSurface }]}>Select an Android Auto station</Text>
           <TouchableOpacity style={styles.stationPickerClose} onPress={() => setStationPickerVisible(false)} accessibilityLabel="Cancel station selection">
             <MaterialIcons name="close" size={24} color={theme.onSurface} />
           </TouchableOpacity>
@@ -307,7 +307,7 @@ function AboutPage() {
 function StartupPage() {
   const theme = useAppTheme();
   const current = Preferences.getSetting("pref_startup_page", "all_stations");
-  return <Card title="Startup page" subtitle="Applies to the app and CarPlay">
+  return <Card title="Startup page" subtitle="Applies to the app and Android Auto">
     {[
       ["favourites", "Favourite Stations"],
       ["all_stations", "All Stations"],
