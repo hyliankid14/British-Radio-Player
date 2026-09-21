@@ -57,7 +57,8 @@
       "predictiveBackGestureEnabled": false
     },
     "plugins": [
-      "expo-router"
+      "expo-router",
+      "./plugins/withAndroidCleartextTraffic"
     ]
   }
 }
