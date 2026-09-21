@@ -6,11 +6,15 @@ import TrackPlayer from "react-native-track-player";
 import { LogBox } from "react-native";
 import { setupPlayer, playbackService } from "../src/audio/trackPlayerService";
 import { usePlayerStore } from "../src/store/playerStore";
+import { initAutoSync } from "../src/auto/autoSync";
 
 LogBox.ignoreAllLogs();
 
 // Register playback service
 TrackPlayer.registerPlaybackService(() => playbackService);
+
+// Keep the native Android Auto service in sync with the app's catalogue and state.
+initAutoSync();
 
 export default function RootLayout() {
   const initStore = usePlayerStore((state) => state.init);

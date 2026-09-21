@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const {
   withAndroidManifest,
+  withAppBuildGradle,
   withDangerousMod,
   withEntitlementsPlist
 } = require("@expo/config-plugins");
@@ -22,41 +23,6 @@ module.exports = function withAndroidCleartextTraffic(config) {
             "android:resource": "@xml/automotive_app_desc"
           }
         });
-      }
-    }
-
-    if (application) {
-      application.service = application.service || [];
-      const mediaService = application.service.find((service) =>
-        service.$["android:name"] === "com.doublesymmetry.trackplayer.service.MusicService"
-      );
-      if (!mediaService) {
-        application.service.push({
-          $: {
-            "android:name": "com.doublesymmetry.trackplayer.service.MusicService",
-            "android:enabled": "true",
-            "android:exported": "true",
-            "android:foregroundServiceType": "mediaPlayback"
-          },
-          "intent-filter": [{
-            action: [{
-              $: { "android:name": "android.media.browse.MediaBrowserService" }
-            }]
-          }]
-        });
-      } else {
-        mediaService["intent-filter"] = mediaService["intent-filter"] || [];
-        if (!mediaService["intent-filter"].some((filter) =>
-          filter.action?.some((action) =>
-            action.$["android:name"] === "android.media.browse.MediaBrowserService"
-          )
-        )) {
-          mediaService["intent-filter"].push({
-            action: [{
-              $: { "android:name": "android.media.browse.MediaBrowserService" }
-            }]
-          });
-        }
       }
     }
     return configWithManifest;
@@ -92,6 +58,22 @@ module.exports = function withAndroidCleartextTraffic(config) {
       return configWithResources;
     }
   ]);
+
+  config = withAppBuildGradle(config, (configWithBuildGradle) => {
+    const contents = configWithBuildGradle.modResults.contents;
+    if (!contents.includes("debuggableVariants = []")) {
+      configWithBuildGradle.modResults.contents = contents.replace(
+        /react\s*\{\n/,
+        "react {\n    // Bundle JavaScript in debug APKs so sideloaded builds work without Metro.\n    debuggableVariants = []\n"
+      );
+    }
+    configWithBuildGradle.modResults.contents =
+      configWithBuildGradle.modResults.contents.replace(
+        "debug {\n            signingConfig signingConfigs.debug",
+        "debug {\n            signingConfig signingConfigs.debug\n            minifyEnabled = (findProperty('android.enableMinifyInDebugBuilds') ?: 'false').toBoolean()\n            shrinkResources = (findProperty('android.enableMinifyInDebugBuilds') ?: 'false').toBoolean()"
+      );
+    return configWithBuildGradle;
+  });
 
   return withEntitlementsPlist(config, (configWithEntitlements) => {
     configWithEntitlements.modResults["com.apple.developer.carplay-audio"] = true;

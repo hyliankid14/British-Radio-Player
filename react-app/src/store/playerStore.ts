@@ -3,8 +3,9 @@ import TrackPlayer, { State, TrackType } from "react-native-track-player";
 import { Station, StationRepository, AudioQuality, getStreamCandidates } from "../data/stations";
 import { Preferences } from "../storage/preferences";
 import { CurrentShow, fetchShowInfo } from "../api/showInfo";
-import { Podcast, Episode } from "../api/podcasts";
+import { Podcast, Episode, PodcastApi } from "../api/podcasts";
 import { LastFmApi } from "../api/lastfm";
+import { notifyNativePhonePlaybackStarted } from "../auto/autoBridge";
 
 interface PlayerState {
   currentStation: Station | null;
@@ -28,11 +29,19 @@ interface PlayerState {
   refreshShowInfo: () => Promise<void>;
   playNext: () => Promise<void>;
   playPrevious: () => Promise<void>;
+  handleEpisodeProgress: (positionSeconds: number, durationSeconds: number) => void;
+  handleEpisodeEnded: () => Promise<void>;
 }
 
 let showInfoInterval: any = null;
 let scrobbleTimer: any = null;
 let activeScrobbleKey = "";
+
+function parsePodcastDateEpoch(pubDate?: string): number {
+  if (!pubDate) return 0;
+  const parsed = Date.parse(pubDate);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
 
 function beginScrobble(artist: string, track: string, durationSec = 0, isPodcast = false): void {
   const settings = Preferences.getLastFm();
@@ -94,6 +103,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       });
       await TrackPlayer.play();
       set({ isPlaying: true, isBuffering: false });
+      notifyNativePhonePlaybackStarted();
 
       // Fetch show info immediately
       const show = await fetchShowInfo(station.id);
@@ -172,7 +182,29 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       });
       await TrackPlayer.play();
       set({ isPlaying: true, isBuffering: false });
+      notifyNativePhonePlaybackStarted();
       beginScrobble(podcast.title, episode.title, episode.durationMins * 60, true);
+      Preferences.addPodcastHistory({
+        id: episode.id,
+        title: episode.title,
+        description: episode.description,
+        imageUrl: episode.imageUrl || podcast.imageUrl,
+        audioUrl: episode.audioUrl,
+        pubDate: episode.pubDate,
+        durationMins: episode.durationMins,
+        podcastId: podcast.id,
+        podcastTitle: podcast.title
+      });
+
+      // Resume where the listener left off (mirrors the Kotlin app's position restore).
+      const resumeSeconds = Preferences.getEpisodeProgress(episode.id);
+      if (resumeSeconds > 5) {
+        try {
+          await TrackPlayer.seekTo(resumeSeconds);
+        } catch {
+          // Seeking before the track is ready is non-fatal.
+        }
+      }
     } catch (err) {
       console.warn("Error playing podcast episode:", err);
       set({ isBuffering: false, isPlaying: false });
@@ -281,8 +313,54 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     set({ favorites: Preferences.getFavorites() });
   },
 
-  refreshShowInfo: async () => {
-    const { currentStation } = get();
+  handleEpisodeProgress: (positionSeconds: number, durationSeconds: number) => {
+    const { currentEpisode } = get();
+    if (!currentEpisode) return;
+    Preferences.setEpisodeProgress(currentEpisode.id, positionSeconds);
+    if (durationSeconds > 0 && positionSeconds / durationSeconds >= 0.98) {
+      Preferences.markEpisodePlayed(
+        currentEpisode.id,
+        currentEpisode.podcastId,
+        parsePodcastDateEpoch(currentEpisode.pubDate)
+      );
+    }
+  },
+
+  handleEpisodeEnded: async () => {
+    const { currentPodcast, currentEpisode } = get();
+    if (!currentEpisode) return;
+    Preferences.markEpisodePlayed(
+      currentEpisode.id,
+      currentEpisode.podcastId,
+      parsePodcastDateEpoch(currentEpisode.pubDate)
+    );
+
+    const autoplayNext = Preferences.getSetting("pref_autoplay_next", "none");
+    if (autoplayNext === "none" || !currentPodcast) return;
+    if (
+      autoplayNext === "subscriptions" &&
+      !Preferences.getSubscribedPodcasts().includes(currentPodcast.id)
+    ) {
+      return;
+    }
+
+    const cached = PodcastApi.getEpisodesFromCache(currentPodcast.id) || [];
+    if (!cached.length) return;
+    const oldestFirst = Preferences.getPodcastEpisodeSort(currentPodcast.id) === "oldest_first";
+    const sorted = [...cached].sort((a, b) => {
+      const aEpoch = parsePodcastDateEpoch(a.pubDate);
+      const bEpoch = parsePodcastDateEpoch(b.pubDate);
+      if (!aEpoch || !bEpoch) return 0;
+      return oldestFirst ? aEpoch - bEpoch : bEpoch - aEpoch;
+    });
+    const index = sorted.findIndex((episode) => episode.id === currentEpisode.id);
+    const next = sorted
+      .slice(index + 1)
+      .find((episode) => !Preferences.isEpisodePlayed(episode.id));
+    if (next) await get().playEpisode(currentPodcast, next);
+  },
+
+  refreshShowInfo: async () => {    const { currentStation } = get();
     if (currentStation) {
       const show = await fetchShowInfo(currentStation.id);
       set({ currentShow: show });

@@ -6,6 +6,7 @@ import { MaterialIcons } from "@expo/vector-icons";
 import { Podcast, Episode, decodeXmlEntities } from "../../src/api/podcasts";
 import { useAppTheme } from "../../src/theme/colors";
 import { usePlayerStore } from "../../src/store/playerStore";
+import { Preferences } from "../../src/storage/preferences";
 import { MiniPlayer } from "../../src/components/MiniPlayer";
 import { AppNavigation } from "../../src/components/AppNavigation";
 
@@ -51,6 +52,21 @@ export default function EpisodeDetailModal() {
   }
 
   const isCurrentEpisode = currentEpisode?.id === episode.id;
+  const [isSaved, setIsSaved] = useState(() => Preferences.isEpisodeSaved(episode.id));
+  const toggleSaved = () => {
+    const saved = Preferences.toggleSavedEpisode({
+      id: episode.id,
+      title: episode.title,
+      description: episode.description,
+      imageUrl: episode.imageUrl || podcast.imageUrl,
+      audioUrl: episode.audioUrl,
+      pubDate: episode.pubDate,
+      durationMins: episode.durationMins,
+      podcastId: podcast.id,
+      podcastTitle: podcast.title
+    });
+    setIsSaved(saved);
+  };
   const handlePlayPause = async () => {
     if (isCurrentEpisode) {
       if (isPlaying) await pause();
@@ -139,8 +155,12 @@ export default function EpisodeDetailModal() {
           <TouchableOpacity style={styles.controlButton} accessibilityLabel="Next">
             <MaterialIcons name="skip-next" size={25} color={theme.onSurface} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.controlButton} accessibilityLabel="Save episode">
-            <MaterialIcons name="star-border" size={25} color={theme.onSurface} />
+          <TouchableOpacity
+            style={styles.controlButton}
+            onPress={toggleSaved}
+            accessibilityLabel={isSaved ? "Remove saved episode" : "Save episode"}
+          >
+            <MaterialIcons name={isSaved ? "star" : "star-border"} size={25} color={theme.onSurface} />
           </TouchableOpacity>
         </View>
       </ScrollView>

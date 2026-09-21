@@ -1,6 +1,32 @@
 import { createMMKV } from "react-native-mmkv";
 import { AudioQuality } from "../data/stations";
 
+export interface SavedEpisodeEntry {
+  id: string;
+  title: string;
+  description: string;
+  imageUrl: string;
+  audioUrl: string;
+  pubDate: string;
+  durationMins: number;
+  podcastId: string;
+  podcastTitle: string;
+  savedAtMs?: number;
+}
+
+export interface PodcastHistoryEntry {
+  id: string;
+  title: string;
+  description: string;
+  imageUrl: string;
+  audioUrl: string;
+  pubDate: string;
+  durationMins: number;
+  podcastId: string;
+  podcastTitle: string;
+  playedAtMs: number;
+}
+
 let storage: {
   getString: (key: string) => string | undefined;
   set: (key: string, value: string | boolean | number) => void;
@@ -8,6 +34,7 @@ let storage: {
   getNumber: (key: string) => number | undefined;
   remove: (key: string) => boolean;
   clearAll: () => void;
+  addOnValueChangedListener: (listener: (key: string) => void) => { remove: () => void };
 };
 
 try {
@@ -15,13 +42,28 @@ try {
 } catch {
   // In-memory fallback for unit tests / web environments
   const memoryStore = new Map<string, any>();
+  const memoryListeners = new Set<(key: string) => void>();
   storage = {
     getString: (key: string) => memoryStore.get(key),
-    set: (key: string, value: any) => memoryStore.set(key, value),
+    set: (key: string, value: any) => {
+      memoryStore.set(key, value);
+      memoryListeners.forEach((listener) => listener(key));
+    },
     getBoolean: (key: string) => memoryStore.get(key),
     getNumber: (key: string) => memoryStore.get(key),
-    remove: (key: string) => memoryStore.delete(key),
-    clearAll: () => memoryStore.clear()
+    remove: (key: string) => {
+      const existed = memoryStore.delete(key);
+      memoryListeners.forEach((listener) => listener(key));
+      return existed;
+    },
+    clearAll: () => {
+      memoryStore.clear();
+      memoryListeners.forEach((listener) => listener(""));
+    },
+    addOnValueChangedListener: (listener: (key: string) => void) => {
+      memoryListeners.add(listener);
+      return { remove: () => memoryListeners.delete(listener) };
+    }
   };
 }
 
@@ -59,6 +101,12 @@ const KEYS = {
   ,ANALYTICS: "pref_analytics"
   ,STARTUP_PAGE: "pref_startup_page"
   ,ALARM: "pref_alarm"
+  ,PLAYED_EPISODE_IDS: "pref_played_episode_ids"
+  ,EPISODE_PROGRESS: "pref_episode_progress"
+  ,PODCAST_HISTORY: "pref_podcast_history"
+  ,PLAYLIST_ENTRIES: "pref_podcast_playlist_entries"
+  ,LAST_PLAYED_EPOCH: "pref_last_played_epoch"
+  ,EPISODE_SORT: "pref_podcast_episode_sort"
 };
 
 export const Preferences = {
@@ -451,6 +499,191 @@ export const Preferences = {
     }
     this.setSubscribedPodcasts(subscribed);
     return isSub;
+  },
+
+  onChanged(listener: (key: string) => void): { remove: () => void } {
+    return storage.addOnValueChangedListener(listener);
+  },
+
+  // ── Episode state (played / progress / history) ─────────────────────────────
+
+  getPlayedEpisodeIds(): string[] {
+    const raw = storage.getString(KEYS.PLAYED_EPISODE_IDS);
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [];
+    } catch {
+      return [];
+    }
+  },
+
+  isEpisodePlayed(episodeId: string): boolean {
+    return this.getPlayedEpisodeIds().includes(episodeId);
+  },
+
+  markEpisodePlayed(episodeId: string, podcastId?: string, pubDateEpochMs?: number): void {
+    if (!episodeId) return;
+    const played = this.getPlayedEpisodeIds();
+    if (!played.includes(episodeId)) {
+      storage.set(KEYS.PLAYED_EPISODE_IDS, JSON.stringify([...played, episodeId]));
+    }
+    this.removeEpisodeProgress(episodeId);
+    if (podcastId && pubDateEpochMs && pubDateEpochMs > 0) {
+      const existing = this.getLastPlayedEpoch(podcastId);
+      if (pubDateEpochMs > existing) {
+        const map = this.getMap(KEYS.LAST_PLAYED_EPOCH);
+        map[podcastId] = pubDateEpochMs;
+        storage.set(KEYS.LAST_PLAYED_EPOCH, JSON.stringify(map));
+      }
+    }
+  },
+
+  markEpisodeUnplayed(episodeId: string): void {
+    const played = this.getPlayedEpisodeIds().filter((id) => id !== episodeId);
+    storage.set(KEYS.PLAYED_EPISODE_IDS, JSON.stringify(played));
+  },
+
+  getEpisodeProgress(episodeId: string): number {
+    return this.getMap(KEYS.EPISODE_PROGRESS)[episodeId] || this.getPodcastPosition(episodeId) || 0;
+  },
+
+  setEpisodeProgress(episodeId: string, positionSeconds: number): void {
+    if (!episodeId || positionSeconds <= 0) return;
+    const map = this.getMap(KEYS.EPISODE_PROGRESS);
+    map[episodeId] = Math.floor(positionSeconds);
+    storage.set(KEYS.EPISODE_PROGRESS, JSON.stringify(map));
+  },
+
+  removeEpisodeProgress(episodeId: string): void {
+    const map = this.getMap(KEYS.EPISODE_PROGRESS);
+    if (map[episodeId] !== undefined) {
+      delete map[episodeId];
+      storage.set(KEYS.EPISODE_PROGRESS, JSON.stringify(map));
+    }
+  },
+
+  getLastPlayedEpoch(podcastId: string): number {
+    return this.getMap(KEYS.LAST_PLAYED_EPOCH)[podcastId] || 0;
+  },
+
+  getPodcastEpisodeSort(podcastId: string): "newest_first" | "oldest_first" {
+    const map = this.getStringMap(KEYS.EPISODE_SORT);
+    return map[podcastId] === "oldest_first" ? "oldest_first" : "newest_first";
+  },
+
+  setPodcastEpisodeSort(podcastId: string, order: "newest_first" | "oldest_first"): void {
+    const map = this.getStringMap(KEYS.EPISODE_SORT);
+    map[podcastId] = order;
+    storage.set(KEYS.EPISODE_SORT, JSON.stringify(map));
+  },
+
+  getPodcastHistory(): PodcastHistoryEntry[] {
+    const raw = storage.getString(KEYS.PODCAST_HISTORY);
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed)
+        ? parsed.filter((entry): entry is PodcastHistoryEntry => entry && typeof entry.id === "string")
+        : [];
+    } catch {
+      return [];
+    }
+  },
+
+  addPodcastHistory(entry: Omit<PodcastHistoryEntry, "playedAtMs"> & { playedAtMs?: number }): void {
+    if (!entry?.id) return;
+    const existing = this.getPodcastHistory().filter((item) => item.id !== entry.id);
+    const record: PodcastHistoryEntry = { ...entry, playedAtMs: entry.playedAtMs ?? Date.now() };
+    storage.set(KEYS.PODCAST_HISTORY, JSON.stringify([record, ...existing].slice(0, 20)));
+  },
+
+  clearPodcastHistory(): void {
+    storage.set(KEYS.PODCAST_HISTORY, JSON.stringify([]));
+  },
+
+  // ── Playlist entries (Saved Episodes and user playlists) ────────────────────
+
+  getPodcastPlaylistEntries(playlistId: string): SavedEpisodeEntry[] {
+    const raw = storage.getString(KEYS.PLAYLIST_ENTRIES);
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw) as Record<string, SavedEpisodeEntry[]>;
+      const entries = parsed?.[playlistId];
+      return Array.isArray(entries) ? entries.filter((entry) => entry && typeof entry.id === "string") : [];
+    } catch {
+      return [];
+    }
+  },
+
+  isEpisodeSaved(episodeId: string): boolean {
+    return this.getPodcastPlaylistEntries("saved").some((entry) => entry.id === episodeId);
+  },
+
+  addPodcastPlaylistEntry(playlistId: string, entry: SavedEpisodeEntry): void {
+    if (!entry?.id) return;
+    const all = this.getPlaylistEntryMap();
+    const existing = (all[playlistId] || []).filter((item) => item.id !== entry.id);
+    all[playlistId] = [{ ...entry, savedAtMs: entry.savedAtMs ?? Date.now() }, ...existing];
+    storage.set(KEYS.PLAYLIST_ENTRIES, JSON.stringify(all));
+    this.refreshPlaylistCounts(all);
+  },
+
+  removePodcastPlaylistEntry(playlistId: string, episodeId: string): void {
+    const all = this.getPlaylistEntryMap();
+    all[playlistId] = (all[playlistId] || []).filter((item) => item.id !== episodeId);
+    storage.set(KEYS.PLAYLIST_ENTRIES, JSON.stringify(all));
+    this.refreshPlaylistCounts(all);
+  },
+
+  toggleSavedEpisode(entry: SavedEpisodeEntry): boolean {
+    if (this.isEpisodeSaved(entry.id)) {
+      this.removePodcastPlaylistEntry("saved", entry.id);
+      return false;
+    }
+    this.addPodcastPlaylistEntry("saved", entry);
+    return true;
+  },
+
+  getPlaylistEntryMap(): Record<string, SavedEpisodeEntry[]> {
+    const raw = storage.getString(KEYS.PLAYLIST_ENTRIES);
+    if (!raw) return {};
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed as Record<string, SavedEpisodeEntry[]> : {};
+    } catch {
+      return {};
+    }
+  },
+
+  refreshPlaylistCounts(all: Record<string, SavedEpisodeEntry[]>): void {
+    const playlists = this.getPodcastPlaylists().filter((playlist) => !playlist.isDefault);
+    if (!playlists.length) return;
+    this.setPodcastPlaylists(
+      playlists.map((playlist) => ({ ...playlist, itemCount: (all[playlist.id] || []).length }))
+    );
+  },
+
+  getMap(key: string): Record<string, number> {
+    const raw = storage.getString(key);
+    if (!raw) return {};
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
+  },
+
+  getStringMap(key: string): Record<string, string> {
+    const raw = storage.getString(key);
+    if (!raw) return {};
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
   },
 
   exportBackup(): string {

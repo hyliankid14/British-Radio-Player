@@ -78,5 +78,6 @@ scripts/test_email.py
 !/scripts/
 /scripts/*
 !/scripts/install-react-debug.sh
+!/scripts/build-react-debug-apk.sh
 /api/
 /docker/

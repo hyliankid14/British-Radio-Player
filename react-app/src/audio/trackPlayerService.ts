@@ -25,6 +25,16 @@ export async function playbackService(): Promise<void> {
       await TrackPlayer.play();
     }
   });
+
+  // Persist resume positions and drive "played" / autoplay-next behaviour. These run in
+  // the headless playback service so they keep working with the app backgrounded.
+  TrackPlayer.addEventListener(Event.PlaybackProgressUpdated, (event) => {
+    usePlayerStore.getState().handleEpisodeProgress(event.position, event.duration);
+  });
+
+  TrackPlayer.addEventListener(Event.PlaybackQueueEnded, () => {
+    void usePlayerStore.getState().handleEpisodeEnded();
+  });
 }
 
 let isSetup = false;
@@ -61,7 +71,8 @@ export async function setupPlayer(): Promise<boolean> {
         Capability.Play,
         Capability.Pause,
         Capability.Stop
-      ]
+      ],
+      progressUpdateEventInterval: 5
     });
 
     isSetup = true;
