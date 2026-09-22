@@ -21,11 +21,7 @@ def releaseKeyPassword = (project.hasProperty("RELEASE_KEY_PASSWORD") ? project.
 def hasReleaseSigning = releaseStoreFile && releaseStorePassword && releaseKeyAlias && releaseKeyPassword
 
 // Backend URLs — same resolution chain
-def gcsIndexUrl       = (project.hasProperty("GCS_INDEX_URL")       ? project.property("GCS_INDEX_URL")       : ext.localProps.getProperty("GCS_INDEX_URL")       ?: System.getenv("GCS_INDEX_URL")       ?: "").toString()
-def gcsMetaUrl        = (project.hasProperty("GCS_META_URL")        ? project.property("GCS_META_URL")        : ext.localProps.getProperty("GCS_META_URL")        ?: System.getenv("GCS_META_URL")        ?: "").toString()
-def gcsStatsUrl       = (project.hasProperty("GCS_STATS_URL")       ? project.property("GCS_STATS_URL")       : ext.localProps.getProperty("GCS_STATS_URL")       ?: System.getenv("GCS_STATS_URL")       ?: "").toString()
-def gcsNewPodcastsUrl = (project.hasProperty("GCS_NEW_PODCASTS_URL")? project.property("GCS_NEW_PODCASTS_URL"): ext.localProps.getProperty("GCS_NEW_PODCASTS_URL")?: System.getenv("GCS_NEW_PODCASTS_URL")?: "").toString()
-def cloudFunctionUrl  = (project.hasProperty("CLOUD_FUNCTION_URL")  ? project.property("CLOUD_FUNCTION_URL")  : ext.localProps.getProperty("CLOUD_FUNCTION_URL")  ?: System.getenv("CLOUD_FUNCTION_URL")  ?: "").toString()
+def podcastApiBaseUrl = (project.hasProperty("PODCAST_API_BASE_URL") ? project.property("PODCAST_API_BASE_URL") : ext.localProps.getProperty("PODCAST_API_BASE_URL") ?: System.getenv("PODCAST_API_BASE_URL") ?: "").toString()
 def analyticsEndpoint = (project.hasProperty("ANALYTICS_ENDPOINT_URL") ? project.property("ANALYTICS_ENDPOINT_URL") : ext.localProps.getProperty("ANALYTICS_ENDPOINT_URL") ?: System.getenv("ANALYTICS_ENDPOINT_URL") ?: "").toString()
 def lastfmApiKey    = (project.hasProperty("LASTFM_API_KEY")    ? project.property("LASTFM_API_KEY")    : ext.localProps.getProperty("LASTFM_API_KEY")    ?: System.getenv("LASTFM_API_KEY")    ?: "").toString()
 def lastfmApiSecret = (project.hasProperty("LASTFM_API_SECRET") ? project.property("LASTFM_API_SECRET") : ext.localProps.getProperty("LASTFM_API_SECRET") ?: System.getenv("LASTFM_API_SECRET") ?: "").toString()
@@ -46,23 +42,15 @@ android {
         // environment variables when building.  The app falls back to the
         // hard-coded defaults in RemoteIndexClient if these are blank.
         //
-        // GCS_INDEX_URL   — public URL of podcast-index.json.gz in GCS
-        //   e.g. https://storage.googleapis.com/YOUR_BUCKET/podcast-index.json.gz
-        // GCS_META_URL    — public URL of podcast-index-meta.json in GCS
-        //   e.g. https://storage.googleapis.com/YOUR_BUCKET/podcast-index-meta.json
-        // GCS_STATS_URL   — public URL of popular-podcasts.json in GCS (popularity snapshot)
-        //   e.g. https://storage.googleapis.com/YOUR_BUCKET/popular-podcasts.json
-        // GCS_NEW_PODCASTS_URL — public URL of new-podcasts.json in GCS (rolling top-50)
-        //   e.g. https://storage.googleapis.com/YOUR_BUCKET/new-podcasts.json
-        // CLOUD_FUNCTION_URL — base URL of the Cloud Function search API
-        //   e.g. https://REGION-PROJECT.cloudfunctions.net/podcast-search
+        // PODCAST_API_BASE_URL — base URL of the self-hosted podcast server
+        //   (Raspberry Pi via Cloudflare Tunnel).  Endpoints are derived from it:
+        //   /data/podcast-index.json.gz, /data/podcast-index-meta.json,
+        //   /data/popular-podcasts.json, /data/new-podcasts.json,
+        //   /search/*, /index/*, /stats, /ratings.
+        //   e.g. https://bbc-radio.shai.website
         // ANALYTICS_ENDPOINT_URL — full URL of the /event analytics endpoint
-        //   e.g. https://your-server.example.com:8443/event
-        buildConfigField "String", "GCS_INDEX_URL",      "\"${gcsIndexUrl}\""
-        buildConfigField "String", "GCS_META_URL",       "\"${gcsMetaUrl}\""
-        buildConfigField "String", "GCS_STATS_URL",      "\"${gcsStatsUrl}\""
-        buildConfigField "String", "GCS_NEW_PODCASTS_URL", "\"${gcsNewPodcastsUrl}\""
-        buildConfigField "String", "CLOUD_FUNCTION_URL", "\"${cloudFunctionUrl}\""
+        //   e.g. https://bbc-radio.shai.website/event
+        buildConfigField "String", "PODCAST_API_BASE_URL", "\"${podcastApiBaseUrl}\""
         buildConfigField "String", "ANALYTICS_ENDPOINT_URL", "\"${analyticsEndpoint}\""
         buildConfigField "String", "LASTFM_API_KEY", "\"${lastfmApiKey}\""
         buildConfigField "String", "LASTFM_API_SECRET", "\"${lastfmApiSecret}\""

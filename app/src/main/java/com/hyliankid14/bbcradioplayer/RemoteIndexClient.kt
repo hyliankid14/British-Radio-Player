@@ -21,32 +21,28 @@ import java.util.zip.GZIPInputStream
 /**
  * Client for the remote podcast index.
  *
- * Primary source — cloud-hosted static index:
+ * Primary source — self-hosted podcast server (Raspberry Pi):
  *   A nightly job (or GitHub Actions workflow) runs
- *   `api/build_index.py` and uploads the result to cloud
- *   storage.  The Android app downloads it at most once per [INDEX_CACHE_TTL_MS],
- *   caches it on disk, and uses it to populate the local SQLite FTS index.
- *   All searches then run locally — zero per-search traffic.
+ *   `api/build_index.py` and writes the result to the Pi.  The Android app
+ *   downloads it at most once per [INDEX_CACHE_TTL_MS], caches it on disk, and
+ *   uses it to populate the local SQLite FTS index.  All searches then run
+ *   locally — zero per-search traffic.
  *
- *   Configure the bucket URLs at build time via `local.properties`:
- *     INDEX_URL=https://storage.example.com/podcast-index.json.gz
- *     META_URL=https://storage.example.com/podcast-index-meta.json
- *     NEW_PODCASTS_URL=https://storage.example.com/new-podcasts.json
+ *   The Pi is reachable publicly through a Cloudflare Tunnel.  Override the base
+ *   URL at build time via `local.properties`:
+ *     PODCAST_API_BASE_URL=https://bbc-radio.shai.website
  *
- * Live search — cloud function:
- *   The app also supports querying a cloud function that performs server-side
- *   search without requiring a full index download to the device.  Set the
- *   cloud function base URL at build time:
- *     CLOUD_FUNCTION_URL=https://REGION-PROJECT.cloudfunctions.net/podcast-search
- *
- *   The cloud function exposes the same endpoints as the home server:
+ * Live search — self-hosted search server:
+ *   The app also supports querying the Pi's search server that performs
+ *   server-side search without requiring a full index download to the device.
+ *   It exposes:
  *     /index/status  — lightweight freshness check
  *     /search/podcasts?q=QUERY
  *     /search/episodes?q=QUERY[&limit=N][&offset=N]
  *
  * Default routing:
- *   If build-time overrides are not provided, the app uses the default
- *   production cloud endpoints bundled in this class.
+ *   If a build-time override is not provided, the app uses the default
+ *   production server bundled in this class.
  *
  * All network calls are synchronous — callers must dispatch to IO threads.
  */
@@ -79,51 +75,27 @@ class RemoteIndexClient(private val context: Context) {
     companion object {
         private const val TAG = "RemoteIndexClient"
 
+        // ── Podcast server (Raspberry Pi, reachable via Cloudflare Tunnel) ─────
+
+        // Base URL of the self-hosted podcast server. Override at build time via
+        // PODCAST_API_BASE_URL in local.properties or environment variables.
+        private val PODCAST_API_BASE_URL: String get() = BuildConfig.PODCAST_API_BASE_URL
+
+        // Default public podcast server endpoint.
+        internal const val DEFAULT_PODCAST_API_BASE_URL = "https://bbc-radio.shai.website"
+
+        // Resolved base URL: prefer explicit build-time override, else default.
+        internal val SERVER_BASE_URL: String
+            get() = PODCAST_API_BASE_URL.takeIf { it.isNotBlank() } ?: DEFAULT_PODCAST_API_BASE_URL
+
         // ── Index download URLs ───────────────────────────────────────────────
-
-        // Cloud storage public URLs (set via INDEX_URL / META_URL / STATS_URL /
-        // NEW_PODCASTS_URL in local.properties or environment variables at build time).
-        // These are optional overrides; defaults below point to production cloud index.
-        private val GCS_INDEX_URL: String get() = BuildConfig.GCS_INDEX_URL
-        private val GCS_META_URL: String  get() = BuildConfig.GCS_META_URL
-        private val GCS_STATS_URL: String get() = BuildConfig.GCS_STATS_URL
-        private val GCS_NEW_PODCASTS_URL: String get() = BuildConfig.GCS_NEW_PODCASTS_URL
-
-        // Default cloud-hosted index URLs.
-        private const val DEFAULT_CLOUD_INDEX_URL =
-            "https://storage.googleapis.com/bbc-radio-player-index-20260317-bc149e38/podcast-index.json.gz"
-        private const val DEFAULT_CLOUD_META_URL =
-            "https://storage.googleapis.com/bbc-radio-player-index-20260317-bc149e38/podcast-index-meta.json"
-
-        // Default cloud-hosted popularity snapshot URL (uploaded by the export-popular-podcasts
-        // GitHub Actions workflow from the analytics server every 6 hours).
-        private const val DEFAULT_CLOUD_STATS_URL =
-            "https://storage.googleapis.com/bbc-radio-player-index-20260317-bc149e38/popular-podcasts.json"
-        private const val DEFAULT_CLOUD_NEW_PODCASTS_URL =
-            "https://storage.googleapis.com/bbc-radio-player-index-20260317-bc149e38/new-podcasts.json"
-
-        // Resolved index URL: prefer explicit build-time overrides, otherwise cloud defaults.
-        internal val INDEX_URL: String
-            get() = GCS_INDEX_URL.takeIf { it.isNotBlank() } ?: DEFAULT_CLOUD_INDEX_URL
-        internal val META_URL: String
-            get() = GCS_META_URL.takeIf { it.isNotBlank() } ?: DEFAULT_CLOUD_META_URL
-        internal val STATS_URL: String
-            get() = GCS_STATS_URL.takeIf { it.isNotBlank() } ?: DEFAULT_CLOUD_STATS_URL
-        internal val NEW_PODCASTS_URL: String
-            get() = GCS_NEW_PODCASTS_URL.takeIf { it.isNotBlank() } ?: DEFAULT_CLOUD_NEW_PODCASTS_URL
+        internal val INDEX_URL: String get() = "$SERVER_BASE_URL/data/podcast-index.json.gz"
+        internal val META_URL: String get() = "$SERVER_BASE_URL/data/podcast-index-meta.json"
+        internal val STATS_URL: String get() = "$SERVER_BASE_URL/data/popular-podcasts.json"
+        internal val NEW_PODCASTS_URL: String get() = "$SERVER_BASE_URL/data/new-podcasts.json"
 
         // ── Live search URL ───────────────────────────────────────────────────
-
-        // Cloud Function base URL (set via CLOUD_FUNCTION_URL in local.properties).
-        // Uses the default production endpoint when not configured.
-        private val CLOUD_FUNCTION_URL: String get() = BuildConfig.CLOUD_FUNCTION_URL
-
-        // Default cloud-hosted live search endpoint.
-        internal const val SERVER_BASE_URL = "https://podcast-search-tcy4hnuh2q-nw.a.run.app"
-
-        // Resolved live-search base URL: prefer explicit build-time override, else default.
-        internal val LIVE_SEARCH_URL: String
-            get() = CLOUD_FUNCTION_URL.takeIf { it.isNotBlank() } ?: SERVER_BASE_URL
+        internal val LIVE_SEARCH_URL: String get() = SERVER_BASE_URL
 
         private const val CONNECT_TIMEOUT_MS = 10_000
         private const val READ_TIMEOUT_MS = 30_000

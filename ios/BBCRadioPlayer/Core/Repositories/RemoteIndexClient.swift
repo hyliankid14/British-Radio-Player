@@ -42,8 +42,8 @@ struct RemoteIndexEpisode: Decodable {
 }
 
 struct RemoteIndexClient {
-    static let indexURL = URL(string: "https://storage.googleapis.com/bbc-radio-player-index-20260317-bc149e38/podcast-index.json.gz")!
-    static let metaURL = URL(string: "https://storage.googleapis.com/bbc-radio-player-index-20260317-bc149e38/podcast-index-meta.json")!
+    static let indexURL = URL(string: "https://bbc-radio.shai.website/data/podcast-index.json.gz")!
+    static let metaURL = URL(string: "https://bbc-radio.shai.website/data/podcast-index-meta.json")!
 
     private let session: URLSession
 

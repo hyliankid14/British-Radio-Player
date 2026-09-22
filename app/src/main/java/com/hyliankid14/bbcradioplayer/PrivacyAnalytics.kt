@@ -22,7 +22,7 @@ class PrivacyAnalytics(private val context: Context) {
 
         // Default self-hosted analytics endpoint on your Raspberry Pi.
         // Overridden at build time via ANALYTICS_ENDPOINT_URL in local.properties.
-        private const val DEFAULT_ANALYTICS_ENDPOINT = "https://raspberrypi.tailc23afa.ts.net:8443/event"
+        private const val DEFAULT_ANALYTICS_ENDPOINT = "https://bbc-radio.shai.website/event"
 
         private fun resolveEndpoint(): String {
             val configured = BuildConfig.ANALYTICS_ENDPOINT_URL.trim()

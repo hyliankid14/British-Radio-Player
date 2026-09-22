@@ -522,7 +522,7 @@ final class PrivacyAnalyticsService: ObservableObject {
     private let enabledKey = "analytics_enabled"
     private let firstRunShownKey = "analytics_first_run"
 
-    private let analyticsEndpoint = "https://raspberrypi.tailc23afa.ts.net:8443/event"
+    private let analyticsEndpoint = "https://bbc-radio.shai.website/event"
 
     @Published var isEnabled: Bool {
         didSet {

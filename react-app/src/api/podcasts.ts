@@ -1,6 +1,6 @@
 import { Preferences } from "../storage/preferences";
 
-export const PI_BASE_URL = "https://raspberrypi.tailc23afa.ts.net:8443";
+export const PI_BASE_URL = "https://bbc-radio.shai.website";
 export const BBC_OPML_URL = "https://www.bbc.co.uk/radio/opml/bbc_podcast_opml.xml";
 
 export interface Podcast {
@@ -175,37 +175,67 @@ export const PodcastApi = {
   },
 
   /**
-   * Fetch popular podcasts snapshot from Raspberry Pi via /data/popular-podcasts.json
+   * Fetch popular podcasts snapshot from Raspberry Pi via /data/popular-podcasts.json.
+   * Returns fresh MMKV cache immediately when < 6 hours old (mirrors Kotlin disk cache).
+   * On success writes through to cache; on failure returns stale cache so the list
+   * is never empty after the first successful fetch.
    */
   async getPopularPodcastsFromPi(): Promise<PopularEntry[]> {
+    // 1. Return fresh cache immediately — avoids a network round-trip on every launch
+    const cached = Preferences.getCachedPopularPodcasts();
+    if (cached) return cached;
+
+    // 2. Fetch live from Pi
     try {
       const res = await fetch(`${PI_BASE_URL}/data/popular-podcasts.json`, {
         headers: { Accept: "application/json" }
       });
-      if (!res.ok) return [];
-      const json = await res.json();
-      return json.popular_podcasts || [];
+      if (res.ok) {
+        const json = await res.json();
+        const entries: PopularEntry[] = json.popular_podcasts || [];
+        if (entries.length > 0) {
+          Preferences.setCachedPopularPodcasts(entries);
+          return entries;
+        }
+      }
     } catch (err) {
       console.warn("Failed to get popular podcasts from Raspberry Pi:", err);
-      return [];
     }
+
+    // 3. Fallback: return stale cache (Pi unreachable / Tailscale off)
+    return Preferences._readPopularPodcastsRaw() ?? [];
   },
 
   /**
-   * Fetch new podcasts snapshot from Raspberry Pi via /data/new-podcasts.json
+   * Fetch new podcasts snapshot from Raspberry Pi via /data/new-podcasts.json.
+   * Returns fresh MMKV cache immediately when < 6 hours old (mirrors Kotlin disk cache).
+   * On success writes through to cache; on failure returns stale cache so the list
+   * is never empty after the first successful fetch.
    */
   async getNewPodcastsFromPi(): Promise<NewPodcastEntry[]> {
+    // 1. Return fresh cache immediately
+    const cached = Preferences.getCachedNewPodcasts();
+    if (cached) return cached;
+
+    // 2. Fetch live from Pi
     try {
       const res = await fetch(`${PI_BASE_URL}/data/new-podcasts.json`, {
         headers: { Accept: "application/json" }
       });
-      if (!res.ok) return [];
-      const json = await res.json();
-      return json.new_podcasts || [];
+      if (res.ok) {
+        const json = await res.json();
+        const entries: NewPodcastEntry[] = json.new_podcasts || [];
+        if (entries.length > 0) {
+          Preferences.setCachedNewPodcasts(entries);
+          return entries;
+        }
+      }
     } catch (err) {
       console.warn("Failed to get new podcasts from Raspberry Pi:", err);
-      return [];
     }
+
+    // 3. Fallback: return stale cache
+    return Preferences._readNewPodcastsRaw() ?? [];
   },
 
   /**

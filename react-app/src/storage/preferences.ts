@@ -107,6 +107,11 @@ const KEYS = {
   ,PLAYLIST_ENTRIES: "pref_podcast_playlist_entries"
   ,LAST_PLAYED_EPOCH: "pref_last_played_epoch"
   ,EPISODE_SORT: "pref_podcast_episode_sort"
+  // Snapshot caches — mirroring Kotlin RemoteIndexClient 6-hour TTL disk cache
+  ,POPULAR_PODCASTS_CACHE: "cache_popular_podcasts_data"
+  ,POPULAR_PODCASTS_CACHE_AT: "cache_popular_podcasts_at"
+  ,NEW_PODCASTS_CACHE: "cache_new_podcasts_data"
+  ,NEW_PODCASTS_CACHE_AT: "cache_new_podcasts_at"
 };
 
 export const Preferences = {
@@ -684,6 +689,48 @@ export const Preferences = {
     } catch {
       return {};
     }
+  },
+
+  // ── Snapshot caches (Popular & New Podcasts — 6-hour TTL, mirrors Kotlin) ──
+
+  /** @internal Read cache regardless of TTL — used as last-resort fallback. */
+  _readPopularPodcastsRaw(): { id: string; name: string; plays: number }[] | null {
+    const raw = storage.getString(KEYS.POPULAR_PODCASTS_CACHE);
+    if (!raw) return null;
+    try { const p = JSON.parse(raw); return Array.isArray(p) ? p : null; } catch { return null; }
+  },
+
+  /** @internal Read new-podcasts cache regardless of TTL. */
+  _readNewPodcastsRaw(): { id: string; title: string; first_seen_epoch_ms?: number; oldest_pub_epoch_ms?: number }[] | null {
+    const raw = storage.getString(KEYS.NEW_PODCASTS_CACHE);
+    if (!raw) return null;
+    try { const p = JSON.parse(raw); return Array.isArray(p) ? p : null; } catch { return null; }
+  },
+
+  /** Read the cached popular podcasts list. Returns null when absent or stale (>6 h). */
+  getCachedPopularPodcasts(): { id: string; name: string; plays: number }[] | null {
+    const cachedAt = storage.getNumber(KEYS.POPULAR_PODCASTS_CACHE_AT) ?? 0;
+    if (Date.now() - cachedAt > 6 * 60 * 60 * 1000) return null;
+    return this._readPopularPodcastsRaw();
+  },
+
+  /** Persist a fresh popular podcasts list with the current timestamp. */
+  setCachedPopularPodcasts(entries: { id: string; name: string; plays: number }[]): void {
+    storage.set(KEYS.POPULAR_PODCASTS_CACHE, JSON.stringify(entries));
+    storage.set(KEYS.POPULAR_PODCASTS_CACHE_AT, Date.now());
+  },
+
+  /** Read the cached new podcasts list. Returns null when absent or stale (>6 h). */
+  getCachedNewPodcasts(): { id: string; title: string; first_seen_epoch_ms?: number; oldest_pub_epoch_ms?: number }[] | null {
+    const cachedAt = storage.getNumber(KEYS.NEW_PODCASTS_CACHE_AT) ?? 0;
+    if (Date.now() - cachedAt > 6 * 60 * 60 * 1000) return null;
+    return this._readNewPodcastsRaw();
+  },
+
+  /** Persist a fresh new podcasts list with the current timestamp. */
+  setCachedNewPodcasts(entries: { id: string; title: string; first_seen_epoch_ms?: number; oldest_pub_epoch_ms?: number }[]): void {
+    storage.set(KEYS.NEW_PODCASTS_CACHE, JSON.stringify(entries));
+    storage.set(KEYS.NEW_PODCASTS_CACHE_AT, Date.now());
   },
 
   exportBackup(): string {

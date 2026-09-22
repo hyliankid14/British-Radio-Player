@@ -6,9 +6,9 @@ External uptime monitoring for the BBC Radio Player Raspberry Pi via UptimeRobot
 
 | Service | URL | Port |
 |---------|-----|------|
-| Nginx Reverse Proxy | `https://raspberrypi.tailc23afa.ts.net:8443` | 8443 |
-| Search Server | `http://raspberrypi.tailc23afa.ts.net:5001` | 5001 |
-| Analytics Server | `http://raspberrypi.tailc23afa.ts.net:5002` | 5002 |
+| Podcast API (Cloudflare Tunnel) | `https://bbc-radio.shai.website` | 443 |
+| Search Server (Pi localhost) | `http://127.0.0.1:5001` | 5001 |
+| Analytics Server (Pi localhost) | `http://127.0.0.1:5002` | 5002 |
 
 ## UptimeRobot Monitors
 
@@ -16,10 +16,10 @@ Account: shaivure@gmail.com (free tier)
 
 | # | Monitor Name | Type | URL | Interval | Purpose |
 |---|---|---|---|---|---|
-| 1 | BBC Radio Pi - Nginx (HTTPS) | HTTPS | `https://raspberrypi.tailc23afa.ts.net:8443` | 5 min | Full stack check (reverse proxy + SSL) |
-| 2 | BBC Radio Pi - Search Server | HTTP | `http://raspberrypi.tailc23afa.ts.net:5001/health` | 5 min | Search service health endpoint |
-| 3 | BBC Radio Pi - Analytics Server | HTTP | `http://raspberrypi.tailc23afa.ts.net:5002/stats` | 5 min | Analytics service responding |
-| 4 | BBC Radio Pi - Ping | Ping | `raspberrypi.tailc23afa.ts.net` | 5 min | Network-level reachability |
+| 1 | BBC Radio Pi - Public API (HTTPS) | HTTPS | `https://bbc-radio.shai.website/data/podcast-index-meta.json` | 5 min | Full stack check (Cloudflare Tunnel + Nginx + static data) |
+| 2 | BBC Radio Pi - Search Server | HTTPS | `https://bbc-radio.shai.website/index/status` | 5 min | Search service health endpoint |
+| 3 | BBC Radio Pi - Analytics Server | HTTPS | `https://bbc-radio.shai.website/stats` | 5 min | Analytics service responding |
+| 4 | BBC Radio Pi - Public API Reachability | Ping | `bbc-radio.shai.website` | 5 min | Public hostname reachability |
 
 ### Monitor Settings
 
@@ -82,10 +82,7 @@ curl -X POST https://api.uptimerobot.com/v2/resumeMonitor \
 
 ### SSL Certificate Warning
 
-Port 8443 uses a self-signed SSL certificate. UptimeRobot may report an SSL warning instead of a full "Down" status. If this causes noisy alerts:
-
-- Option A: Disable "SSL Certificate Validation" for the HTTPS monitor in UptimeRobot settings
-- Option B: Rely on the HTTP monitors (ports 5001, 5002) as your primary indicators
+The public endpoint uses a Cloudflare-issued certificate, so UptimeRobot should not report SSL warnings. If it does, verify the Cloudflare Tunnel is connected and the hostname is proxied (orange cloud) in the Cloudflare dashboard.
 
 ### No Alerts Received
 
@@ -97,6 +94,6 @@ Port 8443 uses a self-signed SSL certificate. UptimeRobot may report an SSL warn
 ### False Positives
 
 If you receive alerts but services are running:
-- Check if Tailscale had a brief reconnect
-- Check Pi network connectivity logs: `journalctl -u tailscaled`
+- Check if the Cloudflare Tunnel had a brief reconnect: `sudo systemctl status cloudflared`
+- Check Pi network connectivity logs: `journalctl -u cloudflared`
 - Consider increasing alert sensitivity to "2 consecutive failures"

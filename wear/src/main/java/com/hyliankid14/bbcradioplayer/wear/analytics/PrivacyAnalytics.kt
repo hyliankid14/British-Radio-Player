@@ -16,7 +16,7 @@ class PrivacyAnalytics(private val context: Context) {
         private const val PREFS_NAME = "privacy_analytics"
         private const val KEY_ENABLED = "analytics_enabled"
         private const val TAG = "WearPrivacyAnalytics"
-        private const val DEFAULT_ANALYTICS_ENDPOINT = "https://raspberrypi.tailc23afa.ts.net:8443/event"
+        private const val DEFAULT_ANALYTICS_ENDPOINT = "https://bbc-radio.shai.website/event"
         private const val PLATFORM = "wear"
 
         private fun resolveEndpoint(): String {

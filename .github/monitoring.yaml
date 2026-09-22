@@ -9,19 +9,19 @@
 # API Docs: https://uptimerobot.com/api
 
 monitors:
-  - name: "BBC Radio Pi - Nginx (HTTPS)"
+  - name: "BBC Radio Pi - Public API (HTTPS)"
     type: https
-    url: "https://raspberrypi.tailc23afa.ts.net:8443"
+    url: "https://bbc-radio.shai.website/data/podcast-index-meta.json"
     interval_minutes: 5
     timeout_seconds: 30
     expected_status: 200
-    purpose: "Full stack check - reverse proxy + SSL"
+    purpose: "Full stack check - Cloudflare Tunnel + Nginx + static data"
     alert_contact: "shaivure@gmail.com"
-    notes: "Self-signed SSL cert may trigger warnings. Disable SSL validation in UptimeRobot if needed."
+    notes: "Public endpoint via Cloudflare Tunnel; no SSL warnings."
 
   - name: "BBC Radio Pi - Search Server"
-    type: http
-    url: "http://raspberrypi.tailc23afa.ts.net:5001/health"
+    type: https
+    url: "https://bbc-radio.shai.website/index/status"
     interval_minutes: 5
     timeout_seconds: 30
     expected_status: 200
@@ -29,20 +29,20 @@ monitors:
     alert_contact: "shaivure@gmail.com"
 
   - name: "BBC Radio Pi - Analytics Server"
-    type: http
-    url: "http://raspberrypi.tailc23afa.ts.net:5002/stats"
+    type: https
+    url: "https://bbc-radio.shai.website/stats"
     interval_minutes: 5
     timeout_seconds: 30
     expected_status: 200
     purpose: "Analytics service responding"
     alert_contact: "shaivure@gmail.com"
 
-  - name: "BBC Radio Pi - Ping"
+  - name: "BBC Radio Pi - Public API Reachability"
     type: ping
-    url: "raspberrypi.tailc23afa.ts.net"
+    url: "bbc-radio.shai.website"
     interval_minutes: 5
     timeout_seconds: 30
-    purpose: "Network-level reachability"
+    purpose: "Public hostname reachability"
     alert_contact: "shaivure@gmail.com"
 
 alert_settings:

@@ -44,10 +44,10 @@ interface with useful features for listeners.
 ### Podcasts
 - Search and subscribe to BBC podcasts; save or download individual episodes.
 - Per-podcast new-episode notifications, configurable refresh intervals, and
-  background cloud-index sync (Google Cloud Storage) to keep the list
+  background index sync against the self-hosted podcast server to keep the list
   current without draining data.
-- Analytics-powered “Most Popular” sort using a GCS snapshot updated every
-  6 hours; “New Podcasts” sort tracks podcasts added since your first install.
+- Analytics-powered “Most Popular” sort using a popularity snapshot updated
+  every 6 hours; “New Podcasts” sort tracks podcasts added since your first install.
 - Progress is tracked; episodes resume where you left off and the next one
   can autoplay. Downloaded episodes play offline and can auto‑delete.
 - Hide played episodes toggle; collapsible played-episodes section.
