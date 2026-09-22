@@ -6,6 +6,7 @@ import { CurrentShow, fetchShowInfo } from "../api/showInfo";
 import { Podcast, Episode, PodcastApi } from "../api/podcasts";
 import { LastFmApi } from "../api/lastfm";
 import { notifyNativePhonePlaybackStarted } from "../auto/autoBridge";
+import { getDownloadedUri } from "../downloads/downloadStore";
 
 interface PlayerState {
   currentStation: Station | null;
@@ -173,7 +174,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       await TrackPlayer.reset();
       await TrackPlayer.add({
         id: episode.id,
-        url: episode.audioUrl,
+        url: getDownloadedUri(episode.id) ?? episode.audioUrl,
         type: TrackType.Default,
         title: episode.title,
         artist: podcast.title,

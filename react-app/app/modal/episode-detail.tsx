@@ -7,6 +7,7 @@ import { Podcast, Episode, decodeXmlEntities } from "../../src/api/podcasts";
 import { useAppTheme } from "../../src/theme/colors";
 import { usePlayerStore } from "../../src/store/playerStore";
 import { Preferences } from "../../src/storage/preferences";
+import { toSavedEpisodeEntry, useDownloadStore } from "../../src/downloads/downloadStore";
 import { MiniPlayer } from "../../src/components/MiniPlayer";
 import { AppNavigation } from "../../src/components/AppNavigation";
 
@@ -53,19 +54,20 @@ export default function EpisodeDetailModal() {
 
   const isCurrentEpisode = currentEpisode?.id === episode.id;
   const [isSaved, setIsSaved] = useState(() => Preferences.isEpisodeSaved(episode.id));
+  const downloads = useDownloadStore((state) => state.downloads);
+  const downloadState = downloads[episode.id];
   const toggleSaved = () => {
-    const saved = Preferences.toggleSavedEpisode({
-      id: episode.id,
-      title: episode.title,
-      description: episode.description,
-      imageUrl: episode.imageUrl || podcast.imageUrl,
-      audioUrl: episode.audioUrl,
-      pubDate: episode.pubDate,
-      durationMins: episode.durationMins,
-      podcastId: podcast.id,
-      podcastTitle: podcast.title
-    });
+    const saved = Preferences.toggleSavedEpisode(toSavedEpisodeEntry(podcast, episode));
     setIsSaved(saved);
+  };
+  const toggleDownload = () => {
+    const store = useDownloadStore.getState();
+    const status = store.downloads[episode.id]?.status;
+    if (status === "downloaded") {
+      store.remove(episode.id);
+    } else if (status !== "downloading") {
+      void store.download(toSavedEpisodeEntry(podcast, episode));
+    }
   };
   const handlePlayPause = async () => {
     if (isCurrentEpisode) {
@@ -155,12 +157,49 @@ export default function EpisodeDetailModal() {
           <TouchableOpacity style={styles.controlButton} accessibilityLabel="Next">
             <MaterialIcons name="skip-next" size={25} color={theme.onSurface} />
           </TouchableOpacity>
+        </View>
+
+        <View style={styles.secondaryActions}>
           <TouchableOpacity
-            style={styles.controlButton}
+            style={[styles.secondaryActionButton, { borderColor: theme.outline, backgroundColor: theme.surface }]}
             onPress={toggleSaved}
             accessibilityLabel={isSaved ? "Remove saved episode" : "Save episode"}
           >
-            <MaterialIcons name={isSaved ? "star" : "star-border"} size={25} color={theme.onSurface} />
+            <MaterialIcons
+              name={isSaved ? "bookmark" : "bookmark-border"}
+              size={20}
+              color={isSaved ? theme.primary : theme.onSurface}
+            />
+            <Text style={[styles.secondaryActionText, { color: theme.onSurface }]}>
+              {isSaved ? "Saved" : "Save"}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.secondaryActionButton, { borderColor: theme.outline, backgroundColor: theme.surface }]}
+            onPress={toggleDownload}
+            accessibilityLabel={downloadState?.status === "downloaded" ? "Remove download" : "Download episode"}
+          >
+            <MaterialIcons
+              name={
+                downloadState?.status === "downloaded"
+                  ? "download-done"
+                  : downloadState?.status === "downloading"
+                    ? "hourglass-empty"
+                    : "file-download"
+              }
+              size={20}
+              color={downloadState?.status === "downloaded" ? theme.primary : theme.onSurface}
+            />
+            <Text style={[styles.secondaryActionText, { color: theme.onSurface }]}>
+              {downloadState?.status === "downloaded"
+                ? "Downloaded"
+                : downloadState?.status === "downloading"
+                  ? "Downloading..."
+                  : downloadState?.status === "error"
+                    ? "Retry download"
+                    : "Download"}
+            </Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -232,5 +271,16 @@ const styles = StyleSheet.create({
   miniPlayerWrapper: { position: "absolute", left: 0, right: 0 },
   navigationWrapper: { position: "absolute", left: 0, right: 0 },
   controlButton: { width: 48, height: 48, alignItems: "center", justifyContent: "center", marginHorizontal: 2 },
-  playPauseButton: { width: 64, height: 64, borderRadius: 32, alignItems: "center", justifyContent: "center", marginHorizontal: 4 }
+  playPauseButton: { width: 64, height: 64, borderRadius: 32, alignItems: "center", justifyContent: "center", marginHorizontal: 4 },
+  secondaryActions: { flexDirection: "row", justifyContent: "center", width: "100%", marginTop: 4, marginBottom: 12 },
+  secondaryActionButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderRadius: 22,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    marginHorizontal: 6
+  },
+  secondaryActionText: { fontSize: 14, fontWeight: "600", marginLeft: 8 }
 });

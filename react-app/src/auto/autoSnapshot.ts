@@ -273,7 +273,7 @@ export async function buildAutoSnapshot(includePodcastData = true): Promise<Auto
     podcastTags,
     episodes,
     playlists,
-    downloads: [],
+    downloads: Preferences.getPodcastPlaylistEntries("downloaded").map(savedToAutoEpisode),
     history: Preferences.getPodcastHistory().map(historyToAutoEpisode),
     playedIds: Preferences.getPlayedEpisodeIds(),
     progress: progressMs,

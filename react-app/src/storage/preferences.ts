@@ -14,6 +14,13 @@ export interface SavedEpisodeEntry {
   savedAtMs?: number;
 }
 
+export interface DownloadedEpisodeRecord {
+  localUri: string;
+  sizeBytes?: number;
+  downloadedAtMs: number;
+  entry: SavedEpisodeEntry;
+}
+
 export interface PodcastHistoryEntry {
   id: string;
   title: string;
@@ -105,6 +112,7 @@ const KEYS = {
   ,EPISODE_PROGRESS: "pref_episode_progress"
   ,PODCAST_HISTORY: "pref_podcast_history"
   ,PLAYLIST_ENTRIES: "pref_podcast_playlist_entries"
+  ,DOWNLOADED_EPISODES: "pref_downloaded_episodes"
   ,LAST_PLAYED_EPOCH: "pref_last_played_epoch"
   ,EPISODE_SORT: "pref_podcast_episode_sort"
   // Snapshot caches — mirroring Kotlin RemoteIndexClient 6-hour TTL disk cache
@@ -362,9 +370,10 @@ export const Preferences = {
 
   getPodcastPlaylists(): { id: string; name: string; isDefault: boolean; itemCount: number }[] {
     const raw = storage.getString("pref_podcast_playlists");
+    const entryMap = this.getPlaylistEntryMap();
     const defaults = [
-      { id: "saved", name: "Saved Episodes", isDefault: true, itemCount: 0 },
-      { id: "downloaded", name: "Downloaded Files", isDefault: true, itemCount: 0 }
+      { id: "saved", name: "Saved Episodes", isDefault: true, itemCount: (entryMap["saved"] || []).length },
+      { id: "downloaded", name: "Downloaded Files", isDefault: true, itemCount: Object.keys(this.getDownloadedEntries()).length }
     ];
     if (!raw) return defaults;
     try {
@@ -667,6 +676,44 @@ export const Preferences = {
     this.setPodcastPlaylists(
       playlists.map((playlist) => ({ ...playlist, itemCount: (all[playlist.id] || []).length }))
     );
+  },
+
+  // ── Offline downloads ───────────────────────────────────────────────────────
+
+  getDownloadedEntries(): Record<string, DownloadedEpisodeRecord> {
+    const raw = storage.getString(KEYS.DOWNLOADED_EPISODES);
+    if (!raw) return {};
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object"
+        ? parsed as Record<string, DownloadedEpisodeRecord>
+        : {};
+    } catch {
+      return {};
+    }
+  },
+
+  getDownloadedEntry(episodeId: string): DownloadedEpisodeRecord | undefined {
+    return this.getDownloadedEntries()[episodeId];
+  },
+
+  isEpisodeDownloaded(episodeId: string): boolean {
+    return !!this.getDownloadedEntries()[episodeId];
+  },
+
+  setDownloadedEntry(episodeId: string, record: DownloadedEpisodeRecord): void {
+    if (!episodeId) return;
+    const all = this.getDownloadedEntries();
+    all[episodeId] = record;
+    storage.set(KEYS.DOWNLOADED_EPISODES, JSON.stringify(all));
+  },
+
+  removeDownloadedEntry(episodeId: string): void {
+    const all = this.getDownloadedEntries();
+    if (all[episodeId]) {
+      delete all[episodeId];
+      storage.set(KEYS.DOWNLOADED_EPISODES, JSON.stringify(all));
+    }
   },
 
   getMap(key: string): Record<string, number> {

@@ -11,13 +11,14 @@ import {
   Modal,
   ScrollView
 } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useAppTheme } from "../../src/theme/colors";
 import { Podcast, Episode, PodcastApi, decodeXmlEntities } from "../../src/api/podcasts";
 import { usePlayerStore } from "../../src/store/playerStore";
 import { Preferences } from "../../src/storage/preferences";
+import { toSavedEpisodeEntry, useDownloadStore } from "../../src/downloads/downloadStore";
 import { MiniPlayer } from "../../src/components/MiniPlayer";
 import { AppNavigation } from "../../src/components/AppNavigation";
 
@@ -59,6 +60,40 @@ export default function PodcastDetailModal() {
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { playEpisode, pause, resume, currentEpisode, isPlaying } = usePlayerStore();
+  const downloads = useDownloadStore((state) => state.downloads);
+  const [savedIds, setSavedIds] = useState<Set<string>>(
+    () => new Set(Preferences.getPodcastPlaylistEntries("saved").map((entry) => entry.id))
+  );
+
+  const toggleSave = useCallback((ep: Episode) => {
+    if (!podcast) return;
+    const saved = Preferences.toggleSavedEpisode(toSavedEpisodeEntry(podcast, ep));
+    setSavedIds((current) => {
+      const next = new Set(current);
+      if (saved) next.add(ep.id);
+      else next.delete(ep.id);
+      return next;
+    });
+  }, [podcast]);
+
+  const toggleDownload = useCallback((ep: Episode) => {
+    if (!podcast) return;
+    const store = useDownloadStore.getState();
+    const status = store.downloads[ep.id]?.status;
+    if (status === "downloaded") {
+      store.remove(ep.id);
+    } else if (status !== "downloading") {
+      void store.download(toSavedEpisodeEntry(podcast, ep));
+    }
+  }, [podcast]);
+
+  // Saved state can change while this screen is backgrounded (e.g. from the episode
+  // detail modal), so refresh it whenever the screen regains focus.
+  useFocusEffect(
+    useCallback(() => {
+      setSavedIds(new Set(Preferences.getPodcastPlaylistEntries("saved").map((entry) => entry.id)));
+    }, [])
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -329,20 +364,58 @@ export default function PodcastDetailModal() {
             ) : null}
           </View>
 
-          <TouchableOpacity
-            style={[styles.playIconButton, { backgroundColor: theme.primary }]}
-            onPress={handlePlayPause}
-          >
-            <MaterialIcons
-              name={isCurrentPlaying ? "pause" : "play-arrow"}
-              size={24}
-              color={theme.onPrimary}
-            />
-          </TouchableOpacity>
+          <View style={styles.episodeActions}>
+            <TouchableOpacity
+              style={styles.episodeActionButton}
+              onPress={() => toggleSave(ep)}
+              accessibilityLabel={savedIds.has(ep.id) ? "Remove saved episode" : "Save episode"}
+            >
+              <MaterialIcons
+                name={savedIds.has(ep.id) ? "bookmark" : "bookmark-border"}
+                size={22}
+                color={savedIds.has(ep.id) ? theme.primary : theme.onSurfaceVariant}
+              />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.episodeActionButton}
+              onPress={() => toggleDownload(ep)}
+              accessibilityLabel={
+                downloads[ep.id]?.status === "downloaded" ? "Remove download" : "Download episode"
+              }
+            >
+              <MaterialIcons
+                name={
+                  downloads[ep.id]?.status === "downloaded"
+                    ? "download-done"
+                    : downloads[ep.id]?.status === "downloading"
+                      ? "hourglass-empty"
+                      : "file-download"
+                }
+                size={22}
+                color={
+                  downloads[ep.id]?.status === "downloaded"
+                    ? theme.primary
+                    : theme.onSurfaceVariant
+                }
+              />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.playIconButton, { backgroundColor: theme.primary }]}
+              onPress={handlePlayPause}
+            >
+              <MaterialIcons
+                name={isCurrentPlaying ? "pause" : "play-arrow"}
+                size={24}
+                color={theme.onPrimary}
+              />
+            </TouchableOpacity>
+          </View>
         </TouchableOpacity>
       );
     },
-    [podcast, currentEpisode?.id, isPlaying, playEpisode, pause, resume, router, theme]
+    [podcast, currentEpisode?.id, isPlaying, playEpisode, pause, resume, router, theme, savedIds, downloads, toggleSave, toggleDownload]
   );
 
   const renderEmpty = useCallback(() => {
@@ -739,6 +812,16 @@ const styles = StyleSheet.create({
   episodeDescription: {
     fontSize: 12,
     lineHeight: 16
+  },
+  episodeActions: {
+    flexDirection: "row",
+    alignItems: "center"
+  },
+  episodeActionButton: {
+    width: 36,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center"
   },
   playIconButton: {
     width: 40,

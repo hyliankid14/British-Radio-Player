@@ -186,6 +186,7 @@ export default function FavouritesScreen() {
   );
   const [recentSongs, setRecentSongs] = useState(() => Preferences.getRecentSongs());
   const [, forceTagUpdate] = useState(0);
+  const [, refreshFromStore] = useState(0);
 
   const {
     favorites,
@@ -198,16 +199,24 @@ export default function FavouritesScreen() {
   } = usePlayerStore();
 
   const allStations = useMemo(() => StationRepository.getAll(), []);
-  const [orderedList, setOrderedList] = useState<Station[]>([]);
 
-  // Sync orderedList whenever favorites change externally or on load
-  useEffect(() => {
-    const map = new Map(allStations.map((s) => [s.id, s]));
-    const list = favorites
-      .map((id) => map.get(id))
-      .filter((s): s is Station => s !== undefined);
-    setOrderedList(list);
-  }, [allStations, favorites]);
+  const buildOrderedList = useCallback(
+    (ids: string[]) => {
+      const map = new Map(allStations.map((s) => [s.id, s]));
+      return ids
+        .map((id) => map.get(id))
+        .filter((s): s is Station => s !== undefined);
+    },
+    [allStations]
+  );
+
+  // Derive the list directly from the store rather than mirroring it in local state. A
+  // mirror could end up empty (showing "No favourite stations yet") while the stations
+  // were still starred elsewhere in the app.
+  const orderedList = useMemo(
+    () => buildOrderedList(favorites),
+    [buildOrderedList, favorites]
+  );
 
   useEffect(() => {
     let isMounted = true;
@@ -284,6 +293,7 @@ export default function FavouritesScreen() {
       const searches = Preferences.getSavedPodcastSearches();
       setSavedSearches(searches);
       setRecentSongs(Preferences.getRecentSongs());
+      setPlaylists(Preferences.getPodcastPlaylists());
       void Promise.all(
         searches.map(async (search) => {
           const results = await PodcastApi.searchEpisodesOnPi(search.query, 100);
@@ -406,6 +416,30 @@ export default function FavouritesScreen() {
     return neighborTranslations.current[id];
   }, []);
 
+  const resetDragState = useCallback(() => {
+    panY.setValue(0);
+    scaleAnim.setValue(1);
+    Object.values(neighborTranslations.current).forEach((value) => value.setValue(0));
+    isDraggingRef.current = false;
+    dragStartIndexRef.current = 0;
+    currentTargetIndexRef.current = 0;
+    setDraggingStationId(null);
+  }, [panY, scaleAnim]);
+
+  // Re-read the store and clear any interrupted drag animation when the tab regains
+  // focus or the user switches between the favourites sections (Stations, Playlists...).
+  // Without this the rows could stay hidden behind leaked drag offsets until a restart.
+  useFocusEffect(
+    useCallback(() => {
+      resetDragState();
+      refreshFromStore((value) => value + 1);
+    }, [resetDragState])
+  );
+
+  useEffect(() => {
+    resetDragState();
+  }, [activeCategory, resetDragState]);
+
   const handlePlayStation = useCallback(
     (station: Station) => {
       if (currentStation?.id === station.id) {
@@ -519,12 +553,16 @@ export default function FavouritesScreen() {
             if (finalTarget !== fromIdx) {
               const updated = [...currentList];
               const [moved] = updated.splice(fromIdx, 1);
-              updated.splice(finalTarget, 0, moved);
-              setOrderedList(updated);
+              if (moved) {
+                updated.splice(finalTarget, 0, moved);
 
-              const newIds = updated.map((s) => s.id);
-              const otherFavorites = favorites.filter((id) => !newIds.includes(id));
-              setFavoritesOrder([...newIds, ...otherFavorites]);
+                const newIds = updated.map((s) => s.id);
+                // Read the live ids from the store: a favourite toggled elsewhere must
+                // not be dropped by a stale closure captured when the drag started.
+                const latestFavorites = usePlayerStore.getState().favorites;
+                const otherFavorites = latestFavorites.filter((id) => !newIds.includes(id));
+                setFavoritesOrder([...newIds, ...otherFavorites]);
+              }
             }
           });
         },
@@ -548,7 +586,7 @@ export default function FavouritesScreen() {
           });
         }
       }),
-    [favorites, getTranslation, panY, scaleAnim, setFavoritesOrder]
+    [getTranslation, panY, scaleAnim, setFavoritesOrder]
   );
 
   const renderStationItem = useCallback(
@@ -789,7 +827,12 @@ export default function FavouritesScreen() {
             <TouchableOpacity
               style={[styles.playlistRow, { backgroundColor: theme.surface, borderBottomColor: theme.outlineVariant }]}
               activeOpacity={0.7}
-              onPress={() => Alert.alert(item.name, item.isDefault ? "Built-in playlist" : "Custom playlist")}
+              onPress={() =>
+                router.push({
+                  pathname: "/modal/playlist-detail",
+                  params: { playlistId: item.id, playlistName: item.name }
+                })
+              }
             >
               <View style={[styles.playlistIcon, { backgroundColor: theme.primaryContainer }]}>
                 <MaterialIcons

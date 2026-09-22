@@ -61,6 +61,14 @@ export default function RootLayout() {
           }}
         />
         <Stack.Screen
+          name="modal/playlist-detail"
+          options={{
+            presentation: "modal",
+            headerShown: false,
+            gestureEnabled: true
+          }}
+        />
+        <Stack.Screen
           name="modal/schedule"
           options={{
             presentation: "modal",
