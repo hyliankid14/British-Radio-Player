@@ -42,8 +42,13 @@ class PodcastRepository(private val context: Context) {
     )
 
     companion object {
-        private const val NEW_PODCAST_STATE_SCHEMA_VERSION = 2
+        private const val NEW_PODCAST_STATE_SCHEMA_VERSION = 3
         private const val NEW_PODCAST_MAX_COUNT = 50
+
+        // The persisted "New Podcasts" state preserves the server's release-date order. It is
+        // refreshed from the snapshot at most once per this window so the ordering does not go
+        // stale (and so a state written by the offline full-index fallback self-heals).
+        private const val NEW_PODCAST_STATE_TTL_MS = 6 * 60 * 60 * 1_000L
     }
 
     // In-memory cache of fetched episode metadata to support searching episode titles/descriptions
@@ -747,12 +752,12 @@ class PodcastRepository(private val context: Context) {
         val requestedIds = podcasts.map { it.id }.toSet()
         if (requestedIds.isEmpty()) return@withContext emptyMap()
 
-        // Fast path: if the on-device state already has epochs for the requested IDs and a
-        // refresh is not forced, return immediately without acquiring the network mutex.
+        // Fast path: return the on-device state immediately when it is present, belongs to the
+        // current schema, and was refreshed recently. The state preserves the server's
+        // release-date order, so serving it avoids a network round-trip while it is still fresh.
         if (!forceRefresh) {
-            getAvailableNewPodcastEpochsNow(podcasts).let { cached ->
-                if (cached.isNotEmpty()) return@withContext cached
-            }
+            val cached = getAvailableNewPodcastEpochsNow(podcasts)
+            if (cached.isNotEmpty() && isNewPodcastStateFresh()) return@withContext cached
         }
 
         // Single-flight: serialize concurrent callers (e.g. the background prewarm kicked off
@@ -761,12 +766,11 @@ class PodcastRepository(private val context: Context) {
         // endpoint. The disk-cache write inside the critical section ensures any caller that
         // arrives after the first finishes sees the result via the fast path above.
         newPodcastsFetchMutex.withLock {
+            val cached = getAvailableNewPodcastEpochsNow(podcasts)
             // Double-check after acquiring the lock — a previous concurrent caller may have
-            // just populated the on-device state.
-            if (!forceRefresh) {
-                getAvailableNewPodcastEpochsNow(podcasts).let { cached ->
-                    if (cached.isNotEmpty()) return@withLock cached
-                }
+            // just refreshed the on-device state.
+            if (!forceRefresh && cached.isNotEmpty() && isNewPodcastStateFresh()) {
+                return@withLock cached
             }
 
             try {
@@ -796,6 +800,12 @@ class PodcastRepository(private val context: Context) {
                 }
             } catch (e: Exception) {
                 Log.w("PodcastRepository", "Failed to fetch cloud New Podcasts snapshot", e)
+            }
+
+            // Snapshot unavailable (offline / server error): prefer any usable cached state,
+            // even if stale, over the costly full-index fallback below.
+            if (cached.isNotEmpty()) {
+                return@withLock cached
             }
 
             val remoteIndexSummary = try {
@@ -845,8 +855,21 @@ class PodcastRepository(private val context: Context) {
         val requestedIds = podcasts.map { it.id }.toSet()
         if (requestedIds.isEmpty()) return emptyMap()
         val state = readNewPodcastState() ?: return emptyMap()
+        // Ignore state written by an older schema: it may carry an ordering produced by the
+        // offline full-index fallback (rather than the server's release-date order).
+        if (state.schemaVersion < NEW_PODCAST_STATE_SCHEMA_VERSION) return emptyMap()
         return trimNewPodcastEpochs(state.firstSeenEpochs, state.knownIds)
             .filterKeys { it in requestedIds }
+    }
+
+    /**
+     * True when the persisted New Podcasts state was refreshed within
+     * [NEW_PODCAST_STATE_TTL_MS]. Stale state is re-fetched from the snapshot so the
+     * release-date ordering stays current.
+     */
+    private fun isNewPodcastStateFresh(): Boolean {
+        if (!newPodcastsStateFile.exists()) return false
+        return System.currentTimeMillis() - newPodcastsStateFile.lastModified() < NEW_PODCAST_STATE_TTL_MS
     }
 
     private fun trimNewPodcastEpochs(
