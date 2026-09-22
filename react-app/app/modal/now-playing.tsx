@@ -18,7 +18,7 @@ import { MaterialIcons } from "@expo/vector-icons";
 import { usePlayerStore } from "../../src/store/playerStore";
 import { AUDIO_QUALITIES, AudioQuality } from "../../src/data/stations";
 import { formatShowDisplayTitle } from "../../src/api/showInfo";
-import { Podcast, PodcastApi, decodeXmlEntities } from "../../src/api/podcasts";
+import { Podcast, Episode, PodcastApi, decodeXmlEntities } from "../../src/api/podcasts";
 import { useAppTheme } from "../../src/theme/colors";
 import { StationLogo, getStationTint } from "../../src/components/StationLogo";
 import { SeekBar } from "../../src/components/SeekBar";
@@ -109,7 +109,12 @@ function parseEpoch(raw?: string): number {
 
 export default function NowPlayingModal() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ autoplay?: string; action?: string }>();
+  const params = useLocalSearchParams<{
+    autoplay?: string;
+    action?: string;
+    podcastData?: string;
+    episodeData?: string;
+  }>();
   const theme = useAppTheme();
   const {
     currentStation,
@@ -131,8 +136,29 @@ export default function NowPlayingModal() {
     seekTo,
     seekBy,
     toggleEpisodePlayed,
-    resume
+    resume,
+    playEpisode
   } = usePlayerStore();
+
+  const previewPodcast = React.useMemo<Podcast | null>(() => {
+    try {
+      return params.podcastData ? JSON.parse(params.podcastData) : null;
+    } catch {
+      return null;
+    }
+  }, [params.podcastData]);
+
+  const previewEpisode = React.useMemo<Episode | null>(() => {
+    try {
+      return params.episodeData ? JSON.parse(params.episodeData) : null;
+    } catch {
+      return null;
+    }
+  }, [params.episodeData]);
+
+  const isPreview = !currentStation && !!previewEpisode && previewEpisode.id !== currentEpisode?.id;
+  const activePodcast = isPreview ? previewPodcast : currentPodcast;
+  const activeEpisode = isPreview ? previewEpisode : currentEpisode;
 
   const downloads = useDownloadStore((state) => state.downloads);
 
@@ -147,9 +173,9 @@ export default function NowPlayingModal() {
   const [localPosition, setLocalPosition] = React.useState(positionSeconds);
   const [dragging, setDragging] = React.useState(false);
 
-  const isPodcast = !currentStation && !!currentEpisode && !!currentPodcast;
+  const isPodcast = !currentStation && !!activeEpisode && !!activePodcast;
   const artworkUrl = isPodcast
-    ? currentEpisode?.imageUrl || currentPodcast?.imageUrl
+    ? activeEpisode?.imageUrl || activePodcast?.imageUrl
     : currentShow?.imageUrl;
   const hasCustomArtwork = !!artworkUrl;
   const showTitle = currentShow ? formatShowDisplayTitle(currentShow) : "Radio";
@@ -160,7 +186,7 @@ export default function NowPlayingModal() {
 
   // Poll the player so the podcast scrubber advances smoothly between metadata events.
   React.useEffect(() => {
-    if (!isPodcast) return;
+    if (!isPodcast || isPreview) return;
     let mounted = true;
     const tick = async () => {
       try {
@@ -179,11 +205,18 @@ export default function NowPlayingModal() {
       mounted = false;
       clearInterval(interval);
     };
-  }, [isPodcast, dragging, durationSeconds]);
+  }, [isPodcast, isPreview, dragging, durationSeconds]);
 
   React.useEffect(() => {
-    if (!dragging) setLocalPosition(positionSeconds);
-  }, [positionSeconds, dragging]);
+    if (isPreview && previewEpisode) {
+      const savedPos = Preferences.getEpisodeProgress(previewEpisode.id);
+      setLocalPosition(savedPos);
+      const dur = (previewEpisode.durationMins || 0) * 60;
+      if (dur > 0) usePlayerStore.setState({ durationSeconds: dur });
+    } else if (!dragging) {
+      setLocalPosition(positionSeconds);
+    }
+  }, [isPreview, previewEpisode?.id, positionSeconds, dragging]);
 
   // Extract the adaptive palette from artwork, mirroring the Kotlin Now Playing theming.
   React.useEffect(() => {
@@ -205,7 +238,7 @@ export default function NowPlayingModal() {
         }
       }
       const fallbackTint = isPodcast
-        ? getStationTint(currentPodcast?.id || "podcast")
+        ? getStationTint(activePodcast?.id || "podcast")
         : getStationTint(currentStation?.id || "radio");
       if (!cancelled) setPalette(deriveColours(fallbackTint, isDark));
     }
@@ -213,7 +246,7 @@ export default function NowPlayingModal() {
     return () => {
       cancelled = true;
     };
-  }, [artworkUrl, hasCustomArtwork, isPodcast, currentStation?.id, currentPodcast?.id, theme.background]);
+  }, [artworkUrl, hasCustomArtwork, isPodcast, currentStation?.id, activePodcast?.id, theme.background]);
 
   // Match the live radio show against the podcast catalogue for the "Open Podcast" action.
   React.useEffect(() => {
@@ -241,21 +274,33 @@ export default function NowPlayingModal() {
   }, [currentStation?.id, currentShow?.title, currentShow?.episodeTitle]);
 
   React.useEffect(() => {
-    if (currentEpisode) {
-      setIsPlayed(Preferences.isEpisodePlayed(currentEpisode.id));
+    if (activeEpisode) {
+      setIsPlayed(Preferences.isEpisodePlayed(activeEpisode.id));
     }
-  }, [currentEpisode?.id, positionSeconds]);
+  }, [activeEpisode?.id, positionSeconds]);
 
   React.useEffect(() => {
-    if (currentPodcast) {
-      setIsSubscribed(Preferences.getSubscribedPodcasts().includes(currentPodcast.id));
+    if (activePodcast) {
+      setIsSubscribed(Preferences.getSubscribedPodcasts().includes(activePodcast.id));
     }
-  }, [currentPodcast?.id]);
+  }, [activePodcast?.id]);
 
   const handleStop = React.useCallback(async () => {
+    if (isPreview) {
+      router.back();
+      return;
+    }
     await stop();
     router.back();
-  }, [stop, router]);
+  }, [isPreview, stop, router]);
+
+  const handlePlayPause = React.useCallback(async () => {
+    if (isPreview && previewPodcast && previewEpisode) {
+      await playEpisode(previewPodcast, previewEpisode);
+    } else {
+      await togglePlayPause();
+    }
+  }, [isPreview, previewPodcast, previewEpisode, playEpisode, togglePlayPause]);
 
   React.useEffect(() => {
     if (params.autoplay === "true") resume();
@@ -279,19 +324,19 @@ export default function NowPlayingModal() {
   }
 
   const isFav = currentStation ? favorites.includes(currentStation.id) : false;
-  const headerTitle = currentStation ? currentStation.title : currentPodcast?.title || "Podcast";
+  const headerTitle = currentStation ? currentStation.title : activePodcast?.title || "Podcast";
   const background = palette?.subtle || theme.surfaceContainer;
   const outlineColour = palette?.buttonOutline || theme.surfaceVariant;
   const playPauseColour = palette?.playPause || theme.primary;
   const iconColour = palette?.icon || theme.onSurface;
   const controlIcon = palette?.isLight ? palette.icon : "#FFFFFF";
-  const downloaded = currentEpisode ? downloads[currentEpisode.id]?.status === "downloaded" : false;
+  const downloaded = activeEpisode ? downloads[activeEpisode.id]?.status === "downloaded" : false;
 
   const handleShare = async () => {
     try {
-      if (isPodcast && currentEpisode) {
+      if (isPodcast && activeEpisode) {
         await Share.share({
-          message: `${currentEpisode.title} — ${currentPodcast?.title}\n${currentEpisode.audioUrl}`
+          message: `${activeEpisode.title} — ${activePodcast?.title}\n${activeEpisode.audioUrl}`
         });
       } else {
         await Share.share({
@@ -311,46 +356,61 @@ export default function NowPlayingModal() {
   };
 
   const handleMarkPlayed = () => {
-    if (!currentEpisode) return;
+    if (!activeEpisode) return;
     const next = toggleEpisodePlayed(
-      currentEpisode.id,
-      currentEpisode.podcastId,
-      parseEpoch(currentEpisode.pubDate)
+      activeEpisode.id,
+      activeEpisode.podcastId,
+      parseEpoch(activeEpisode.pubDate)
     );
     setIsPlayed(next);
     setMenuVisible(false);
   };
 
   const handleSubscribe = () => {
-    if (!currentPodcast) return;
-    const subscribed = Preferences.togglePodcastSubscription(currentPodcast.id);
+    if (!activePodcast) return;
+    const subscribed = Preferences.togglePodcastSubscription(activePodcast.id);
     setIsSubscribed(subscribed);
     setMenuVisible(false);
   };
 
   const handleDownloadToggle = () => {
-    if (!currentEpisode || !currentPodcast) return;
+    if (!activeEpisode || !activePodcast) return;
     const store = useDownloadStore.getState();
-    const status = store.downloads[currentEpisode.id]?.status;
-    if (status === "downloaded") store.remove(currentEpisode.id);
-    else if (status !== "downloading") void store.download(toSavedEpisodeEntry(currentPodcast, currentEpisode));
+    const status = store.downloads[activeEpisode.id]?.status;
+    if (status === "downloaded") store.remove(activeEpisode.id);
+    else if (status !== "downloading") void store.download(toSavedEpisodeEntry(activePodcast, activeEpisode));
     setMenuVisible(false);
   };
 
   const handleAddToPlaylist = (playlistId: string) => {
-    if (!currentEpisode || !currentPodcast) return;
-    Preferences.addPodcastPlaylistEntry(playlistId, toSavedEpisodeEntry(currentPodcast, currentEpisode));
+    if (!activeEpisode || !activePodcast) return;
+    Preferences.addPodcastPlaylistEntry(playlistId, toSavedEpisodeEntry(activePodcast, activeEpisode));
     setPlaylistVisible(false);
   };
 
   const handlePrevious = () => {
-    if (isPodcast) void seekBy(-10);
-    else void playPrevious();
+    if (isPodcast) {
+      if (isPreview) {
+        setLocalPosition((pos) => Math.max(0, pos - 10));
+      } else {
+        void seekBy(-10);
+      }
+    } else {
+      void playPrevious();
+    }
   };
 
   const handleNext = () => {
-    if (isPodcast) void seekBy(30);
-    else void playNext();
+    if (isPodcast) {
+      if (isPreview) {
+        const total = durationSeconds || (activeEpisode?.durationMins || 0) * 60;
+        setLocalPosition((pos) => Math.min(total, pos + 30));
+      } else {
+        void seekBy(30);
+      }
+    } else {
+      void playNext();
+    }
   };
 
   const playlists = Preferences.getPodcastPlaylists().filter(
@@ -421,17 +481,17 @@ export default function NowPlayingModal() {
         </View>
 
         <Text style={[styles.showName, { color: iconColour }]} numberOfLines={2}>
-          {isPodcast ? decodeXmlEntities(currentEpisode?.title || "") : showTitle}
+          {isPodcast ? decodeXmlEntities(activeEpisode?.title || "") : showTitle}
         </Text>
 
         {isPodcast ? (
           <>
             <Text style={[styles.stationSubtitle, { color: iconColour, opacity: 0.8 }]} numberOfLines={1}>
-              {decodeXmlEntities(currentPodcast?.title || "")}
+              {decodeXmlEntities(activePodcast?.title || "")}
             </Text>
-            {currentEpisode?.pubDate ? (
+            {activeEpisode?.pubDate ? (
               <Text style={[styles.releaseDate, { color: iconColour, opacity: 0.7 }]}>
-                {formatEpisodeDate(currentEpisode.pubDate)}
+                {formatEpisodeDate(activeEpisode.pubDate)}
               </Text>
             ) : null}
           </>
@@ -455,13 +515,13 @@ export default function NowPlayingModal() {
           </>
         )}
 
-        {isPodcast && currentEpisode?.description ? (
+        {isPodcast && activeEpisode?.description ? (
           <View style={styles.descriptionContainer}>
             <Text
               style={[styles.description, { color: iconColour, opacity: 0.85 }]}
               numberOfLines={4}
             >
-              {decodeXmlEntities(currentEpisode.description)}
+              {decodeXmlEntities(activeEpisode.description)}
             </Text>
             <TouchableOpacity onPress={() => setDescriptionVisible(true)}>
               <Text style={[styles.showMore, { color: iconColour }]}>Show more</Text>
@@ -507,7 +567,7 @@ export default function NowPlayingModal() {
         <View style={styles.progressSection}>
           <SeekBar
             value={dragging ? localPosition : localPosition}
-            max={durationSeconds || currentEpisode?.durationMins * 60 || 0}
+            max={durationSeconds || (activeEpisode?.durationMins || 0) * 60 || 0}
             activeColor={palette?.isLight ? palette.playPause : "#FFFFFF"}
             trackColor={palette?.isLight ? "rgba(0,0,0,0.2)" : "rgba(255,255,255,0.3)"}
             labelColor={controlIcon}
@@ -515,7 +575,11 @@ export default function NowPlayingModal() {
             onSeekStart={() => setDragging(true)}
             onSeek={(seconds) => {
               setLocalPosition(seconds);
-              void seekTo(seconds);
+              if (!isPreview) {
+                void seekTo(seconds);
+              } else if (activeEpisode) {
+                Preferences.setEpisodeProgress(activeEpisode.id, Math.round(seconds));
+              }
             }}
             onSeekEnd={() => setDragging(false)}
           />
@@ -524,7 +588,7 @@ export default function NowPlayingModal() {
               {formatClock(localPosition)}
             </Text>
             <Text style={[styles.progressLabel, { color: controlIcon }]}>
-              -{formatClock(Math.max(0, (durationSeconds || currentEpisode?.durationMins * 60 || 0) - localPosition))}
+              -{formatClock(Math.max(0, (durationSeconds || (activeEpisode?.durationMins || 0) * 60 || 0) - localPosition))}
             </Text>
           </View>
         </View>
@@ -549,14 +613,14 @@ export default function NowPlayingModal() {
 
         <TouchableOpacity
           style={[styles.playPauseButton, { backgroundColor: playPauseColour }]}
-          onPress={togglePlayPause}
+          onPress={handlePlayPause}
           activeOpacity={0.85}
         >
-          {isBuffering ? (
+          {isBuffering && !isPreview ? (
             <ActivityIndicator size="small" color={controlIcon} />
           ) : (
             <MaterialIcons
-              name={isPlaying ? "pause" : "play-arrow"}
+              name={isPlaying && !isPreview ? "pause" : "play-arrow"}
               size={34}
               color={palette?.isLight ? palette.icon : "#FFFFFF"}
             />
@@ -584,8 +648,8 @@ export default function NowPlayingModal() {
             }
           ]}
           onPress={() => {
-            if (isPodcast && currentPodcast) {
-              setIsSubscribed(Preferences.togglePodcastSubscription(currentPodcast.id));
+            if (isPodcast && activePodcast) {
+              setIsSubscribed(Preferences.togglePodcastSubscription(activePodcast.id));
             } else if (currentStation) {
               toggleFavorite(currentStation.id);
             }
@@ -598,49 +662,49 @@ export default function NowPlayingModal() {
             color={
               isPodcast && isSubscribed
                 ? controlIcon
-                : isFav
-                ? controlIcon
-                : iconColour
-            }
-          />
-        </TouchableOpacity>
-      </View>
+                  : isFav
+                  ? controlIcon
+                  : iconColour
+              }
+            />
+          </TouchableOpacity>
+        </View>
 
-      {/* Overflow menu */}
-      <Modal visible={menuVisible} transparent animationType="fade" onRequestClose={() => setMenuVisible(false)}>
-        <TouchableOpacity style={styles.menuBackdrop} activeOpacity={1} onPress={() => setMenuVisible(false)}>
-          <View style={[styles.menuSheet, { backgroundColor: theme.surfaceContainer }]}>
-            {isPodcast && currentPodcast ? (
+        {/* Overflow menu */}
+        <Modal visible={menuVisible} transparent animationType="fade" onRequestClose={() => setMenuVisible(false)}>
+          <TouchableOpacity style={styles.menuBackdrop} activeOpacity={1} onPress={() => setMenuVisible(false)}>
+            <View style={[styles.menuSheet, { backgroundColor: theme.surfaceContainer }]}>
+              {isPodcast && activePodcast ? (
+                <TouchableOpacity
+                  style={styles.menuRow}
+                  onPress={() => {
+                    setMenuVisible(false);
+                    router.push({
+                      pathname: "/modal/podcast-detail",
+                      params: {
+                        podcastId: activePodcast.id,
+                        podcastData: JSON.stringify(activePodcast)
+                      }
+                    });
+                  }}
+                >
+                  <MaterialIcons name="list" size={22} color={theme.onSurface} />
+                  <Text style={[styles.menuText, { color: theme.onSurface }]}>View all episodes</Text>
+                </TouchableOpacity>
+              ) : null}
+
               <TouchableOpacity
                 style={styles.menuRow}
                 onPress={() => {
                   setMenuVisible(false);
-                  router.push({
-                    pathname: "/modal/podcast-detail",
-                    params: {
-                      podcastId: currentPodcast.id,
-                      podcastData: JSON.stringify(currentPodcast)
-                    }
-                  });
+                  void handleShare();
                 }}
               >
-                <MaterialIcons name="list" size={22} color={theme.onSurface} />
-                <Text style={[styles.menuText, { color: theme.onSurface }]}>View all episodes</Text>
+                <MaterialIcons name="share" size={22} color={theme.onSurface} />
+                <Text style={[styles.menuText, { color: theme.onSurface }]}>Share</Text>
               </TouchableOpacity>
-            ) : null}
 
-            <TouchableOpacity
-              style={styles.menuRow}
-              onPress={() => {
-                setMenuVisible(false);
-                void handleShare();
-              }}
-            >
-              <MaterialIcons name="share" size={22} color={theme.onSurface} />
-              <Text style={[styles.menuText, { color: theme.onSurface }]}>Share</Text>
-            </TouchableOpacity>
-
-            {isPodcast && currentPodcast ? (
+              {isPodcast && activePodcast ? (
               <>
                 <TouchableOpacity
                   style={styles.menuRow}

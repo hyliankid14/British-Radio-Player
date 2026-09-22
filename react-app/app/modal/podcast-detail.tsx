@@ -22,6 +22,7 @@ import { toSavedEpisodeEntry, useDownloadStore } from "../../src/downloads/downl
 import { MiniPlayer } from "../../src/components/MiniPlayer";
 import { AppNavigation } from "../../src/components/AppNavigation";
 import { useNetworkStatus } from "../../src/store/networkStore";
+import { NativeAndroid } from "../../src/native/nativeAndroid";
 
 export default function PodcastDetailModal() {
   const router = useRouter();
@@ -190,7 +191,12 @@ export default function PodcastDetailModal() {
   };
 
   const handleToggleNotifications = () => {
-    if (!podcast || !isSubscribed) return;
+    if (!podcast) return;
+    NativeAndroid.requestNotificationPermission();
+    if (!isSubscribed) {
+      Preferences.setPodcastSubscribed(podcast.id, true);
+      setIsSubscribed(true);
+    }
     const enabled = Preferences.togglePodcastNotifications(podcast.id);
     setNotificationsEnabled(enabled);
     setToastMessage(enabled ? "Notifications enabled" : "Notifications disabled");

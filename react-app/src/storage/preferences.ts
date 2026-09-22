@@ -322,6 +322,10 @@ export const Preferences = {
     return storage.getBoolean(`pref_podcast_notifications_${podcastId}`) ?? false;
   },
 
+  setPodcastNotificationsEnabled(podcastId: string, enabled: boolean): void {
+    storage.set(`pref_podcast_notifications_${podcastId}`, enabled);
+  },
+
   togglePodcastNotifications(podcastId: string): boolean {
     const enabled = !this.isPodcastNotificationsEnabled(podcastId);
     storage.set(`pref_podcast_notifications_${podcastId}`, enabled);
@@ -507,6 +511,16 @@ export const Preferences = {
     storage.set("pref_saved_podcast_searches", JSON.stringify(searches));
   },
 
+  updatePodcastSearch(
+    id: string,
+    updates: { name?: string; query?: string; notificationsEnabled?: boolean }
+  ): void {
+    const searches = this.getSavedPodcastSearches().map((search) =>
+      search.id === id ? { ...search, ...updates } : search
+    );
+    storage.set("pref_saved_podcast_searches", JSON.stringify(searches));
+  },
+
   removePodcastSearch(id: string): void {
     storage.set(
       "pref_saved_podcast_searches",
@@ -527,6 +541,18 @@ export const Preferences = {
     }
     this.setSubscribedPodcasts(subscribed);
     return isSub;
+  },
+
+  setPodcastSubscribed(podcastId: string, subscribedState: boolean): void {
+    const subscribed = this.getSubscribedPodcasts();
+    const index = subscribed.indexOf(podcastId);
+    if (subscribedState && index < 0) {
+      subscribed.push(podcastId);
+      this.setSubscribedPodcasts(subscribed);
+    } else if (!subscribedState && index >= 0) {
+      subscribed.splice(index, 1);
+      this.setSubscribedPodcasts(subscribed);
+    }
   },
 
   onChanged(listener: (key: string) => void): { remove: () => void } {
@@ -628,6 +654,13 @@ export const Preferences = {
 
   clearPodcastHistory(): void {
     storage.set(KEYS.PODCAST_HISTORY, JSON.stringify([]));
+  },
+
+  removePodcastHistoryEntry(id: string): void {
+    storage.set(
+      KEYS.PODCAST_HISTORY,
+      JSON.stringify(this.getPodcastHistory().filter((item) => item.id !== id))
+    );
   },
 
   // ── Playlist entries (Saved Episodes and user playlists) ────────────────────

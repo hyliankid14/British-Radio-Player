@@ -124,11 +124,13 @@ class NativeAndroidModule : Module() {
       ) {
         return@Function true
       }
-      androidx.core.app.ActivityCompat.requestPermissions(
-        activity,
-        arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
-        9201
-      )
+      activity.runOnUiThread {
+        androidx.core.app.ActivityCompat.requestPermissions(
+          activity,
+          arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
+          9201
+        )
+      }
       false
     }
 
