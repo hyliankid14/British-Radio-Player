@@ -55,6 +55,21 @@ module.exports = function withAndroidCleartextTraffic(config) {
 </automotiveApp>
 `
       );
+
+      // Use the repository's shared debug keystore so local & sideloaded APKs match the
+      // signature of the legacy Kotlin build, enabling seamless in-place updates.
+      const sharedKeystore = path.resolve(
+        configWithResources.modRequest.projectRoot,
+        "../keystore/debug.keystore"
+      );
+      const targetKeystore = path.join(
+        configWithResources.modRequest.platformProjectRoot,
+        "app/debug.keystore"
+      );
+      if (fs.existsSync(sharedKeystore)) {
+        await fs.promises.copyFile(sharedKeystore, targetKeystore);
+      }
+
       return configWithResources;
     }
   ]);

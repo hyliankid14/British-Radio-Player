@@ -18,6 +18,7 @@ import { usePlayerStore } from "../../src/store/playerStore";
 import { useAppTheme } from "../../src/theme/colors";
 import { LastFmApi } from "../../src/api/lastfm";
 import { useRouter } from "expo-router";
+import { OfflineBanner, VpnBanner } from "../../src/components/NetworkBanners";
 
 export default function SettingsScreen() {
   const theme = useAppTheme();
@@ -86,6 +87,9 @@ export default function SettingsScreen() {
       <View style={[styles.topAppBar, { backgroundColor: theme.surface }]}>
         <Text style={[styles.appBarTitle, { color: theme.onSurface }]}>Settings</Text>
       </View>
+
+      <OfflineBanner />
+      <VpnBanner />
 
       <ScrollView
         contentContainerStyle={[styles.scrollContent, { paddingBottom: 170 + insets.bottom }]}

@@ -1,0 +1,49 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+  <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+  <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+  <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+  <uses-permission android:name="android.permission.WAKE_LOCK" />
+  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+  <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+  <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+  <application>
+    <receiver
+      android:name=".AlarmReceiver"
+      android:exported="false" />
+    <receiver
+      android:name=".AlarmDismissReceiver"
+      android:exported="false" />
+    <receiver
+      android:name=".AlarmSnoozeReceiver"
+      android:exported="false" />
+
+    <receiver
+      android:name=".StationWidgetProvider"
+      android:exported="true">
+      <intent-filter>
+        <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+        <action android:name="com.hyliankid14.bbcradioplayer.action.WIDGET_UPDATE" />
+      </intent-filter>
+      <meta-data
+        android:name="android.appwidget.provider"
+        android:resource="@xml/widget_station_info" />
+    </receiver>
+
+    <service
+      android:name=".WearListenerService"
+      android:exported="true">
+      <intent-filter>
+        <action android:name="com.google.android.gms.wearable.DATA_CHANGED" />
+        <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+        <data
+          android:scheme="wear"
+          android:host="*"
+          android:pathPrefix="/bbcradioplayer" />
+      </intent-filter>
+    </service>
+  </application>
+
+</manifest>

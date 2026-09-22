@@ -11,6 +11,7 @@ import { Preferences } from "../storage/preferences";
 export function MiniPlayer() {
   const router = useRouter();
   const theme = useAppTheme();
+  const [, forceRefresh] = React.useState(0);
   const {
     currentStation,
     currentShow,
@@ -23,6 +24,7 @@ export function MiniPlayer() {
     stop,
     playNext,
     playPrevious,
+    seekBy,
     favorites,
     toggleFavorite
   } = usePlayerStore();
@@ -31,6 +33,7 @@ export function MiniPlayer() {
   if (!currentStation && !isPodcast) return null;
 
   const isFav = currentStation ? favorites.includes(currentStation.id) : false;
+  const isSubscribed = currentPodcast ? Preferences.getSubscribedPodcasts().includes(currentPodcast.id) : false;
   const title = currentStation ? currentStation.title : (currentEpisode?.title || "Podcast Episode");
   const subtitle = currentStation
     ? (currentShow ? formatShowDisplayTitle(currentShow) : "Radio")
@@ -38,18 +41,20 @@ export function MiniPlayer() {
   const artworkUrl = currentStation
     ? currentShow?.imageUrl || currentStation.logoUrl
     : currentEpisode?.imageUrl || currentPodcast?.imageUrl;
+  // Tapping the mini player always opens the unified Now Playing screen, matching the
+  // legacy Kotlin behaviour for both live radio and podcast playback.
   const openNowPlaying = () => {
-    if (currentStation) {
-      router.push("/modal/now-playing");
-    } else if (currentPodcast && currentEpisode) {
-      router.push({
-        pathname: "/modal/episode-detail",
-        params: {
-          podcastData: JSON.stringify(currentPodcast),
-          episodeData: JSON.stringify(currentEpisode)
-        }
-      });
-    }
+    router.push("/modal/now-playing");
+  };
+
+  const handlePrevious = () => {
+    if (isPodcast) void seekBy(-10);
+    else void playPrevious();
+  };
+
+  const handleNext = () => {
+    if (isPodcast) void seekBy(30);
+    else void playNext();
   };
 
   return (
@@ -119,7 +124,7 @@ export function MiniPlayer() {
           {/* Previous Button */}
           <TouchableOpacity
             style={styles.controlButton}
-            onPress={playPrevious}
+            onPress={handlePrevious}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
             <MaterialIcons name="skip-previous" size={26} color={theme.miniPlayerIconTint} />
@@ -145,7 +150,7 @@ export function MiniPlayer() {
           {/* Next Button */}
           <TouchableOpacity
             style={styles.controlButton}
-            onPress={playNext}
+            onPress={handleNext}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
             <MaterialIcons name="skip-next" size={26} color={theme.miniPlayerIconTint} />
@@ -159,14 +164,15 @@ export function MiniPlayer() {
                 toggleFavorite(currentStation.id);
               } else if (currentPodcast) {
                 Preferences.togglePodcastSubscription(currentPodcast.id);
+                forceRefresh((value) => value + 1);
               }
             }}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
             <MaterialIcons
-              name={isFav ? "star" : "star-border"}
+              name={isPodcast ? (isSubscribed ? "star" : "star-border") : isFav ? "star" : "star-border"}
               size={26}
-              color={isFav ? theme.star : theme.miniPlayerIconTint}
+              color={isPodcast ? (isSubscribed ? theme.star : theme.miniPlayerIconTint) : isFav ? theme.star : theme.miniPlayerIconTint}
             />
           </TouchableOpacity>
         </View>

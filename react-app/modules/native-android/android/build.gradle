@@ -1,0 +1,25 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.hyliankid14.bbcradioplayer.nativeandroid'
+version = '0.1.0'
+
+android {
+  namespace "com.hyliankid14.bbcradioplayer.nativeandroid"
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+  }
+  lintOptions {
+    abortOnError false
+  }
+}
+
+dependencies {
+  implementation 'androidx.core:core:1.13.1'
+  implementation 'androidx.palette:palette-ktx:1.0.0'
+  implementation 'com.google.android.gms:play-services-wearable:18.2.0'
+  implementation 'androidx.work:work-runtime-ktx:2.9.1'
+}

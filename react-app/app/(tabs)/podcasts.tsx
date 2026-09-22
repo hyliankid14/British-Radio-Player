@@ -14,7 +14,7 @@ import {
   NativeScrollEvent
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useAppTheme } from "../../src/theme/colors";
 import {
@@ -29,6 +29,8 @@ import {
 } from "../../src/api/podcasts";
 import { Preferences } from "../../src/storage/preferences";
 import { usePlayerStore } from "../../src/store/playerStore";
+import { OfflineBanner, VpnBanner } from "../../src/components/NetworkBanners";
+import { NativeAndroid } from "../../src/native/nativeAndroid";
 
 const TABS = [
   { id: "popular", label: "Popular" },
@@ -333,6 +335,35 @@ export default function PodcastsScreen() {
     });
   }, [catalog, router]);
 
+  // Shake-to-shuffle: mirrors the Kotlin accelerometer listener, active only while this
+  // tab is focused and the preference is enabled.
+  useFocusEffect(
+    useCallback(() => {
+      if (!Preferences.getSetting("pref_shake_random", false)) return undefined;
+      const stop = NativeAndroid.startShakeDetection(() => handleShuffle());
+      return stop;
+    }, [handleShuffle])
+  );
+
+  // Search suggestions dropdown, populated from the Pi suggestion endpoint.
+  const [suggestions, setSuggestions] = useState<{ podcastId: string; title: string }[]>([]);
+  useEffect(() => {
+    const trimmed = searchQuery.trim();
+    if (!isSearchFocused || trimmed.length < 2) {
+      setSuggestions([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      const results = await PodcastApi.searchSuggestionsOnPi(trimmed, 8);
+      if (!cancelled) setSuggestions(results);
+    }, 180);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [searchQuery, isSearchFocused]);
+
   // Open podcast detail
   const handleOpenPodcast = useCallback(
     (podcast: Podcast) => {
@@ -511,6 +542,9 @@ export default function PodcastsScreen() {
         </View>
       </View>
 
+      <OfflineBanner />
+      <VpnBanner />
+
       {/* Collapsible Search Input matching podcasts_search_bar */}
       {showSearchBar || isSearchActive ? (
         <View style={[styles.searchBarContainer, { backgroundColor: theme.surfaceContainer }]}>
@@ -561,6 +595,26 @@ export default function PodcastsScreen() {
                 >
                   <MaterialIcons name="history" size={18} color={theme.onSurfaceVariant} />
                   <Text style={[styles.recentSearchText, { color: theme.onSurface }]}>{search}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : null}
+          {isSearchFocused && searchQuery.trim().length >= 2 && suggestions.length > 0 ? (
+            <View style={[styles.recentSearches, { backgroundColor: theme.surface }]}>
+              {suggestions.map((suggestion) => (
+                <TouchableOpacity
+                  key={suggestion.podcastId}
+                  style={styles.recentSearchRow}
+                  onPress={() => {
+                    setSuggestions([]);
+                    setIsSearchFocused(false);
+                    handleSearchChange(suggestion.title);
+                  }}
+                >
+                  <MaterialIcons name="search" size={18} color={theme.onSurfaceVariant} />
+                  <Text style={[styles.recentSearchText, { color: theme.onSurface }]}>
+                    {suggestion.title}
+                  </Text>
                 </TouchableOpacity>
               ))}
             </View>

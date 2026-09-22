@@ -15,15 +15,16 @@ import {
   Alert
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { MaterialIcons } from "@expo/vector-icons";
 import { Station, StationRepository } from "../../src/data/stations";
 import { usePlayerStore } from "../../src/store/playerStore";
 import { StationLogo } from "../../src/components/StationLogo";
 import { useAppTheme } from "../../src/theme/colors";
 import { fetchShowInfo } from "../../src/api/showInfo";
-import { Podcast, PodcastApi, decodeXmlEntities } from "../../src/api/podcasts";
-import { Preferences } from "../../src/storage/preferences";
+import { Podcast, PodcastApi, decodeXmlEntities, Episode } from "../../src/api/podcasts";
+import { Preferences, PodcastHistoryEntry } from "../../src/storage/preferences";
+import { OfflineBanner, VpnBanner } from "../../src/components/NetworkBanners";
 
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -42,6 +43,34 @@ const FAVOURITE_SECTION_TITLES: Record<FavCategory, string> = {
   Searches: "Saved Searches",
   History: "Listening History"
 };
+
+function formatEpisodeDate(raw?: string): string {
+  if (!raw) return "";
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    return new Intl.DateTimeFormat("en-GB", {
+      weekday: "short",
+      day: "2-digit",
+      month: "short",
+      year: "numeric"
+    }).format(parsed);
+  }
+  return raw.includes(":") ? raw.split(":")[0].trim() : raw.trim();
+}
+
+function formatRelativeTime(epochMs: number): string {
+  if (!epochMs || epochMs <= 0) return "";
+  const now = Date.now();
+  const diffSec = Math.floor((now - epochMs) / 1000);
+  if (diffSec < 60) return "Just now";
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHours = Math.floor(diffMin / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return new Date(epochMs).toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+}
 
 interface StationRowProps {
   station: Station;
@@ -164,9 +193,15 @@ function StationRow({
 
 export default function FavouritesScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ category?: string }>();
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
-  const [activeCategory, setActiveCategory] = useState<FavCategory>("Stations");
+  const [activeCategory, setActiveCategory] = useState<FavCategory>(() => {
+    const requested = params.category as FavCategory | undefined;
+    return requested && ["Stations", "Subscribed", "Playlists", "Searches", "History"].includes(requested)
+      ? requested
+      : "Stations";
+  });
   const [draggingStationId, setDraggingStationId] = useState<string | null>(null);
   const [showTitles, setShowTitles] = useState<Record<string, string>>({});
   const [subscribedPodcasts, setSubscribedPodcasts] = useState<Podcast[]>([]);
@@ -184,19 +219,25 @@ export default function FavouritesScreen() {
   const [savedSearches, setSavedSearches] = useState<SavedPodcastSearch[]>(
     () => Preferences.getSavedPodcastSearches()
   );
-  const [recentSongs, setRecentSongs] = useState(() => Preferences.getRecentSongs());
-  const [, forceTagUpdate] = useState(0);
+  const [podcastHistory, setPodcastHistory] = useState<PodcastHistoryEntry[]>(
+    () => Preferences.getPodcastHistory()
+  );
+  const [tagVersion, forceTagUpdate] = useState(0);
+  const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [, refreshFromStore] = useState(0);
 
   const {
-    favorites,
     currentStation,
     currentShow,
     playStation,
     togglePlayPause,
     toggleFavorite,
-    setFavoritesOrder
+    setFavoritesOrder,
+    playEpisode,
+    currentEpisode,
+    isPlaying
   } = usePlayerStore();
+  const favorites = usePlayerStore((state) => state.favorites);
 
   const allStations = useMemo(() => StationRepository.getAll(), []);
 
@@ -292,7 +333,7 @@ export default function FavouritesScreen() {
       let active = true;
       const searches = Preferences.getSavedPodcastSearches();
       setSavedSearches(searches);
-      setRecentSongs(Preferences.getRecentSongs());
+      setPodcastHistory(Preferences.getPodcastHistory());
       setPlaylists(Preferences.getPodcastPlaylists());
       void Promise.all(
         searches.map(async (search) => {
@@ -313,6 +354,70 @@ export default function FavouritesScreen() {
       };
     }, [])
   );
+
+  useEffect(() => {
+    const sub = Preferences.onChanged((key) => {
+      if (
+        key.includes("history") ||
+        key.includes("progress") ||
+        key.includes("played")
+      ) {
+        setPodcastHistory(Preferences.getPodcastHistory());
+      }
+    });
+    return () => sub.remove();
+  }, []);
+
+  const handlePlayHistoryEntry = useCallback(
+    (item: PodcastHistoryEntry) => {
+      const isCurrent = currentEpisode?.id === item.id;
+      if (isCurrent) {
+        void togglePlayPause();
+      } else {
+        const podcast: Podcast = {
+          id: item.podcastId,
+          title: item.podcastTitle,
+          description: "",
+          rssUrl: "",
+          htmlUrl: "",
+          imageUrl: item.imageUrl,
+          genres: [],
+          typicalDurationMins: item.durationMins
+        };
+        const episode: Episode = {
+          id: item.id,
+          title: item.title,
+          description: item.description,
+          audioUrl: item.audioUrl,
+          imageUrl: item.imageUrl,
+          pubDate: item.pubDate,
+          durationMins: item.durationMins,
+          podcastId: item.podcastId
+        };
+        void playEpisode(podcast, episode);
+      }
+      router.push("/modal/now-playing");
+    },
+    [currentEpisode?.id, playEpisode, togglePlayPause, router]
+  );
+
+  const promptClearHistory = useCallback(() => {
+    Alert.alert(
+      "Clear History",
+      "Are you sure you want to clear your listening history?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Clear",
+          style: "destructive",
+          onPress: () => {
+            Preferences.clearPodcastHistory();
+            setPodcastHistory([]);
+          }
+        }
+      ]
+    );
+  }, []);
 
   const sortedSubscribedPodcasts = useMemo(() => {
     const podcasts = [...subscribedPodcasts];
@@ -343,9 +448,42 @@ export default function FavouritesScreen() {
     return podcasts.sort((a, b) => byLatest(b) - byLatest(a));
   }, [latestEpisodeTimes, podcastSort, subscribedPodcasts]);
 
+  // Unique tags across subscribed podcasts, mirroring the Kotlin "Group by tags" list.
+  const allSubscribedTags = useMemo(() => {
+    const tags = new Set<string>();
+    subscribedPodcasts.forEach((podcast) => {
+      Preferences.getPodcastTags(podcast.id, podcast.genres).forEach((tag) => {
+        if (tag.trim()) tags.add(tag);
+      });
+    });
+    return Array.from(tags).sort((a, b) => a.localeCompare(b));
+  }, [subscribedPodcasts, tagVersion]);
+
+  const countPodcastsForTag = useCallback(
+    (tag: string) =>
+      subscribedPodcasts.filter((podcast) =>
+        Preferences.getPodcastTags(podcast.id, podcast.genres).includes(tag)
+      ).length,
+    [subscribedPodcasts, tagVersion]
+  );
+
+  const taggedSubscribedPodcasts = useMemo(
+    () =>
+      selectedTag
+        ? sortedSubscribedPodcasts.filter((podcast) =>
+            Preferences.getPodcastTags(podcast.id, podcast.genres).includes(selectedTag)
+          )
+        : sortedSubscribedPodcasts,
+    [sortedSubscribedPodcasts, selectedTag, tagVersion]
+  );
+
+  // Leave the nested tag view when the sort mode or category changes.
+  useEffect(() => {
+    if (podcastSort !== "tags" || activeCategory !== "Subscribed") setSelectedTag(null);
+  }, [podcastSort, activeCategory]);
+
   const selectPodcastSort = useCallback(() => {
-    const options: Array<[string, PodcastSort]> = [
-      ["Most recently updated", "most_recently_updated"],
+    const options: Array<[string, PodcastSort]> = [      ["Most recently updated", "most_recently_updated"],
       ["Least recently updated", "least_recently_updated"],
       ["Alphabetical (A-Z)", "alphabetical"],
       ["Manual sort", "manual"],
@@ -617,6 +755,107 @@ export default function FavouritesScreen() {
     [draggingStationId, createPanResponder, panY, scaleAnim, getTranslation, handlePlayStation, handleOpenSchedule, toggleFavorite, currentStation?.id, currentShow, showTitles, theme]
   );
 
+  const renderHistoryItem = useCallback(
+    ({ item }: { item: PodcastHistoryEntry }) => {
+      const isCurrent = currentEpisode?.id === item.id;
+      const progressSeconds = Preferences.getEpisodeProgress(item.id);
+      const totalSeconds = (item.durationMins > 0 ? item.durationMins : 0) * 60;
+      const isPlayed = Preferences.isEpisodePlayed(item.id);
+      const progressPercent =
+        !isPlayed && totalSeconds > 0 && progressSeconds > 0
+          ? Math.min(100, Math.max(0, Math.round((progressSeconds / totalSeconds) * 100)))
+          : 0;
+
+      return (
+        <TouchableOpacity
+          style={[
+            styles.historyRow,
+            { backgroundColor: theme.surface, borderBottomColor: theme.outlineVariant }
+          ]}
+          activeOpacity={0.7}
+          onPress={() => handlePlayHistoryEntry(item)}
+        >
+          {item.imageUrl ? (
+            <Image source={{ uri: item.imageUrl }} style={styles.historyArtwork} />
+          ) : (
+            <View
+              style={[
+                styles.historyArtworkFallback,
+                { backgroundColor: theme.primaryContainer }
+              ]}
+            >
+              <MaterialIcons name="podcasts" size={28} color={theme.primary} />
+            </View>
+          )}
+
+          <View style={styles.historyInfo}>
+            <Text style={[styles.historyTitle, { color: theme.onSurface }]} numberOfLines={2}>
+              {decodeXmlEntities(item.title)}
+            </Text>
+
+            {item.podcastTitle ? (
+              <Text
+                style={[styles.historyPodcastTitle, { color: theme.onSurfaceVariant }]}
+                numberOfLines={1}
+              >
+                {decodeXmlEntities(item.podcastTitle)}
+              </Text>
+            ) : null}
+
+            {progressPercent > 0 ? (
+              <View
+                style={[
+                  styles.historyProgressBarTrack,
+                  { backgroundColor: theme.surfaceVariant }
+                ]}
+              >
+                <View
+                  style={[
+                    styles.historyProgressBarFill,
+                    { width: `${progressPercent}%`, backgroundColor: theme.primary }
+                  ]}
+                />
+              </View>
+            ) : null}
+
+            <View style={styles.historyMetaRow}>
+              <Text style={[styles.historyMetaText, { color: theme.onSurfaceVariant }]}>
+                {item.pubDate ? formatEpisodeDate(item.pubDate) : formatRelativeTime(item.playedAtMs)}
+              </Text>
+              {item.durationMins > 0 ? (
+                <Text style={[styles.historyMetaText, { color: theme.onSurfaceVariant }]}>
+                  {item.durationMins} min
+                </Text>
+              ) : null}
+              {isPlayed ? (
+                <View style={styles.playedBadge}>
+                  <MaterialIcons name="check-circle" size={14} color="#4CAF50" />
+                  <Text style={styles.playedBadgeText}>Played</Text>
+                </View>
+              ) : null}
+            </View>
+          </View>
+
+          <TouchableOpacity
+            style={[
+              styles.historyPlayButton,
+              { backgroundColor: isCurrent && isPlaying ? theme.primary : theme.primaryContainer }
+            ]}
+            onPress={() => handlePlayHistoryEntry(item)}
+            accessibilityLabel={isCurrent && isPlaying ? "Pause episode" : "Play episode"}
+          >
+            <MaterialIcons
+              name={isCurrent && isPlaying ? "pause" : "play-arrow"}
+              size={24}
+              color={isCurrent && isPlaying ? "#FFFFFF" : theme.primary}
+            />
+          </TouchableOpacity>
+        </TouchableOpacity>
+      );
+    },
+    [currentEpisode?.id, isPlaying, theme, handlePlayHistoryEntry]
+  );
+
   return (
     <SafeAreaView
       style={[styles.container, { backgroundColor: theme.surfaceContainer }]}
@@ -660,8 +899,19 @@ export default function FavouritesScreen() {
               <MaterialIcons name="more-vert" size={24} color={theme.onSurface} />
             </TouchableOpacity>
           </View>
+        ) : activeCategory === "History" && podcastHistory.length > 0 ? (
+          <TouchableOpacity
+            style={styles.overflowButton}
+            onPress={promptClearHistory}
+            accessibilityLabel="Clear listening history"
+          >
+            <MaterialIcons name="delete-sweep" size={24} color={theme.onSurface} />
+          </TouchableOpacity>
         ) : null}
       </View>
+
+      <OfflineBanner />
+      <VpnBanner />
 
       {/* Pill group under Top App Bar matching favorites_toggle_group */}
       <View style={styles.pillGroupContainer}>
@@ -699,6 +949,7 @@ export default function FavouritesScreen() {
       {/* Content */}
       {activeCategory === "Stations" ? (
         <FlatList
+          key="stations"
           data={orderedList}
           keyExtractor={(item) => item.id}
           renderItem={renderStationItem}
@@ -715,11 +966,77 @@ export default function FavouritesScreen() {
           }
         />
       ) : activeCategory === "Subscribed" ? (
+        podcastSort === "tags" && selectedTag === null ? (
+          <FlatList
+            key="subscribed-tags"
+            data={allSubscribedTags}
+            keyExtractor={(tag) => tag}
+            contentContainerStyle={[styles.listContent, { paddingBottom: 170 + insets.bottom }]}
+            style={{ backgroundColor: theme.surface }}
+            renderItem={({ item: tag }) => (
+              <TouchableOpacity
+                style={[
+                  styles.podcastRow,
+                  { backgroundColor: theme.surface, borderBottomColor: theme.outlineVariant }
+                ]}
+                activeOpacity={0.7}
+                onPress={() => setSelectedTag(tag)}
+              >
+                <View
+                  style={[styles.podcastArtworkFallback, { backgroundColor: theme.primaryContainer }]}
+                >
+                  <MaterialIcons name="label-outline" size={26} color={theme.primary} />
+                </View>
+                <View style={styles.podcastInfo}>
+                  <Text
+                    style={[styles.podcastTitle, { color: theme.onSurface }]}
+                    numberOfLines={1}
+                  >
+                    {decodeXmlEntities(tag)}
+                  </Text>
+                  <Text style={[styles.podcastDescription, { color: theme.onSurfaceVariant }]}>
+                    {countPodcastsForTag(tag)} podcast{countPodcastsForTag(tag) === 1 ? "" : "s"}
+                  </Text>
+                </View>
+                <MaterialIcons name="chevron-right" size={24} color={theme.onSurfaceVariant} />
+              </TouchableOpacity>
+            )}
+            ListEmptyComponent={
+              <View style={styles.emptyContainer}>
+                <Text style={[styles.emptyText, { color: theme.onSurfaceVariant }]}>
+                  No categories yet
+                </Text>
+              </View>
+            }
+          />
+        ) : (
         <FlatList
-          data={sortedSubscribedPodcasts}
+          key="subscribed"
+          data={taggedSubscribedPodcasts}
           keyExtractor={(item) => item.id}
           contentContainerStyle={[styles.listContent, { paddingBottom: 170 + insets.bottom }]}
           style={{ backgroundColor: theme.surface }}
+          ListHeaderComponent={
+            selectedTag ? (
+              <TouchableOpacity
+                style={[
+                  styles.podcastRow,
+                  { backgroundColor: theme.surface, borderBottomColor: theme.outlineVariant }
+                ]}
+                onPress={() => setSelectedTag(null)}
+              >
+                <MaterialIcons
+                  name="arrow-back"
+                  size={24}
+                  color={theme.onSurface}
+                  style={{ marginRight: 12 }}
+                />
+                <Text style={[styles.podcastTitle, { color: theme.onSurface }]}>
+                  {decodeXmlEntities(selectedTag)}
+                </Text>
+              </TouchableOpacity>
+            ) : null
+          }
           renderItem={({ item }) => (
             <TouchableOpacity
               style={[
@@ -817,8 +1134,10 @@ export default function FavouritesScreen() {
             </View>
           }
         />
+        )
       ) : activeCategory === "Playlists" ? (
         <FlatList
+          key="playlists"
           data={playlists}
           keyExtractor={(item) => item.id}
           contentContainerStyle={[styles.listContent, { paddingBottom: 170 + insets.bottom }]}
@@ -853,6 +1172,7 @@ export default function FavouritesScreen() {
         />
       ) : activeCategory === "Searches" ? (
         <FlatList
+          key="searches"
           data={savedSearches}
           keyExtractor={(item) => item.id}
           contentContainerStyle={[styles.listContent, { paddingBottom: 170 + insets.bottom }]}
@@ -912,32 +1232,31 @@ export default function FavouritesScreen() {
         />
       ) : (
         <FlatList
-          data={recentSongs}
-          keyExtractor={(item, index) => `${item.playedAtMs}-${index}`}
+          key="history"
+          data={podcastHistory}
+          keyExtractor={(item) => item.id}
+          renderItem={renderHistoryItem}
           contentContainerStyle={[styles.listContent, { paddingBottom: 170 + insets.bottom }]}
           style={{ backgroundColor: theme.surface }}
-          renderItem={({ item }) => (
-            <View style={[styles.playlistRow, { backgroundColor: theme.surface, borderBottomColor: theme.outlineVariant }]}>
-              {item.imageUrl ? (
-                <Image source={{ uri: item.imageUrl }} style={styles.historyArtwork} />
-              ) : (
-                <View style={[styles.playlistIcon, { backgroundColor: theme.primaryContainer }]}>
-                  <MaterialIcons name="music-note" size={28} color={theme.primary} />
-                </View>
-              )}
-              <View style={styles.playlistInfo}>
-                <Text style={[styles.playlistTitle, { color: theme.onSurface }]} numberOfLines={1}>
-                  {item.track || "Unknown track"}
-                </Text>
-                <Text style={[styles.playlistSubtitle, { color: theme.onSurfaceVariant }]} numberOfLines={1}>
-                  {item.artist}{item.stationName ? ` • ${item.stationName}` : ""}
-                </Text>
-              </View>
-            </View>
-          )}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
-              <Text style={[styles.emptyText, { color: theme.onSurfaceVariant }]}>No history yet</Text>
+              <MaterialIcons
+                name="history"
+                size={48}
+                color={theme.onSurfaceVariant}
+                style={{ marginBottom: 12, opacity: 0.6 }}
+              />
+              <Text
+                style={[
+                  styles.emptyText,
+                  { color: theme.onSurface, fontWeight: "700", fontSize: 16 }
+                ]}
+              >
+                No listening history yet
+              </Text>
+              <Text style={[styles.emptyText, { color: theme.onSurfaceVariant, marginTop: 4 }]}>
+                Podcast episodes you play will appear here.
+              </Text>
             </View>
           }
         />
@@ -1118,10 +1437,77 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 4
   },
+  historyRow: {
+    minHeight: 88,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth
+  },
   historyArtwork: {
-    width: 56,
-    height: 56,
-    borderRadius: 10
+    width: 60,
+    height: 60,
+    borderRadius: 8
+  },
+  historyArtworkFallback: {
+    width: 60,
+    height: 60,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  historyInfo: {
+    flex: 1,
+    marginHorizontal: 12,
+    justifyContent: "center"
+  },
+  historyTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    lineHeight: 20
+  },
+  historyPodcastTitle: {
+    fontSize: 13,
+    fontStyle: "italic",
+    marginTop: 2
+  },
+  historyProgressBarTrack: {
+    height: 4,
+    borderRadius: 2,
+    width: "100%",
+    marginTop: 6,
+    overflow: "hidden"
+  },
+  historyProgressBarFill: {
+    height: "100%",
+    borderRadius: 2
+  },
+  historyMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 4,
+    gap: 8
+  },
+  historyMetaText: {
+    fontSize: 12
+  },
+  playedBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2
+  },
+  playedBadgeText: {
+    fontSize: 11,
+    color: "#4CAF50",
+    fontWeight: "600"
+  },
+  historyPlayButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center"
   },
   savedSearchRow: {
     minHeight: 72,

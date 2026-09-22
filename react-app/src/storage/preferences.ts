@@ -74,9 +74,21 @@ try {
   };
 }
 
+/** Parses a JSON object string, returning an empty object on any failure. */
+function tryObject(raw: string | undefined): Record<string, unknown> {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
 const KEYS = {
-  FAVORITES: "pref_favorite_stations",
-  AUDIO_QUALITY: "pref_audio_quality",
+  FAVORITES: "pref_favorite_stations",  AUDIO_QUALITY: "pref_audio_quality",
   GEO_BLOCKED: "pref_geo_blocked",
   THEME: "pref_theme_mode",
   LAST_STATION: "pref_last_station_id",
@@ -153,6 +165,8 @@ export const Preferences = {
     return (value ?? fallback) as T;
   },
   setSetting(key: string, value: string | boolean | number): void { storage.set(key, value); },
+  getStartupPage(): string { return storage.getString(KEYS.STARTUP_PAGE) || "all_stations"; },
+  setStartupPage(value: string): void { storage.set(KEYS.STARTUP_PAGE, value); },
   getLastFmLastScrobbled(): string { return storage.getString("pref_lastfm_last_scrobbled") || ""; },
   setLastFmLastScrobbled(value: string): void { storage.set("pref_lastfm_last_scrobbled", value); },
   getRecentSongs(): {
@@ -780,15 +794,97 @@ export const Preferences = {
     storage.set(KEYS.NEW_PODCASTS_CACHE_AT, Date.now());
   },
 
+  /**
+   * Exports preferences in the same grouped shape as the legacy Kotlin backup so either app
+   * can restore the other's file. Kotlin group names map onto the React MMKV keys.
+   */
   exportBackup(): string {
-    return JSON.stringify({
-      favorites: this.getFavorites(),
-      audioQuality: this.getAudioQuality(),
-      geoBlocked: this.getGeoBlocked(),
-      theme: this.getTheme(),
-      exportedAt: new Date().toISOString(),
-      version: 1
-    }, null, 2);
+    const qualityToKotlin: Record<AudioQuality, string> = {
+      HIGH: "320kbps",
+      MEDIUM: "128kbps",
+      LOW: "96kbps",
+      AUTO: "320kbps"
+    };
+    const progressMs: Record<string, number> = {};
+    const playedPrefs = tryObject(storage.getString("pref_episode_progress"));
+    Object.entries(playedPrefs).forEach(([episodeId, seconds]) => {
+      progressMs[`progress_${episodeId}`] = Math.round(Number(seconds) * 1000);
+    });
+
+    const playlists = [
+      {
+        id: "saved",
+        name: "Saved Episodes",
+        isDefault: true,
+        entries: this.getPodcastPlaylistEntries("saved")
+      },
+      ...this.getPodcastPlaylists()
+        .filter((playlist) => !playlist.isDefault && playlist.id !== "saved" && playlist.id !== "downloaded")
+        .map((playlist) => ({
+          id: playlist.id,
+          name: playlist.name,
+          isDefault: false,
+          entries: this.getPodcastPlaylistEntries(playlist.id)
+        }))
+    ];
+
+    const root: Record<string, unknown> = {
+      favorites_prefs: {
+        favorite_stations: this.getFavorites(),
+        favorite_stations_order_string: this.getFavorites().join(",")
+      },
+      podcast_subscriptions: {
+        subscribed_ids: this.getSubscribedPodcasts(),
+        notifications_enabled: this.getSubscribedPodcasts().filter((id) =>
+          this.isPodcastNotificationsEnabled(id)
+        )
+      },
+      saved_episodes_prefs: {
+        saved_set: this.getPodcastPlaylistEntries("saved").map((entry) => JSON.stringify(entry))
+      },
+      podcast_playlists_prefs: { playlists },
+      saved_searches_prefs: { saved_searches_json: this.getSavedPodcastSearches() },
+      played_episodes_prefs: {
+        played_ids: this.getPlayedEpisodeIds(),
+        ...progressMs
+      },
+      played_history_prefs: { history_json: this.getPodcastHistory() },
+      playback_prefs: {
+        last_station_id: this.getLastStationId(),
+        auto_resume_android_auto: this.getSetting("pref_carplay_auto_resume", false),
+        hide_played_android_auto: this.getSetting("pref_carplay_hide_played", false),
+        hide_played_playlists: this.getHidePlayedEpisodesInPlaylists(),
+        shake_random_podcast: this.getSetting("pref_shake_random", false),
+        podcast_artwork_source: this.getSetting("pref_podcast_artwork", "episode"),
+        autoplay_next_episode: this.getSetting("pref_autoplay_next", "none"),
+        stop_on_bluetooth_disconnect: this.getSetting("pref_stop_bluetooth", false),
+        live_radio_pause_buffering: this.getSetting("pref_pause_buffering", true)
+      },
+      scrolling_prefs: { scroll_mode: this.getSetting("pref_scroll_mode", "all") },
+      index_prefs: {
+        new_podcast_notifications_enabled: this.getSetting("pref_index_notifications", false),
+        index_interval_days: this.getSetting("pref_index_interval_days", 1)
+      },
+      subscription_refresh_prefs: {
+        refresh_interval_minutes: this.getSetting("pref_subscription_refresh", 60)
+      },
+      podcast_filter_prefs: {
+        exclude_non_english: this.getSetting("pref_exclude_non_english", false)
+      },
+      theme_prefs: {
+        selected_theme: this.getTheme(),
+        audio_quality: qualityToKotlin[this.getAudioQuality()] || "320kbps",
+        auto_detect_quality: this.getSetting("pref_auto_quality", true)
+      },
+      download_prefs: {
+        auto_download_enabled: this.getSetting("pref_auto_download", false),
+        auto_download_limit: this.getSetting("pref_auto_download_limit", 5),
+        download_on_wifi_only: this.getSetting("pref_download_wifi", true),
+        delete_on_played: this.getSetting("pref_delete_played", false)
+      }
+    };
+
+    return JSON.stringify(root, null, 2);
   },
 
   importBackup(jsonString: string): boolean {
@@ -861,6 +957,8 @@ export const Preferences = {
                 notificationsEnabled: Boolean(search.notificationsEnabled),
                 latestResultDate: typeof search.lastMatchEpoch === "number" && search.lastMatchEpoch > 0
                   ? new Date(search.lastMatchEpoch).toISOString()
+                  : typeof search.latestResultDate === "string"
+                  ? search.latestResultDate
                   : undefined
               };
             })
@@ -910,6 +1008,84 @@ export const Preferences = {
         ["download_on_wifi_only", "pref_download_wifi"],
         ["delete_on_played", "pref_delete_played"]
       ].forEach(([source, target]) => setIfPresent(target, downloads[source]));
+
+      // Played episodes, progress and history.
+      const played = group("played_episodes_prefs");
+      const playedIds = stringArray(played.played_ids);
+      if (playedIds) storage.set("pref_played_episode_ids", JSON.stringify(playedIds));
+      const progressMap: Record<string, number> = {};
+      Object.entries(played).forEach(([key, value]) => {
+        if (key.startsWith("progress_") && typeof value === "number" && value > 0) {
+          progressMap[key.replace("progress_", "")] = Math.round(value / 1000);
+        }
+      });
+      if (Object.keys(progressMap).length > 0) {
+        storage.set("pref_episode_progress", JSON.stringify(progressMap));
+      }
+
+      const historyRaw = group("played_history_prefs").history_json;
+      if (typeof historyRaw === "string") {
+        const history = JSON.parse(historyRaw);
+        if (Array.isArray(history)) storage.set("pref_podcast_history", JSON.stringify(history));
+      }
+
+      // Playlists and saved episodes.
+      const playlistEntries: Record<string, unknown[]> = {};
+      const playlistsRaw = group("podcast_playlists_prefs").playlists;
+      const playlistSummaries: { id: string; name: string; isDefault: boolean; itemCount: number }[] = [];
+      const parsePlaylists = (raw: unknown) => {
+        const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+        if (!Array.isArray(parsed)) return;
+        parsed.forEach((item) => {
+          if (!item || typeof item !== "object") return;
+          const playlist = item as Record<string, unknown>;
+          const id = String(playlist.id || "");
+          if (!id) return;
+          const entries = Array.isArray(playlist.entries) ? playlist.entries : [];
+          playlistEntries[id] = entries;
+          const isDefault = Boolean(playlist.isDefault) || id === "saved";
+          if (!isDefault && id !== "downloaded") {
+            playlistSummaries.push({
+              id,
+              name: String(playlist.name || "Playlist"),
+              isDefault: false,
+              itemCount: entries.length
+            });
+          }
+        });
+      };
+      try {
+        parsePlaylists(playlistsRaw);
+      } catch {
+        // Ignore malformed playlist data.
+      }
+      const savedSet = group("saved_episodes_prefs").saved_set;
+      const savedEntries = stringArray(savedSet);
+      if (savedEntries && savedEntries.length > 0) {
+        try {
+          playlistEntries.saved = savedEntries.map((entry) => JSON.parse(entry));
+        } catch {
+          // Ignore malformed saved episodes.
+        }
+      }
+      if (Object.keys(playlistEntries).length > 0) {
+        storage.set("pref_podcast_playlist_entries", JSON.stringify(playlistEntries));
+      }
+      if (playlistSummaries.length > 0) {
+        storage.set("pref_podcast_playlists", JSON.stringify(playlistSummaries));
+      }
+
+      // Recent songs.
+      const songsRaw = group("recent_songs_prefs").songs_json;
+      if (typeof songsRaw === "string") {
+        const songs = JSON.parse(songsRaw);
+        if (Array.isArray(songs)) storage.set("pref_recent_songs", JSON.stringify(songs));
+      }
+
+      // Indexing extras.
+      setIfPresent("pref_index_interval_days", indexing.index_interval_days);
+      setIfPresent("pref_index_wifi_only", indexing.index_wifi_only);
+
       return true;
     } catch {
       return false;

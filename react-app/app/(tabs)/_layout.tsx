@@ -1,15 +1,50 @@
 import React from "react";
-import { View, StyleSheet, Text } from "react-native";
-import { Tabs } from "expo-router";
+import { View, StyleSheet, Text, ToastAndroid, Platform, Alert } from "react-native";
+import { Tabs, useRouter } from "expo-router";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MiniPlayer } from "../../src/components/MiniPlayer";
 import { useAppTheme } from "../../src/theme/colors";
+import { useNetworkStatus } from "../../src/store/networkStore";
+import { Preferences } from "../../src/storage/preferences";
+
+function notifyOffline(message: string) {
+  if (Platform.OS === "android") {
+    ToastAndroid.show(message, ToastAndroid.SHORT);
+  } else {
+    Alert.alert("Offline", message);
+  }
+}
 
 export default function TabLayout() {
   const theme = useAppTheme();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { isOnline } = useNetworkStatus();
   const navHeight = 80 + insets.bottom;
+  const startupApplied = React.useRef(false);
+
+  // Honour the user's "Startup page" preference on first mount, mirroring the Kotlin app.
+  React.useEffect(() => {
+    if (startupApplied.current) return;
+    startupApplied.current = true;
+    const startup = Preferences.getStartupPage();
+    if (startup === "all_stations") return;
+    const timer = setTimeout(() => {
+      try {
+        if (startup === "favourites") {
+          router.navigate("/(tabs)/favourites");
+        } else if (startup === "subscribed_podcasts") {
+          router.navigate({ pathname: "/(tabs)/favourites", params: { category: "Subscribed" } });
+        } else if (startup === "playlists") {
+          router.navigate({ pathname: "/(tabs)/favourites", params: { category: "Playlists" } });
+        }
+      } catch {
+        // Navigation is best-effort on first mount.
+      }
+    }, 60);
+    return () => clearTimeout(timer);
+  }, [router]);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.surface }]}>
@@ -69,6 +104,16 @@ export default function TabLayout() {
               </View>
             )
           }}
+          listeners={{
+            tabPress: (event) => {
+              if (!isOnline) {
+                event.preventDefault();
+                notifyOffline(
+                  "Live radio is not available while offline. Showing downloaded content."
+                );
+              }
+            }
+          }}
         />
         <Tabs.Screen
           name="podcasts"
@@ -88,6 +133,16 @@ export default function TabLayout() {
                 />
               </View>
             )
+          }}
+          listeners={{
+            tabPress: (event) => {
+              if (!isOnline) {
+                event.preventDefault();
+                notifyOffline(
+                  "Podcast directory is not available while offline. Showing downloaded content."
+                );
+              }
+            }
           }}
         />
         <Tabs.Screen

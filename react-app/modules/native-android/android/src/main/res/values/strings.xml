@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="widget_play_pause">Play or pause</string>
+  <string name="widget_default_station">British Radio Player</string>
+  <string name="widget_default_show">Tap to open</string>
+</resources>

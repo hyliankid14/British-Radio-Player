@@ -11,6 +11,7 @@ import {
   View
 } from "react-native";
 import * as Linking from "expo-linking";
+import Constants from "expo-constants";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
@@ -20,6 +21,7 @@ import { StationRepository } from "../../src/data/stations";
 import { StationLogo } from "../../src/components/StationLogo";
 import { usePlayerStore } from "../../src/store/playerStore";
 import { useAppTheme } from "../../src/theme/colors";
+import { NativeAndroid } from "../../src/native/nativeAndroid";
 import { LastFmApi } from "../../src/api/lastfm";
 
 const TITLES: Record<string, string> = {
@@ -299,9 +301,64 @@ function BackupPage() {
 }
 
 function AboutPage() {
-  return <Card title="About British Radio Player" subtitle="App version and acknowledgements">
-    <Text style={styles.body}>Unofficial third-party client. BBC and station trademarks are property of the British Broadcasting Corporation. Streams use public BBC APIs.</Text>
-  </Card>;
+  const theme = useAppTheme();
+  const [checking, setChecking] = useState(false);
+  const currentVersion = Constants.expoConfig?.version ?? "1.0.0";
+
+  const checkForUpdates = async () => {
+    setChecking(true);
+    try {
+      const info = await NativeAndroid.checkForUpdate(currentVersion);
+      if (!info) {
+        Alert.alert("Update check failed", "Could not reach GitHub releases.");
+      } else if (info.available) {
+        Alert.alert(
+          `Update available: ${info.version}`,
+          `You are on ${currentVersion}. Download and install the latest version?`,
+          [
+            { text: "Later", style: "cancel" },
+            {
+              text: "Download",
+              onPress: () => NativeAndroid.downloadAndInstallUpdate(info.apkUrl, info.apkName)
+            }
+          ]
+        );
+      } else {
+        Alert.alert("Up to date", `You are running the latest version (${currentVersion}).`);
+      }
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  return (
+    <>
+      <Card title="About British Radio Player" subtitle={`Version ${currentVersion}`}>
+        <Text style={styles.body}>
+          Unofficial third-party client. BBC and station trademarks are property of the British
+          Broadcasting Corporation. Streams use public BBC APIs.
+        </Text>
+        <Text style={styles.body}>
+          Licensed under the GNU General Public License v3.0.
+        </Text>
+        <TouchableOpacity
+          style={styles.secondaryButton}
+          onPress={() => void Linking.openURL("https://github.com/hyliankid14/British-Radio-Player")}
+        >
+          <Text style={styles.secondaryButtonText}>View source on GitHub</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.primaryButton}
+          onPress={() => void checkForUpdates()}
+          disabled={checking}
+        >
+          <Text style={styles.primaryButtonText}>
+            {checking ? "Checking…" : "Check for updates"}
+          </Text>
+        </TouchableOpacity>
+      </Card>
+    </>
+  );
 }
 
 function StartupPage() {
@@ -349,6 +406,27 @@ function AlarmPage() {
     Preferences.setSetting(`pref_alarm_${key}`, value);
     setSettings((current) => ({ ...current, [key]: value }));
   };
+
+  // Keep the native exact alarm in sync with the stored settings.
+  useEffect(() => {
+    const mask = String(settings.days)
+      .split(",")
+      .filter(Boolean)
+      .reduce((acc, day) => acc | (1 << Number(day)), 0);
+    if (settings.enabled && settings.station) {
+      NativeAndroid.requestNotificationPermission();
+      NativeAndroid.scheduleAlarm(
+        Number(settings.hour),
+        Number(settings.minute),
+        mask,
+        String(settings.station),
+        Boolean(settings.ramp),
+        Number(settings.volume)
+      );
+    } else {
+      NativeAndroid.cancelAlarm();
+    }
+  }, [settings]);
   const selectedStation = stations.find((station) => station.id === settings.station);
   const chooseStation = () => setStationPickerVisible(true);
   return <Card title="Enable Alarm" subtitle="Wake-up alarms and station start options">

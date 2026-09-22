@@ -17,6 +17,8 @@ interface PlayerState {
   isBuffering: boolean;
   audioQuality: AudioQuality;
   favorites: string[];
+  positionSeconds: number;
+  durationSeconds: number;
   init: () => Promise<void>;
   playStation: (station: Station) => Promise<void>;
   playEpisode: (podcast: Podcast, episode: Episode) => Promise<void>;
@@ -24,6 +26,9 @@ interface PlayerState {
   resume: () => Promise<void>;
   stop: () => Promise<void>;
   togglePlayPause: () => Promise<void>;
+  seekTo: (seconds: number) => Promise<void>;
+  seekBy: (deltaSeconds: number) => Promise<void>;
+  toggleEpisodePlayed: (episodeId: string, podcastId?: string, pubDateEpochMs?: number) => boolean;
   setAudioQuality: (quality: AudioQuality) => Promise<void>;
   toggleFavorite: (stationId: string) => void;
   setFavoritesOrder: (orderedIds: string[]) => void;
@@ -73,6 +78,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   isBuffering: false,
   audioQuality: Preferences.getAudioQuality(),
   favorites: Preferences.getFavorites(),
+  positionSeconds: 0,
+  durationSeconds: 0,
 
   init: async () => {
     set({
@@ -88,7 +95,15 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const candidates = getStreamCandidates(station, quality, geoBlocked);
     const streamUrl = candidates[0] || station.directStreamUrls[0] || `https://lsn.lv/bbcradio.m3u8?station=${station.serviceId}&bitrate=320000`;
 
-    set({ currentStation: station, currentShow: null, isBuffering: true });
+    set({
+      currentStation: station,
+      currentShow: null,
+      isBuffering: true,
+      currentPodcast: null,
+      currentEpisode: null,
+      positionSeconds: 0,
+      durationSeconds: 0
+    });
     Preferences.setLastStationId(station.id);
 
     try {
@@ -168,7 +183,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       currentPodcast: podcast,
       currentEpisode: episode,
       isBuffering: true,
-      isPlaying: false
+      isPlaying: false,
+      positionSeconds: 0,
+      durationSeconds: episode.durationMins * 60
     });
     try {
       await TrackPlayer.reset();
@@ -202,6 +219,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       if (resumeSeconds > 5) {
         try {
           await TrackPlayer.seekTo(resumeSeconds);
+          set({ positionSeconds: resumeSeconds });
         } catch {
           // Seeking before the track is ready is non-fatal.
         }
@@ -239,7 +257,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         currentPodcast: null,
         currentEpisode: null,
         isPlaying: false,
-        isBuffering: false
+        isBuffering: false,
+        positionSeconds: 0,
+        durationSeconds: 0
       });
     } catch (e) {
       console.warn("Stop error:", e);
@@ -249,7 +269,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         currentPodcast: null,
         currentEpisode: null,
         isPlaying: false,
-        isBuffering: false
+        isBuffering: false,
+        positionSeconds: 0,
+        durationSeconds: 0
       });
     }
   },
@@ -316,6 +338,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   handleEpisodeProgress: (positionSeconds: number, durationSeconds: number) => {
     const { currentEpisode } = get();
+    set({
+      positionSeconds,
+      durationSeconds: durationSeconds > 0 ? durationSeconds : get().durationSeconds
+    });
     if (!currentEpisode) return;
     Preferences.setEpisodeProgress(currentEpisode.id, positionSeconds);
     if (durationSeconds > 0 && positionSeconds / durationSeconds >= 0.98) {
@@ -327,6 +353,32 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     }
   },
 
+  seekTo: async (seconds: number) => {
+    const { durationSeconds } = get();
+    const target = Math.max(0, durationSeconds > 0 ? Math.min(seconds, durationSeconds) : seconds);
+    try {
+      await TrackPlayer.seekTo(target);
+      set({ positionSeconds: target });
+    } catch (error) {
+      console.warn("Seek failed:", error);
+    }
+  },
+
+  seekBy: async (deltaSeconds: number) => {
+    const { positionSeconds } = get();
+    await get().seekTo(positionSeconds + deltaSeconds);
+  },
+
+  toggleEpisodePlayed: (episodeId: string, podcastId?: string, pubDateEpochMs?: number) => {
+    if (!episodeId) return false;
+    if (Preferences.isEpisodePlayed(episodeId)) {
+      Preferences.markEpisodeUnplayed(episodeId);
+      return false;
+    }
+    Preferences.markEpisodePlayed(episodeId, podcastId, pubDateEpochMs);
+    return true;
+  },
+
   handleEpisodeEnded: async () => {
     const { currentPodcast, currentEpisode } = get();
     if (!currentEpisode) return;
@@ -335,6 +387,19 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       currentEpisode.podcastId,
       parsePodcastDateEpoch(currentEpisode.pubDate)
     );
+    set({ positionSeconds: 0 });
+
+    // Auto-delete the download once the episode finishes, mirroring the Kotlin app.
+    if (Preferences.getSetting("pref_delete_played", false)) {
+      try {
+        const { useDownloadStore } = require("../downloads/downloadStore");
+        if (useDownloadStore.getState().downloads[currentEpisode.id]) {
+          useDownloadStore.getState().remove(currentEpisode.id);
+        }
+      } catch {
+        // Downloads are optional; ignore failures.
+      }
+    }
 
     const autoplayNext = Preferences.getSetting("pref_autoplay_next", "none");
     if (autoplayNext === "none" || !currentPodcast) return;

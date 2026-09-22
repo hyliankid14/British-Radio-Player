@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  android:id="@+id/widget_root"
+  android:layout_width="match_parent"
+  android:layout_height="match_parent"
+  android:orientation="horizontal"
+  android:gravity="center_vertical"
+  android:background="@drawable/widget_background"
+  android:padding="12dp">
+
+  <ImageView
+    android:id="@+id/widget_play_pause"
+    android:layout_width="48dp"
+    android:layout_height="48dp"
+    android:padding="8dp"
+    android:background="@drawable/widget_button_background"
+    android:contentDescription="@string/widget_play_pause" />
+
+  <LinearLayout
+    android:layout_width="0dp"
+    android:layout_height="wrap_content"
+    android:layout_weight="1"
+    android:layout_marginStart="12dp"
+    android:orientation="vertical">
+
+    <TextView
+      android:id="@+id/widget_station_title"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:maxLines="1"
+      android:ellipsize="end"
+      android:textSize="16sp"
+      android:textStyle="bold"
+      android:textColor="#FFFFFF"
+      android:text="@string/widget_default_station" />
+
+    <TextView
+      android:id="@+id/widget_show_title"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:layout_marginTop="2dp"
+      android:maxLines="1"
+      android:ellipsize="end"
+      android:textSize="12sp"
+      android:textColor="#EADDFF"
+      android:text="@string/widget_default_show" />
+  </LinearLayout>
+</LinearLayout>

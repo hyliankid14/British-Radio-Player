@@ -21,6 +21,7 @@ import { Preferences } from "../../src/storage/preferences";
 import { toSavedEpisodeEntry, useDownloadStore } from "../../src/downloads/downloadStore";
 import { MiniPlayer } from "../../src/components/MiniPlayer";
 import { AppNavigation } from "../../src/components/AppNavigation";
+import { useNetworkStatus } from "../../src/store/networkStore";
 
 export default function PodcastDetailModal() {
   const router = useRouter();
@@ -61,6 +62,15 @@ export default function PodcastDetailModal() {
 
   const { playEpisode, pause, resume, currentEpisode, isPlaying } = usePlayerStore();
   const downloads = useDownloadStore((state) => state.downloads);
+  const { isOnline } = useNetworkStatus();
+  // Offline mode only exposes episodes that are already downloaded, matching the Kotlin feed.
+  const displayEpisodes = React.useMemo(
+    () =>
+      isOnline
+        ? episodes
+        : episodes.filter((episode) => Preferences.isEpisodeDownloaded(episode.id)),
+    [episodes, isOnline, downloads]
+  );
   const [savedIds, setSavedIds] = useState<Set<string>>(
     () => new Set(Preferences.getPodcastPlaylistEntries("saved").map((entry) => entry.id))
   );
@@ -470,14 +480,14 @@ export default function PodcastDetailModal() {
         renderItem={renderEpisodeItem}
         ListHeaderComponent={renderHeader}
         ListEmptyComponent={renderEmpty}
-        data={episodes.slice(0, visibleEpisodeCount)}
+        data={displayEpisodes.slice(0, visibleEpisodeCount)}
         initialNumToRender={10}
         maxToRenderPerBatch={20}
         windowSize={7}
         removeClippedSubviews={true}
         onEndReached={() => {
-          if (visibleEpisodeCount < episodes.length) {
-            setVisibleEpisodeCount((count) => Math.min(count + 20, episodes.length));
+          if (visibleEpisodeCount < displayEpisodes.length) {
+            setVisibleEpisodeCount((count) => Math.min(count + 20, displayEpisodes.length));
           }
         }}
         onEndReachedThreshold={0.6}

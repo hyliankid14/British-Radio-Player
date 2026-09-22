@@ -91,6 +91,65 @@ interface StationLogoProps {
   borderRadius?: number;
 }
 
+/** HSL helper mirroring the Kotlin `StationArtwork.getTintColor` behaviour. */
+function isUsableTint(hex: string): boolean {
+  const match = /^#([0-9a-f]{6})$/i.exec(hex);
+  if (!match) return false;
+  const value = parseInt(match[1], 16);
+  const r = ((value >> 16) & 0xff) / 255;
+  const g = ((value >> 8) & 0xff) / 255;
+  const b = (value & 0xff) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const lightness = (max + min) / 2;
+  const delta = max - min;
+  const saturation = delta === 0 ? 0 : delta / (1 - Math.abs(2 * lightness - 1));
+  const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+  return luminance > 0.08 && luminance < 0.92 && saturation >= 0.18;
+}
+
+/**
+ * Returns the strongest non-neutral colour available in the generated station logo.
+ * Mirrors the legacy Kotlin `StationArtwork.getTintColor` so the Now Playing screen tints
+ * its background consistently when no live show artwork is available.
+ */
+export function getStationTint(stationId: string): string {
+  const config = STATION_ARTWORK_CONFIGS[stationId];
+  if (config) {
+    const candidates = [config.backgroundColor, config.circleColor, config.textColor].filter(
+      (value): value is string => typeof value === "string"
+    );
+    const usable = candidates.find(isUsableTint);
+    if (usable) return usable;
+  }
+  let hash = 0;
+  for (let i = 0; i < stationId.length; i++) {
+    hash = (hash * 31 + stationId.charCodeAt(i)) | 0;
+  }
+  const hue = ((hash >>> 0) % 360 + 360) % 360;
+  return hslToHex(hue, 0.45, 0.48);
+}
+
+function hslToHex(h: number, s: number, l: number): string {
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = l - c / 2;
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  if (h < 60) [r, g, b] = [c, x, 0];
+  else if (h < 120) [r, g, b] = [x, c, 0];
+  else if (h < 180) [r, g, b] = [0, c, x];
+  else if (h < 240) [r, g, b] = [0, x, c];
+  else if (h < 300) [r, g, b] = [x, 0, c];
+  else [r, g, b] = [c, 0, x];
+  const toHex = (value: number) =>
+    Math.round((value + m) * 255)
+      .toString(16)
+      .padStart(2, "0");
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase();
+}
+
 export function StationLogo({
   stationId,
   size = 56,

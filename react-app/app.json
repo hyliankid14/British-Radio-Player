@@ -2,7 +2,7 @@
   "expo": {
     "name": "British Radio Player",
     "slug": "british-radio-player-react",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "scheme": "bbcradioplayer",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -43,7 +43,8 @@
       }
     },
     "android": {
-      "package": "com.hyliankid14.bbcradioplayer.react",
+      "package": "com.hyliankid14.bbcradioplayer",
+      "versionCode": 100,
       "adaptiveIcon": {
         "backgroundColor": "#1E1B2E",
         "foregroundImage": "./assets/android-icon-foreground.png",
