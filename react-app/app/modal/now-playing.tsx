@@ -162,9 +162,9 @@ export default function NowPlayingModal() {
     }
   }, [params.episodeData]);
 
-  const isPreview = !currentStation && !!previewEpisode && previewEpisode.id !== currentEpisode?.id;
-  const activePodcast = isPreview ? previewPodcast : currentPodcast;
-  const activeEpisode = isPreview ? previewEpisode : currentEpisode;
+  const isPreview = !!previewEpisode && previewEpisode.id !== currentEpisode?.id;
+  const activePodcast = previewPodcast || currentPodcast;
+  const activeEpisode = previewEpisode || currentEpisode;
 
   const downloads = useDownloadStore((state) => state.downloads);
 
@@ -175,11 +175,12 @@ export default function NowPlayingModal() {
   const [playlistVisible, setPlaylistVisible] = React.useState(false);
   const [matchedPodcast, setMatchedPodcast] = React.useState<Podcast | null>(null);
   const [isPlayed, setIsPlayed] = React.useState(false);
+  const [isSaved, setIsSaved] = React.useState(false);
   const [isSubscribed, setIsSubscribed] = React.useState(false);
   const [localPosition, setLocalPosition] = React.useState(positionSeconds);
   const [dragging, setDragging] = React.useState(false);
 
-  const isPodcast = !currentStation && !!activeEpisode && !!activePodcast;
+  const isPodcast = !!activeEpisode && !!activePodcast;
   const isSongPlaying = !isPodcast && !!(currentShow?.artist || currentShow?.track);
   const isOfficialLogo =
     !!currentStation &&
@@ -310,6 +311,7 @@ export default function NowPlayingModal() {
   React.useEffect(() => {
     if (activeEpisode) {
       setIsPlayed(Preferences.isEpisodePlayed(activeEpisode.id));
+      setIsSaved(Preferences.isEpisodeSaved(activeEpisode.id));
     }
   }, [activeEpisode?.id, positionSeconds]);
 
@@ -362,7 +364,11 @@ export default function NowPlayingModal() {
   }
 
   const isFav = currentStation ? favorites.includes(currentStation.id) : false;
-  const headerTitle = currentStation ? currentStation.title : activePodcast?.title || "Podcast";
+  const headerTitle = isPodcast
+    ? activePodcast?.title || "Podcast"
+    : currentStation
+    ? currentStation.title
+    : "Radio";
   const background = palette?.subtle || theme.surfaceContainer;
   const outlineColour = palette?.buttonOutline || theme.surfaceVariant;
   const playPauseColour = palette?.playPause || theme.primary;
@@ -473,24 +479,10 @@ export default function NowPlayingModal() {
         <View style={styles.appBarActions}>
           {isPodcast ? (
             <TouchableOpacity
-              onPress={handleMarkPlayed}
+              onPress={() => setMenuVisible(true)}
               style={styles.navButton}
-              accessibilityLabel={isPlayed ? "Mark episode as unplayed" : "Mark episode as played"}
+              accessibilityLabel="More options"
             >
-              <MaterialIcons
-                name={isPlayed ? "check-circle" : "check-circle-outline"}
-                size={24}
-                color={screenTextColor}
-              />
-            </TouchableOpacity>
-          ) : null}
-          {isPodcast ? (
-            <TouchableOpacity onPress={handleShare} style={styles.navButton}>
-              <MaterialIcons name="share" size={24} color={screenTextColor} />
-            </TouchableOpacity>
-          ) : null}
-          {isPodcast ? (
-            <TouchableOpacity onPress={() => setMenuVisible(true)} style={styles.navButton}>
               <MaterialIcons name="more-vert" size={24} color={screenTextColor} />
             </TouchableOpacity>
           ) : null}
@@ -527,16 +519,11 @@ export default function NowPlayingModal() {
         </Text>
 
         {isPodcast ? (
-          <>
-            <Text style={[styles.stationSubtitle, { color: screenSecondaryTextColor }]} numberOfLines={1}>
-              {decodeXmlEntities(activePodcast?.title || "")}
+          activeEpisode?.pubDate ? (
+            <Text style={[styles.releaseDate, { color: screenSecondaryTextColor }]}>
+              {formatEpisodeDate(activeEpisode.pubDate)}
             </Text>
-            {activeEpisode?.pubDate ? (
-              <Text style={[styles.releaseDate, { color: screenSecondaryTextColor }]}>
-                {formatEpisodeDate(activeEpisode.pubDate)}
-              </Text>
-            ) : null}
-          </>
+          ) : null
         ) : (
           <>
             {currentShow?.nextShowTitle ? (
@@ -554,17 +541,18 @@ export default function NowPlayingModal() {
         )}
 
         {isPodcast && activeEpisode?.description ? (
-          <View style={styles.descriptionContainer}>
+          <TouchableOpacity
+            style={styles.descriptionContainer}
+            activeOpacity={0.7}
+            onPress={() => setDescriptionVisible(true)}
+          >
             <Text
               style={[styles.description, { color: screenSecondaryTextColor }]}
               numberOfLines={4}
             >
-              {decodeXmlEntities(activeEpisode.description)}
+              {decodeXmlEntities(activeEpisode.description.replace(/<[^>]*>/g, "").trim())}
             </Text>
-            <TouchableOpacity onPress={() => setDescriptionVisible(true)}>
-              <Text style={[styles.showMore, { color: screenTextColor }]}>Show more</Text>
-            </TouchableOpacity>
-          </View>
+          </TouchableOpacity>
         ) : null}
 
         {!isPodcast && matchedPodcast ? (
@@ -664,26 +652,47 @@ export default function NowPlayingModal() {
           style={[
             styles.controlIconButton,
             {
-              backgroundColor:
-                (isPodcast && isSubscribed) || isFav
-                  ? playPauseColour
-                  : "transparent"
+              backgroundColor: isPodcast
+                ? outlineColour
+                : isFav
+                ? playPauseColour
+                : "transparent"
             }
           ]}
           onPress={() => {
-            if (isPodcast && activePodcast) {
-              setIsSubscribed(Preferences.togglePodcastSubscription(activePodcast.id));
+            if (isPodcast && activeEpisode && activePodcast) {
+              const saved = Preferences.toggleSavedEpisode(toSavedEpisodeEntry(activePodcast, activeEpisode));
+              setIsSaved(saved);
             } else if (currentStation) {
               toggleFavorite(currentStation.id);
             }
           }}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityLabel={
+            isPodcast
+              ? isSaved
+                ? "Remove from saved episodes"
+                : "Save episode"
+              : isFav
+              ? "Remove from favorites"
+              : "Add to favorites"
+          }
         >
           <MaterialIcons
-            name={(isPodcast && isSubscribed) || isFav ? "star" : "star-border"}
+            name={
+              isPodcast
+                ? isSaved
+                  ? "bookmark"
+                  : "bookmark-border"
+                : isFav
+                ? "star"
+                : "star-border"
+            }
             size={26}
             color={
-              (isPodcast && isSubscribed) || isFav
+              isPodcast
+                ? buttonIconColor
+                : isFav
                 ? playPauseIconColor
                 : screenTextColor
             }
@@ -776,16 +785,16 @@ export default function NowPlayingModal() {
         <View style={styles.menuBackdrop}>
           <View style={[styles.descriptionSheet, { backgroundColor: theme.surfaceContainer }]}>
             <View style={styles.descriptionHeader}>
-              <Text style={[styles.descriptionTitle, { color: theme.onSurface }]}>
-                {decodeXmlEntities(currentEpisode?.title || "")}
+              <Text style={[styles.descriptionTitle, { color: theme.onSurface }]} numberOfLines={2}>
+                {decodeXmlEntities(activeEpisode?.title || "")}
               </Text>
               <TouchableOpacity onPress={() => setDescriptionVisible(false)} style={styles.navButton}>
                 <MaterialIcons name="close" size={24} color={theme.onSurface} />
               </TouchableOpacity>
             </View>
-            <ScrollView>
+            <ScrollView style={{ marginTop: 8 }}>
               <Text style={[styles.descriptionFull, { color: theme.onSurfaceVariant }]}>
-                {decodeXmlEntities(currentEpisode?.description || "")}
+                {decodeXmlEntities(activeEpisode?.description?.replace(/<[^>]*>/g, "") || "")}
               </Text>
             </ScrollView>
           </View>
@@ -878,8 +887,8 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: "700",
     textAlign: "center",
-    marginTop: 8,
-    paddingHorizontal: 16
+    marginTop: 12,
+    paddingHorizontal: 20
   },
   nextShow: {
     fontSize: 12,
@@ -895,9 +904,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16
   },
   releaseDate: {
-    fontSize: 12,
+    fontSize: 13,
     textAlign: "center",
-    marginTop: 4
+    marginTop: 6,
+    marginBottom: 2
   },
   stationSubtitle: {
     fontSize: 13,
@@ -905,8 +915,8 @@ const styles = StyleSheet.create({
     textAlign: "center"
   },
   descriptionContainer: {
-    marginTop: 8,
-    paddingHorizontal: 8,
+    marginTop: 6,
+    paddingHorizontal: 20,
     alignItems: "center"
   },
   description: {

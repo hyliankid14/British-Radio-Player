@@ -42,6 +42,18 @@ export default function EpisodeDetailModal() {
     episode = null;
   }
 
+  React.useEffect(() => {
+    if (params.podcastData && params.episodeData) {
+      router.replace({
+        pathname: "/modal/now-playing",
+        params: {
+          podcastData: params.podcastData,
+          episodeData: params.episodeData
+        }
+      });
+    }
+  }, [params.podcastData, params.episodeData, router]);
+
   if (!podcast || !episode) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.surfaceContainer }]}>

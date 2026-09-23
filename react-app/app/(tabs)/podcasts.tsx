@@ -473,7 +473,7 @@ export default function PodcastsScreen() {
 
         if (resolved) {
           router.push({
-            pathname: "/modal/episode-detail",
+            pathname: "/modal/now-playing",
             params: {
               podcastData: JSON.stringify(parentPodcast),
               episodeData: JSON.stringify(resolved)
