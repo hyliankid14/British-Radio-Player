@@ -1,5 +1,8 @@
 import { useColorScheme } from "react-native";
+import { create } from "zustand";
 import { Preferences } from "../storage/preferences";
+
+export type ThemeMode = "system" | "dark" | "light";
 
 export const M3Colors = {
   light: {
@@ -68,11 +71,56 @@ export const M3Colors = {
 
 export type ThemeColors = typeof M3Colors.light;
 
+interface ThemeState {
+  mode: ThemeMode;
+  setMode: (mode: ThemeMode) => void;
+}
+
+/**
+ * Holds the selected theme mode so that changing it re-renders the whole app.
+ * Preference writes go through the store; external writes (e.g. backup import)
+ * are picked up by the MMKV change listener below.
+ */
+export const useThemeStore = create<ThemeState>((set) => ({
+  mode: Preferences.getTheme(),
+  setMode: (mode) => {
+    Preferences.setTheme(mode);
+    set({ mode });
+  }
+}));
+
+if (typeof Preferences.onChanged === "function") {
+  Preferences.onChanged((key) => {
+    if (key !== "pref_theme_mode") return;
+    const mode = Preferences.getTheme();
+    if (useThemeStore.getState().mode !== mode) useThemeStore.setState({ mode });
+  });
+}
+
+/** Programmatically change the theme (also persists it). */
+export function setAppTheme(mode: ThemeMode): void {
+  useThemeStore.getState().setMode(mode);
+}
+
+/** Reactive read of the selected theme mode. */
+export function useThemeMode(): ThemeMode {
+  return useThemeStore((state) => state.mode);
+}
+
 export function useAppTheme(): ThemeColors {
   const systemScheme = useColorScheme();
-  const themePref = Preferences.getTheme();
-  
+  const themePref = useThemeStore((state) => state.mode);
+
   if (themePref === "dark") return M3Colors.dark;
   if (themePref === "light") return M3Colors.light;
   return systemScheme === "dark" ? M3Colors.dark : M3Colors.light;
+}
+
+/** Reactive dark-mode flag for status bar and navigation chrome. */
+export function useIsDarkTheme(): boolean {
+  const systemScheme = useColorScheme();
+  const themePref = useThemeStore((state) => state.mode);
+  if (themePref === "dark") return true;
+  if (themePref === "light") return false;
+  return systemScheme === "dark";
 }

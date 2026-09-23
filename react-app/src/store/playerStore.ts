@@ -7,6 +7,7 @@ import { Podcast, Episode, PodcastApi } from "../api/podcasts";
 import { LastFmApi } from "../api/lastfm";
 import { notifyNativePhonePlaybackStarted } from "../auto/autoBridge";
 import { getDownloadedUri } from "../downloads/downloadStore";
+import { getNetworkStatus } from "./networkStore";
 
 interface PlayerState {
   currentStation: Station | null;
@@ -47,6 +48,31 @@ function parsePodcastDateEpoch(pubDate?: string): number {
   if (!pubDate) return 0;
   const parsed = Date.parse(pubDate);
   return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+/** Resolves the effective stream quality, honouring the Auto-detect preference. */
+function resolvePlaybackQuality(explicit: AudioQuality): AudioQuality {
+  if (!Preferences.getSetting("pref_auto_quality", true)) return explicit;
+  const { isOnline, isWifi } = getNetworkStatus();
+  if (!isOnline) return "LOW";
+  return isWifi ? "HIGH" : "MEDIUM";
+}
+
+/** Station rotation honouring the "scroll favourites only" preference. */
+function stationRotation(): Station[] {
+  const all = StationRepository.getAll();
+  if (Preferences.getSetting<string>("pref_scroll_mode", "all") !== "favourites") return all;
+  const favorites = Preferences.getFavorites();
+  const filtered = all.filter((station) => favorites.includes(station.id));
+  return filtered.length > 0 ? filtered : all;
+}
+
+/** Chooses between episode and podcast artwork for podcast playback. */
+function resolvePodcastArtwork(podcast: Podcast, episode: Episode): string {
+  const preference = Preferences.getSetting<string>("pref_podcast_artwork", "episode");
+  return preference === "podcast"
+    ? podcast.imageUrl || episode.imageUrl
+    : episode.imageUrl || podcast.imageUrl;
 }
 
 function beginScrobble(artist: string, track: string, durationSec = 0, isPodcast = false): void {
@@ -90,7 +116,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   playStation: async (station: Station) => {
-    const quality = get().audioQuality;
+    const quality = resolvePlaybackQuality(get().audioQuality);
     const geoBlocked = Preferences.getGeoBlocked();
     const candidates = getStreamCandidates(station, quality, geoBlocked);
     const streamUrl = candidates[0] || station.directStreamUrls[0] || `https://lsn.lv/bbcradio.m3u8?station=${station.serviceId}&bitrate=320000`;
@@ -189,13 +215,14 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     });
     try {
       await TrackPlayer.reset();
+      const artwork = resolvePodcastArtwork(podcast, episode);
       await TrackPlayer.add({
         id: episode.id,
         url: getDownloadedUri(episode.id) ?? episode.audioUrl,
         type: TrackType.Default,
         title: episode.title,
         artist: podcast.title,
-        artwork: episode.imageUrl || podcast.imageUrl,
+        artwork,
         duration: episode.durationMins * 60
       });
       await TrackPlayer.play();
@@ -206,7 +233,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         id: episode.id,
         title: episode.title,
         description: episode.description,
-        imageUrl: episode.imageUrl || podcast.imageUrl,
+        imageUrl: artwork,
         audioUrl: episode.audioUrl,
         pubDate: episode.pubDate,
         durationMins: episode.durationMins,
@@ -435,7 +462,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   playNext: async () => {
     const { currentStation } = get();
-    const stations = StationRepository.getAll();
+    const stations = stationRotation();
     if (!stations.length) return;
     const currentIndex = currentStation ? stations.findIndex(s => s.id === currentStation.id) : -1;
     const nextStation = stations[(currentIndex + 1) % stations.length];
@@ -444,7 +471,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   playPrevious: async () => {
     const { currentStation } = get();
-    const stations = StationRepository.getAll();
+    const stations = stationRotation();
     if (!stations.length) return;
     const currentIndex = currentStation ? stations.findIndex(s => s.id === currentStation.id) : 0;
     const prevIndex = (currentIndex - 1 + stations.length) % stations.length;

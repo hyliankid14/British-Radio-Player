@@ -4,15 +4,17 @@ import * as Linking from "expo-linking";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import TrackPlayer from "react-native-track-player";
-import { LogBox } from "react-native";
+import { Alert, LogBox } from "react-native";
 import { setupPlayer, playbackService } from "../src/audio/trackPlayerService";
 import { usePlayerStore } from "../src/store/playerStore";
 import { initAutoSync } from "../src/auto/autoSync";
 import { runLegacyMigration } from "../src/storage/legacyMigration";
+import { useAppTheme, useIsDarkTheme } from "../src/theme/colors";
 import { initWearSync, pushWearState } from "../src/wear/wearSync";
 import { syncBackgroundSync } from "../src/background/backgroundSync";
 import { Preferences } from "../src/storage/preferences";
 import { NativeAndroid } from "../src/native/nativeAndroid";
+import { LastFmApi } from "../src/api/lastfm";
 import { StationRepository } from "../src/data/stations";
 import { formatShowDisplayTitle } from "../src/api/showInfo";
 
@@ -46,13 +48,33 @@ void syncBackgroundSync();
 
 export default function RootLayout() {
   const router = useRouter();
+  const theme = useAppTheme();
+  const isDark = useIsDarkTheme();
   const initStore = usePlayerStore((state) => state.init);
 
   useEffect(() => {
-    function handleDeepLink(url: string) {
+    async function handleDeepLink(url: string) {
       if (!url) return;
       try {
         const parsed = Linking.parse(url);
+
+        // A Last.fm OAuth redirect carries a one-time token; exchange it once here so
+        // the connection succeeds regardless of which screen is open.
+        const token = typeof parsed.queryParams?.token === "string" ? parsed.queryParams.token : null;
+        if (token) {
+          try {
+            const session = await LastFmApi.exchangeToken(token);
+            Preferences.setLastFmSession(session.username, session.sessionKey);
+            Alert.alert("Last.fm connected", `Connected as ${session.username}.`);
+          } catch (error) {
+            Alert.alert(
+              "Last.fm connection failed",
+              error instanceof Error ? error.message : "Could not connect to Last.fm."
+            );
+          }
+          return;
+        }
+
         let path = parsed.path || "";
         if (!path.startsWith("/")) path = "/" + path;
         router.navigate({
@@ -64,9 +86,9 @@ export default function RootLayout() {
       }
     }
 
-    const sub = Linking.addEventListener("url", (event) => handleDeepLink(event.url));
+    const sub = Linking.addEventListener("url", (event) => void handleDeepLink(event.url));
     Linking.getInitialURL().then((url) => {
-      if (url) handleDeepLink(url);
+      if (url) void handleDeepLink(url);
     });
 
     return () => sub.remove();
@@ -126,11 +148,11 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
-      <StatusBar style="dark" />
+      <StatusBar style={isDark ? "light" : "dark"} />
       <Stack
         screenOptions={{
           headerShown: false,
-          contentStyle: { backgroundColor: "#F3EDF7" }
+          contentStyle: { backgroundColor: theme.background }
         }}
       >
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />

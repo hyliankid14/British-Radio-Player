@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
 import {
   Alert,
-  Modal,
   ScrollView,
   Share,
   StyleSheet,
@@ -13,14 +12,15 @@ import {
 import * as Linking from "expo-linking";
 import Constants from "expo-constants";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
 import { Preferences } from "../../src/storage/preferences";
 import { AUDIO_QUALITIES, AudioQuality } from "../../src/data/stations";
 import { StationRepository } from "../../src/data/stations";
 import { StationLogo } from "../../src/components/StationLogo";
+import { Dropdown, DropdownOption } from "../../src/components/Dropdown";
 import { usePlayerStore } from "../../src/store/playerStore";
-import { useAppTheme } from "../../src/theme/colors";
+import { useAppTheme, useThemeMode, setAppTheme, ThemeMode } from "../../src/theme/colors";
 import { NativeAndroid } from "../../src/native/nativeAndroid";
 import { LastFmApi } from "../../src/api/lastfm";
 
@@ -37,6 +37,56 @@ const TITLES: Record<string, string> = {
   privacy: "Privacy",
   about: "About"
 };
+
+const THEME_OPTIONS: DropdownOption<ThemeMode>[] = [
+  { value: "system", label: "Match system" },
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" }
+];
+
+const QUALITY_OPTIONS: DropdownOption<AudioQuality>[] = (
+  ["HIGH", "MEDIUM", "LOW", "AUTO"] as AudioQuality[]
+).map((value) => ({ value, label: AUDIO_QUALITIES[value].label }));
+
+const ARTWORK_OPTIONS: DropdownOption<string>[] = [
+  { value: "episode", label: "Episode artwork" },
+  { value: "podcast", label: "Podcast artwork" }
+];
+
+const SCROLL_OPTIONS: DropdownOption<string>[] = [
+  { value: "all", label: "Scroll all stations" },
+  { value: "favourites", label: "Scroll favourites only" }
+];
+
+const AUTOPLAY_OPTIONS: DropdownOption<string>[] = [
+  { value: "all", label: "All podcasts" },
+  { value: "subscriptions", label: "Subscriptions only" },
+  { value: "none", label: "None" }
+];
+
+const STARTUP_OPTIONS: DropdownOption<string>[] = [
+  { value: "favourites", label: "Favourite stations" },
+  { value: "all_stations", label: "All stations" },
+  { value: "subscribed_podcasts", label: "Subscribed podcasts" },
+  { value: "playlists", label: "Playlists" }
+];
+
+const REFRESH_OPTIONS: DropdownOption<number>[] = [0, 15, 30, 60, 120, 360, 720, 1440].map(
+  (value) => ({
+    value,
+    label:
+      value === 0
+        ? "Disabled"
+        : value >= 60
+        ? `${value / 60} hour${value === 60 ? "" : "s"}`
+        : `${value} minutes`
+  })
+);
+
+const DOWNLOAD_LIMIT_OPTIONS: DropdownOption<number>[] = [1, 3, 5, 10].map((value) => ({
+  value,
+  label: value === 1 ? "Latest episode" : `${value} episodes`
+}));
 
 export default function SettingsDetail() {
   const theme = useAppTheme();
@@ -69,17 +119,19 @@ export default function SettingsDetail() {
 }
 
 function ThemePage() {
-  const theme = useAppTheme();
-  const current = Preferences.getTheme();
-  return <Card title="Theme" subtitle="Choose the app colour scheme">
-    {(["light", "dark", "system"] as const).map((value) => (
-      <Option key={value} label={value === "system" ? "Match system" : value[0].toUpperCase() + value.slice(1)} selected={current === value} onPress={() => Preferences.setTheme(value)} theme={theme} />
-    ))}
-  </Card>;
+  const mode = useThemeMode();
+  return (
+    <Card title="Colour scheme" subtitle="Choose the app colour scheme">
+      <Dropdown
+        value={mode}
+        options={THEME_OPTIONS}
+        onChange={setAppTheme}
+      />
+    </Card>
+  );
 }
 
 function PlaybackPage() {
-  const theme = useAppTheme();
   const { audioQuality, setAudioQuality } = usePlayerStore();
   const [settings, setSettings] = useState<{
     auto: boolean; artwork: string; pause: boolean; scroll: string;
@@ -100,48 +152,37 @@ function PlaybackPage() {
   return <>
     <Card title="Audio quality" subtitle="Choose the stream quality used for playback">
       <SwitchRow title="Auto-detect based on network" subtitle="Automatically select the best available bitrate" value={settings.auto} onChange={(value) => update("auto", value)} />
-      {(["HIGH", "MEDIUM", "LOW", "AUTO"] as AudioQuality[]).map((value) => (
-        <Option key={value} label={AUDIO_QUALITIES[value].label} selected={audioQuality === value && !settings.auto} onPress={() => { update("auto", false); void setAudioQuality(value); }} theme={theme} />
-      ))}
+      <Dropdown
+        value={audioQuality}
+        options={QUALITY_OPTIONS}
+        disabled={settings.auto}
+        onChange={(value) => { update("auto", false); void setAudioQuality(value); }}
+      />
     </Card>
-    <Card title="Podcast Artwork" subtitle="Choose which artwork is shown during podcast playback">
-      <Option label="Episode artwork" selected={settings.artwork === "episode"} onPress={() => update("artwork", "episode")} theme={theme} />
-      <Option label="Podcast artwork" selected={settings.artwork === "podcast"} onPress={() => update("artwork", "podcast")} theme={theme} />
+    <Card title="Podcast artwork" subtitle="Choose which artwork is shown during podcast playback">
+      <Dropdown value={settings.artwork} options={ARTWORK_OPTIONS} onChange={(value) => update("artwork", value)} />
     </Card>
-    <Card title="Live Radio Pause Behaviour" subtitle="Configure buffering when live radio is paused">
+    <Card title="Live radio pause behaviour" subtitle="Configure buffering when live radio is paused">
       <SwitchRow title="Pause buffering (resume playback)" subtitle="Buffer live radio for up to 50 seconds whilst paused" value={settings.pause} onChange={(value) => update("pause", value)} />
     </Card>
-    <Card title="Next/Previous Behaviour" subtitle="Choose how station navigation works">
-      <Option label="Scroll All Stations" selected={settings.scroll === "all"} onPress={() => update("scroll", "all")} theme={theme} />
-      <Option label="Scroll Favourites Only" selected={settings.scroll === "favourites"} onPress={() => update("scroll", "favourites")} theme={theme} />
+    <Card title="Next/previous behaviour" subtitle="Choose how station navigation works">
+      <Dropdown value={settings.scroll} options={SCROLL_OPTIONS} onChange={(value) => update("scroll", value)} />
       <SwitchRow title="Shake to select a random podcast" subtitle="" value={settings.shake} onChange={(value) => update("shake", value)} />
       <SwitchRow title="Stop playback when Bluetooth device disconnects" subtitle="" value={settings.bluetooth} onChange={(value) => update("bluetooth", value)} />
     </Card>
     <Card title="Automatically play next episode when completed" subtitle="Choose which episodes may continue automatically">
-      <Option label="All podcasts" selected={settings.next === "all"} onPress={() => update("next", "all")} theme={theme} />
-      <Option label="Subscriptions only" selected={settings.next === "subscriptions"} onPress={() => update("next", "subscriptions")} theme={theme} />
-      <Option label="None" selected={settings.next === "none"} onPress={() => update("next", "none")} theme={theme} />
+      <Dropdown value={settings.next} options={AUTOPLAY_OPTIONS} onChange={(value) => update("next", value)} />
     </Card>
   </>;
 }
 
 function LastFmPage() {
-  const theme = useAppTheme();
   const [settings, setSettings] = useState(Preferences.getLastFm());
   useEffect(() => {
-    const onUrl = async ({ url }: { url: string }) => {
-      const token = Linking.parse(url).queryParams?.token;
-      if (typeof token !== "string") return;
-      try {
-        const session = await LastFmApi.exchangeToken(token);
-        Preferences.setLastFmSession(session.username, session.sessionKey);
-        setSettings(Preferences.getLastFm());
-        Alert.alert("Last.fm connected", `Connected as ${session.username}.`);
-      } catch (error) {
-        Alert.alert("Last.fm connection failed", error instanceof Error ? error.message : "Could not connect.");
-      }
-    };
-    const subscription = Linking.addEventListener("url", onUrl);
+    // The root layout performs the OAuth token exchange; refresh the page when it lands.
+    const subscription = Preferences.onChanged((key) => {
+      if (key.startsWith("pref_lastfm")) setSettings(Preferences.getLastFm());
+    });
     return () => subscription.remove();
   }, []);
   const connect = async () => {
@@ -153,35 +194,37 @@ function LastFmPage() {
   };
   return <>
     <Card title="Account" subtitle={settings.username ? `Connected as ${settings.username}` : "Connect your Last.fm account to scrobble songs directly"}>
-      <TouchableOpacity style={styles.primaryButton} onPress={settings.sessionKey ? () => {
-      Preferences.clearLastFmSession();
-      setSettings(Preferences.getLastFm());
-    } : connect}>
-        <Text style={styles.primaryButtonText}>{settings.sessionKey ? "Disconnect Last.fm" : "Connect to Last.fm"}</Text>
-      </TouchableOpacity>
+      <PrimaryButton
+        label={settings.sessionKey ? "Disconnect Last.fm" : "Connect to Last.fm"}
+        onPress={settings.sessionKey ? () => {
+          Preferences.clearLastFmSession();
+          setSettings(Preferences.getLastFm());
+        } : connect}
+      />
     </Card>
-    <Card title="Scrobbling Options" subtitle="Control which playback events are sent to scrobbling services">
-      <SwitchRow title="Direct Last.fm Scrobbling" subtitle="Send Now Playing and scrobbles to your linked profile" value={settings.direct && !!settings.sessionKey} disabled={!settings.sessionKey} onChange={(value) => { Preferences.setLastFmDirect(value); setSettings(Preferences.getLastFm()); }} />
-      <SwitchRow title="External Scrobbler Broadcasts" subtitle="Broadcast tracks to third-party scrobbler apps" value={settings.broadcast} onChange={(value) => { Preferences.setLastFmBroadcast(value); setSettings(Preferences.getLastFm()); }} />
-      <SwitchRow title="Scrobble Podcasts" subtitle="Also scrobble podcast episodes as tracks" value={settings.podcasts} onChange={(value) => { Preferences.setLastFmPodcasts(value); setSettings(Preferences.getLastFm()); }} />
+    <Card title="Scrobbling options" subtitle="Control which playback events are sent to scrobbling services">
+      <SwitchRow title="Direct Last.fm scrobbling" subtitle="Send Now Playing and scrobbles to your linked profile" value={settings.direct && !!settings.sessionKey} disabled={!settings.sessionKey} onChange={(value) => { Preferences.setLastFmDirect(value); setSettings(Preferences.getLastFm()); }} />
+      <SwitchRow title="External scrobbler broadcasts" subtitle="Broadcast tracks to third-party scrobbler apps" value={settings.broadcast} onChange={(value) => { Preferences.setLastFmBroadcast(value); setSettings(Preferences.getLastFm()); }} />
+      <SwitchRow title="Scrobble podcasts" subtitle="Also scrobble podcast episodes as tracks" value={settings.podcasts} onChange={(value) => { Preferences.setLastFmPodcasts(value); setSettings(Preferences.getLastFm()); }} />
     </Card>
-    <Card title="Recent Activity" subtitle="Last.fm scrobbling status">
-      <Text style={styles.body}>{Preferences.getLastFmLastScrobbled() || "No tracks scrobbled yet"}</Text>
+    <Card title="Recent activity" subtitle="Last.fm scrobbling status">
+      <BodyText>{Preferences.getLastFmLastScrobbled() || "No tracks scrobbled yet"}</BodyText>
     </Card>
   </>;
 }
 
 function AndroidAutoPage() {
   const theme = useAppTheme();
-  const insets = useSafeAreaInsets();
   const stations = StationRepository.getAll();
+  const stationOptions: DropdownOption<string>[] = [
+    { value: "", label: "No station selected" },
+    ...stations.map((station) => ({ value: station.id, label: station.title }))
+  ];
   const [settings, setSettings] = useState({
     station: Preferences.getSetting("pref_carplay_station", ""),
     autoResume: Preferences.getSetting("pref_carplay_auto_resume", true),
     hidePlayed: Preferences.getSetting("pref_carplay_hide_played", false)
   });
-  const [stationPickerVisible, setStationPickerVisible] = useState(false);
-  const selectedStation = stations.find((station) => station.id === settings.station);
   const update = (key: keyof typeof settings, value: string | boolean) => {
     const preferenceKey = {
       station: "pref_carplay_station",
@@ -194,16 +237,13 @@ function AndroidAutoPage() {
 
   return <>
     <Card title="Default station" subtitle="Station selected when Android Auto starts playback">
-      <TouchableOpacity
-        style={[styles.dropdown, { borderColor: theme.outline, backgroundColor: theme.surfaceContainer }]}
-        onPress={() => setStationPickerVisible(true)}
-        activeOpacity={0.7}
-      >
-        <Text style={[styles.dropdownText, { color: selectedStation ? theme.onSurface : theme.onSurfaceVariant }]}>
-          {selectedStation?.title || "Select a station"}
-        </Text>
-        <MaterialIcons name="arrow-drop-down" size={24} color={theme.onSurfaceVariant} />
-      </TouchableOpacity>
+      <Dropdown
+        value={settings.station}
+        options={stationOptions}
+        placeholder="Select a station"
+        onChange={(value) => update("station", value)}
+        renderLeading={(option) => <StationLeading stationId={option.value} />}
+      />
     </Card>
     <Card title="Playback" subtitle="Control playback behaviour in Android Auto">
       <SwitchRow
@@ -219,30 +259,22 @@ function AndroidAutoPage() {
         onChange={(value) => update("hidePlayed", value)}
       />
     </Card>
-    <Modal visible={stationPickerVisible} animationType="slide" onRequestClose={() => setStationPickerVisible(false)}>
-      <View style={[styles.stationPicker, { backgroundColor: theme.surface, paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-        <View style={[styles.stationPickerHeader, { borderBottomColor: theme.outlineVariant }]}>
-          <Text style={[styles.stationPickerTitle, { color: theme.onSurface }]}>Select an Android Auto station</Text>
-          <TouchableOpacity style={styles.stationPickerClose} onPress={() => setStationPickerVisible(false)} accessibilityLabel="Cancel station selection">
-            <MaterialIcons name="close" size={24} color={theme.onSurface} />
-          </TouchableOpacity>
-        </View>
-        <ScrollView contentContainerStyle={styles.stationPickerContent}>
-          <TouchableOpacity style={styles.stationOption} onPress={() => { update("station", ""); setStationPickerVisible(false); }}>
-            <View style={styles.stationOptionPlaceholder}><MaterialIcons name="block" size={24} color={theme.onSurfaceVariant} /></View>
-            <Text style={[styles.stationOptionText, { color: theme.onSurface }]}>No station selected</Text>
-          </TouchableOpacity>
-          {stations.map((station) => (
-            <TouchableOpacity key={station.id} style={styles.stationOption} onPress={() => { update("station", station.id); setStationPickerVisible(false); }}>
-              <StationLogo stationId={station.id} size={48} borderRadius={10} />
-              <Text style={[styles.stationOptionText, { color: theme.onSurface }]} numberOfLines={1}>{station.title}</Text>
-              {settings.station === station.id && <MaterialIcons name="check" size={22} color={theme.primary} />}
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </View>
-    </Modal>
   </>;
+}
+
+function StationLeading({ stationId, size = 28 }: { stationId: string; size?: number }) {
+  const theme = useAppTheme();
+  if (stationId) return <StationLogo stationId={stationId} size={size} borderRadius={6} />;
+  return (
+    <View
+      style={[
+        styles.stationPlaceholder,
+        { width: size, height: size, borderRadius: 6, backgroundColor: theme.surfaceVariant }
+      ]}
+    >
+      <MaterialIcons name="block" size={Math.round(size * 0.6)} color={theme.onSurfaceVariant} />
+    </View>
+  );
 }
 
 function BackupPage() {
@@ -287,21 +319,27 @@ function BackupPage() {
       setIsImporting(false);
     }
   };
-  return <>
-    <Card title="Backup & restore" subtitle="Export and import app settings">
-    <TouchableOpacity style={styles.primaryButton} onPress={() => Share.share({ title: "British Radio Player Backup", message: Preferences.exportBackup() })}>
-      <Text style={styles.primaryButtonText}>Export settings</Text>
-    </TouchableOpacity>
-    <Text style={styles.body}>Last backup: Never</Text>
-    <TouchableOpacity style={styles.secondaryButton} onPress={() => void importSettings()} disabled={isImporting}>
-      <Text style={styles.secondaryButtonText}>{isImporting ? "Importing…" : "Import settings"}</Text>
-    </TouchableOpacity>
+  const lastBackup = Preferences.getSetting("pref_last_backup_at", "");
+  return (
+    <Card title="Export & import" subtitle="Export and import app settings">
+      <PrimaryButton
+        label="Export settings"
+        onPress={() => {
+          Preferences.setSetting("pref_last_backup_at", new Date().toISOString());
+          void Share.share({ title: "British Radio Player Backup", message: Preferences.exportBackup() });
+        }}
+      />
+      <BodyText>Last backup: {lastBackup ? new Date(lastBackup).toLocaleString() : "Never"}</BodyText>
+      <SecondaryButton
+        label={isImporting ? "Importing…" : "Import settings"}
+        disabled={isImporting}
+        onPress={() => void importSettings()}
+      />
     </Card>
-  </>;
+  );
 }
 
 function AboutPage() {
-  const theme = useAppTheme();
   const [checking, setChecking] = useState(false);
   const currentVersion = Constants.expoConfig?.version ?? "1.0.0";
 
@@ -310,7 +348,7 @@ function AboutPage() {
     try {
       const info = await NativeAndroid.checkForUpdate(currentVersion);
       if (!info) {
-        Alert.alert("Update check failed", "Could not reach GitHub releases.");
+        Alert.alert("Update check failed", "Update checks are only available in the Android build. iOS updates are delivered through the App Store.");
       } else if (info.available) {
         Alert.alert(
           `Update available: ${info.version}`,
@@ -332,66 +370,62 @@ function AboutPage() {
   };
 
   return (
-    <>
-      <Card title="About British Radio Player" subtitle={`Version ${currentVersion}`}>
-        <Text style={styles.body}>
-          Unofficial third-party client. BBC and station trademarks are property of the British
-          Broadcasting Corporation. Streams use public BBC APIs.
-        </Text>
-        <Text style={styles.body}>
-          Licensed under the GNU General Public License v3.0.
-        </Text>
-        <TouchableOpacity
-          style={styles.secondaryButton}
-          onPress={() => void Linking.openURL("https://github.com/hyliankid14/British-Radio-Player")}
-        >
-          <Text style={styles.secondaryButtonText}>View source on GitHub</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.primaryButton}
-          onPress={() => void checkForUpdates()}
-          disabled={checking}
-        >
-          <Text style={styles.primaryButtonText}>
-            {checking ? "Checking…" : "Check for updates"}
-          </Text>
-        </TouchableOpacity>
-      </Card>
-    </>
+    <Card title="British Radio Player" subtitle={`Version ${currentVersion}`}>
+      <BodyText>
+        Unofficial third-party client. BBC and station trademarks are property of the British
+        Broadcasting Corporation. Streams use public BBC APIs.
+      </BodyText>
+      <BodyText>Licensed under the GNU General Public License v3.0.</BodyText>
+      <SecondaryButton
+        label="View source on GitHub"
+        onPress={() => void Linking.openURL("https://github.com/hyliankid14/British-Radio-Player")}
+      />
+      <PrimaryButton
+        label={checking ? "Checking…" : "Check for updates"}
+        disabled={checking}
+        onPress={() => void checkForUpdates()}
+      />
+    </Card>
   );
 }
 
 function StartupPage() {
-  const theme = useAppTheme();
-  const current = Preferences.getSetting("pref_startup_page", "all_stations");
-  return <Card title="Startup page" subtitle="Applies to the app and Android Auto">
-    {[
-      ["favourites", "Favourite Stations"],
-      ["all_stations", "All Stations"],
-      ["subscribed_podcasts", "Subscribed Podcasts"],
-      ["playlists", "Playlists"]
-    ].map(([value, label]) => <Option key={value} label={label} selected={current === value} onPress={() => Preferences.setSetting("pref_startup_page", value)} theme={theme} />)}
-  </Card>;
+  const [current, setCurrent] = useState<string>(
+    Preferences.getSetting<string>("pref_startup_page", "all_stations")
+  );
+  const update = (value: string) => {
+    Preferences.setSetting("pref_startup_page", value);
+    setCurrent(value);
+  };
+  return (
+    <Card title="Default screen" subtitle="Applies to the app and Android Auto">
+      <Dropdown value={current} options={STARTUP_OPTIONS} onChange={update} />
+    </Card>
+  );
 }
 
 function PrivacyPage() {
   const [enabled, setEnabled] = useState<boolean>(Preferences.getSetting("pref_analytics", false));
   return <>
     <Card title="Analytics" subtitle="Help improve British Radio Player with anonymous usage data">
-    <SwitchRow title="Enable Analytics" subtitle="No personal information or device identifiers are collected" value={enabled} onChange={(value) => { Preferences.setSetting("pref_analytics", value); setEnabled(value); }} />
+      <SwitchRow title="Enable analytics" subtitle="No personal information or device identifiers are collected" value={enabled} onChange={(value) => { Preferences.setSetting("pref_analytics", value); setEnabled(value); }} />
     </Card>
-    <Card title="Privacy Policy" subtitle="Review how data is handled">
-    <TouchableOpacity style={styles.secondaryButton} onPress={() => Alert.alert("Privacy Policy", "Analytics are anonymous and used only to understand station, podcast, and playback usage. No personal information, device identifiers, or location data are collected.")}>
-      <Text style={styles.secondaryButtonText}>View Privacy Policy</Text>
-    </TouchableOpacity>
+    <Card title="Privacy policy" subtitle="Review how data is handled">
+      <SecondaryButton
+        label="View privacy policy"
+        onPress={() => Alert.alert("Privacy Policy", "Analytics are anonymous and used only to understand station, podcast, and playback usage. No personal information, device identifiers, or location data are collected.")}
+      />
     </Card>
   </>;
 }
 
 function AlarmPage() {
   const theme = useAppTheme();
-  const insets = useSafeAreaInsets();
   const stations = StationRepository.getAll();
+  const stationOptions: DropdownOption<string>[] = [
+    { value: "", label: "No station selected" },
+    ...stations.map((station) => ({ value: station.id, label: station.title }))
+  ];
   const [settings, setSettings] = useState({
     enabled: Preferences.getSetting("pref_alarm_enabled", false),
     hour: Preferences.getSetting("pref_alarm_hour", 7),
@@ -401,7 +435,6 @@ function AlarmPage() {
     volume: Preferences.getSetting("pref_alarm_volume", 5),
     days: Preferences.getSetting("pref_alarm_days", "1,2,3,4,5")
   });
-  const [stationPickerVisible, setStationPickerVisible] = useState(false);
   const update = (key: string, value: string | number | boolean) => {
     Preferences.setSetting(`pref_alarm_${key}`, value);
     setSettings((current) => ({ ...current, [key]: value }));
@@ -427,105 +460,81 @@ function AlarmPage() {
       NativeAndroid.cancelAlarm();
     }
   }, [settings]);
-  const selectedStation = stations.find((station) => station.id === settings.station);
-  const chooseStation = () => setStationPickerVisible(true);
-  return <Card title="Enable Alarm" subtitle="Wake-up alarms and station start options">
-    <SwitchRow title="Enable Alarm" subtitle="Start the selected station at the scheduled time" value={settings.enabled} onChange={(value) => update("enabled", value)} />
-    <Text style={[styles.subheading, { color: theme.onSurfaceVariant }]}>Alarm Time</Text>
-    <View style={styles.inline}><TouchableOpacity style={styles.valueButton} onPress={() => update("hour", (Number(settings.hour) + 1) % 24)}><Text style={styles.valueText}>{String(settings.hour).padStart(2, "0")}</Text></TouchableOpacity><Text style={styles.colon}>:</Text><TouchableOpacity style={styles.valueButton} onPress={() => update("minute", (Number(settings.minute) + 5) % 60)}><Text style={styles.valueText}>{String(settings.minute).padStart(2, "0")}</Text></TouchableOpacity></View>
-    <Text style={[styles.subheading, { color: theme.onSurfaceVariant }]}>Days of the Week</Text>
-    <View style={styles.days}>{["S", "M", "T", "W", "T", "F", "S"].map((day, index) => { const active = String(settings.days).split(",").includes(String(index)); return <TouchableOpacity key={`${day}-${index}`} onPress={() => { const values = new Set(String(settings.days).split(",").filter(Boolean)); active ? values.delete(String(index)) : values.add(String(index)); update("days", Array.from(values).sort().join(",")); }} style={[styles.day, active && { backgroundColor: theme.primary }]}><Text style={{ color: active ? theme.onPrimary : theme.onSurface }}>{day}</Text></TouchableOpacity>; })}</View>
-    <Text style={[styles.subheading, { color: theme.onSurfaceVariant }]}>Station</Text>
-    <TouchableOpacity
-      style={[styles.dropdown, { borderColor: theme.outline, backgroundColor: theme.surfaceContainer }]}
-      onPress={chooseStation}
-      activeOpacity={0.7}
-    >
-      <Text style={[styles.dropdownText, { color: selectedStation ? theme.onSurface : theme.onSurfaceVariant }]}>
-        {selectedStation?.title || "Select a station"}
-      </Text>
-      <MaterialIcons name="arrow-drop-down" size={24} color={theme.onSurfaceVariant} />
-    </TouchableOpacity>
-    <Modal
-      visible={stationPickerVisible}
-      animationType="slide"
-      onRequestClose={() => setStationPickerVisible(false)}
-    >
-      <View style={[styles.stationPicker, { backgroundColor: theme.surface, paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-        <View style={[styles.stationPickerHeader, { borderBottomColor: theme.outlineVariant }]}>
-          <Text style={[styles.stationPickerTitle, { color: theme.onSurface }]}>Select a station</Text>
-          <TouchableOpacity
-            style={styles.stationPickerClose}
-            onPress={() => setStationPickerVisible(false)}
-            accessibilityLabel="Cancel station selection"
-          >
-            <MaterialIcons name="close" size={24} color={theme.onSurface} />
-          </TouchableOpacity>
-        </View>
-        <ScrollView contentContainerStyle={styles.stationPickerContent}>
-          <TouchableOpacity
-            style={styles.stationOption}
-            onPress={() => {
-              update("station", "");
-              setStationPickerVisible(false);
-            }}
-          >
-            <View style={styles.stationOptionPlaceholder}>
-              <MaterialIcons name="block" size={24} color={theme.onSurfaceVariant} />
-            </View>
-            <Text style={[styles.stationOptionText, { color: theme.onSurface }]}>No station selected</Text>
-          </TouchableOpacity>
-          {stations.map((station) => (
-            <TouchableOpacity
-              key={station.id}
-              style={styles.stationOption}
-              onPress={() => {
-                update("station", station.id);
-                setStationPickerVisible(false);
-              }}
-            >
-              <StationLogo stationId={station.id} size={48} borderRadius={10} />
-              <Text style={[styles.stationOptionText, { color: theme.onSurface }]} numberOfLines={1}>
-                {station.title}
-              </Text>
-              {settings.station === station.id && (
-                <MaterialIcons name="check" size={22} color={theme.primary} />
-              )}
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+  return (
+    <Card title="Enable alarm" subtitle="Wake-up alarms and station start options">
+      <SwitchRow title="Enable alarm" subtitle="Start the selected station at the scheduled time" value={settings.enabled} onChange={(value) => update("enabled", value)} />
+      <Text style={[styles.subheading, { color: theme.onSurfaceVariant }]}>Alarm time</Text>
+      <View style={styles.inline}>
+        <TouchableOpacity style={[styles.valueButton, { borderColor: theme.outline }]} onPress={() => update("hour", (Number(settings.hour) + 1) % 24)} accessibilityLabel="Increase alarm hour">
+          <Text style={[styles.valueText, { color: theme.onSurface }]}>{String(settings.hour).padStart(2, "0")}</Text>
+        </TouchableOpacity>
+        <Text style={[styles.colon, { color: theme.onSurface }]}>:</Text>
+        <TouchableOpacity style={[styles.valueButton, { borderColor: theme.outline }]} onPress={() => update("minute", (Number(settings.minute) + 5) % 60)} accessibilityLabel="Increase alarm minutes">
+          <Text style={[styles.valueText, { color: theme.onSurface }]}>{String(settings.minute).padStart(2, "0")}</Text>
+        </TouchableOpacity>
       </View>
-    </Modal>
-    <SwitchRow title="Progressive radio volume (slowly gets louder)" subtitle="" value={settings.ramp} onChange={(value) => update("ramp", value)} />
-    <View style={{ opacity: settings.ramp ? 0.45 : 1 }}>
-      <Text style={[styles.subheading, { color: theme.onSurfaceVariant }]}>Manual alarm volume ({settings.volume}/10)</Text>
-      <View style={styles.sliderLabels}>
-        <Text style={[styles.sliderLabel, { color: theme.onSurfaceVariant }]}>1</Text>
-        <Text style={[styles.sliderLabel, { color: theme.onSurfaceVariant }]}>10</Text>
-      </View>
-      <View style={styles.volumeSlider}>
-        {Array.from({ length: 10 }, (_, index) => {
-          const value = index + 1;
+      <Text style={[styles.subheading, { color: theme.onSurfaceVariant }]}>Days of the week</Text>
+      <View style={styles.days}>
+        {["S", "M", "T", "W", "T", "F", "S"].map((day, index) => {
+          const active = String(settings.days).split(",").includes(String(index));
           return (
             <TouchableOpacity
-              key={value}
-              disabled={settings.ramp}
-              onPress={() => update("volume", value)}
+              key={`${day}-${index}`}
+              onPress={() => {
+                const values = new Set(String(settings.days).split(",").filter(Boolean));
+                if (active) values.delete(String(index)); else values.add(String(index));
+                update("days", Array.from(values).sort().join(","));
+              }}
               style={[
-                styles.volumeStep,
-                { backgroundColor: value <= Number(settings.volume) ? theme.primary : theme.outlineVariant }
+                styles.day,
+                { borderColor: theme.outline },
+                active && { backgroundColor: theme.primary, borderColor: theme.primary }
               ]}
-              accessibilityLabel={`Set alarm volume to ${value}`}
-            />
+            >
+              <Text style={{ color: active ? theme.onPrimary : theme.onSurface }}>{day}</Text>
+            </TouchableOpacity>
           );
         })}
       </View>
-    </View>
-  </Card>;
+      <Text style={[styles.subheading, { color: theme.onSurfaceVariant }]}>Station</Text>
+      <Dropdown
+        value={settings.station}
+        options={stationOptions}
+        placeholder="Select a station"
+        onChange={(value) => update("station", value)}
+        renderLeading={(option) => <StationLeading stationId={option.value} />}
+      />
+      <SwitchRow title="Progressive radio volume (slowly gets louder)" subtitle="" value={settings.ramp} onChange={(value) => update("ramp", value)} />
+      <View style={{ opacity: settings.ramp ? 0.45 : 1 }}>
+        <Text style={[styles.subheading, { color: theme.onSurfaceVariant }]}>Manual alarm volume ({settings.volume}/10)</Text>
+        <View style={styles.sliderLabels}>
+          <Text style={[styles.sliderLabel, { color: theme.onSurfaceVariant }]}>1</Text>
+          <Text style={[styles.sliderLabel, { color: theme.onSurfaceVariant }]}>10</Text>
+        </View>
+        <View style={styles.volumeSlider}>
+          {Array.from({ length: 10 }, (_, index) => {
+            const value = index + 1;
+            return (
+              <TouchableOpacity
+                key={value}
+                disabled={settings.ramp}
+                onPress={() => update("volume", value)}
+                style={[
+                  styles.volumeStep,
+                  { backgroundColor: value <= Number(settings.volume) ? theme.primary : theme.outlineVariant }
+                ]}
+                accessibilityLabel={`Set alarm volume to ${value}`}
+              />
+            );
+          })}
+        </View>
+      </View>
+    </Card>
+  );
 }
 
 function SubscriptionsPage() {
-  const theme = useAppTheme();
+  const router = useRouter();
   const [settings, setSettings] = useState({
     refresh: Preferences.getSetting("pref_subscription_refresh", 60),
     auto: Preferences.getSetting("pref_auto_download", false),
@@ -534,19 +543,40 @@ function SubscriptionsPage() {
     wifi: Preferences.getSetting("pref_download_wifi", true),
     deletePlayed: Preferences.getSetting("pref_delete_played", false)
   });
-  const update = (key: keyof typeof settings, value: string | number | boolean) => { Preferences.setSetting(({ refresh: "pref_subscription_refresh", auto: "pref_auto_download", limit: "pref_auto_download_limit", saved: "pref_auto_download_saved", wifi: "pref_download_wifi", deletePlayed: "pref_delete_played" } as const)[key], value); setSettings((current) => ({ ...current, [key]: value })); };
+  const update = (key: keyof typeof settings, value: string | number | boolean) => {
+    Preferences.setSetting(({ refresh: "pref_subscription_refresh", auto: "pref_auto_download", limit: "pref_auto_download_limit", saved: "pref_auto_download_saved", wifi: "pref_download_wifi", deletePlayed: "pref_delete_played" } as const)[key], value);
+    setSettings((current) => ({ ...current, [key]: value }));
+  };
+  const deleteAllDownloads = () => {
+    Alert.alert("Delete all downloads?", "Downloaded episodes will be removed from this device.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: () => {
+          try {
+            const store = require("../../src/downloads/downloadStore") as typeof import("../../src/downloads/downloadStore");
+            const state = store.useDownloadStore.getState();
+            Object.keys(state.downloads).forEach((id) => state.remove(id));
+          } catch {
+            // Downloads are optional; ignore failures.
+          }
+        }
+      }
+    ]);
+  };
   return <>
-    <Card title="Subscription Notifications" subtitle="Check for new episodes every">
-    {[0, 15, 30, 60, 120, 360, 720, 1440].map((value) => <Option key={value} label={value === 0 ? "Disabled" : value >= 60 ? `${value / 60} hours` : `${value} minutes`} selected={settings.refresh === value} onPress={() => update("refresh", value)} theme={theme} />)}
+    <Card title="Subscription notifications" subtitle="Check for new episodes every">
+      <Dropdown value={settings.refresh} options={REFRESH_OPTIONS} onChange={(value) => update("refresh", value)} />
     </Card>
-    <Card title="Podcast Downloads" subtitle="Manage automatic podcast downloads">
-    <SwitchRow title="Auto-download subscribed podcasts" subtitle="" value={settings.auto} onChange={(value) => update("auto", value)} />
-    {[1, 3, 5, 10].map((value) => <Option key={value} label={value === 1 ? "Latest episode" : `${value} episodes`} selected={settings.limit === value} onPress={() => update("limit", value)} theme={theme} />)}
-    <SwitchRow title="Auto-download saved episodes" subtitle="" value={settings.saved} onChange={(value) => update("saved", value)} />
-    <SwitchRow title="Download on WiFi only" subtitle="" value={settings.wifi} onChange={(value) => update("wifi", value)} />
-    <SwitchRow title="Delete episode when played to completion" subtitle="" value={settings.deletePlayed} onChange={(value) => update("deletePlayed", value)} />
-    <TouchableOpacity style={styles.secondaryButton} onPress={() => Alert.alert("Downloads", "Downloads are stored in the app library.")}><Text style={styles.secondaryButtonText}>Open Downloads Folder</Text></TouchableOpacity>
-    <TouchableOpacity style={styles.secondaryButton} onPress={() => Alert.alert("Delete All Downloads", "Downloaded episodes can be removed from the Library.")}><Text style={styles.secondaryButtonText}>Delete All Downloads</Text></TouchableOpacity>
+    <Card title="Podcast downloads" subtitle="Manage automatic podcast downloads">
+      <SwitchRow title="Auto-download subscribed podcasts" subtitle="" value={settings.auto} onChange={(value) => update("auto", value)} />
+      <Dropdown value={settings.limit} options={DOWNLOAD_LIMIT_OPTIONS} disabled={!settings.auto} onChange={(value) => update("limit", value)} />
+      <SwitchRow title="Auto-download saved episodes" subtitle="" value={settings.saved} onChange={(value) => update("saved", value)} />
+      <SwitchRow title="Download on WiFi only" subtitle="" value={settings.wifi} onChange={(value) => update("wifi", value)} />
+      <SwitchRow title="Delete episode when played to completion" subtitle="" value={settings.deletePlayed} onChange={(value) => update("deletePlayed", value)} />
+      <SecondaryButton label="Open downloads" onPress={() => router.navigate("/(tabs)/library")} />
+      <SecondaryButton label="Delete all downloads" onPress={deleteAllDownloads} />
     </Card>
   </>;
 }
@@ -554,39 +584,74 @@ function SubscriptionsPage() {
 function IndexingPage() {
   const [settings, setSettings] = useState<{ notifications: boolean; english: boolean }>({ notifications: Preferences.getSetting("pref_index_notifications", false), english: Preferences.getSetting("pref_exclude_non_english", false) });
   return <>
-    <Card title="Indexing Options" subtitle="Configure podcast catalogue notifications and filtering">
-    <SwitchRow title="Notify me when new podcasts are added" subtitle="" value={settings.notifications} onChange={(value) => { Preferences.setSetting("pref_index_notifications", value); setSettings((current) => ({ ...current, notifications: value })); }} />
-    <SwitchRow title="Exclude non-English podcasts" subtitle="" value={settings.english} onChange={(value) => { Preferences.setSetting("pref_exclude_non_english", value); setSettings((current) => ({ ...current, english: value })); }} />
+    <Card title="Indexing options" subtitle="Configure podcast catalogue notifications and filtering">
+      <SwitchRow title="Notify me when new podcasts are added" subtitle="" value={settings.notifications} onChange={(value) => { Preferences.setSetting("pref_index_notifications", value); setSettings((current) => ({ ...current, notifications: value })); }} />
+      <SwitchRow title="Exclude non-English podcasts" subtitle="" value={settings.english} onChange={(value) => { Preferences.setSetting("pref_exclude_non_english", value); setSettings((current) => ({ ...current, english: value })); }} />
     </Card>
     <Card title="Index status" subtitle="Latest updates">
-    <Text style={styles.body}>Last updated: —</Text>
-    <Text style={styles.body}>Most popular updated: —</Text>
-    <Text style={styles.body}>— podcasts indexed</Text>
-    <Text style={styles.body}>— episodes indexed</Text>
+      <BodyText>Last updated: —</BodyText>
+      <BodyText>Most popular updated: —</BodyText>
+      <BodyText>— podcasts indexed</BodyText>
+      <BodyText>— episodes indexed</BodyText>
     </Card>
   </>;
 }
 
-function InfoPage({ title, text }: { title: string; text: string }) {
-  return <Card title={title} subtitle={text}><Text style={styles.body}>{text}</Text></Card>;
-}
-
 function Card({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
   const theme = useAppTheme();
-  return <View style={[styles.card, { backgroundColor: theme.surfaceContainer, borderColor: theme.outlineVariant }]}>
-    <Text style={[styles.cardTitle, { color: theme.onSurface }]}>{title}</Text>
-    <Text style={[styles.cardSubtitle, { color: theme.onSurfaceVariant }]}>{subtitle}</Text>
-    {children}
-  </View>;
-}
-
-function Option({ label, selected, onPress, theme }: { label: string; selected: boolean; onPress: () => void; theme: ReturnType<typeof useAppTheme> }) {
-  return <TouchableOpacity style={styles.option} onPress={onPress}><Text style={[styles.optionText, { color: theme.onSurface }]}>{label}</Text>{selected && <MaterialIcons name="check" size={22} color={theme.primary} />}</TouchableOpacity>;
+  return (
+    <View style={[styles.card, { backgroundColor: theme.surfaceContainer, borderColor: theme.outlineVariant }]}>
+      <Text style={[styles.cardTitle, { color: theme.onSurface }]}>{title}</Text>
+      <Text style={[styles.cardSubtitle, { color: theme.onSurfaceVariant }]}>{subtitle}</Text>
+      {children}
+    </View>
+  );
 }
 
 function SwitchRow({ title, subtitle, value, disabled, onChange }: { title: string; subtitle: string; value: boolean; disabled?: boolean; onChange: (value: boolean) => void }) {
   const theme = useAppTheme();
-  return <View style={styles.switchRow}><View style={styles.flex}><Text style={[styles.optionText, { color: disabled ? theme.onSurfaceVariant : theme.onSurface }]}>{title}</Text><Text style={[styles.cardSubtitle, { color: theme.onSurfaceVariant }]}>{subtitle}</Text></View><Switch value={value} disabled={disabled} onValueChange={onChange} /></View>;
+  return (
+    <View style={[styles.switchRow, { borderTopColor: theme.outlineVariant }]}>
+      <View style={styles.flex}>
+        <Text style={[styles.optionText, { color: disabled ? theme.onSurfaceVariant : theme.onSurface }]}>{title}</Text>
+        {subtitle ? <Text style={[styles.cardSubtitle, { color: theme.onSurfaceVariant }]}>{subtitle}</Text> : null}
+      </View>
+      <View style={styles.switchControl}>
+        <Switch value={value} disabled={disabled} onValueChange={onChange} />
+      </View>
+    </View>
+  );
+}
+
+function PrimaryButton({ label, onPress, disabled }: { label: string; onPress: () => void; disabled?: boolean }) {
+  const theme = useAppTheme();
+  return (
+    <TouchableOpacity
+      style={[styles.primaryButton, { backgroundColor: theme.primary }, disabled && styles.disabled]}
+      onPress={onPress}
+      disabled={disabled}
+    >
+      <Text style={[styles.primaryButtonText, { color: theme.onPrimary }]}>{label}</Text>
+    </TouchableOpacity>
+  );
+}
+
+function SecondaryButton({ label, onPress, disabled }: { label: string; onPress: () => void; disabled?: boolean }) {
+  const theme = useAppTheme();
+  return (
+    <TouchableOpacity
+      style={[styles.secondaryButton, { borderColor: theme.outline }, disabled && styles.disabled]}
+      onPress={onPress}
+      disabled={disabled}
+    >
+      <Text style={[styles.secondaryButtonText, { color: theme.primary }]}>{label}</Text>
+    </TouchableOpacity>
+  );
+}
+
+function BodyText({ children }: { children: React.ReactNode }) {
+  const theme = useAppTheme();
+  return <Text style={[styles.body, { color: theme.onSurfaceVariant }]}>{children}</Text>;
 }
 
 const styles = StyleSheet.create({
@@ -598,36 +663,26 @@ const styles = StyleSheet.create({
   card: { borderWidth: 1, borderRadius: 12, padding: 16, marginBottom: 16 },
   cardTitle: { fontSize: 20, fontWeight: "600" },
   cardSubtitle: { fontSize: 14, lineHeight: 20, marginTop: 4 },
-  option: { minHeight: 52, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#79747E", marginTop: 8 },
   optionText: { fontSize: 16 },
-  switchRow: { minHeight: 72, flexDirection: "row", alignItems: "center", borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#79747E", marginTop: 8 },
+  switchRow: { minHeight: 72, flexDirection: "row", alignItems: "center", borderTopWidth: StyleSheet.hairlineWidth, marginTop: 8 },
+  switchControl: { alignSelf: "stretch", justifyContent: "center" },
   flex: { flex: 1, paddingRight: 12 },
-  primaryButton: { minHeight: 44, borderRadius: 22, backgroundColor: "#6750A4", alignItems: "center", justifyContent: "center", marginVertical: 16 },
-  primaryButtonText: { color: "#FFFFFF", fontSize: 15, fontWeight: "600" },
-  body: { fontSize: 15, lineHeight: 22, color: "#CAC4D0", marginTop: 16 }
-  ,subheading: { fontSize: 14, fontWeight: "600", marginTop: 18, marginBottom: 4 }
-  ,inline: { flexDirection: "row", alignItems: "center", marginVertical: 8 }
-  ,valueButton: { minWidth: 64, minHeight: 44, borderWidth: 1, borderColor: "#79747E", borderRadius: 8, alignItems: "center", justifyContent: "center" }
-  ,valueText: { fontSize: 18, color: "#CAC4D0" }
-  ,colon: { fontSize: 20, marginHorizontal: 8, color: "#CAC4D0" }
-  ,days: { flexDirection: "row", justifyContent: "space-between", marginVertical: 10 }
-  ,day: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#79747E" }
-  ,volumeButtons: { flexDirection: "row", justifyContent: "space-between", marginVertical: 12 }
-  ,volumeButton: { fontSize: 16, padding: 10 }
-  ,dropdown: { minHeight: 52, borderWidth: 1, borderRadius: 4, paddingHorizontal: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginVertical: 8 }
-  ,dropdownText: { fontSize: 16 }
-  ,stationPicker: { flex: 1 }
-  ,stationPickerHeader: { minHeight: 64, flexDirection: "row", alignItems: "center", paddingHorizontal: 16, borderBottomWidth: StyleSheet.hairlineWidth }
-  ,stationPickerTitle: { flex: 1, fontSize: 22, fontWeight: "600" }
-  ,stationPickerClose: { width: 48, height: 48, alignItems: "center", justifyContent: "center" }
-  ,stationPickerContent: { padding: 16, paddingBottom: 32 }
-  ,stationOption: { minHeight: 64, flexDirection: "row", alignItems: "center", paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#79747E" }
-  ,stationOptionPlaceholder: { width: 48, height: 48, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: "#49454E" }
-  ,stationOptionText: { flex: 1, fontSize: 16, marginLeft: 16 }
-  ,sliderLabels: { flexDirection: "row", justifyContent: "space-between", marginTop: 4 }
-  ,sliderLabel: { fontSize: 13 }
-  ,volumeSlider: { height: 28, flexDirection: "row", alignItems: "center", gap: 4, marginVertical: 8 }
-  ,volumeStep: { flex: 1, height: 6, borderRadius: 3 }
-  ,secondaryButton: { minHeight: 44, borderRadius: 22, borderWidth: 1, borderColor: "#79747E", alignItems: "center", justifyContent: "center", marginVertical: 8 }
-  ,secondaryButtonText: { color: "#D0BCFF", fontSize: 15, fontWeight: "600" }
+  disabled: { opacity: 0.5 },
+  primaryButton: { minHeight: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", marginVertical: 16 },
+  primaryButtonText: { fontSize: 15, fontWeight: "600" },
+  secondaryButton: { minHeight: 44, borderRadius: 22, borderWidth: 1, alignItems: "center", justifyContent: "center", marginVertical: 8 },
+  secondaryButtonText: { fontSize: 15, fontWeight: "600" },
+  body: { fontSize: 15, lineHeight: 22, marginTop: 16 },
+  subheading: { fontSize: 14, fontWeight: "600", marginTop: 18, marginBottom: 4 },
+  inline: { flexDirection: "row", alignItems: "center", marginVertical: 8 },
+  valueButton: { minWidth: 64, minHeight: 44, borderWidth: 1, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  valueText: { fontSize: 18 },
+  colon: { fontSize: 20, marginHorizontal: 8 },
+  days: { flexDirection: "row", justifyContent: "space-between", marginVertical: 10 },
+  day: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", borderWidth: 1 },
+  stationPlaceholder: { alignItems: "center", justifyContent: "center" },
+  sliderLabels: { flexDirection: "row", justifyContent: "space-between", marginTop: 4 },
+  sliderLabel: { fontSize: 13 },
+  volumeSlider: { height: 28, flexDirection: "row", alignItems: "center", gap: 4, marginVertical: 8 },
+  volumeStep: { flex: 1, height: 6, borderRadius: 3 }
 });

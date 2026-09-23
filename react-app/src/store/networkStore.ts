@@ -49,6 +49,12 @@ export function isOnline(): boolean {
   return cached.isOnline;
 }
 
+/** Imperative read of the last known connectivity details (online/VPN/Wi-Fi). */
+export function getNetworkStatus(): NetworkStatus {
+  ensureSubscribed();
+  return cached;
+}
+
 /** Subscribes to connectivity changes; returns an unsubscribe function. */
 export function subscribeNetwork(listener: (status: NetworkStatus) => void): () => void {
   ensureSubscribed();
