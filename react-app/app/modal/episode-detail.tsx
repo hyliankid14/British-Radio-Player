@@ -207,7 +207,7 @@ export default function EpisodeDetailModal() {
       <View style={[styles.miniPlayerWrapper, { bottom: insets.bottom + 80 }]}>
         <MiniPlayer />
       </View>
-      <View style={[styles.navigationWrapper, { bottom: insets.bottom }]}>
+      <View style={[styles.navigationWrapper, { bottom: 0, backgroundColor: theme.surfaceContainer }]}>
         <AppNavigation />
       </View>
 
@@ -217,7 +217,7 @@ export default function EpisodeDetailModal() {
         presentationStyle="pageSheet"
         onRequestClose={() => setDescriptionModalVisible(false)}
       >
-        <SafeAreaView style={[styles.descriptionModal, { backgroundColor: theme.surfaceContainer }]}>
+        <View style={[styles.descriptionModal, { backgroundColor: theme.surfaceContainer, paddingTop: insets.top, paddingBottom: insets.bottom }]}>
           <View style={[styles.descriptionModalHeader, { borderBottomColor: theme.outlineVariant }]}>
             <Text style={[styles.descriptionModalTitle, { color: theme.onSurface }]}>Episode description</Text>
             <TouchableOpacity
@@ -233,7 +233,7 @@ export default function EpisodeDetailModal() {
               {decodeXmlEntities(episode.description || "No description available.")}
             </Text>
           </ScrollView>
-        </SafeAreaView>
+        </View>
       </Modal>
     </SafeAreaView>
   );

@@ -920,7 +920,7 @@ export default function PlaylistDetailModal() {
       <View style={[styles.miniPlayerWrapper, { bottom: insets.bottom + 80 }]}>
         <MiniPlayer />
       </View>
-      <View style={[styles.navigationWrapper, { bottom: insets.bottom }]}>
+      <View style={[styles.navigationWrapper, { bottom: 0, backgroundColor: theme.surfaceContainer }]}>
         <AppNavigation />
       </View>
     </SafeAreaView>

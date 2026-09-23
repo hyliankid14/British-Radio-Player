@@ -44,19 +44,86 @@ type TabId = (typeof TABS)[number]["id"];
 
 function getGenreIcon(genre: string): any {
   const g = genre.toLowerCase();
-  if (g.includes("comedy")) return "mood";
-  if (g.includes("drama") || g.includes("theat")) return "theaters";
-  if (g.includes("news") || g.includes("politics") || g.includes("bulletin")) return "newspaper";
-  if (g.includes("music") || g.includes("pop") || g.includes("rock") || g.includes("classical")) return "music-note";
-  if (g.includes("sport") || g.includes("football") || g.includes("cricket") || g.includes("tennis")) return "sports-soccer";
+  // Comedy & Satire
+  if (g.includes("comedy") || g.includes("satire") || g.includes("sitcom") || g.includes("sketch") || g.includes("standup") || g.includes("spoof")) return "mood";
+  // Drama, Theatre, Soaps
+  if (g.includes("drama") || g.includes("theat") || g.includes("soap")) return "theaters";
+  // News & Bulletins
+  if (g.includes("news") || g.includes("bulletin")) return "newspaper";
+  // Politics
+  if (g.includes("politic")) return "account-balance";
+  // Music genres
+  if (g.includes("pop") || g.includes("rock") || g.includes("rnb") || g.includes("hip hop") || g.includes("dancehall") || g.includes("soundtrack") || g.includes("album")) return "album";
+  if (g.includes("music") || g.includes("classic") || g.includes("opera") || g.includes("folk") || g.includes("mixes") || g.includes("dance") || g.includes("electronica")) return "music-note";
+  if (g.includes("easy listening")) return "headphones";
+  // Sports
+  if (g.includes("cricket")) return "sports-cricket";
+  if (g.includes("football") || g.includes("soccer")) return "sports-soccer";
+  if (g.includes("rugby")) return "sports-rugby";
+  if (g.includes("tennis")) return "sports-tennis";
+  if (g.includes("golf")) return "sports-golf";
+  if (g.includes("motor") || g.includes("formula")) return "sports-motorsports";
+  if (g.includes("boxing") || g.includes("wrestl")) return "sports-mma";
+  if (g.includes("rowing") || g.includes("activit")) return "rowing";
+  if (g.includes("sport") || g.includes("gaelic") || g.includes("shinty") || g.includes("snooker")) return "sports-soccer";
+  if (g.includes("olympic") || g.includes("paralympic") || g.includes("world cup")) return "emoji-events";
+  // Accessibility & Disability
+  if (g.includes("disabilit")) return "accessible";
+  // SciFi & Fantasy
+  if (g.includes("scifi") || g.includes("sci-fi") || g.includes("fantasy")) return "rocket-launch";
+  // Nature, Environment, Gardens
+  if (g.includes("nature") || g.includes("environment") || g.includes("garden")) return "eco";
+  // Homes
+  if (g.includes("home")) return "home";
+  // Horror & Supernatural
+  if (g.includes("horror") || g.includes("supernatural") || g.includes("spooky") || g.includes("paranormal")) return "dark-mode";
+  // Languages
+  if (g.includes("language")) return "translate";
+  // Learning, School, Education
+  if (g.includes("learn") || g.includes("school") || g.includes("education") || g.includes("primary") || g.includes("secondary") || g.includes("adult")) return "school";
+  // Life Stories, People, Biographies
+  if (g.includes("life stor") || g.includes("real life") || g.includes("character") || g.includes("biograph")) return "face";
+  // Magazines, Reviews, Articles
+  if (g.includes("magazine") || g.includes("review") || g.includes("article")) return "rate-review";
+  // Science & Tech
   if (g.includes("science") || g.includes("tech") || g.includes("biotech")) return "biotech";
-  if (g.includes("history") || g.includes("historical")) return "history-edu";
-  if (g.includes("crime") || g.includes("justice")) return "gavel";
-  if (g.includes("food") || g.includes("drink")) return "restaurant";
+  // History & Period
+  if (g.includes("history") || g.includes("historical") || g.includes("period")) return "history-edu";
+  // Crime, Law, Justice
+  if (g.includes("crime") || g.includes("justice") || g.includes("investigat")) return "gavel";
+  // Food & Cooking
+  if (g.includes("food") || g.includes("drink") || g.includes("cook")) return "restaurant";
+  // Health & Medical
   if (g.includes("health") || g.includes("wellbeing") || g.includes("medical")) return "health-and-safety";
-  if (g.includes("entertainment") || g.includes("chat") || g.includes("quiz")) return "celebration";
-  if (g.includes("child") || g.includes("pre-school")) return "child-care";
-  if (g.includes("documentar") || g.includes("factual")) return "menu-book";
+  // Money & Consumer
+  if (g.includes("money") || g.includes("consumer") || g.includes("financ")) return "savings";
+  // Games, Quizzes, Panels
+  if (g.includes("quiz") || g.includes("game") || g.includes("panel")) return "quiz";
+  // Chat, Talk, Discussion, Phone-ins
+  if (g.includes("chat") || g.includes("talk") || g.includes("discuss") || g.includes("phone-in")) return "forum";
+  // Children & Kids
+  if (g.includes("child") || g.includes("pre-school") || g.includes("kid")) return "child-care";
+  // Documentary, Factual, Audiobooks
+  if (g.includes("documentar") || g.includes("factual") || g.includes("audiobook")) return "menu-book";
+  // Arts & Culture
+  if (g.includes("art") || g.includes("culture") || g.includes("media")) return "palette";
+  // Relationships & Family
+  if (g.includes("relationship") || g.includes("famil") || g.includes("romance")) return "favorite";
+  // Religion & Philosophy
+  if (g.includes("religion") || g.includes("ethic") || g.includes("faith") || g.includes("spiritual")) return "self-improvement";
+  // Action, Adventure, Travel
+  if (g.includes("action") || g.includes("adventure") || g.includes("explore")) return "explore";
+  if (g.includes("travel")) return "travel-explore";
+  // Thriller & Mystery
+  if (g.includes("thriller") || g.includes("mystery")) return "visibility";
+  // War & Conflict
+  if (g.includes("war") || g.includes("disaster") || g.includes("military")) return "shield";
+  // World & Global
+  if (g.includes("world") || g.includes("global") || g.includes("international")) return "public";
+  // Entertainment & Variety
+  if (g.includes("entertainment") || g.includes("variety") || g.includes("perform") || g.includes("event") || g.includes("celebrat")) return "celebration";
+  if (g.includes("experiment") || g.includes("new")) return "auto-awesome";
+
   return "podcasts";
 }
 

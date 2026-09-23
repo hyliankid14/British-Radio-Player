@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   View,
   Text,
@@ -9,7 +9,8 @@ import {
   ActivityIndicator,
   Share,
   Modal,
-  ScrollView
+  ScrollView,
+  TextInput
 } from "react-native";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -75,34 +76,137 @@ export default function PodcastDetailModal() {
   const [savedIds, setSavedIds] = useState<Set<string>>(
     () => new Set(Preferences.getPodcastPlaylistEntries("saved").map((entry) => entry.id))
   );
+  const [playedIds, setPlayedIds] = useState<Set<string>>(
+    () => new Set(Preferences.getPlayedEpisodeIds())
+  );
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [playlistModalVisible, setPlaylistModalVisible] = useState(false);
+  const [newPlaylistDialogVisible, setNewPlaylistDialogVisible] = useState(false);
+  const [newPlaylistName, setNewPlaylistName] = useState("");
 
-  const toggleSave = useCallback((ep: Episode) => {
-    if (!podcast) return;
-    const saved = Preferences.toggleSavedEpisode(toSavedEpisodeEntry(podcast, ep));
-    setSavedIds((current) => {
-      const next = new Set(current);
-      if (saved) next.add(ep.id);
-      else next.delete(ep.id);
+  const showToast = useCallback((msg: string) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToastMessage(msg);
+    toastTimer.current = setTimeout(() => setToastMessage(""), 2500);
+  }, []);
+
+  const toggleEpisodeSelection = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
       return next;
     });
-  }, [podcast]);
+  }, []);
 
-  const toggleDownload = useCallback((ep: Episode) => {
-    if (!podcast) return;
-    const store = useDownloadStore.getState();
-    const status = store.downloads[ep.id]?.status;
-    if (status === "downloaded") {
-      store.remove(ep.id);
-    } else if (status !== "downloading") {
-      void store.download(toSavedEpisodeEntry(podcast, ep));
+  const clearSelection = useCallback(() => {
+    setSelectedIds(new Set());
+  }, []);
+
+  const selectedEpisodes = useMemo(
+    () => displayEpisodes.filter((ep) => selectedIds.has(ep.id)),
+    [displayEpisodes, selectedIds]
+  );
+
+  const allSelectedPlayed = useMemo(
+    () => selectedEpisodes.length > 0 && selectedEpisodes.every((ep) => playedIds.has(ep.id)),
+    [selectedEpisodes, playedIds]
+  );
+
+  const allSelectedDownloaded = useMemo(
+    () => selectedEpisodes.length > 0 && selectedEpisodes.every((ep) => downloads[ep.id]?.status === "downloaded"),
+    [selectedEpisodes, downloads]
+  );
+
+  const handleTogglePlayedSelected = useCallback(() => {
+    if (!podcast || selectedEpisodes.length === 0) return;
+    if (allSelectedPlayed) {
+      selectedEpisodes.forEach((ep) => {
+        Preferences.markEpisodeUnplayed(ep.id);
+      });
+      setPlayedIds((prev) => {
+        const next = new Set(prev);
+        selectedEpisodes.forEach((ep) => next.delete(ep.id));
+        return next;
+      });
+      showToast(`Marked ${selectedEpisodes.length} episode(s) as unplayed`);
+    } else {
+      selectedEpisodes.forEach((ep) => {
+        const pubDateMs = ep.pubDate ? Date.parse(ep.pubDate) : undefined;
+        Preferences.markEpisodePlayed(ep.id, podcast.id, isNaN(pubDateMs as number) ? undefined : pubDateMs);
+      });
+      setPlayedIds((prev) => {
+        const next = new Set(prev);
+        selectedEpisodes.forEach((ep) => next.add(ep.id));
+        return next;
+      });
+      showToast(`Marked ${selectedEpisodes.length} episode(s) as played`);
     }
-  }, [podcast]);
+    setSelectedIds(new Set());
+  }, [podcast, selectedEpisodes, allSelectedPlayed, showToast]);
 
-  // Saved state can change while this screen is backgrounded (e.g. from the episode
-  // detail modal), so refresh it whenever the screen regains focus.
+  const handleToggleDownloadSelected = useCallback(() => {
+    if (!podcast || selectedEpisodes.length === 0) return;
+    const store = useDownloadStore.getState();
+    if (allSelectedDownloaded) {
+      selectedEpisodes.forEach((ep) => {
+        store.remove(ep.id);
+      });
+      showToast(`Deleted ${selectedEpisodes.length} download(s)`);
+    } else {
+      const toDownload = selectedEpisodes.filter((ep) => downloads[ep.id]?.status !== "downloaded");
+      toDownload.forEach((ep) => {
+        void store.download(toSavedEpisodeEntry(podcast, ep));
+      });
+      showToast(`Downloading ${toDownload.length} episode(s)`);
+    }
+    setSelectedIds(new Set());
+  }, [podcast, selectedEpisodes, allSelectedDownloaded, downloads, showToast]);
+
+  const handleAddToPlaylist = useCallback((playlistId: string, playlistName: string) => {
+    if (!podcast || selectedEpisodes.length === 0) return;
+    selectedEpisodes.forEach((ep) => {
+      Preferences.addPodcastPlaylistEntry(playlistId, toSavedEpisodeEntry(podcast, ep));
+    });
+    if (playlistId === "saved") {
+      setSavedIds((prev) => {
+        const next = new Set(prev);
+        selectedEpisodes.forEach((ep) => next.add(ep.id));
+        return next;
+      });
+    }
+    showToast(`Added ${selectedEpisodes.length} episode(s) to ${playlistName}`);
+    setPlaylistModalVisible(false);
+    setSelectedIds(new Set());
+  }, [podcast, selectedEpisodes, showToast]);
+
+  const handleCreatePlaylistAndAdd = useCallback(() => {
+    const trimmed = newPlaylistName.trim();
+    if (!trimmed || !podcast || selectedEpisodes.length === 0) return;
+    Preferences.createPodcastPlaylist(trimmed);
+    const updatedPlaylists = Preferences.getPodcastPlaylists();
+    const created = updatedPlaylists.find((p) => p.name === trimmed) || updatedPlaylists[updatedPlaylists.length - 1];
+    if (created) {
+      selectedEpisodes.forEach((ep) => {
+        Preferences.addPodcastPlaylistEntry(created.id, toSavedEpisodeEntry(podcast, ep));
+      });
+    }
+    showToast(`Added ${selectedEpisodes.length} episode(s) to ${trimmed}`);
+    setNewPlaylistName("");
+    setNewPlaylistDialogVisible(false);
+    setPlaylistModalVisible(false);
+    setSelectedIds(new Set());
+  }, [newPlaylistName, podcast, selectedEpisodes, showToast]);
+
+  // Saved state and played state can change while this screen is backgrounded (e.g. from the episode
+  // detail modal), so refresh whenever the screen regains focus.
   useFocusEffect(
     useCallback(() => {
       setSavedIds(new Set(Preferences.getPodcastPlaylistEntries("saved").map((entry) => entry.id)));
+      setPlayedIds(new Set(Preferences.getPlayedEpisodeIds()));
     }, [])
   );
 
@@ -167,9 +271,7 @@ export default function PodcastDetailModal() {
   const submitRating = async (value: number) => {
     if (!podcast) return;
     if (!Preferences.getSetting("pref_analytics", true)) {
-      setToastMessage("Enable analytics in Settings to submit ratings");
-      if (toastTimer.current) clearTimeout(toastTimer.current);
-      toastTimer.current = setTimeout(() => setToastMessage(""), 2500);
+      showToast("Enable analytics in Settings to submit ratings");
       return;
     }
     setRatingModalVisible(false);
@@ -199,9 +301,7 @@ export default function PodcastDetailModal() {
     }
     const enabled = Preferences.togglePodcastNotifications(podcast.id);
     setNotificationsEnabled(enabled);
-    setToastMessage(enabled ? "Notifications enabled" : "Notifications disabled");
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToastMessage(""), 2500);
+    showToast(enabled ? "Notifications enabled" : "Notifications disabled");
   };
 
   useEffect(() => () => {
@@ -312,13 +412,6 @@ export default function PodcastDetailModal() {
             )}
           </View>
         </View>
-
-        {/* Episodes Header */}
-        <View style={[styles.episodesHeaderContainer, { backgroundColor: theme.surface }]}>
-          <Text style={[styles.episodesTitle, { color: theme.onSurface }]}>
-            Episodes
-          </Text>
-        </View>
       </View>
     );
   }, [podcast, theme, isSubscribed, notificationsEnabled, episodes.length]);
@@ -328,6 +421,9 @@ export default function PodcastDetailModal() {
       if (!podcast) return null;
       const isCurrentEpisode = currentEpisode?.id === ep.id;
       const isCurrentPlaying = isCurrentEpisode && isPlaying;
+      const isSelected = selectedIds.has(ep.id);
+      const isPlayed = playedIds.has(ep.id);
+      const isDownloaded = downloads[ep.id]?.status === "downloaded";
 
       const openEpisode = () => {
         router.push({
@@ -337,6 +433,18 @@ export default function PodcastDetailModal() {
             episodeData: JSON.stringify(ep)
           }
         });
+      };
+
+      const handlePress = () => {
+        if (selectedIds.size > 0) {
+          toggleEpisodeSelection(ep.id);
+        } else {
+          openEpisode();
+        }
+      };
+
+      const handleLongPress = () => {
+        toggleEpisodeSelection(ep.id);
       };
 
       const handlePlayPause = () => {
@@ -354,84 +462,92 @@ export default function PodcastDetailModal() {
       return (
         <TouchableOpacity
           activeOpacity={0.7}
-          onPress={openEpisode}
-          style={[styles.episodeItem, { borderBottomColor: theme.outlineVariant, backgroundColor: theme.surface }]}
+          onPress={handlePress}
+          onLongPress={handleLongPress}
+          delayLongPress={300}
+          style={[
+            styles.episodeItem,
+            {
+              borderBottomColor: theme.outlineVariant,
+              backgroundColor: isSelected ? theme.surfaceVariant : theme.surface
+            }
+          ]}
         >
+          {selectedIds.size > 0 ? (
+            <TouchableOpacity
+              onPress={() => toggleEpisodeSelection(ep.id)}
+              style={styles.checkboxContainer}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <MaterialIcons
+                name={isSelected ? "check-box" : "check-box-outline-blank"}
+                size={24}
+                color={isSelected ? theme.primary : theme.onSurfaceVariant}
+              />
+            </TouchableOpacity>
+          ) : null}
+
           <View style={styles.episodeTextContainer}>
             <Text style={[styles.episodeTitle, { color: theme.onSurface }]} numberOfLines={2}>
               {decodeXmlEntities(ep.title)}
             </Text>
-            <View style={styles.episodeMetaRow}>
-              {ep.pubDate ? (
-                <Text style={[styles.episodeMeta, { color: theme.onSurfaceVariant }]}>
-                  {ep.pubDate.split(" ").slice(0, 4).join(" ")}
-                </Text>
-              ) : null}
-              {ep.durationMins > 0 ? (
-                <Text style={[styles.episodeMeta, { color: theme.onSurfaceVariant }]}>
-                  {" • "}{ep.durationMins} mins
-                </Text>
-              ) : null}
-            </View>
             {ep.description ? (
               <Text style={[styles.episodeDescription, { color: theme.onSurfaceVariant }]} numberOfLines={2}>
                 {decodeXmlEntities(ep.description)}
               </Text>
             ) : null}
+            <View style={styles.episodeMetaRow}>
+              {ep.pubDate ? (
+                <Text style={[styles.episodeMeta, { color: theme.onSurfaceVariant, flex: 1 }]}>
+                  {ep.pubDate.split(" ").slice(0, 4).join(" ")}
+                </Text>
+              ) : null}
+              {ep.durationMins > 0 ? (
+                <Text style={[styles.episodeMeta, { color: theme.onSurfaceVariant }]}>
+                  {ep.durationMins} min
+                </Text>
+              ) : null}
+              {isPlayed ? (
+                <MaterialIcons name="check" size={16} color="#4CAF50" style={styles.statusIcon} />
+              ) : null}
+              {isDownloaded ? (
+                <MaterialIcons name="file-download" size={16} color={theme.primary} style={styles.statusIcon} />
+              ) : null}
+            </View>
           </View>
 
-          <View style={styles.episodeActions}>
-            <TouchableOpacity
-              style={styles.episodeActionButton}
-              onPress={() => toggleSave(ep)}
-              accessibilityLabel={savedIds.has(ep.id) ? "Remove saved episode" : "Save episode"}
-            >
-              <MaterialIcons
-                name={savedIds.has(ep.id) ? "bookmark" : "bookmark-border"}
-                size={22}
-                color={savedIds.has(ep.id) ? theme.primary : theme.onSurfaceVariant}
-              />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.episodeActionButton}
-              onPress={() => toggleDownload(ep)}
-              accessibilityLabel={
-                downloads[ep.id]?.status === "downloaded" ? "Remove download" : "Download episode"
-              }
-            >
-              <MaterialIcons
-                name={
-                  downloads[ep.id]?.status === "downloaded"
-                    ? "download-done"
-                    : downloads[ep.id]?.status === "downloading"
-                      ? "hourglass-empty"
-                      : "file-download"
-                }
-                size={22}
-                color={
-                  downloads[ep.id]?.status === "downloaded"
-                    ? theme.primary
-                    : theme.onSurfaceVariant
-                }
-              />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.playIconButton, { backgroundColor: theme.primary }]}
-              onPress={handlePlayPause}
-            >
-              <MaterialIcons
-                name={isCurrentPlaying ? "pause" : "play-arrow"}
-                size={24}
-                color={theme.onPrimary}
-              />
-            </TouchableOpacity>
-          </View>
+          {selectedIds.size === 0 ? (
+            <View style={styles.episodeActions}>
+              <TouchableOpacity
+                style={[styles.playIconButton, { backgroundColor: theme.primary }]}
+                onPress={handlePlayPause}
+                accessibilityLabel={isCurrentPlaying ? "Pause episode" : "Play episode"}
+              >
+                <MaterialIcons
+                  name={isCurrentPlaying ? "pause" : "play-arrow"}
+                  size={24}
+                  color={theme.onPrimary}
+                />
+              </TouchableOpacity>
+            </View>
+          ) : null}
         </TouchableOpacity>
       );
     },
-    [podcast, currentEpisode?.id, isPlaying, playEpisode, pause, resume, router, theme, savedIds, downloads, toggleSave, toggleDownload]
+    [
+      podcast,
+      currentEpisode?.id,
+      isPlaying,
+      playEpisode,
+      pause,
+      resume,
+      router,
+      theme,
+      selectedIds,
+      playedIds,
+      downloads,
+      toggleEpisodeSelection
+    ]
   );
 
   const renderEmpty = useCallback(() => {
@@ -487,10 +603,11 @@ export default function PodcastDetailModal() {
         ListHeaderComponent={renderHeader}
         ListEmptyComponent={renderEmpty}
         data={displayEpisodes.slice(0, visibleEpisodeCount)}
+        extraData={{ selectedIds, playedIds, downloads, isPlaying, currentEpisodeId: currentEpisode?.id }}
         initialNumToRender={10}
         maxToRenderPerBatch={20}
         windowSize={7}
-        removeClippedSubviews={true}
+        removeClippedSubviews={false}
         onEndReached={() => {
           if (visibleEpisodeCount < displayEpisodes.length) {
             setVisibleEpisodeCount((count) => Math.min(count + 20, displayEpisodes.length));
@@ -527,7 +644,7 @@ export default function PodcastDetailModal() {
         animationType="slide"
         onRequestClose={() => setDescriptionModalVisible(false)}
       >
-        <SafeAreaView style={[styles.descriptionModal, { backgroundColor: theme.surfaceContainer }]}>
+        <View style={[styles.descriptionModal, { backgroundColor: theme.surfaceContainer, paddingTop: insets.top, paddingBottom: insets.bottom }]}>
           <View style={[styles.descriptionModalHeader, { borderBottomColor: theme.outlineVariant }]}>
             <Text style={[styles.descriptionModalTitle, { color: theme.onSurface }]}>Podcast description</Text>
             <TouchableOpacity
@@ -543,18 +660,165 @@ export default function PodcastDetailModal() {
               {decodeXmlEntities(podcast?.description)}
             </Text>
           </ScrollView>
-        </SafeAreaView>
+        </View>
       </Modal>
+
+      {/* Add to playlist modal */}
+      <Modal
+        visible={playlistModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPlaylistModalVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.playlistModalBackdrop}
+          activeOpacity={1}
+          onPress={() => setPlaylistModalVisible(false)}
+        >
+          <View style={[styles.playlistModalSheet, { backgroundColor: theme.surfaceContainer }]}>
+            <View style={styles.playlistModalHeader}>
+              <Text style={[styles.playlistModalTitle, { color: theme.onSurface }]}>Add to playlist</Text>
+              <TouchableOpacity onPress={() => setPlaylistModalVisible(false)}>
+                <MaterialIcons name="close" size={24} color={theme.onSurface} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {Preferences.getPodcastPlaylists()
+                .filter((p) => p.id !== "downloaded")
+                .map((playlist) => (
+                  <TouchableOpacity
+                    key={playlist.id}
+                    style={[styles.playlistItem, { borderBottomColor: theme.outlineVariant }]}
+                    onPress={() => handleAddToPlaylist(playlist.id, playlist.name)}
+                  >
+                    <MaterialIcons
+                      name={playlist.id === "saved" ? "bookmark" : "playlist-play"}
+                      size={24}
+                      color={theme.primary}
+                    />
+                    <Text style={[styles.playlistItemText, { color: theme.onSurface }]}>
+                      {playlist.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              <TouchableOpacity
+                style={[styles.playlistItem, { borderBottomColor: theme.outlineVariant }]}
+                onPress={() => {
+                  setNewPlaylistName("");
+                  setNewPlaylistDialogVisible(true);
+                }}
+              >
+                <MaterialIcons name="add" size={24} color={theme.primary} />
+                <Text style={[styles.playlistItemText, { color: theme.primary, fontWeight: "600" }]}>
+                  Create new playlist
+                </Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Create New Playlist Dialog */}
+      <Modal
+        visible={newPlaylistDialogVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setNewPlaylistDialogVisible(false)}
+      >
+        <View style={styles.newPlaylistDialogBackdrop}>
+          <View style={[styles.newPlaylistDialog, { backgroundColor: theme.surfaceContainer }]}>
+            <Text style={[styles.newPlaylistDialogTitle, { color: theme.onSurface }]}>New Playlist</Text>
+            <TextInput
+              style={[
+                styles.newPlaylistInput,
+                { color: theme.onSurface, borderColor: theme.outlineVariant }
+              ]}
+              placeholder="Playlist name"
+              placeholderTextColor={theme.onSurfaceVariant}
+              value={newPlaylistName}
+              onChangeText={setNewPlaylistName}
+              autoFocus
+            />
+            <View style={styles.newPlaylistActions}>
+              <TouchableOpacity
+                style={styles.dialogButton}
+                onPress={() => setNewPlaylistDialogVisible(false)}
+              >
+                <Text style={[styles.dialogButtonText, { color: theme.onSurfaceVariant }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.dialogButton, { backgroundColor: theme.primary }]}
+                onPress={handleCreatePlaylistAndAdd}
+              >
+                <Text style={[styles.dialogButtonText, { color: theme.onPrimary }]}>Create & Add</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {toastMessage ? (
-        <View pointerEvents="none" style={[styles.toast, { backgroundColor: theme.primaryContainer }]}>
+        <View pointerEvents="none" style={[styles.toast, { backgroundColor: theme.primaryContainer, bottom: insets.bottom + 90 }]}>
           <MaterialIcons name="check-circle" size={18} color={theme.onPrimaryContainer} />
           <Text style={[styles.toastText, { color: theme.onPrimaryContainer }]}>{toastMessage}</Text>
         </View>
       ) : null}
-      <View style={[styles.miniPlayerWrapper, { bottom: insets.bottom + 80 }]}>
-        <MiniPlayer />
-      </View>
-      <View style={[styles.navigationWrapper, { bottom: insets.bottom }]}>
+
+      {selectedIds.size > 0 ? (
+        <View
+          style={[
+            styles.selectionToolbar,
+            {
+              backgroundColor: theme.surfaceContainer,
+              borderTopColor: theme.outlineVariant,
+              bottom: insets.bottom + 80
+            }
+          ]}
+        >
+          <TouchableOpacity
+            style={styles.selectionCloseButton}
+            onPress={clearSelection}
+            accessibilityLabel="Close selection mode"
+          >
+            <MaterialIcons name="close" size={24} color={theme.onSurface} />
+          </TouchableOpacity>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.selectionChipsContainer}
+          >
+            <TouchableOpacity
+              style={[styles.selectionChip, { borderColor: theme.outlineVariant }]}
+              onPress={handleTogglePlayedSelected}
+            >
+              <Text style={[styles.selectionChipText, { color: theme.onSurface }]}>
+                {allSelectedPlayed ? "Mark as unplayed" : "Mark as played"}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.selectionChip, { borderColor: theme.outlineVariant }]}
+              onPress={handleToggleDownloadSelected}
+            >
+              <Text style={[styles.selectionChipText, { color: theme.onSurface }]}>
+                {allSelectedDownloaded ? "Delete downloads" : "Download"}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.selectionChip, { borderColor: theme.outlineVariant }]}
+              onPress={() => setPlaylistModalVisible(true)}
+            >
+              <Text style={[styles.selectionChipText, { color: theme.onSurface }]}>
+                Add to playlist
+              </Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      ) : (
+        <View style={[styles.miniPlayerWrapper, { bottom: insets.bottom + 80 }]}>
+          <MiniPlayer />
+        </View>
+      )}
+      <View style={[styles.navigationWrapper, { bottom: 0, backgroundColor: theme.surfaceContainer }]}>
         <AppNavigation />
       </View>
     </SafeAreaView>
@@ -820,14 +1084,24 @@ const styles = StyleSheet.create({
   },
   episodeMetaRow: {
     flexDirection: "row",
-    marginBottom: 4
+    alignItems: "center",
+    marginTop: 2
   },
   episodeMeta: {
     fontSize: 12
   },
+  statusIcon: {
+    marginLeft: 6
+  },
+  checkboxContainer: {
+    marginRight: 12,
+    justifyContent: "center",
+    alignItems: "center"
+  },
   episodeDescription: {
     fontSize: 12,
-    lineHeight: 16
+    lineHeight: 16,
+    marginTop: 2
   },
   episodeActions: {
     flexDirection: "row",
@@ -846,5 +1120,120 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     elevation: 2
+  },
+  selectionToolbar: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    height: 56,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 8,
+    borderTopWidth: 1,
+    elevation: 8,
+    shadowColor: "#000",
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: -2 },
+    zIndex: 10
+  },
+  selectionCloseButton: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 4
+  },
+  selectionChipsContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingRight: 16
+  },
+  selectionChip: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    marginRight: 8,
+    backgroundColor: "transparent"
+  },
+  selectionChipText: {
+    fontSize: 14,
+    fontWeight: "600"
+  },
+  playlistModalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "flex-end"
+  },
+  playlistModalSheet: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 40,
+    maxHeight: "70%"
+  },
+  playlistModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 16
+  },
+  playlistModalTitle: {
+    fontSize: 18,
+    fontWeight: "700"
+  },
+  playlistItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth
+  },
+  playlistItemText: {
+    fontSize: 16,
+    marginLeft: 14,
+    fontWeight: "500",
+    flex: 1
+  },
+  newPlaylistDialogBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24
+  },
+  newPlaylistDialog: {
+    width: "100%",
+    maxWidth: 340,
+    borderRadius: 16,
+    padding: 20
+  },
+  newPlaylistDialogTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    marginBottom: 16
+  },
+  newPlaylistInput: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+    marginBottom: 20
+  },
+  newPlaylistActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 12
+  },
+  dialogButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8
+  },
+  dialogButtonText: {
+    fontSize: 14,
+    fontWeight: "600"
   }
 });

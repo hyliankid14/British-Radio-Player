@@ -2,6 +2,7 @@ import React from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { usePathname, useRouter } from "expo-router";
 import { MaterialIcons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAppTheme } from "../theme/colors";
 
 const tabs = [
@@ -15,9 +16,20 @@ export function AppNavigation() {
   const router = useRouter();
   const pathname = usePathname();
   const theme = useAppTheme();
+  const insets = useSafeAreaInsets();
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.surfaceContainer, borderTopColor: theme.divider }]}>
+    <View
+      style={[
+        styles.container,
+        {
+          backgroundColor: theme.surfaceContainer,
+          borderTopColor: theme.divider,
+          paddingBottom: insets.bottom,
+          height: 80 + insets.bottom
+        }
+      ]}
+    >
       {tabs.map((tab) => {
         const active = tab.path === "/podcasts"
           ? pathname.includes("podcasts")
