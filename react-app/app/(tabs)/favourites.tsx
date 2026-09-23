@@ -1148,6 +1148,11 @@ export default function FavouritesScreen() {
               style={[
                 styles.categoryPill,
                 {
+                  // M3 Expressive connected button group: a small gap separates the segments
+                  // and the selected segment is a full pill, rounder than the rest.
+                  borderRadius: isSelected ? 20 : 8,
+                  height: isSelected ? 44 : 40,
+                  marginVertical: isSelected ? -2 : 0,
                   backgroundColor: isSelected
                     ? theme.navIndicator
                     : theme.surfaceVariant
@@ -2171,14 +2176,14 @@ const styles = StyleSheet.create({
   },
   pillGroupContainer: {
     flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: 12,
     paddingVertical: 8,
-    gap: 6
+    gap: 2
   },
   categoryPill: {
     flex: 1,
     height: 40,
-    borderRadius: 20,
     alignItems: "center",
     justifyContent: "center"
   },
