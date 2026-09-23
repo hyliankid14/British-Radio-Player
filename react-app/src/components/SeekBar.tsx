@@ -7,6 +7,7 @@ export interface SeekBarProps {
   onSeek: (seconds: number) => void;
   onSeekStart?: () => void;
   onSeekEnd?: () => void;
+  onScrubbing?: (seconds: number) => void;
   activeColor?: string;
   trackColor?: string;
   labelColor?: string;
@@ -30,12 +31,14 @@ export function SeekBar({
   onSeek,
   onSeekStart,
   onSeekEnd,
+  onScrubbing,
   activeColor = "#6200EE",
   trackColor = "#CAC4D0",
   labelColor = "#FFFFFF",
   labelBackground = "#49454F"
 }: SeekBarProps) {
   const widthRef = useRef(0);
+  const startXRef = useRef(0);
   const [dragging, setDragging] = useState(false);
   const [dragValue, setDragValue] = useState(0);
 
@@ -58,17 +61,33 @@ export function SeekBar({
         onStartShouldSetPanResponder: () => safeMax > 0,
         onMoveShouldSetPanResponder: () => safeMax > 0,
         onPanResponderGrant: (event) => {
+          const width = widthRef.current;
+          const locX = event.nativeEvent.locationX;
+          const clampedX = width > 0 ? Math.min(Math.max(locX, 0), width) : locX;
+          startXRef.current = clampedX;
+          const next = valueFromX(clampedX);
           setDragging(true);
+          setDragValue(next);
           onSeekStart?.();
-          const next = valueFromX(event.nativeEvent.locationX);
-          setDragValue(next);
+          onScrubbing?.(next);
         },
-        onPanResponderMove: (event) => {
-          const next = valueFromX(event.nativeEvent.locationX);
+        onPanResponderMove: (_event, gestureState) => {
+          const width = widthRef.current;
+          const currentX =
+            width > 0
+              ? Math.min(Math.max(startXRef.current + gestureState.dx, 0), width)
+              : startXRef.current + gestureState.dx;
+          const next = valueFromX(currentX);
           setDragValue(next);
+          onScrubbing?.(next);
         },
-        onPanResponderRelease: (event) => {
-          const next = valueFromX(event.nativeEvent.locationX);
+        onPanResponderRelease: (_event, gestureState) => {
+          const width = widthRef.current;
+          const currentX =
+            width > 0
+              ? Math.min(Math.max(startXRef.current + gestureState.dx, 0), width)
+              : startXRef.current + gestureState.dx;
+          const next = valueFromX(currentX);
           setDragging(false);
           onSeek(next);
           onSeekEnd?.();
@@ -78,7 +97,7 @@ export function SeekBar({
           onSeekEnd?.();
         }
       }),
-    [onSeek, onSeekEnd, onSeekStart, safeMax, valueFromX]
+    [onSeek, onSeekEnd, onSeekStart, onScrubbing, safeMax, valueFromX]
   );
 
   return (
@@ -103,14 +122,16 @@ export function SeekBar({
         }}
         {...panResponder.panHandlers}
       >
-        <View style={[styles.track, { backgroundColor: trackColor }]} />
+        <View pointerEvents="none" style={[styles.track, { backgroundColor: trackColor }]} />
         <View
+          pointerEvents="none"
           style={[
             styles.activeTrack,
             { backgroundColor: activeColor, width: `${ratio * 100}%` }
           ]}
         />
         <View
+          pointerEvents="none"
           style={[
             styles.thumb,
             { backgroundColor: activeColor, left: `${ratio * 100}%` }

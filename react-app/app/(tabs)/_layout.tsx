@@ -38,6 +38,8 @@ export default function TabLayout() {
           router.navigate({ pathname: "/(tabs)/favourites", params: { category: "Subscribed" } });
         } else if (startup === "playlists") {
           router.navigate({ pathname: "/(tabs)/favourites", params: { category: "Playlists" } });
+        } else if (startup === "podcasts") {
+          router.navigate("/(tabs)/podcasts");
         }
       } catch {
         // Navigation is best-effort on first mount.

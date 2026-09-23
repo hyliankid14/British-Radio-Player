@@ -179,8 +179,19 @@ export default function NowPlayingModal() {
   const [isSubscribed, setIsSubscribed] = React.useState(false);
   const [localPosition, setLocalPosition] = React.useState(positionSeconds);
   const [dragging, setDragging] = React.useState(false);
+  const seekingUntilRef = React.useRef(0);
+  const [isDescriptionTruncated, setIsDescriptionTruncated] = React.useState(false);
 
   const isPodcast = !!activeEpisode && !!activePodcast;
+
+  const cleanDescription = React.useMemo(() => {
+    if (!isPodcast || !activeEpisode?.description) return "";
+    return decodeXmlEntities(activeEpisode.description.replace(/<[^>]*>/g, "").trim());
+  }, [isPodcast, activeEpisode?.description]);
+
+  React.useEffect(() => {
+    setIsDescriptionTruncated(false);
+  }, [activeEpisode?.id]);
   const isSongPlaying = !isPodcast && !!(currentShow?.artist || currentShow?.track);
   const isOfficialLogo =
     !!currentStation &&
@@ -226,7 +237,7 @@ export default function NowPlayingModal() {
     const tick = async () => {
       try {
         const progress = await TrackPlayer.getProgress();
-        if (!mounted || dragging) return;
+        if (!mounted || dragging || Date.now() < seekingUntilRef.current) return;
         setLocalPosition(progress.position);
         const duration = progress.duration > 0 ? progress.duration : durationSeconds;
         if (duration > 0) usePlayerStore.setState({ durationSeconds: duration });
@@ -248,7 +259,7 @@ export default function NowPlayingModal() {
       setLocalPosition(savedPos);
       const dur = (previewEpisode.durationMins || 0) * 60;
       if (dur > 0) usePlayerStore.setState({ durationSeconds: dur });
-    } else if (!dragging) {
+    } else if (!dragging && Date.now() >= seekingUntilRef.current) {
       setLocalPosition(positionSeconds);
     }
   }, [isPreview, previewEpisode?.id, positionSeconds, dragging]);
@@ -540,19 +551,44 @@ export default function NowPlayingModal() {
           </>
         )}
 
-        {isPodcast && activeEpisode?.description ? (
-          <TouchableOpacity
-            style={styles.descriptionContainer}
-            activeOpacity={0.7}
-            onPress={() => setDescriptionVisible(true)}
-          >
-            <Text
-              style={[styles.description, { color: screenSecondaryTextColor }]}
-              numberOfLines={4}
+        {isPodcast && cleanDescription ? (
+          <View style={styles.descriptionContainer}>
+            <TouchableOpacity
+              style={styles.descriptionTouchable}
+              activeOpacity={0.7}
+              onPress={() => setDescriptionVisible(true)}
             >
-              {decodeXmlEntities(activeEpisode.description.replace(/<[^>]*>/g, "").trim())}
-            </Text>
-          </TouchableOpacity>
+              <Text
+                style={[styles.description, { color: screenSecondaryTextColor }]}
+                numberOfLines={4}
+                onTextLayout={(e) => {
+                  if (e.nativeEvent.lines.length >= 4) {
+                    setIsDescriptionTruncated(true);
+                  }
+                }}
+              >
+                {cleanDescription}
+              </Text>
+            </TouchableOpacity>
+
+            {isDescriptionTruncated || cleanDescription.length > 140 ? (
+              <TouchableOpacity
+                onPress={() => setDescriptionVisible(true)}
+                hitSlop={{ top: 8, bottom: 8, left: 16, right: 16 }}
+                activeOpacity={0.7}
+                style={styles.showMoreButton}
+              >
+                <Text
+                  style={[
+                    styles.showMore,
+                    { color: isScreenLight ? theme.primary : playPauseColour }
+                  ]}
+                >
+                  Show More
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
         ) : null}
 
         {!isPodcast && matchedPodcast ? (
@@ -579,14 +615,16 @@ export default function NowPlayingModal() {
       {isPodcast ? (
         <View style={styles.progressSection}>
           <SeekBar
-            value={dragging ? localPosition : localPosition}
+            value={localPosition}
             max={durationSeconds || (activeEpisode?.durationMins || 0) * 60 || 0}
             activeColor={playPauseColour}
             trackColor={isScreenLight ? "rgba(0,0,0,0.2)" : "rgba(255,255,255,0.3)"}
             labelColor={buttonIconColor}
             labelBackground={outlineColour}
             onSeekStart={() => setDragging(true)}
+            onScrubbing={(seconds) => setLocalPosition(seconds)}
             onSeek={(seconds) => {
+              seekingUntilRef.current = Date.now() + 1200;
               setLocalPosition(seconds);
               if (!isPreview) {
                 void seekTo(seconds);
@@ -919,16 +957,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     alignItems: "center"
   },
+  descriptionTouchable: {
+    width: "100%",
+    alignItems: "center"
+  },
   description: {
     fontSize: 14,
     lineHeight: 20,
     textAlign: "center"
   },
+  showMoreButton: {
+    marginTop: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 4
+  },
   showMore: {
     fontSize: 13,
     fontWeight: "600",
-    marginTop: 6,
-    padding: 6
+    textAlign: "center"
   },
   openPodcastButton: {
     marginTop: 14,

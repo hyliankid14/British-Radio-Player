@@ -356,9 +356,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   seekTo: async (seconds: number) => {
     const { durationSeconds } = get();
     const target = Math.max(0, durationSeconds > 0 ? Math.min(seconds, durationSeconds) : seconds);
+    set({ positionSeconds: target });
     try {
       await TrackPlayer.seekTo(target);
-      set({ positionSeconds: target });
     } catch (error) {
       console.warn("Seek failed:", error);
     }

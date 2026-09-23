@@ -1,5 +1,6 @@
 import React, { useEffect } from "react";
-import { Stack } from "expo-router";
+import { Stack, useRouter } from "expo-router";
+import * as Linking from "expo-linking";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import TrackPlayer from "react-native-track-player";
@@ -44,7 +45,32 @@ Preferences.onChanged((key) => {
 void syncBackgroundSync();
 
 export default function RootLayout() {
+  const router = useRouter();
   const initStore = usePlayerStore((state) => state.init);
+
+  useEffect(() => {
+    function handleDeepLink(url: string) {
+      if (!url) return;
+      try {
+        const parsed = Linking.parse(url);
+        let path = parsed.path || "";
+        if (!path.startsWith("/")) path = "/" + path;
+        router.navigate({
+          pathname: path as any,
+          params: parsed.queryParams as any
+        });
+      } catch (e) {
+        console.warn("Failed to navigate to deep link:", url, e);
+      }
+    }
+
+    const sub = Linking.addEventListener("url", (event) => handleDeepLink(event.url));
+    Linking.getInitialURL().then((url) => {
+      if (url) handleDeepLink(url);
+    });
+
+    return () => sub.remove();
+  }, [router]);
 
   useEffect(() => {
     async function start() {
