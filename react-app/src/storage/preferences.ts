@@ -132,6 +132,8 @@ const KEYS = {
   ,POPULAR_PODCASTS_CACHE_AT: "cache_popular_podcasts_at"
   ,NEW_PODCASTS_CACHE: "cache_new_podcasts_data"
   ,NEW_PODCASTS_CACHE_AT: "cache_new_podcasts_at"
+  ,ANONYMOUS_INSTALL_ID: "pref_anon_install_id"
+  ,PODCAST_RATINGS_CACHE: "cache_podcast_ratings_data"
 };
 
 export const Preferences = {
@@ -1132,5 +1134,41 @@ export const Preferences = {
     } catch {
       return false;
     }
+  },
+
+  getAnonymousInstallId(): string {
+    let id = storage.getString(KEYS.ANONYMOUS_INSTALL_ID);
+    if (!id) {
+      id = "xxxxxxxxxxxx4xxxyxxxxxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+        const r = (Math.random() * 16) | 0;
+        const v = c === "x" ? r : (r & 0x3) | 0x8;
+        return v.toString(16);
+      });
+      storage.set(KEYS.ANONYMOUS_INSTALL_ID, id);
+    }
+    return id;
+  },
+
+  getCachedPodcastRatings(): Record<string, { average: number; count: number; mine?: number }> {
+    try {
+      const raw = storage.getString(KEYS.PODCAST_RATINGS_CACHE);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  },
+
+  setCachedPodcastRatings(ratings: Record<string, { average: number; count: number; mine?: number }>): void {
+    try {
+      storage.set(KEYS.PODCAST_RATINGS_CACHE, JSON.stringify(ratings));
+    } catch {}
+  },
+
+  updateCachedPodcastRating(podcastId: string, rating: { average: number; count: number; mine?: number }): void {
+    try {
+      const all = this.getCachedPodcastRatings();
+      all[podcastId] = rating;
+      this.setCachedPodcastRatings(all);
+    } catch {}
   },
 };

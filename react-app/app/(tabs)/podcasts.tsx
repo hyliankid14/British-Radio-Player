@@ -24,6 +24,7 @@ import {
   SearchEpisodeResult,
   PopularEntry,
   NewPodcastEntry,
+  PodcastRatingSummary,
   PodcastApi,
   decodeXmlEntities
 } from "../../src/api/podcasts";
@@ -209,6 +210,9 @@ export default function PodcastsScreen() {
   const [popularRanks, setPopularRanks] = useState<Map<string, number>>(new Map());
   const [newPodcastsList, setNewPodcastsList] = useState<NewPodcastEntry[]>([]);
   const [subscribedIds, setSubscribedIds] = useState<string[]>([]);
+  const [podcastRatings, setPodcastRatings] = useState<Record<string, PodcastRatingSummary>>(() =>
+    Preferences.getCachedPodcastRatings()
+  );
   const [isLoadingCatalog, setIsLoadingCatalog] = useState(true);
 
   // Tab & Filter state
@@ -264,6 +268,12 @@ export default function PodcastsScreen() {
           .filter((p) => ranks.has(p.id))
           .sort((a, b) => (ranks.get(a.id) || 999) - (ranks.get(b.id) || 999));
         PodcastApi.prefetchEpisodes(popularPodcasts.length > 0 ? popularPodcasts : cats, 25);
+
+        // Fetch star ratings for catalog podcasts
+        const ids = cats.map((p) => p.id);
+        PodcastApi.fetchRatings(ids).then((ratingsMap) => {
+          if (mounted) setPodcastRatings(ratingsMap);
+        }).catch(() => {});
       } catch (err) {
         console.warn("Init podcasts error:", err);
       } finally {
@@ -408,6 +418,8 @@ export default function PodcastsScreen() {
   // tab is focused and the preference is enabled.
   useFocusEffect(
     useCallback(() => {
+      setSubscribedIds(Preferences.getSubscribedPodcasts());
+      setPodcastRatings(Preferences.getCachedPodcastRatings());
       if (!Preferences.getSetting("pref_shake_random", false)) return undefined;
       const stop = NativeAndroid.startShakeDetection(() => handleShuffle());
       return stop;
@@ -902,6 +914,11 @@ export default function PodcastsScreen() {
   // Render individual podcast card matching item_podcast.xml (80x80 artwork)
   function renderPodcastCard(podcast: Podcast) {
     const isSub = subscribedIds.includes(podcast.id);
+    const ratingSummary = podcastRatings[podcast.id];
+    const displayGenres = podcast.genres
+      .filter((g) => !/^podcasts?$/i.test(g.trim()))
+      .slice(0, 2);
+
     return (
       <TouchableOpacity
         key={podcast.id}
@@ -920,30 +937,34 @@ export default function PodcastsScreen() {
 
         {/* Content Column */}
         <View style={styles.cardContent}>
-          <View style={styles.cardTitleRow}>
-            <Text style={[styles.podcastTitle, { color: theme.onSurface }]} numberOfLines={2}>
-              {decodeXmlEntities(podcast.title)}
-            </Text>
-            {isSub && (
-              <MaterialIcons name="check-circle" size={16} color={theme.primary} style={{ marginLeft: 6 }} />
-            )}
-          </View>
+          <Text style={[styles.podcastTitle, { color: theme.onSurface }]} numberOfLines={2}>
+            {decodeXmlEntities(podcast.title)}
+          </Text>
 
           <Text style={[styles.podcastDesc, { color: theme.onSurfaceVariant }]} numberOfLines={3}>
             {decodeXmlEntities(podcast.description)}
           </Text>
 
-          {(() => {
-            const displayGenres = podcast.genres.filter(
-              (g) => !/^podcasts?$/i.test(g.trim())
-            );
-            return displayGenres.length > 0 ? (
-              <Text style={[styles.genresText, { color: theme.onSurfaceVariant }]} numberOfLines={1}>
-                {decodeXmlEntities(displayGenres.join(" • "))}
+          <View style={styles.cardBottomRow}>
+            {ratingSummary && ratingSummary.count > 0 && ratingSummary.average > 0 ? (
+              <Text style={[styles.ratingBadge, { color: theme.onSurfaceVariant }]}>
+                {`★ ${ratingSummary.average.toFixed(1)}`}
               </Text>
-            ) : null;
-          })()}
+            ) : null}
+
+            {displayGenres.length > 0 ? (
+              <Text style={[styles.genresText, { color: theme.onSurfaceVariant }]} numberOfLines={1}>
+                {decodeXmlEntities(displayGenres.join(", "))}
+              </Text>
+            ) : null}
+          </View>
         </View>
+
+        {isSub ? (
+          <View style={styles.cardActionIcon}>
+            <MaterialIcons name="star" size={24} color={theme.onSurface} />
+          </View>
+        ) : null}
       </TouchableOpacity>
     );
   }
@@ -1110,9 +1131,24 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     marginBottom: 4
   },
+  cardBottomRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 4
+  },
+  ratingBadge: {
+    fontSize: 10,
+    fontWeight: "700",
+    marginRight: 6
+  },
   genresText: {
     fontSize: 10,
-    marginTop: 2
+    flex: 1
+  },
+  cardActionIcon: {
+    marginLeft: 8,
+    alignSelf: "center",
+    justifyContent: "center"
   },
   genreRow: {
     flexDirection: "row",

@@ -38,6 +38,12 @@ export interface NewPodcastEntry {
   oldest_pub_epoch_ms?: number;
 }
 
+export interface PodcastRatingSummary {
+  average: number;
+  count: number;
+  mine?: number;
+}
+
 export interface SearchPodcastResult {
   podcastId: string;
   title: string;
@@ -97,6 +103,86 @@ function parseDurationSeconds(durationStr: string): number {
 export const PodcastApi = {
   getRatingsBaseUrl(): string {
     return PI_BASE_URL;
+  },
+
+  async fetchRatings(podcastIds: string[]): Promise<Record<string, PodcastRatingSummary>> {
+    if (!podcastIds || podcastIds.length === 0) return Preferences.getCachedPodcastRatings();
+    const installId = Preferences.getAnonymousInstallId();
+    const installParam = installId ? `&install_id=${encodeURIComponent(installId)}` : "";
+    const cleanIds = Array.from(new Set(podcastIds.map((id) => id.trim()).filter(Boolean)));
+    const chunkSize = 100;
+    const fetchedResults: Record<string, PodcastRatingSummary> = {};
+
+    for (let i = 0; i < cleanIds.length; i += chunkSize) {
+      const chunk = cleanIds.slice(i, i + chunkSize);
+      const idsParam = chunk.map((id) => encodeURIComponent(id)).join(",");
+      const url = `${PI_BASE_URL}/ratings?podcast_ids=${idsParam}${installParam}`;
+
+      try {
+        const res = await fetch(url, { headers: { Accept: "application/json" } });
+        if (!res.ok) continue;
+        const payload = await res.json();
+        const ratingsObj = payload?.ratings;
+        if (ratingsObj && typeof ratingsObj === "object") {
+          for (const [id, r] of Object.entries(ratingsObj)) {
+            const rData = r as any;
+            const avg = Number(rData?.average_rating) || 0;
+            const count = Number(rData?.rating_count) || 0;
+            const mine = rData?.my_rating != null ? Number(rData.my_rating) : undefined;
+            if (count > 0 && avg > 0) {
+              fetchedResults[id] = { average: avg, count, mine };
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("fetchRatings chunk failed:", err);
+      }
+    }
+
+    const cached = Preferences.getCachedPodcastRatings();
+    const merged = { ...cached, ...fetchedResults };
+    Preferences.setCachedPodcastRatings(merged);
+    return merged;
+  },
+
+  async fetchRating(podcastId: string): Promise<PodcastRatingSummary | null> {
+    if (!podcastId) return null;
+    const ratings = await this.fetchRatings([podcastId]);
+    return ratings[podcastId] || null;
+  },
+
+  async submitRating(podcastId: string, rating: number, podcastTitle?: string): Promise<boolean> {
+    if (!podcastId || rating < 1 || rating > 5) return false;
+    const installId = Preferences.getAnonymousInstallId();
+    try {
+      const res = await fetch(`${PI_BASE_URL}/rating`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          podcast_id: podcastId,
+          rating,
+          install_id: installId,
+          podcast_title: podcastTitle || "",
+          platform: "ios"
+        })
+      });
+      if (res.ok) {
+        const current = Preferences.getCachedPodcastRatings()[podcastId] || { average: rating, count: 0 };
+        const newCount = current.mine ? current.count : current.count + 1;
+        const newAvg = current.mine
+          ? rating
+          : (current.average * current.count + rating) / newCount;
+        Preferences.updateCachedPodcastRating(podcastId, {
+          average: Math.round(newAvg * 10) / 10,
+          count: newCount,
+          mine: rating
+        });
+        return true;
+      }
+    } catch (err) {
+      console.warn("submitRating failed:", err);
+    }
+    return false;
   },
   /**
    * Search podcasts on Raspberry Pi database via /search/podcasts

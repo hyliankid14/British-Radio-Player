@@ -56,7 +56,20 @@ export default function PodcastDetailModal() {
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [descriptionModalVisible, setDescriptionModalVisible] = useState(false);
   const [visibleEpisodeCount, setVisibleEpisodeCount] = useState(20);
-  const [rating, setRating] = useState<{ average: number; count: number; mine: number }>({ average: 0, count: 0, mine: 0 });
+  const [rating, setRating] = useState<{ average: number; count: number; mine: number }>(() => {
+    const pid = podcast?.id || params.podcastId;
+    if (pid) {
+      const cached = Preferences.getCachedPodcastRatings()[pid];
+      if (cached) {
+        return {
+          average: cached.average,
+          count: cached.count,
+          mine: cached.mine || 0
+        };
+      }
+    }
+    return { average: 0, count: 0, mine: 0 };
+  });
   const [ratingModalVisible, setRatingModalVisible] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
@@ -252,21 +265,34 @@ export default function PodcastDetailModal() {
   }, [params.podcastId]);
 
   useEffect(() => {
-    if (!podcast) return;
-    fetch(`${PodcastApi.getRatingsBaseUrl()}/ratings?podcast_ids=${encodeURIComponent(podcast.id)}`)
-      .then((response) => response.json())
-      .then((payload) => {
-        const summary = payload?.ratings?.[podcast.id];
-        if (summary) {
-          setRating({
-            average: Number(summary.average_rating) || 0,
-            count: Number(summary.rating_count) || 0,
-            mine: Number(summary.my_rating) || 0
-          });
-        }
+    const pid = podcast?.id || params.podcastId;
+    if (!pid) return;
+
+    const cached = Preferences.getCachedPodcastRatings()[pid];
+    if (cached) {
+      setRating({
+        average: cached.average,
+        count: cached.count,
+        mine: cached.mine || 0
+      });
+    }
+
+    let active = true;
+    PodcastApi.fetchRating(pid)
+      .then((summary) => {
+        if (!active || !summary) return;
+        setRating({
+          average: summary.average,
+          count: summary.count,
+          mine: summary.mine || 0
+        });
       })
       .catch(() => {});
-  }, [podcast]);
+
+    return () => {
+      active = false;
+    };
+  }, [podcast?.id, params.podcastId]);
 
   const submitRating = async (value: number) => {
     if (!podcast) return;
@@ -276,13 +302,7 @@ export default function PodcastDetailModal() {
     }
     setRatingModalVisible(false);
     setRating((current) => ({ ...current, mine: value }));
-    try {
-      await fetch(`${PodcastApi.getRatingsBaseUrl()}/rating`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ podcast_id: podcast.id, rating: value, podcast_title: podcast.title, platform: "ios" })
-      });
-    } catch {}
+    await PodcastApi.submitRating(podcast.id, value, podcast.title);
   };
 
   const handleToggleSubscribe = () => {
@@ -382,7 +402,7 @@ export default function PodcastDetailModal() {
                 {[1, 2, 3, 4, 5].map((value) => (
                   <MaterialIcons
                     key={value}
-                    name={value <= (rating.mine || rating.average) ? "star" : "star-border"}
+                    name={value <= Math.round(rating.mine || rating.average) ? "star" : "star-border"}
                     size={20}
                     color={theme.primary}
                   />
