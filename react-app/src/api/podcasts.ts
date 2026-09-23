@@ -307,7 +307,7 @@ export const PodcastApi = {
           const genres = rawGenres
             .split(",")
             .map((g) => decodeXmlEntities(g.trim()))
-            .filter((g) => g.length > 0);
+            .filter((g) => g.length > 0 && !/^podcasts?$/i.test(g));
 
           outlines.push({
             id: podcastId,

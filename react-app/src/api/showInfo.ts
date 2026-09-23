@@ -118,7 +118,7 @@ export async function fetchShowInfo(stationId: string): Promise<CurrentShow> {
     episodeTitle,
     artist,
     track,
-    imageUrl: rmsImageUrl || essImageUrl || station.logoUrl,
+    imageUrl: rmsImageUrl || essImageUrl,
     nextShowTitle
   };
 }

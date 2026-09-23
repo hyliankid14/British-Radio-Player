@@ -1357,34 +1357,6 @@ export default function FavouritesScreen() {
                   </View>
                 </TouchableOpacity>
 
-              <TouchableOpacity
-                style={styles.podcastNotificationButton}
-                onPress={() => {
-                  NativeAndroid.requestNotificationPermission();
-                  Preferences.togglePodcastNotifications(item.id);
-                  forceTagUpdate((v) => v + 1);
-                }}
-                accessibilityLabel={
-                  Preferences.isPodcastNotificationsEnabled(item.id)
-                    ? "Disable notifications"
-                    : "Enable notifications"
-                }
-              >
-                <MaterialIcons
-                  name={
-                    Preferences.isPodcastNotificationsEnabled(item.id)
-                      ? "notifications"
-                      : "notifications-off"
-                  }
-                  size={22}
-                  color={
-                    Preferences.isPodcastNotificationsEnabled(item.id)
-                      ? theme.primary
-                      : theme.onSurfaceVariant
-                  }
-                />
-              </TouchableOpacity>
-
               {podcastSort === "manual" ? (
                 <View
                   {...podcastPanResponder.panHandlers}

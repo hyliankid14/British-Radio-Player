@@ -214,9 +214,11 @@ export default function PodcastsScreen() {
   const allGenres = useMemo(() => {
     const genreMap = new Map<string, number>();
     catalog.forEach((p) => {
-      p.genres.forEach((g) => {
-        genreMap.set(g, (genreMap.get(g) || 0) + 1);
-      });
+      p.genres
+        .filter((g) => !/^podcasts?$/i.test(g.trim()))
+        .forEach((g) => {
+          genreMap.set(g, (genreMap.get(g) || 0) + 1);
+        });
     });
     return Array.from(genreMap.entries())
       .map(([name, count]) => ({ name, count }))
@@ -866,11 +868,16 @@ export default function PodcastsScreen() {
             {decodeXmlEntities(podcast.description)}
           </Text>
 
-          {podcast.genres.length > 0 && (
-            <Text style={[styles.genresText, { color: theme.onSurfaceVariant }]} numberOfLines={1}>
-              {decodeXmlEntities(podcast.genres.join(" • "))}
-            </Text>
-          )}
+          {(() => {
+            const displayGenres = podcast.genres.filter(
+              (g) => !/^podcasts?$/i.test(g.trim())
+            );
+            return displayGenres.length > 0 ? (
+              <Text style={[styles.genresText, { color: theme.onSurfaceVariant }]} numberOfLines={1}>
+                {decodeXmlEntities(displayGenres.join(" • "))}
+              </Text>
+            ) : null;
+          })()}
         </View>
       </TouchableOpacity>
     );

@@ -16,8 +16,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import TrackPlayer from "react-native-track-player";
 import { MaterialIcons } from "@expo/vector-icons";
 import { usePlayerStore } from "../../src/store/playerStore";
-import { AUDIO_QUALITIES, AudioQuality } from "../../src/data/stations";
 import { formatShowDisplayTitle } from "../../src/api/showInfo";
+import { StationRepository } from "../../src/data/stations";
 import { Podcast, Episode, PodcastApi, decodeXmlEntities } from "../../src/api/podcasts";
 import { useAppTheme } from "../../src/theme/colors";
 import { StationLogo, getStationTint } from "../../src/components/StationLogo";
@@ -50,6 +50,12 @@ function rgbToHex(r: number, g: number, b: number): string {
   return `#${clamp(r).toString(16).padStart(2, "0")}${clamp(g)
     .toString(16)
     .padStart(2, "0")}${clamp(b).toString(16).padStart(2, "0")}`.toUpperCase();
+}
+
+function getContrastColor(hexColor: string): string {
+  const { r, g, b } = hexToRgb(hexColor);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.5 ? "#1C1B1F" : "#FFFFFF";
 }
 
 /** Mirrors the Kotlin `applyDominantColor` derivation used by `NowPlayingActivity`. */
@@ -112,6 +118,7 @@ export default function NowPlayingModal() {
   const params = useLocalSearchParams<{
     autoplay?: string;
     action?: string;
+    stationId?: string;
     podcastData?: string;
     episodeData?: string;
   }>();
@@ -127,8 +134,6 @@ export default function NowPlayingModal() {
     stop,
     playNext,
     playPrevious,
-    audioQuality,
-    setAudioQuality,
     favorites,
     toggleFavorite,
     positionSeconds,
@@ -137,7 +142,8 @@ export default function NowPlayingModal() {
     seekBy,
     toggleEpisodePlayed,
     resume,
-    playEpisode
+    playEpisode,
+    playStation
   } = usePlayerStore();
 
   const previewPodcast = React.useMemo<Podcast | null>(() => {
@@ -174,11 +180,39 @@ export default function NowPlayingModal() {
   const [dragging, setDragging] = React.useState(false);
 
   const isPodcast = !currentStation && !!activeEpisode && !!activePodcast;
+  const isSongPlaying = !isPodcast && !!(currentShow?.artist || currentShow?.track);
+  const isOfficialLogo =
+    !!currentStation &&
+    (currentShow?.imageUrl === currentStation.logoUrl ||
+      currentShow?.imageUrl?.includes("/services/") ||
+      currentShow?.imageUrl?.includes("blocks-colour-black"));
+
+  // Only song artwork from RMS (not official station logos) should be used as image artwork for radio.
+  // Custom station idents are used rather than official station logos.
+  const songArtworkUrl =
+    isSongPlaying && currentShow?.imageUrl && !isOfficialLogo
+      ? currentShow.imageUrl
+      : undefined;
+
   const artworkUrl = isPodcast
     ? activeEpisode?.imageUrl || activePodcast?.imageUrl
-    : currentShow?.imageUrl;
+    : songArtworkUrl;
   const hasCustomArtwork = !!artworkUrl;
   const showTitle = currentShow ? formatShowDisplayTitle(currentShow) : "Radio";
+
+  const radioShowName =
+    currentShow?.title && currentShow.title !== "BBC Radio"
+      ? currentShow.title
+      : currentStation?.title || currentShow?.title || "Radio";
+
+  const artistTrack = [currentShow?.artist?.trim(), currentShow?.track?.trim()]
+    .filter(Boolean)
+    .join(" - ");
+  const artistSong =
+    artistTrack ||
+    (currentShow?.episodeTitle && currentShow.episodeTitle !== radioShowName
+      ? currentShow.episodeTitle
+      : undefined);
 
   React.useEffect(() => {
     setImageError(false);
@@ -305,7 +339,11 @@ export default function NowPlayingModal() {
   React.useEffect(() => {
     if (params.autoplay === "true") resume();
     if (params.action === "stop") handleStop();
-  }, [params.autoplay, params.action, resume, handleStop]);
+    if (params.stationId && (!currentStation || currentStation.id !== params.stationId)) {
+      const station = StationRepository.getById(params.stationId);
+      if (station) void playStation(station);
+    }
+  }, [params.autoplay, params.action, params.stationId, currentStation, resume, handleStop, playStation]);
 
   if (!currentStation && !isPodcast) {
     return (
@@ -328,8 +366,13 @@ export default function NowPlayingModal() {
   const background = palette?.subtle || theme.surfaceContainer;
   const outlineColour = palette?.buttonOutline || theme.surfaceVariant;
   const playPauseColour = palette?.playPause || theme.primary;
-  const iconColour = palette?.icon || theme.onSurface;
-  const controlIcon = palette?.isLight ? palette.icon : "#FFFFFF";
+
+  const isScreenLight = palette?.isLight ?? (theme.background !== "#1C1B1F");
+  const screenTextColor = isScreenLight ? "#1C1B1F" : "#FFFFFF";
+  const screenSecondaryTextColor = isScreenLight ? "#49454E" : "rgba(255, 255, 255, 0.75)";
+
+  const buttonIconColor = getContrastColor(outlineColour);
+  const playPauseIconColor = getContrastColor(playPauseColour);
   const downloaded = activeEpisode ? downloads[activeEpisode.id]?.status === "downloaded" : false;
 
   const handleShare = async () => {
@@ -349,11 +392,6 @@ export default function NowPlayingModal() {
     }
   };
 
-  const cycleQuality = () => {
-    const qualities: AudioQuality[] = ["HIGH", "MEDIUM", "LOW"];
-    const currentIndex = qualities.indexOf(audioQuality);
-    setAudioQuality(qualities[(currentIndex + 1) % qualities.length]);
-  };
 
   const handleMarkPlayed = () => {
     if (!activeEpisode) return;
@@ -425,10 +463,10 @@ export default function NowPlayingModal() {
           style={styles.navButton}
           hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
         >
-          <MaterialIcons name="arrow-back" size={24} color={iconColour} />
+          <MaterialIcons name="arrow-back" size={24} color={screenTextColor} />
         </TouchableOpacity>
 
-        <Text style={[styles.appBarTitle, { color: iconColour }]} numberOfLines={1}>
+        <Text style={[styles.appBarTitle, { color: screenTextColor }]} numberOfLines={1}>
           {headerTitle}
         </Text>
 
@@ -442,16 +480,20 @@ export default function NowPlayingModal() {
               <MaterialIcons
                 name={isPlayed ? "check-circle" : "check-circle-outline"}
                 size={24}
-                color={iconColour}
+                color={screenTextColor}
               />
             </TouchableOpacity>
           ) : null}
-          <TouchableOpacity onPress={handleShare} style={styles.navButton}>
-            <MaterialIcons name="share" size={24} color={iconColour} />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => setMenuVisible(true)} style={styles.navButton}>
-            <MaterialIcons name="more-vert" size={24} color={iconColour} />
-          </TouchableOpacity>
+          {isPodcast ? (
+            <TouchableOpacity onPress={handleShare} style={styles.navButton}>
+              <MaterialIcons name="share" size={24} color={screenTextColor} />
+            </TouchableOpacity>
+          ) : null}
+          {isPodcast ? (
+            <TouchableOpacity onPress={() => setMenuVisible(true)} style={styles.navButton}>
+              <MaterialIcons name="more-vert" size={24} color={screenTextColor} />
+            </TouchableOpacity>
+          ) : null}
         </View>
       </View>
 
@@ -480,17 +522,17 @@ export default function NowPlayingModal() {
           )}
         </View>
 
-        <Text style={[styles.showName, { color: iconColour }]} numberOfLines={2}>
-          {isPodcast ? decodeXmlEntities(activeEpisode?.title || "") : showTitle}
+        <Text style={[styles.showName, { color: screenTextColor }]} numberOfLines={2}>
+          {isPodcast ? decodeXmlEntities(activeEpisode?.title || "") : radioShowName}
         </Text>
 
         {isPodcast ? (
           <>
-            <Text style={[styles.stationSubtitle, { color: iconColour, opacity: 0.8 }]} numberOfLines={1}>
+            <Text style={[styles.stationSubtitle, { color: screenSecondaryTextColor }]} numberOfLines={1}>
               {decodeXmlEntities(activePodcast?.title || "")}
             </Text>
             {activeEpisode?.pubDate ? (
-              <Text style={[styles.releaseDate, { color: iconColour, opacity: 0.7 }]}>
+              <Text style={[styles.releaseDate, { color: screenSecondaryTextColor }]}>
                 {formatEpisodeDate(activeEpisode.pubDate)}
               </Text>
             ) : null}
@@ -498,33 +540,29 @@ export default function NowPlayingModal() {
         ) : (
           <>
             {currentShow?.nextShowTitle ? (
-              <Text style={[styles.nextShow, { color: iconColour, opacity: 0.8 }]} numberOfLines={2}>
+              <Text style={[styles.nextShow, { color: screenSecondaryTextColor }]} numberOfLines={2}>
                 Up next: {currentShow.nextShowTitle}
               </Text>
             ) : null}
 
-            {currentShow?.episodeTitle && currentShow.episodeTitle !== showTitle ? (
-              <Text style={[styles.episodeTitle, { color: iconColour }]} numberOfLines={2}>
-                {currentShow.episodeTitle}
+            {artistSong ? (
+              <Text style={[styles.episodeTitle, { color: screenTextColor }]} numberOfLines={2}>
+                {artistSong}
               </Text>
             ) : null}
-
-            <Text style={[styles.stationSubtitle, { color: iconColour, opacity: 0.8 }]}>
-              {currentStation?.title} • {currentStation?.category.toUpperCase()}
-            </Text>
           </>
         )}
 
         {isPodcast && activeEpisode?.description ? (
           <View style={styles.descriptionContainer}>
             <Text
-              style={[styles.description, { color: iconColour, opacity: 0.85 }]}
+              style={[styles.description, { color: screenSecondaryTextColor }]}
               numberOfLines={4}
             >
               {decodeXmlEntities(activeEpisode.description)}
             </Text>
             <TouchableOpacity onPress={() => setDescriptionVisible(true)}>
-              <Text style={[styles.showMore, { color: iconColour }]}>Show more</Text>
+              <Text style={[styles.showMore, { color: screenTextColor }]}>Show more</Text>
             </TouchableOpacity>
           </View>
         ) : null}
@@ -533,7 +571,7 @@ export default function NowPlayingModal() {
           <TouchableOpacity
             style={[
               styles.openPodcastButton,
-              { backgroundColor: palette?.isLight ? palette.buttonOutline : outlineColour }
+              { backgroundColor: outlineColour }
             ]}
             onPress={() =>
               router.push({
@@ -545,20 +583,7 @@ export default function NowPlayingModal() {
               })
             }
           >
-            <Text style={[styles.openPodcastText, { color: controlIcon }]}>Open Podcast</Text>
-          </TouchableOpacity>
-        ) : null}
-
-        {!isPodcast ? (
-          <TouchableOpacity
-            style={[styles.qualityChip, { backgroundColor: outlineColour, borderColor: outlineColour }]}
-            onPress={cycleQuality}
-            activeOpacity={0.7}
-          >
-            <MaterialIcons name="high-quality" size={16} color={controlIcon} />
-            <Text style={[styles.qualityText, { color: controlIcon }]}>
-              {AUDIO_QUALITIES[audioQuality]?.label || "High"}
-            </Text>
+            <Text style={[styles.openPodcastText, { color: buttonIconColor }]}>Open Podcast</Text>
           </TouchableOpacity>
         ) : null}
       </ScrollView>
@@ -568,9 +593,9 @@ export default function NowPlayingModal() {
           <SeekBar
             value={dragging ? localPosition : localPosition}
             max={durationSeconds || (activeEpisode?.durationMins || 0) * 60 || 0}
-            activeColor={palette?.isLight ? palette.playPause : "#FFFFFF"}
-            trackColor={palette?.isLight ? "rgba(0,0,0,0.2)" : "rgba(255,255,255,0.3)"}
-            labelColor={controlIcon}
+            activeColor={playPauseColour}
+            trackColor={isScreenLight ? "rgba(0,0,0,0.2)" : "rgba(255,255,255,0.3)"}
+            labelColor={buttonIconColor}
             labelBackground={outlineColour}
             onSeekStart={() => setDragging(true)}
             onSeek={(seconds) => {
@@ -584,10 +609,10 @@ export default function NowPlayingModal() {
             onSeekEnd={() => setDragging(false)}
           />
           <View style={styles.progressLabels}>
-            <Text style={[styles.progressLabel, { color: controlIcon }]}>
+            <Text style={[styles.progressLabel, { color: screenSecondaryTextColor }]}>
               {formatClock(localPosition)}
             </Text>
-            <Text style={[styles.progressLabel, { color: controlIcon }]}>
+            <Text style={[styles.progressLabel, { color: screenSecondaryTextColor }]}>
               -{formatClock(Math.max(0, (durationSeconds || (activeEpisode?.durationMins || 0) * 60 || 0) - localPosition))}
             </Text>
           </View>
@@ -600,7 +625,7 @@ export default function NowPlayingModal() {
           onPress={handleStop}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <MaterialIcons name="stop" size={26} color={controlIcon} />
+          <MaterialIcons name="stop" size={26} color={buttonIconColor} />
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -608,7 +633,7 @@ export default function NowPlayingModal() {
           onPress={handlePrevious}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <MaterialIcons name="skip-previous" size={26} color={controlIcon} />
+          <MaterialIcons name="skip-previous" size={26} color={buttonIconColor} />
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -617,12 +642,12 @@ export default function NowPlayingModal() {
           activeOpacity={0.85}
         >
           {isBuffering && !isPreview ? (
-            <ActivityIndicator size="small" color={controlIcon} />
+            <ActivityIndicator size="small" color={playPauseIconColor} />
           ) : (
             <MaterialIcons
               name={isPlaying && !isPreview ? "pause" : "play-arrow"}
               size={34}
-              color={palette?.isLight ? palette.icon : "#FFFFFF"}
+              color={playPauseIconColor}
             />
           )}
         </TouchableOpacity>
@@ -632,7 +657,7 @@ export default function NowPlayingModal() {
           onPress={handleNext}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <MaterialIcons name="skip-next" size={26} color={controlIcon} />
+          <MaterialIcons name="skip-next" size={26} color={buttonIconColor} />
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -640,9 +665,7 @@ export default function NowPlayingModal() {
             styles.controlIconButton,
             {
               backgroundColor:
-                isPodcast && isSubscribed
-                  ? playPauseColour
-                  : isFav
+                (isPodcast && isSubscribed) || isFav
                   ? playPauseColour
                   : "transparent"
             }
@@ -657,21 +680,19 @@ export default function NowPlayingModal() {
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
           <MaterialIcons
-            name={isPodcast ? (isSubscribed ? "star" : "star-border") : isFav ? "star" : "star-border"}
+            name={(isPodcast && isSubscribed) || isFav ? "star" : "star-border"}
             size={26}
             color={
-              isPodcast && isSubscribed
-                ? controlIcon
-                  : isFav
-                  ? controlIcon
-                  : iconColour
-              }
-            />
-          </TouchableOpacity>
-        </View>
+              (isPodcast && isSubscribed) || isFav
+                ? playPauseIconColor
+                : screenTextColor
+            }
+          />
+        </TouchableOpacity>
+      </View>
 
         {/* Overflow menu */}
-        <Modal visible={menuVisible} transparent animationType="fade" onRequestClose={() => setMenuVisible(false)}>
+        <Modal visible={menuVisible && isPodcast} transparent animationType="fade" onRequestClose={() => setMenuVisible(false)}>
           <TouchableOpacity style={styles.menuBackdrop} activeOpacity={1} onPress={() => setMenuVisible(false)}>
             <View style={[styles.menuSheet, { backgroundColor: theme.surfaceContainer }]}>
               {isPodcast && activePodcast ? (
@@ -693,16 +714,18 @@ export default function NowPlayingModal() {
                 </TouchableOpacity>
               ) : null}
 
-              <TouchableOpacity
-                style={styles.menuRow}
-                onPress={() => {
-                  setMenuVisible(false);
-                  void handleShare();
-                }}
-              >
-                <MaterialIcons name="share" size={22} color={theme.onSurface} />
-                <Text style={[styles.menuText, { color: theme.onSurface }]}>Share</Text>
-              </TouchableOpacity>
+              {isPodcast ? (
+                <TouchableOpacity
+                  style={styles.menuRow}
+                  onPress={() => {
+                    setMenuVisible(false);
+                    void handleShare();
+                  }}
+                >
+                  <MaterialIcons name="share" size={22} color={theme.onSurface} />
+                  <Text style={[styles.menuText, { color: theme.onSurface }]}>Share</Text>
+                </TouchableOpacity>
+              ) : null}
 
               {isPodcast && activePodcast ? (
               <>
@@ -907,20 +930,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600"
   },
-  qualityChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    borderWidth: 1,
-    marginTop: 16,
-    gap: 6
-  },
-  qualityText: {
-    fontSize: 12,
-    fontWeight: "600"
-  },
+
   progressSection: {
     paddingHorizontal: 16,
     paddingBottom: 4

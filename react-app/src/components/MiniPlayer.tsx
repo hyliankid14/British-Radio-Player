@@ -38,8 +38,17 @@ export function MiniPlayer() {
   const subtitle = currentStation
     ? (currentShow ? formatShowDisplayTitle(currentShow) : "Radio")
     : (currentPodcast?.title || "BBC Podcast");
+  const isSongPlaying = !isPodcast && !!(currentShow?.artist || currentShow?.track);
+  const isOfficialLogo =
+    !!currentStation &&
+    (currentShow?.imageUrl === currentStation.logoUrl ||
+      currentShow?.imageUrl?.includes("/services/") ||
+      currentShow?.imageUrl?.includes("blocks-colour-black"));
+
   const artworkUrl = currentStation
-    ? currentShow?.imageUrl || currentStation.logoUrl
+    ? isSongPlaying && currentShow?.imageUrl && !isOfficialLogo
+      ? currentShow.imageUrl
+      : undefined
     : currentEpisode?.imageUrl || currentPodcast?.imageUrl;
   // Tapping the mini player always opens the unified Now Playing screen, matching the
   // legacy Kotlin behaviour for both live radio and podcast playback.

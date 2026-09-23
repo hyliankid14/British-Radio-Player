@@ -339,7 +339,11 @@ export const Preferences = {
     }
     try {
       const tags = JSON.parse(raw);
-      return Array.isArray(tags) ? tags.filter((tag): tag is string => typeof tag === "string" && tag.trim().length > 0) : [];
+      return Array.isArray(tags)
+        ? tags
+            .filter((tag): tag is string => typeof tag === "string" && tag.trim().length > 0)
+            .filter((tag) => !/^podcasts?$/i.test(tag.trim()))
+        : [];
     } catch {
       return [];
     }
@@ -347,12 +351,17 @@ export const Preferences = {
 
   setPodcastTags(podcastId: string, tags: string[]): void {
     const normalised = Array.from(
-      new Set(tags.map((tag) => tag.trim()).filter(Boolean))
+      new Set(
+        tags
+          .map((tag) => tag.trim())
+          .filter((tag) => Boolean(tag) && !/^podcasts?$/i.test(tag))
+      )
     );
     storage.set(`pref_podcast_tags_${podcastId}`, JSON.stringify(normalised));
   },
 
   addPodcastTag(podcastId: string, defaultTags: string[], tag: string): void {
+    if (/^podcasts?$/i.test(tag.trim())) return;
     this.setPodcastTags(podcastId, [...this.getPodcastTags(podcastId, defaultTags), tag]);
   },
 
