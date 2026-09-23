@@ -483,14 +483,12 @@ export default function PodcastsScreen() {
         return list;
       }
       case "new_podcasts": {
-        const newIdsOrder = newPodcastsList.map((n) => n.id);
+        const newIdsOrder = newPodcastsList.slice(0, 50).map((n) => n.id);
         const newSet = new Set(newIdsOrder);
-        const newItems = list.filter((p) => newSet.has(p.id));
-        const otherItems = list.filter((p) => !newSet.has(p.id));
-        return [
-          ...newItems.sort((a, b) => newIdsOrder.indexOf(a.id) - newIdsOrder.indexOf(b.id)),
-          ...otherItems
-        ];
+        return list
+          .filter((p) => newSet.has(p.id))
+          .sort((a, b) => newIdsOrder.indexOf(a.id) - newIdsOrder.indexOf(b.id))
+          .slice(0, 50);
       }
       case "az": {
         return [...list].sort((a, b) => a.title.localeCompare(b.title));

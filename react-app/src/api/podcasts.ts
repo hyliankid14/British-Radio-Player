@@ -224,7 +224,7 @@ export const PodcastApi = {
       });
       if (res.ok) {
         const json = await res.json();
-        const entries: NewPodcastEntry[] = json.new_podcasts || [];
+        const entries: NewPodcastEntry[] = (json.new_podcasts || []).slice(0, 50);
         if (entries.length > 0) {
           Preferences.setCachedNewPodcasts(entries);
           return entries;

@@ -832,7 +832,7 @@ export const Preferences = {
 
   /** Persist a fresh new podcasts list with the current timestamp. */
   setCachedNewPodcasts(entries: { id: string; title: string; first_seen_epoch_ms?: number; oldest_pub_epoch_ms?: number }[]): void {
-    storage.set(KEYS.NEW_PODCASTS_CACHE, JSON.stringify(entries));
+    storage.set(KEYS.NEW_PODCASTS_CACHE, JSON.stringify(entries.slice(0, 50)));
     storage.set(KEYS.NEW_PODCASTS_CACHE_AT, Date.now());
   },
 
