@@ -225,5 +225,36 @@ class NativeAndroidModule : Module() {
       BackgroundSync.schedule(ctx, intervalMinutes, wifiOnly)
       null
     }
+
+    // ── Podcast downloads ───────────────────────────────────────────────────
+
+    /** Absolute path of the public Podcasts folder used for downloads. */
+    Function("getDownloadsFolderPath") { ->
+      PodcastDownloads.folderPath()
+    }
+
+    /** Copies a downloaded temp file into the public Podcasts folder; returns its URI. */
+    AsyncFunction("publishDownload") { sourceUri: String, fileName: String, title: String ->
+      val ctx = context ?: return@AsyncFunction null
+      PodcastDownloads.publish(ctx, sourceUri, fileName, title)
+    }
+
+    /** Deletes a published episode by URI. */
+    Function("deleteDownload") { uri: String ->
+      val ctx = context ?: return@Function false
+      PodcastDownloads.delete(ctx, uri)
+    }
+
+    /** Deletes every episode in the app's public Podcasts folder; returns the count. */
+    Function("clearDownloads") { ->
+      val ctx = context ?: return@Function 0
+      PodcastDownloads.clearAll(ctx)
+    }
+
+    /** Opens the public Podcasts downloads folder in the system file manager. */
+    Function("openDownloadsFolder") { ->
+      val ctx = context ?: return@Function false
+      PodcastDownloads.openFolder(ctx)
+    }
   }
 }

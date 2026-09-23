@@ -12,6 +12,7 @@ import { runLegacyMigration } from "../src/storage/legacyMigration";
 import { useAppTheme, useIsDarkTheme } from "../src/theme/colors";
 import { initWearSync, pushWearState } from "../src/wear/wearSync";
 import { syncBackgroundSync } from "../src/background/backgroundSync";
+import { registerBackgroundTask } from "../src/background/backgroundTask";
 import { runAutoDownload } from "../src/downloads/autoDownload";
 import {
   checkSubscriptionsForNewEpisodes,
@@ -45,6 +46,9 @@ Preferences.onChanged((key) => {
   if (key.includes("subscrib") || key.includes("refresh") || key.includes("wifi") || key.includes("notif")) {
     if (backgroundSyncTimer) clearTimeout(backgroundSyncTimer);
     backgroundSyncTimer = setTimeout(() => void syncBackgroundSync(), 1500);
+  }
+  if (key.includes("refresh")) {
+    void registerBackgroundTask();
   }
   if (key.includes("subscrib") || key.includes("download") || key.includes("notif")) {
     void runAutoDownload();
@@ -114,6 +118,7 @@ export default function RootLayout() {
   useEffect(() => {
     void runAutoDownload();
     void checkSubscriptionsForNewEpisodes();
+    void registerBackgroundTask();
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") {
         void runAutoDownload();

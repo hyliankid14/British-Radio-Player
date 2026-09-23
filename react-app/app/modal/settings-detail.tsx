@@ -24,6 +24,8 @@ import { usePlayerStore } from "../../src/store/playerStore";
 import { useAppTheme, useThemeMode, setAppTheme, ThemeMode } from "../../src/theme/colors";
 import { NativeAndroid } from "../../src/native/nativeAndroid";
 import { LastFmApi } from "../../src/api/lastfm";
+import { useDownloadStore } from "../../src/downloads/downloadStore";
+import { openDownloadsFolder } from "../../src/downloads/openDownloads";
 
 const AUTO_NAME = Platform.OS === "ios" ? "CarPlay" : "Android Auto";
 
@@ -546,7 +548,6 @@ function AlarmPage() {
 }
 
 function SubscriptionsPage() {
-  const router = useRouter();
   const [settings, setSettings] = useState({
     refresh: Preferences.getSetting("pref_subscription_refresh", 60),
     auto: Preferences.getSetting("pref_auto_download", false),
@@ -566,13 +567,8 @@ function SubscriptionsPage() {
         text: "Delete",
         style: "destructive",
         onPress: () => {
-          try {
-            const store = require("../../src/downloads/downloadStore") as typeof import("../../src/downloads/downloadStore");
-            const state = store.useDownloadStore.getState();
-            Object.keys(state.downloads).forEach((id) => state.remove(id));
-          } catch {
-            // Downloads are optional; ignore failures.
-          }
+          const removed = useDownloadStore.getState().removeAll();
+          Alert.alert("Downloads", removed > 0 ? "All downloaded episodes have been deleted." : "There were no downloads to delete.");
         }
       }
     ]);
@@ -587,7 +583,7 @@ function SubscriptionsPage() {
       <SwitchRow title="Auto-download saved episodes" subtitle="" value={settings.saved} onChange={(value) => update("saved", value)} />
       <SwitchRow title="Download on WiFi only" subtitle="" value={settings.wifi} onChange={(value) => update("wifi", value)} />
       <SwitchRow title="Delete episode when played to completion" subtitle="" value={settings.deletePlayed} onChange={(value) => update("deletePlayed", value)} />
-      <SecondaryButton label="Open downloads" onPress={() => router.navigate("/(tabs)/library")} />
+      <SecondaryButton label="Open downloads" onPress={() => void openDownloadsFolder()} />
       <SecondaryButton label="Delete all downloads" onPress={deleteAllDownloads} />
     </Card>
   </>;

@@ -13,8 +13,11 @@
       "infoPlist": {
         "UIBackgroundModes": [
           "audio",
-          "fetch"
+          "fetch",
+          "processing"
         ],
+        "UIFileSharingEnabled": true,
+        "LSSupportsOpeningDocumentsInPlace": true,
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true,
           "NSExceptionDomains": {
@@ -60,7 +63,8 @@
     "plugins": [
       "expo-router",
       "expo-notifications",
-      "./plugins/withAndroidCleartextTraffic"
+      "./plugins/withAndroidCleartextTraffic",
+      "expo-background-task"
     ]
   }
 }

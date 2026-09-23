@@ -32,6 +32,11 @@ interface NativeAndroidBridge {
   ): { remove(): void };
   syncBackgroundSubscriptions(subscriptionsJson: string): void;
   scheduleBackgroundSync(intervalMinutes: number, wifiOnly: boolean): void;
+  getDownloadsFolderPath(): string;
+  publishDownload(sourceUri: string, fileName: string, title: string): Promise<string | null>;
+  deleteDownload(uri: string): boolean;
+  clearDownloads(): number;
+  openDownloadsFolder(): boolean;
 }
 
 export interface UpdateInfo {
@@ -290,6 +295,51 @@ export const NativeAndroid = {
       load()?.scheduleBackgroundSync(intervalMinutes, wifiOnly);
     } catch {
       // Ignore.
+    }
+  },
+
+  /** Absolute path of the public Podcasts downloads folder, or null off-Android. */
+  getDownloadsFolderPath(): string | null {
+    try {
+      return load()?.getDownloadsFolderPath() ?? null;
+    } catch {
+      return null;
+    }
+  },
+
+  /** Publishes a downloaded temp file into the public Podcasts folder; returns its URI. */
+  async publishDownload(sourceUri: string, fileName: string, title: string): Promise<string | null> {
+    try {
+      return (await load()?.publishDownload(sourceUri, fileName, title)) ?? null;
+    } catch {
+      return null;
+    }
+  },
+
+  /** Deletes a published episode by URI. */
+  deleteDownload(uri: string): boolean {
+    try {
+      return load()?.deleteDownload(uri) ?? false;
+    } catch {
+      return false;
+    }
+  },
+
+  /** Deletes every episode in the public Podcasts folder; returns the count removed. */
+  clearDownloads(): number {
+    try {
+      return load()?.clearDownloads() ?? 0;
+    } catch {
+      return 0;
+    }
+  },
+
+  /** Opens the public Podcasts downloads folder in the system file manager. */
+  openDownloadsFolder(): boolean {
+    try {
+      return load()?.openDownloadsFolder() ?? false;
+    } catch {
+      return false;
     }
   }
 };

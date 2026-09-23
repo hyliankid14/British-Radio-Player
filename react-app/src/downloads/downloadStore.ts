@@ -1,7 +1,9 @@
 import { create } from "zustand";
+import { Platform } from "react-native";
 import { Directory, File, Paths } from "expo-file-system";
 import { Podcast, Episode } from "../api/podcasts";
 import { Preferences, SavedEpisodeEntry } from "../storage/preferences";
+import { NativeAndroid } from "../native/nativeAndroid";
 
 export type DownloadStatus = "downloading" | "downloaded" | "error";
 
@@ -17,12 +19,23 @@ interface DownloadStoreState {
   downloads: Record<string, DownloadEntryState>;
   download: (entry: SavedEpisodeEntry) => Promise<void>;
   remove: (episodeId: string) => void;
+  removeAll: () => number;
   refresh: () => void;
 }
 
 const DOWNLOAD_DIRECTORY = "podcast-downloads";
 
-function downloadDirectory(): Directory {
+/** Temp directory used while a file is being fetched (both platforms). */
+function cacheDirectory(): Directory {
+  const directory = new Directory(Paths.cache, DOWNLOAD_DIRECTORY);
+  if (!directory.exists) {
+    directory.create({ intermediates: true, idempotent: true });
+  }
+  return directory;
+}
+
+/** On iOS downloads live in the app Documents folder, exposed via Files app file sharing. */
+function documentsDirectory(): Directory {
   const directory = new Directory(Paths.document, DOWNLOAD_DIRECTORY);
   if (!directory.exists) {
     directory.create({ intermediates: true, idempotent: true });
@@ -47,6 +60,16 @@ function storedDownloads(): Record<string, DownloadEntryState> {
     };
   }
   return downloads;
+}
+
+function deleteFileQuietly(uri?: string): void {
+  if (!uri || uri.startsWith("content://")) return;
+  try {
+    const file = new File(uri);
+    if (file.exists) file.delete();
+  } catch {
+    // The file may already be gone.
+  }
 }
 
 /** Builds the metadata persisted for an episode, shared by Save and Download actions. */
@@ -80,30 +103,52 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
       }
     }));
 
-    try {
-      const destination = new File(downloadDirectory(), `${entry.id}${fileExtension(entry.audioUrl)}`);
-      const file = await File.downloadFileAsync(entry.audioUrl, destination, {
-        idempotent: true,
-        onProgress: ({ bytesWritten, totalBytes }) => {
-          if (totalBytes <= 0) return;
-          const progress = Math.min(1, bytesWritten / totalBytes);
-          set((state) => {
-            const current = state.downloads[entry.id];
-            if (!current || current.status !== "downloading") return state;
-            if (Math.abs((current.progress ?? 0) - progress) < 0.02) return state;
-            return {
-              downloads: {
-                ...state.downloads,
-                [entry.id]: { ...current, progress }
-              }
-            };
-          });
-        }
+    const onProgress = ({ bytesWritten, totalBytes }: { bytesWritten: number; totalBytes: number }) => {
+      if (totalBytes <= 0) return;
+      const progress = Math.min(1, bytesWritten / totalBytes);
+      set((state) => {
+        const current = state.downloads[entry.id];
+        if (!current || current.status !== "downloading") return state;
+        if (Math.abs((current.progress ?? 0) - progress) < 0.02) return state;
+        return {
+          downloads: {
+            ...state.downloads,
+            [entry.id]: { ...current, progress }
+          }
+        };
       });
+    };
+
+    try {
+      const extension = fileExtension(entry.audioUrl);
+      const tempName = `${entry.id}${extension}`;
+      let localUri: string;
+
+      if (Platform.OS === "android") {
+        // Fetch to a temp file, then publish it into the public Podcasts folder so it is
+        // visible to (and removable by) the user via the device file manager.
+        const temp = new File(cacheDirectory(), tempName);
+        if (temp.exists) temp.delete();
+        const downloaded = await File.downloadFileAsync(entry.audioUrl, temp, {
+          idempotent: true,
+          onProgress
+        });
+        const displayName = `${entry.title || entry.id} - ${entry.id}${extension}`;
+        const published = await NativeAndroid.publishDownload(downloaded.uri, displayName, entry.title);
+        deleteFileQuietly(downloaded.uri);
+        if (!published) throw new Error("Could not save to the Podcasts folder");
+        localUri = published;
+      } else {
+        const destination = new File(documentsDirectory(), tempName);
+        const file = await File.downloadFileAsync(entry.audioUrl, destination, {
+          idempotent: true,
+          onProgress
+        });
+        localUri = file.uri;
+      }
 
       Preferences.setDownloadedEntry(entry.id, {
-        localUri: file.uri,
-        sizeBytes: file.size || undefined,
+        localUri,
         downloadedAtMs: Date.now(),
         entry
       });
@@ -113,7 +158,7 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
       set((state) => ({
         downloads: {
           ...state.downloads,
-          [entry.id]: { status: "downloaded", entry, localUri: file.uri, progress: 1 }
+          [entry.id]: { status: "downloaded", entry, localUri, progress: 1 }
         }
       }));
     } catch (error) {
@@ -133,13 +178,13 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
   remove: (episodeId) => {
     const existing = get().downloads[episodeId];
     if (existing?.localUri) {
-      try {
-        const file = new File(existing.localUri);
-        if (file.exists) file.delete();
-      } catch {
-        // The file may already be gone; the metadata removal below still applies.
+      if (existing.localUri.startsWith("content://")) {
+        NativeAndroid.deleteDownload(existing.localUri);
+      } else {
+        deleteFileQuietly(existing.localUri);
       }
     }
+    deleteFileQuietly(Preferences.getDownloadedEntry(episodeId)?.localUri);
     Preferences.removeDownloadedEntry(episodeId);
     Preferences.removePodcastPlaylistEntry("downloaded", episodeId);
     set((state) => {
@@ -147,6 +192,46 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
       delete downloads[episodeId];
       return { downloads };
     });
+  },
+
+  /** Deletes every downloaded episode and clears the download records. Returns the count. */
+  removeAll: () => {
+    const count = Object.keys(get().downloads).length;
+
+    if (Platform.OS === "android") {
+      NativeAndroid.clearDownloads();
+    }
+
+    // Sweep the storage folders directly so orphaned files are removed too.
+    const sweep = (directory: Directory) => {
+      try {
+        if (!directory.exists) return;
+        for (const item of directory.list()) {
+          try {
+            item.delete();
+          } catch {
+            // Skip entries that cannot be removed.
+          }
+        }
+      } catch {
+        // Ignore folders that cannot be listed.
+      }
+    };
+    try {
+      sweep(new Directory(Paths.cache, DOWNLOAD_DIRECTORY));
+    } catch {
+      // Ignore.
+    }
+    try {
+      sweep(new Directory(Paths.document, DOWNLOAD_DIRECTORY));
+    } catch {
+      // Ignore.
+    }
+
+    Preferences.clearDownloadedEntries();
+    Preferences.clearPodcastPlaylistEntries("downloaded");
+    set({ downloads: {} });
+    return count;
   }
 }));
 
@@ -154,6 +239,7 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
 export function getDownloadedUri(episodeId: string): string | undefined {
   const state = useDownloadStore.getState().downloads[episodeId];
   if (state?.status !== "downloaded" || !state.localUri) return undefined;
+  if (state.localUri.startsWith("content://")) return state.localUri;
   try {
     if (!new File(state.localUri).exists) return undefined;
   } catch {

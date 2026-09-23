@@ -774,6 +774,26 @@ export const Preferences = {
     }
   },
 
+  /** Removes every downloaded-episode record. */
+  clearDownloadedEntries(): void {
+    storage.set(KEYS.DOWNLOADED_EPISODES, JSON.stringify({}));
+  },
+
+  /** Empties a podcast playlist without deleting the playlist itself. */
+  clearPodcastPlaylistEntries(playlistId: string): void {
+    const raw = storage.getString(KEYS.PLAYLIST_ENTRIES);
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw) as Record<string, SavedEpisodeEntry[]>;
+      if (parsed && typeof parsed === "object") {
+        parsed[playlistId] = [];
+        storage.set(KEYS.PLAYLIST_ENTRIES, JSON.stringify(parsed));
+      }
+    } catch {
+      // Ignore malformed data.
+    }
+  },
+
   getMap(key: string): Record<string, number> {
     const raw = storage.getString(key);
     if (!raw) return {};
