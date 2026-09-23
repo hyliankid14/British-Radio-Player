@@ -30,6 +30,11 @@ import { useDownloadStore } from "../../src/downloads/downloadStore";
 import { openDownloadsFolder } from "../../src/downloads/openDownloads";
 import { fetchIndexStatus, IndexStatus } from "../../src/podcasts/indexStatus";
 import {
+  distributionLabel,
+  SHOW_GITHUB_LINK,
+  SHOW_UPDATE_BUTTON
+} from "../../src/config/distribution";
+import {
   checkForNewPodcasts,
   ensureNotificationPermissions
 } from "../../src/notifications/notifications";
@@ -400,6 +405,7 @@ function BackupPage() {
 }
 
 function AboutPage() {
+  const theme = useAppTheme();
   const [checking, setChecking] = useState(false);
   const currentVersion = Constants.expoConfig?.version ?? "1.0.0";
 
@@ -408,7 +414,7 @@ function AboutPage() {
     try {
       const info = await NativeAndroid.checkForUpdate(currentVersion);
       if (!info) {
-        Alert.alert("Update check failed", "Update checks are only available in the Android build. iOS updates are delivered through the App Store.");
+        Alert.alert("Update check failed", "Could not check for updates right now.");
       } else if (info.available) {
         Alert.alert(
           `Update available: ${info.version}`,
@@ -422,31 +428,47 @@ function AboutPage() {
           ]
         );
       } else {
-        Alert.alert("Up to date", `You are running the latest version (${currentVersion}).`);
+        Alert.alert("Up to date", "You are on the latest version.");
       }
     } finally {
       setChecking(false);
     }
   };
 
-  return (
-    <Card title="British Radio Player" subtitle={`Version ${currentVersion}`}>
-      <BodyText>
-        Unofficial third-party client. BBC and station trademarks are property of the British
-        Broadcasting Corporation. Streams use public BBC APIs.
-      </BodyText>
-      <BodyText>Licensed under the GNU General Public License v3.0.</BodyText>
+  return <>
+    <Text style={[styles.aboutHeading, { color: theme.onSurface }]}>Version</Text>
+    <View style={[styles.aboutInfoBox, { backgroundColor: theme.surfaceVariant }]}>
+      <View style={styles.aboutRow}>
+        <Text style={[styles.aboutRowLabel, { color: theme.onSurface }]}>Current Version</Text>
+        <Text style={[styles.aboutRowValue, { color: theme.onSurfaceVariant }]}>{currentVersion}</Text>
+      </View>
+      <Text style={[styles.aboutDistribution, { color: theme.onSurfaceVariant }]}>
+        Distribution: {distributionLabel()}
+      </Text>
+    </View>
+
+    <Text style={[styles.aboutHeading, { color: theme.onSurface }]}>About</Text>
+    <Text style={[styles.aboutParagraph, { color: theme.onSurfaceVariant }]}>
+      British Radio Player is an open-source, unofficial third-party app for listening to BBC
+      radio and podcasts. It is not affiliated with or endorsed by the BBC. BBC and station
+      trademarks are property of the British Broadcasting Corporation.
+    </Text>
+
+    {SHOW_GITHUB_LINK ? (
       <SecondaryButton
-        label="View source on GitHub"
+        label="View on GitHub"
         onPress={() => void Linking.openURL("https://github.com/hyliankid14/British-Radio-Player")}
       />
+    ) : null}
+
+    {SHOW_UPDATE_BUTTON ? (
       <PrimaryButton
-        label={checking ? "Checking…" : "Check for updates"}
+        label={checking ? "Checking for updates..." : "Check for updates"}
         disabled={checking}
         onPress={() => void checkForUpdates()}
       />
-    </Card>
-  );
+    ) : null}
+  </>;
 }
 
 function StartupPage() {
@@ -813,5 +835,12 @@ const styles = StyleSheet.create({
   sliderLabels: { flexDirection: "row", justifyContent: "space-between", marginTop: 4 },
   sliderLabel: { fontSize: 13 },
   volumeSlider: { height: 28, flexDirection: "row", alignItems: "center", gap: 4, marginVertical: 8 },
-  volumeStep: { flex: 1, height: 6, borderRadius: 3 }
+  volumeStep: { flex: 1, height: 6, borderRadius: 3 },
+  aboutHeading: { fontSize: 18, fontWeight: "bold", marginTop: 16, marginBottom: 12 },
+  aboutInfoBox: { borderRadius: 12, padding: 12, marginBottom: 16 },
+  aboutRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
+  aboutRowLabel: { fontSize: 14 },
+  aboutRowValue: { fontSize: 14 },
+  aboutDistribution: { fontSize: 13 },
+  aboutParagraph: { fontSize: 13, lineHeight: 19, marginBottom: 12 }
 });

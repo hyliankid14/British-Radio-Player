@@ -138,13 +138,9 @@ export default function SettingsScreen() {
           theme={theme}
           icon="info"
           title="About"
-          subtitle="Version 2.0.0 (React Cross-Platform Native)"
+          subtitle="Version 2.0.0"
           onPress={() => open("about")}
         />
-
-        <Text style={[styles.disclaimerText, { color: theme.onSurfaceVariant }]}>
-          Unofficial third-party client. BBC and station trademarks are property of the British Broadcasting Corporation. Streams use public BBC APIs.
-        </Text>
       </ScrollView>
     </SafeAreaView>
   );
@@ -238,12 +234,5 @@ const styles = StyleSheet.create({
     height: 1,
     marginHorizontal: 20,
     opacity: 0.2
-  },
-  disclaimerText: {
-    fontSize: 12,
-    textAlign: "center",
-    lineHeight: 18,
-    marginTop: 24,
-    paddingHorizontal: 24
   }
 });
