@@ -1,0 +1,216 @@
+import { Platform } from "react-native";
+import type * as ExpoNotifications from "expo-notifications";
+import { Preferences } from "../storage/preferences";
+import { PodcastApi } from "../api/podcasts";
+
+type NotificationsModule = typeof ExpoNotifications;
+
+const CHANNEL_ID = "new-episodes";
+const LAST_CHECK_KEY = "pref_last_notification_check";
+const lastNotifiedKey = (podcastId: string) => `pref_last_notified_${podcastId}`;
+const MAX_NOTIFICATIONS_PER_PODCAST = 3;
+
+let moduleRef: NotificationsModule | null = null;
+let moduleLoadFailed = false;
+let channelReady = false;
+let checking = false;
+let handlerRegistered = false;
+
+/**
+ * Loads expo-notifications lazily so the JS bundle keeps working on native builds
+ * that have not yet linked the module.
+ */
+function getNotifications(): NotificationsModule | null {
+  if (moduleRef || moduleLoadFailed) return moduleRef;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    moduleRef = require("expo-notifications") as NotificationsModule;
+    if (!handlerRegistered) {
+      moduleRef.setNotificationHandler({
+        handleNotification: async () => ({
+          shouldPlaySound: true,
+          shouldSetBadge: false,
+          shouldShowBanner: true,
+          shouldShowList: true
+        })
+      });
+      handlerRegistered = true;
+    }
+  } catch (error) {
+    moduleLoadFailed = true;
+    console.warn("expo-notifications is not available in this build:", error);
+  }
+  return moduleRef;
+}
+
+export function isNotificationModuleAvailable(): boolean {
+  return getNotifications() !== null;
+}
+
+async function ensureChannel(Notifications: NotificationsModule): Promise<void> {
+  if (Platform.OS !== "android" || channelReady) return;
+  try {
+    await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
+      name: "New episodes",
+      importance: Notifications.AndroidImportance.DEFAULT
+    });
+    channelReady = true;
+  } catch {
+    // Channel creation is best-effort; a fallback channel is used automatically.
+  }
+}
+
+/** Reads current permission state without prompting. */
+export async function hasNotificationPermission(): Promise<boolean> {
+  const Notifications = getNotifications();
+  if (!Notifications) return false;
+  try {
+    const status = await Notifications.getPermissionsAsync();
+    return (
+      status.granted ||
+      status.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Requests permission (used when the user enables podcast notifications). */
+export async function ensureNotificationPermissions(): Promise<boolean> {
+  const Notifications = getNotifications();
+  if (!Notifications) return false;
+  await ensureChannel(Notifications);
+  try {
+    const current = await Notifications.getPermissionsAsync();
+    if (
+      current.granted ||
+      current.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL
+    ) {
+      return true;
+    }
+    const requested = await Notifications.requestPermissionsAsync({
+      ios: { allowAlert: true, allowBadge: true, allowSound: true }
+    });
+    return (
+      requested.granted ||
+      requested.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function present(
+  Notifications: NotificationsModule,
+  title: string,
+  body: string,
+  url: string
+): Promise<void> {
+  await ensureChannel(Notifications);
+  await Notifications.scheduleNotificationAsync({
+    content: { title, body, data: { url } },
+    trigger:
+      Platform.OS === "android"
+        ? {
+            type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+            seconds: 1,
+            channelId: CHANNEL_ID
+          }
+        : null
+  });
+}
+
+function episodeEpoch(pubDate?: string): number {
+  if (!pubDate) return 0;
+  const parsed = Date.parse(pubDate);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+/**
+ * Checks subscribed podcasts with notifications enabled for episodes published since the
+ * last check and posts a local notification for each new one. Only notifies when the user
+ * has already granted permission, so it never prompts from the background.
+ */
+export async function checkSubscriptionsForNewEpisodes(force = false): Promise<void> {
+  const Notifications = getNotifications();
+  if (!Notifications || checking) return;
+
+  const notifyIds = Preferences.getSubscribedPodcasts().filter((id) =>
+    Preferences.isPodcastNotificationsEnabled(id)
+  );
+  if (notifyIds.length === 0) return;
+
+  const intervalMinutes = Number(Preferences.getSetting("pref_subscription_refresh", 60)) || 0;
+  if (!force && intervalMinutes > 0) {
+    const lastCheck = Number(Preferences.getSetting(LAST_CHECK_KEY, 0)) || 0;
+    if (Date.now() - lastCheck < intervalMinutes * 60_000) return;
+  }
+
+  if (!(await hasNotificationPermission())) return;
+
+  checking = true;
+  Preferences.setSetting(LAST_CHECK_KEY, Date.now());
+  try {
+    const catalog = await PodcastApi.fetchLiveCatalog();
+    for (const id of notifyIds) {
+      const podcast = catalog.find((item) => item.id === id);
+      if (!podcast) continue;
+
+      let episodes = PodcastApi.getEpisodesFromCache(id);
+      if (!episodes || episodes.length === 0) {
+        episodes = await PodcastApi.fetchEpisodes(podcast.rssUrl, podcast.id);
+      }
+      if (!episodes.length) continue;
+
+      const newestEpoch = episodes.reduce((max, ep) => Math.max(max, episodeEpoch(ep.pubDate)), 0);
+      const lastNotified = Number(Preferences.getSetting(lastNotifiedKey(id), 0)) || 0;
+
+      // First observation establishes the baseline without flooding the user.
+      if (lastNotified === 0) {
+        Preferences.setSetting(lastNotifiedKey(id), newestEpoch || Date.now());
+        continue;
+      }
+
+      const fresh = episodes
+        .filter((ep) => episodeEpoch(ep.pubDate) > lastNotified)
+        .sort((a, b) => episodeEpoch(a.pubDate) - episodeEpoch(b.pubDate));
+
+      for (const episode of fresh.slice(-MAX_NOTIFICATIONS_PER_PODCAST)) {
+        await present(
+          Notifications,
+          podcast.title,
+          episode.title,
+          `/modal/podcast-detail?podcastId=${podcast.id}`
+        );
+      }
+
+      if (fresh.length > 0) {
+        Preferences.setSetting(
+          lastNotifiedKey(id),
+          fresh.reduce((max, ep) => Math.max(max, episodeEpoch(ep.pubDate)), lastNotified)
+        );
+      }
+    }
+  } catch (error) {
+    console.warn("New episode notification check failed:", error);
+  } finally {
+    checking = false;
+  }
+}
+
+/** Opens the deep link carried by a tapped notification. */
+export function initNotificationNavigation(onOpenUrl: (url: string) => void): () => void {
+  const Notifications = getNotifications();
+  if (!Notifications) return () => {};
+
+  const redirect = (response: ExpoNotifications.NotificationResponse | null) => {
+    const url = response?.notification.request.content.data?.url;
+    if (typeof url === "string" && url) onOpenUrl(url);
+  };
+
+  const last = Notifications.getLastNotificationResponse();
+  if (last) redirect(last);
+
+  const subscription = Notifications.addNotificationResponseReceivedListener(redirect);
+  return () => subscription.remove();
+}

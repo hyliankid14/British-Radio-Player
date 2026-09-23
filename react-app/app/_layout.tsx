@@ -4,7 +4,7 @@ import * as Linking from "expo-linking";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import TrackPlayer from "react-native-track-player";
-import { Alert, LogBox } from "react-native";
+import { Alert, AppState, LogBox } from "react-native";
 import { setupPlayer, playbackService } from "../src/audio/trackPlayerService";
 import { usePlayerStore } from "../src/store/playerStore";
 import { initAutoSync } from "../src/auto/autoSync";
@@ -12,6 +12,11 @@ import { runLegacyMigration } from "../src/storage/legacyMigration";
 import { useAppTheme, useIsDarkTheme } from "../src/theme/colors";
 import { initWearSync, pushWearState } from "../src/wear/wearSync";
 import { syncBackgroundSync } from "../src/background/backgroundSync";
+import { runAutoDownload } from "../src/downloads/autoDownload";
+import {
+  checkSubscriptionsForNewEpisodes,
+  initNotificationNavigation
+} from "../src/notifications/notifications";
 import { Preferences } from "../src/storage/preferences";
 import { NativeAndroid } from "../src/native/nativeAndroid";
 import { LastFmApi } from "../src/api/lastfm";
@@ -40,6 +45,10 @@ Preferences.onChanged((key) => {
   if (key.includes("subscrib") || key.includes("refresh") || key.includes("wifi") || key.includes("notif")) {
     if (backgroundSyncTimer) clearTimeout(backgroundSyncTimer);
     backgroundSyncTimer = setTimeout(() => void syncBackgroundSync(), 1500);
+  }
+  if (key.includes("subscrib") || key.includes("download") || key.includes("notif")) {
+    void runAutoDownload();
+    void checkSubscriptionsForNewEpisodes();
   }
 });
 
@@ -93,6 +102,26 @@ export default function RootLayout() {
 
     return () => sub.remove();
   }, [router]);
+
+  // Open the podcast a tapped new-episode notification refers to.
+  useEffect(
+    () => initNotificationNavigation((url) => router.push(url as any)),
+    [router]
+  );
+
+  // Run auto-download and the new-episode check while the app is open, and whenever it
+  // returns to the foreground.
+  useEffect(() => {
+    void runAutoDownload();
+    void checkSubscriptionsForNewEpisodes();
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        void runAutoDownload();
+        void checkSubscriptionsForNewEpisodes();
+      }
+    });
+    return () => subscription.remove();
+  }, []);
 
   useEffect(() => {
     async function start() {

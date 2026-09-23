@@ -86,7 +86,7 @@ const REFRESH_OPTIONS: DropdownOption<number>[] = [0, 15, 30, 60, 120, 360, 720,
   })
 );
 
-const DOWNLOAD_LIMIT_OPTIONS: DropdownOption<number>[] = [1, 3, 5, 10].map((value) => ({
+const DOWNLOAD_LIMIT_OPTIONS: DropdownOption<number>[] = [1, 2, 3, 5, 10].map((value) => ({
   value,
   label: value === 1 ? "Latest episode" : `${value} episodes`
 }));

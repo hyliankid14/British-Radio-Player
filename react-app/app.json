@@ -59,6 +59,7 @@
     },
     "plugins": [
       "expo-router",
+      "expo-notifications",
       "./plugins/withAndroidCleartextTraffic"
     ]
   }
