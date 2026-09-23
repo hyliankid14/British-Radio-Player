@@ -2,7 +2,7 @@ import * as BackgroundTask from "expo-background-task";
 import * as TaskManager from "expo-task-manager";
 import { Platform } from "react-native";
 import { runAutoDownload } from "../downloads/autoDownload";
-import { checkSubscriptionsForNewEpisodes } from "../notifications/notifications";
+import { checkForNewPodcasts, checkSubscriptionsForNewEpisodes } from "../notifications/notifications";
 import { Preferences } from "../storage/preferences";
 
 export const BACKGROUND_TASK_NAME = "british-radio-background-sync";
@@ -15,6 +15,7 @@ TaskManager.defineTask(BACKGROUND_TASK_NAME, async () => {
     await runAutoDownload();
     if (Platform.OS === "ios") {
       await checkSubscriptionsForNewEpisodes(true);
+      await checkForNewPodcasts(true);
     }
     return BackgroundTask.BackgroundTaskResult.Success;
   } catch (error) {

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   Alert,
   Platform,
@@ -26,6 +26,11 @@ import { NativeAndroid } from "../../src/native/nativeAndroid";
 import { LastFmApi } from "../../src/api/lastfm";
 import { useDownloadStore } from "../../src/downloads/downloadStore";
 import { openDownloadsFolder } from "../../src/downloads/openDownloads";
+import { fetchIndexStatus, IndexStatus } from "../../src/podcasts/indexStatus";
+import {
+  checkForNewPodcasts,
+  ensureNotificationPermissions
+} from "../../src/notifications/notifications";
 
 const AUTO_NAME = Platform.OS === "ios" ? "CarPlay" : "Android Auto";
 
@@ -590,17 +595,90 @@ function SubscriptionsPage() {
 }
 
 function IndexingPage() {
-  const [settings, setSettings] = useState<{ notifications: boolean; english: boolean }>({ notifications: Preferences.getSetting("pref_index_notifications", false), english: Preferences.getSetting("pref_exclude_non_english", false) });
+  const theme = useAppTheme();
+  const [notifications, setNotifications] = useState<boolean>(
+    Preferences.getSetting<boolean>("pref_n_notifications", false)
+  );
+  const [excludeEnglish, setExcludeEnglish] = useState<boolean>(
+    Preferences.getSetting<boolean>("pref_exclude_non_english", false)
+  );
+  const [status, setStatus] = useState<IndexStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const loadStatus = useCallback(async () => {
+    setLoading(true);
+    const result = await fetchIndexStatus();
+    setStatus(result);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    void loadStatus();
+  }, [loadStatus]);
+
+  const toggleNotifications = async (value: boolean) => {
+    if (value) {
+      const granted = await ensureNotificationPermissions();
+      if (!granted) {
+        Alert.alert(
+          "Notifications disabled",
+          "Enable notifications for British Radio Player in system settings to receive new podcast alerts."
+        );
+        return;
+      }
+    }
+    Preferences.setSetting("pref_n_notifications", value);
+    setNotifications(value);
+    if (value) void checkForNewPodcasts(true);
+  };
+
+  const toggleExcludeEnglish = (value: boolean) => {
+    Preferences.setSetting("pref_exclude_non_english", value);
+    setExcludeEnglish(value);
+  };
+
+  const formatTimestamp = (iso?: string) => {
+    if (!iso) return "—";
+    const parsed = new Date(iso);
+    return Number.isNaN(parsed.getTime()) ? iso : parsed.toLocaleString();
+  };
+
+  const statusValue = (value: string) => (loading ? "Loading…" : value);
+
   return <>
     <Card title="Indexing options" subtitle="Configure podcast catalogue notifications and filtering">
-      <SwitchRow title="Notify me when new podcasts are added" subtitle="" value={settings.notifications} onChange={(value) => { Preferences.setSetting("pref_index_notifications", value); setSettings((current) => ({ ...current, notifications: value })); }} />
-      <SwitchRow title="Exclude non-English podcasts" subtitle="" value={settings.english} onChange={(value) => { Preferences.setSetting("pref_exclude_non_english", value); setSettings((current) => ({ ...current, english: value })); }} />
+      <SwitchRow
+        title="Notify me when new podcasts are added"
+        subtitle=""
+        value={notifications}
+        onChange={(value) => void toggleNotifications(value)}
+      />
+      <SwitchRow
+        title="Exclude non-English podcasts"
+        subtitle="Hide BBC World Service language editions from lists and search"
+        value={excludeEnglish}
+        onChange={toggleExcludeEnglish}
+      />
     </Card>
-    <Card title="Index status" subtitle="Latest updates">
-      <BodyText>Last updated: —</BodyText>
-      <BodyText>Most popular updated: —</BodyText>
-      <BodyText>— podcasts indexed</BodyText>
-      <BodyText>— episodes indexed</BodyText>
+    <Card title="Index status" subtitle="Live from the cloud index">
+      <Text style={[styles.subheading, { color: theme.onSurfaceVariant }]}>Updates</Text>
+      <BodyText>Index last updated: {statusValue(formatTimestamp(status?.generatedAt))}</BodyText>
+      <BodyText>Most popular updated: {statusValue(formatTimestamp(status?.popularGeneratedAt))}</BodyText>
+      <Text style={[styles.subheading, { color: theme.onSurfaceVariant }]}>Coverage</Text>
+      <BodyText>
+        {statusValue(status ? `${status.podcastCount} podcasts indexed` : "— podcasts indexed")}
+      </BodyText>
+      <BodyText>
+        {statusValue(status ? `${status.episodeCount} episodes indexed` : "— episodes indexed")}
+      </BodyText>
+      <SecondaryButton
+        label={loading ? "Refreshing…" : "Refresh"}
+        disabled={loading}
+        onPress={() => void loadStatus()}
+      />
+      {!loading && !status ? (
+        <BodyText>Could not reach the cloud index. Check your connection and try again.</BodyText>
+      ) : null}
     </Card>
   </>;
 }

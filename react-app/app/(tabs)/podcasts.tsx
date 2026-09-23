@@ -29,6 +29,7 @@ import {
   decodeXmlEntities
 } from "../../src/api/podcasts";
 import { Preferences } from "../../src/storage/preferences";
+import { applyLanguageFilter } from "../../src/podcasts/languageFilter";
 import { usePlayerStore } from "../../src/store/playerStore";
 import { OfflineBanner, VpnBanner } from "../../src/components/NetworkBanners";
 import { NativeAndroid } from "../../src/native/nativeAndroid";
@@ -207,6 +208,8 @@ export default function PodcastsScreen() {
 
   // Data state
   const [catalog, setCatalog] = useState<Podcast[]>([]);
+  // Full unfiltered catalog, kept so the language filter can be toggled without refetching.
+  const rawCatalogRef = useRef<Podcast[]>([]);
   const [popularRanks, setPopularRanks] = useState<Map<string, number>>(new Map());
   const [newPodcastsList, setNewPodcastsList] = useState<NewPodcastEntry[]>([]);
   const [subscribedIds, setSubscribedIds] = useState<string[]>([]);
@@ -253,7 +256,8 @@ export default function PodcastsScreen() {
 
         if (!mounted) return;
 
-        setCatalog(cats);
+        rawCatalogRef.current = cats;
+        setCatalog(applyLanguageFilter(cats));
 
         // Map popular ranks (1-based rank by play count)
         const ranks = new Map<string, number>();
@@ -285,6 +289,16 @@ export default function PodcastsScreen() {
     return () => {
       mounted = false;
     };
+  }, []);
+
+  // Re-apply the language filter live when the Indexing preference changes.
+  useEffect(() => {
+    const subscription = Preferences.onChanged((key) => {
+      if (key !== "pref_exclude_non_english") return;
+      const raw = rawCatalogRef.current;
+      if (raw.length > 0) setCatalog(applyLanguageFilter(raw));
+    });
+    return () => subscription.remove();
   }, []);
 
   // Compute all unique genres from the catalog
@@ -357,14 +371,18 @@ export default function PodcastsScreen() {
           ]);
 
           // Enrich podcast matches with catalog artwork and genres
-          const enriched = PodcastApi.enrichSearchResults(piPodcasts, catalog).filter((podcast) =>
-            matchesBooleanSearch(q, `${podcast.title} ${podcast.description} ${podcast.genres.join(" ")}`)
+          const enriched = applyLanguageFilter(
+            PodcastApi.enrichSearchResults(piPodcasts, catalog).filter((podcast) =>
+              matchesBooleanSearch(q, `${podcast.title} ${podcast.description} ${podcast.genres.join(" ")}`)
+            )
           );
 
           // If Pi returned empty or is offline, fallback to in-memory filter
           if (enriched.length === 0 && catalog.length > 0) {
-            const fallback = catalog.filter((p) =>
-              matchesBooleanSearch(q, `${p.title} ${p.description} ${p.genres.join(" ")}`)
+            const fallback = applyLanguageFilter(
+              catalog.filter((p) =>
+                matchesBooleanSearch(q, `${p.title} ${p.description} ${p.genres.join(" ")}`)
+              )
             );
             setSearchPodcastMatches(fallback);
           } else {

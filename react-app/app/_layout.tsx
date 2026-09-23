@@ -15,6 +15,7 @@ import { syncBackgroundSync } from "../src/background/backgroundSync";
 import { registerBackgroundTask } from "../src/background/backgroundTask";
 import { runAutoDownload } from "../src/downloads/autoDownload";
 import {
+  checkForNewPodcasts,
   checkSubscriptionsForNewEpisodes,
   initNotificationNavigation
 } from "../src/notifications/notifications";
@@ -53,6 +54,7 @@ Preferences.onChanged((key) => {
   if (key.includes("subscrib") || key.includes("download") || key.includes("notif")) {
     void runAutoDownload();
     void checkSubscriptionsForNewEpisodes();
+    void checkForNewPodcasts();
   }
 });
 
@@ -118,11 +120,13 @@ export default function RootLayout() {
   useEffect(() => {
     void runAutoDownload();
     void checkSubscriptionsForNewEpisodes();
+    void checkForNewPodcasts();
     void registerBackgroundTask();
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") {
         void runAutoDownload();
         void checkSubscriptionsForNewEpisodes();
+        void checkForNewPodcasts();
       }
     });
     return () => subscription.remove();

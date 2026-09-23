@@ -198,6 +198,56 @@ export async function checkSubscriptionsForNewEpisodes(force = false): Promise<v
   }
 }
 
+const LAST_NEW_PODCAST_KEY = "pref_last_new_podcast_check";
+const SEEN_NEW_PODCASTS_KEY = "pref_seen_new_podcasts";
+const MAX_SEEN_PODCASTS = 500;
+
+/**
+ * Notifies about newly indexed podcasts when the user has enabled new-podcast
+ * notifications. The first run records a baseline without notifying.
+ */
+export async function checkForNewPodcasts(force = false): Promise<void> {
+  const Notifications = getNotifications();
+  if (!Notifications) return;
+  if (!Preferences.getSetting("pref_n_notifications", false)) return;
+
+  const intervalDays = Math.max(1, Number(Preferences.getSetting("pref_n_interval_days", 1)) || 1);
+  const lastCheck = Number(Preferences.getSetting(LAST_NEW_PODCAST_KEY, 0)) || 0;
+  if (!force && lastCheck > 0 && Date.now() - lastCheck < intervalDays * 24 * 60 * 60 * 1000) return;
+
+  if (!(await hasNotificationPermission())) return;
+
+  try {
+    const entries = await PodcastApi.getNewPodcastsFromPi();
+    Preferences.setSetting(LAST_NEW_PODCAST_KEY, Date.now());
+    if (entries.length === 0) return;
+
+    const seenRaw = Preferences.getSetting<string>(SEEN_NEW_PODCASTS_KEY, "");
+    const seen = new Set(seenRaw ? seenRaw.split(",").filter(Boolean) : []);
+    const fresh = entries.filter((entry) => entry.id && !seen.has(entry.id));
+
+    // First observation establishes a baseline so we do not flood on install.
+    if (seen.size === 0) {
+      entries.forEach((entry) => entry.id && seen.add(entry.id));
+      Preferences.setSetting(SEEN_NEW_PODCASTS_KEY, Array.from(seen).slice(-MAX_SEEN_PODCASTS).join(","));
+      return;
+    }
+
+    for (const entry of fresh.slice(0, 3)) {
+      await present(
+        Notifications,
+        "New podcast on BBC Sounds",
+        entry.title,
+        `/modal/podcast-detail?podcastId=${entry.id}`
+      );
+    }
+    fresh.forEach((entry) => entry.id && seen.add(entry.id));
+    Preferences.setSetting(SEEN_NEW_PODCASTS_KEY, Array.from(seen).slice(-MAX_SEEN_PODCASTS).join(","));
+  } catch (error) {
+    console.warn("New podcast notification check failed:", error);
+  }
+}
+
 /** Opens the deep link carried by a tapped notification. */
 export function initNotificationNavigation(onOpenUrl: (url: string) => void): () => void {
   const Notifications = getNotifications();
