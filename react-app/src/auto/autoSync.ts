@@ -101,8 +101,30 @@ function handleNativeEvent(event: AutoNativeEvent): void {
       break;
     }
 
-    case "episodePlayed": {
-      const episodeId = String(payload.episodeId || "");
+    case "savedToggled": {
+      // Save/unsave performed from the car's now-playing screen.
+      const entry = payload.entry as Record<string, any> | undefined;
+      const episodeId = String(entry?.id || payload.episodeId || "");
+      if (!episodeId) break;
+      if (payload.saved === true && entry) {
+        Preferences.addPodcastPlaylistEntry("saved", {
+          id: episodeId,
+          title: String(entry.title || ""),
+          description: String(entry.description || ""),
+          imageUrl: String(entry.imageUrl || entry.podcastImageUrl || ""),
+          audioUrl: String(entry.audioUrl || ""),
+          pubDate: String(entry.pubDate || ""),
+          durationMins: Number(entry.durationMins || 0),
+          podcastId: String(entry.podcastId || ""),
+          podcastTitle: String(entry.podcastTitle || "")
+        });
+      } else {
+        Preferences.removePodcastPlaylistEntry("saved", episodeId);
+      }
+      break;
+    }
+
+    case "episodePlayed": {      const episodeId = String(payload.episodeId || "");
       if (!episodeId) break;
       Preferences.markEpisodePlayed(
         episodeId,

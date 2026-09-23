@@ -80,6 +80,13 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
     override fun run() {
       updatePlaybackState()
       if (kind == Kind.EPISODE && player.isPlaying) persistProgress()
+      if (kind == Kind.STATION) {
+        val now = System.currentTimeMillis()
+        if (now - lastShowRefreshMs > 60_000L) {
+          lastShowRefreshMs = now
+          refreshStationShowTitleIfNeeded()
+        }
+      }
       if (player.isPlaying || player.playbackState == Player.STATE_BUFFERING) {
         handler.postDelayed(this, 1000L)
       }
@@ -158,6 +165,14 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
               if (podcastId.isNotEmpty()) {
                 val subscribed = AutoState.isSubscribed(this@AndroidAutoMediaService, podcastId)
                 AutoState.setSubscribed(this@AndroidAutoMediaService, podcastId, !subscribed)
+              }
+            }
+            CUSTOM_ACTION_TOGGLE_SAVED -> {
+              val episode = episodeJson
+              val episodeId = episode?.optString("id").orEmpty()
+              if (episodeId.isNotEmpty()) {
+                val saved = AutoState.isEpisodeSaved(this@AndroidAutoMediaService, episodeId)
+                AutoState.toggleEpisodeSaved(this@AndroidAutoMediaService, episode, !saved)
               }
             }
           }
@@ -374,6 +389,7 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
 
     startForegroundWithNotification()
     updateSessionMetadata()
+    if (kind == Kind.STATION) refreshStationShowTitleIfNeeded()
     startProgressTicker()
     updatePlaybackState()
 
@@ -497,12 +513,45 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
     }
   }
 
+  private val showRefreshInFlight = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+  private var lastShowRefreshMs = 0L
+
+  /**
+   * Fetches the current-show title in the background when it is missing/stale, then refreshes
+   * the now-playing metadata so Android Auto shows the programme name instead of a static label.
+   */
+  private fun refreshStationShowTitleIfNeeded() {
+    if (kind != Kind.STATION) return
+    val station = stationJson ?: return
+    val serviceId = station.optString("serviceId")
+    if (serviceId.isEmpty()) return
+    if (AutoShowInfo.cachedShowTitle(serviceId).isNotEmpty()) return
+    if (!showRefreshInFlight.add(serviceId)) return
+    Thread {
+      try {
+        val title = AutoShowInfo.refreshShowTitle(serviceId)
+        if (title.isNotEmpty() && kind == Kind.STATION && stationJson?.optString("serviceId") == serviceId) {
+          handler.post {
+            if (kind == Kind.STATION && stationJson?.optString("serviceId") == serviceId) {
+              updateSessionMetadata()
+              updateNotification()
+            }
+          }
+        }
+      } finally {
+        showRefreshInFlight.remove(serviceId)
+      }
+    }.start()
+  }
+
   private fun buildMediaMetadata(): MediaMetadata {
     if (kind == Kind.STATION) {
       val station = stationJson
+      val showTitle = AutoShowInfo.cachedShowTitle(station?.optString("serviceId").orEmpty())
       return MediaMetadata.Builder()
         .setTitle(station?.optString("title") ?: "BBC Radio")
-        .setArtist("BBC Radio")
+        .setArtist(showTitle.ifEmpty { "BBC Radio" })
+        .setSubtitle(showTitle)
         .setIsBrowsable(false)
         .setIsPlayable(true)
         .setArtworkUri(station?.optString("logoUrl")?.takeIf { it.isNotEmpty() }?.let { Uri.parse(it) })
@@ -522,10 +571,13 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
     val metadata = MediaMetadataCompat.Builder()
     if (kind == Kind.STATION) {
       val station = stationJson ?: return
+      val showTitle = AutoShowInfo.cachedShowTitle(station.optString("serviceId"))
+      val subtitle = showTitle.ifEmpty { "BBC Radio" }
       metadata
         .putString(MediaMetadataCompat.METADATA_KEY_TITLE, station.optString("title"))
-        .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, "BBC Radio")
+        .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, subtitle)
         .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_TITLE, station.optString("title"))
+        .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, subtitle)
         .putString(MediaMetadataCompat.METADATA_KEY_ALBUM_ART_URI, station.optString("logoUrl"))
         .putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, AutoArtwork.createBitmap(station.optString("id"), 256))
     } else {
@@ -594,6 +646,17 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
             CUSTOM_ACTION_SUBSCRIBE,
             if (subscribed) "Unsubscribe" else "Subscribe",
             android.R.drawable.ic_menu_add
+          ).build()
+        )
+      }
+      val episodeId = episodeJson?.optString("id").orEmpty()
+      if (episodeId.isNotEmpty()) {
+        val saved = AutoState.isEpisodeSaved(this, episodeId)
+        builder.addCustomAction(
+          PlaybackStateCompat.CustomAction.Builder(
+            CUSTOM_ACTION_TOGGLE_SAVED,
+            if (saved) "Remove saved episode" else "Save episode",
+            android.R.drawable.btn_star
           ).build()
         )
       }
@@ -1387,6 +1450,7 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
     const val CUSTOM_ACTION_SEEK_BACK = "SEEK_BACK_10"
     const val CUSTOM_ACTION_TOGGLE_FAVORITE = "TOGGLE_FAVORITE"
     const val CUSTOM_ACTION_SUBSCRIBE = "SUBSCRIBE_PODCAST"
+    const val CUSTOM_ACTION_TOGGLE_SAVED = "TOGGLE_SAVED_EPISODE"
 
     const val ACTION_PLAY = "com.hyliankid14.bbcradioplayer.react.action.AUTO_PLAY"
     const val ACTION_PAUSE = "com.hyliankid14.bbcradioplayer.react.action.AUTO_PAUSE"

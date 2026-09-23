@@ -39,7 +39,7 @@ import {
   ensureNotificationPermissions
 } from "../../src/notifications/notifications";
 
-const AUTO_NAME = Platform.OS === "ios" ? "CarPlay" : "Android Auto";
+const AUTO_NAME = "Android Auto";
 
 const TITLES: Record<string, string> = {
   theme: "Theme",
@@ -122,7 +122,7 @@ export default function SettingsDetail() {
         {section === "theme" && <ThemePage />}
         {section === "playback" && <PlaybackPage />}
         {section === "lastfm" && <LastFmPage />}
-        {section === "android_auto" && <AndroidAutoPage />}
+        {section === "android_auto" && Platform.OS === "android" && <AndroidAutoPage />}
         {section === "backup" && <BackupPage />}
         {section === "about" && <AboutPage />}
         {section === "privacy" && <PrivacyPage />}
@@ -480,7 +480,7 @@ function StartupPage() {
     setCurrent(value);
   };
   return (
-    <Card title="Default screen" subtitle={`Applies to the app and ${AUTO_NAME}`}>
+    <Card title="Default screen" subtitle={Platform.OS === "android" ? `Applies to the app and ${AUTO_NAME}` : "Applies to the app"}>
       <Dropdown value={current} options={STARTUP_OPTIONS} onChange={update} />
     </Card>
   );

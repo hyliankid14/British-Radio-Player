@@ -22,10 +22,10 @@ object AutoShowInfo {
 
   private val cache = ConcurrentHashMap<String, Entry>()
 
-  /** Returns the cached current-show title (possibly empty) for a station service id. */
+  /** Returns the cached current-show title, or "" when missing/stale so callers can refresh. */
   fun cachedShowTitle(serviceId: String): String {
     val entry = cache[serviceId] ?: return ""
-    if (System.currentTimeMillis() - entry.fetchedAtMs > CACHE_TTL_MS) return entry.title
+    if (System.currentTimeMillis() - entry.fetchedAtMs > CACHE_TTL_MS) return ""
     return entry.title
   }
 

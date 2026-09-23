@@ -243,6 +243,25 @@ object AutoState {
 
   fun downloads(context: Context): List<JSONObject> = objectList(context, "downloads")
 
+  /** True when the episode is in the "Saved Episodes" playlist. */
+  fun isEpisodeSaved(context: Context, episodeId: String): Boolean {
+    if (episodeId.isEmpty()) return false
+    return playlistEntries(context, "saved").any { it.optString("id") == episodeId }
+  }
+
+  /** Queues a save/unsave mutation for the JS layer to apply to the Saved Episodes playlist. */
+  fun toggleEpisodeSaved(context: Context, episodeJson: JSONObject?, saved: Boolean) {
+    val entry = episodeJson ?: return
+    addMutation(
+      context,
+      "savedToggled",
+      JSONObject().apply {
+        put("saved", saved)
+        put("entry", entry)
+      }
+    )
+  }
+
   fun history(context: Context): List<JSONObject> = objectList(context, "history")
 
   fun playedIds(context: Context): List<String> = effectiveList(context, "playedIds")

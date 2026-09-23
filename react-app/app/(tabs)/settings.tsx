@@ -84,15 +84,19 @@ export default function SettingsScreen() {
           subtitle="Choose default screen when launching app"
           onPress={() => open("startup_page")}
         />
-        <Divider theme={theme} />
-
-        <SettingsRow
-          theme={theme}
-          icon="directions-car"
-          title={Platform.OS === "ios" ? "CarPlay" : "Android Auto"}
-          subtitle="In-car playback preferences"
-          onPress={() => open("android_auto")}
-        />
+        {/* CarPlay is not offered on iOS yet (requires Apple approval). */}
+        {Platform.OS === "android" ? (
+          <>
+            <Divider theme={theme} />
+            <SettingsRow
+              theme={theme}
+              icon="directions-car"
+              title="Android Auto"
+              subtitle="In-car playback preferences"
+              onPress={() => open("android_auto")}
+            />
+          </>
+        ) : null}
 
         <SectionTitle label="Podcasts" theme={theme} />
 
