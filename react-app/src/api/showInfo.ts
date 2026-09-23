@@ -27,6 +27,9 @@ export function formatShowDisplayTitle(show: CurrentShow): string {
   if (show.track) {
     return show.track;
   }
+  if (show.artist) {
+    return show.artist;
+  }
   if (show.episodeTitle) {
     return show.episodeTitle;
   }
@@ -42,7 +45,9 @@ export async function fetchShowInfo(stationId: string): Promise<CurrentShow> {
   let track: string | undefined;
   let rmsImageUrl: string | undefined;
 
-  // 1. Fetch live song/segment from RMS API
+  // 1. Fetch live song/segment from RMS API. Only a currently-playing music segment
+  // supplies artist/song details; speech, news or an absent segment fall back to the
+  // programme (show) details from the schedule below.
   try {
     const rmsRes = await fetch(`https://rms.api.bbc.co.uk/v2/services/${serviceId}/segments/latest?t=${Date.now()}`, {
       headers: { "User-Agent": "BritishRadioPlayer/1.0" }
@@ -50,7 +55,8 @@ export async function fetchShowInfo(stationId: string): Promise<CurrentShow> {
     if (rmsRes.ok) {
       const data = await rmsRes.json();
       const segment = data?.data?.[0];
-      if (segment) {
+      const isMusic = String(segment?.segment_type || "").toLowerCase() === "music";
+      if (segment && isMusic) {
         artist = segment.titles?.primary;
         track = segment.titles?.secondary || segment.titles?.tertiary;
         const imgTemplate = segment.image_url;
