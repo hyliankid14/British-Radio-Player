@@ -869,6 +869,16 @@ export const Preferences = {
       LOW: "96kbps",
       AUTO: "320kbps"
     };
+    // React scroll/autoplay values map onto the Kotlin preference vocabulary.
+    const scrollToKotlin: Record<string, string> = {
+      all: "all_stations",
+      favourites: "favorites"
+    };
+    const autoplayToKotlin: Record<string, string> = {
+      all: "all_podcasts",
+      subscriptions: "subscriptions_only",
+      none: "none"
+    };
     const progressMs: Record<string, number> = {};
     const playedPrefs = tryObject(storage.getString("pref_episode_progress"));
     Object.entries(playedPrefs).forEach(([episodeId, seconds]) => {
@@ -920,14 +930,14 @@ export const Preferences = {
         hide_played_playlists: this.getHidePlayedEpisodesInPlaylists(),
         shake_random_podcast: this.getSetting("pref_shake_random", false),
         podcast_artwork_source: this.getSetting("pref_podcast_artwork", "episode"),
-        autoplay_next_episode: this.getSetting("pref_autoplay_next", "none"),
+        autoplay_next_episode: autoplayToKotlin[this.getSetting<string>("pref_autoplay_next", "none")] || "none",
         stop_on_bluetooth_disconnect: this.getSetting("pref_stop_bluetooth", false),
         live_radio_pause_buffering: this.getSetting("pref_pause_buffering", true)
       },
-      scrolling_prefs: { scroll_mode: this.getSetting("pref_scroll_mode", "all") },
+      scrolling_prefs: { scroll_mode: scrollToKotlin[this.getSetting<string>("pref_scroll_mode", "all")] || "all_stations" },
       index_prefs: {
-        new_podcast_notifications_enabled: this.getSetting("pref_index_notifications", false),
-        index_interval_days: this.getSetting("pref_index_interval_days", 1)
+        new_podcast_notifications_enabled: this.getSetting("pref_n_notifications", false),
+        index_interval_days: this.getSetting("pref_n_interval_days", 1)
       },
       subscription_refresh_prefs: {
         refresh_interval_minutes: this.getSetting("pref_subscription_refresh", 60)
@@ -1050,17 +1060,42 @@ export const Preferences = {
       const playbackMap: Record<string, string> = {
         live_radio_pause_buffering: "pref_pause_buffering",
         shake_random_podcast: "pref_shake_random",
-        autoplay_next_episode: "pref_autoplay_next",
         auto_resume_android_auto: "pref_carplay_auto_resume",
-        hide_played_android_auto: "pref_carplay_hide_played"
+        hide_played_android_auto: "pref_carplay_hide_played",
+        podcast_artwork_source: "pref_podcast_artwork"
       };
       Object.entries(playbackMap).forEach(([source, target]) => setIfPresent(target, playback[source]));
       setIfPresent("pref_stop_bluetooth", playback.stop_on_bluetooth_disconnect);
 
+      // Autoplay and scroll values use a different vocabulary in the Kotlin build.
+      const autoplayFromKotlin: Record<string, string> = {
+        all_podcasts: "all",
+        subscriptions_only: "subscriptions",
+        none: "none"
+      };
+      if (
+        typeof playback.autoplay_next_episode === "string" &&
+        autoplayFromKotlin[playback.autoplay_next_episode]
+      ) {
+        setIfPresent("pref_autoplay_next", autoplayFromKotlin[playback.autoplay_next_episode]);
+      }
+
+      const scrollFromKotlin: Record<string, string> = {
+        all_stations: "all",
+        favorites: "favourites",
+        all: "all",
+        favourites: "favourites"
+      };
       const scrolling = group("scrolling_prefs");
-      setIfPresent("pref_scroll_mode", scrolling.scroll_mode);
+      if (typeof scrolling.scroll_mode === "string" && scrollFromKotlin[scrolling.scroll_mode]) {
+        setIfPresent("pref_scroll_mode", scrollFromKotlin[scrolling.scroll_mode]);
+      }
+
       const indexing = group("index_prefs");
-      setIfPresent("pref_index_notifications", indexing.notify_on_new_podcasts);
+      setIfPresent("pref_n_notifications", indexing.new_podcast_notifications_enabled);
+      setIfPresent("pref_n_interval_days", indexing.index_interval_days);
+      setIfPresent("pref_n_wifi_only", indexing.index_wifi_only);
+
       const filters = group("podcast_filter_prefs");
       setIfPresent("pref_exclude_non_english", filters.exclude_non_english);
       const subscriptionsSettings = group("subscription_refresh_prefs");
@@ -1145,10 +1180,6 @@ export const Preferences = {
         const songs = JSON.parse(songsRaw);
         if (Array.isArray(songs)) storage.set("pref_recent_songs", JSON.stringify(songs));
       }
-
-      // Indexing extras.
-      setIfPresent("pref_index_interval_days", indexing.index_interval_days);
-      setIfPresent("pref_index_wifi_only", indexing.index_wifi_only);
 
       return true;
     } catch {

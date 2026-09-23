@@ -12,6 +12,8 @@ import {
 } from "react-native";
 import * as Linking from "expo-linking";
 import Constants from "expo-constants";
+import { File, Paths } from "expo-file-system";
+import * as Sharing from "expo-sharing";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
@@ -298,23 +300,57 @@ function StationLeading({ stationId, size = 28 }: { stationId: string; size?: nu
 
 function BackupPage() {
   const [isImporting, setIsImporting] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [lastBackup, setLastBackup] = useState<string>(
+    Preferences.getSetting("pref_last_backup_at", "")
+  );
+
+  const exportSettings = async () => {
+    setIsExporting(true);
+    try {
+      const json = Preferences.exportBackup();
+      const file = new File(
+        Paths.cache,
+        `british-radio-backup-${new Date().toISOString().slice(0, 10)}.json`
+      );
+      file.create({ intermediates: true, overwrite: true });
+      file.write(json);
+
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(file.uri, {
+          mimeType: "application/json",
+          dialogTitle: "Export British Radio Player settings",
+          UTI: "public.json"
+        });
+      } else {
+        await Share.share({ title: "British Radio Player Backup", message: json });
+      }
+
+      const now = new Date().toISOString();
+      Preferences.setSetting("pref_last_backup_at", now);
+      setLastBackup(now);
+    } catch (error) {
+      Alert.alert("Export failed", error instanceof Error ? error.message : "Could not export settings.");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const importSettings = async () => {
     let documentPicker: typeof import("expo-document-picker");
     try {
-      // Lazy loading keeps older native builds usable until they are rebuilt
-      // with expo-document-picker included.
       documentPicker = require("expo-document-picker") as typeof import("expo-document-picker");
     } catch {
       Alert.alert(
         "Import unavailable",
-        "This build does not include the iOS document picker. Rebuild the app before importing a backup."
+        "This build does not include the document picker. Rebuild the app before importing a backup."
       );
       return;
     }
     let result: Awaited<ReturnType<typeof documentPicker.getDocumentAsync>>;
     try {
       result = await documentPicker.getDocumentAsync({
-        type: "application/json",
+        type: ["application/json", "text/plain"],
         copyToCacheDirectory: true,
         multiple: false
       });
@@ -325,12 +361,19 @@ function BackupPage() {
     if (result.canceled || !result.assets?.[0]) return;
     setIsImporting(true);
     try {
-      const response = await fetch(result.assets[0].uri);
-      const json = await response.text();
+      const uri = result.assets[0].uri;
+      let json = "";
+      try {
+        json = await new File(uri).text();
+      } catch {
+        json = await (await fetch(uri)).text();
+      }
       const imported = Preferences.importKotlinBackup(json) || Preferences.importBackup(json);
       Alert.alert(
         imported ? "Import successful" : "Import failed",
-        imported ? "Your settings have been restored." : "The selected file is not a valid BBC Radio Player backup."
+        imported
+          ? "Your settings have been restored."
+          : "The selected file is not a valid British Radio Player backup."
       );
     } catch {
       Alert.alert("Import failed", "The selected backup could not be read.");
@@ -338,15 +381,13 @@ function BackupPage() {
       setIsImporting(false);
     }
   };
-  const lastBackup = Preferences.getSetting("pref_last_backup_at", "");
+
   return (
-    <Card title="Export & import" subtitle="Export and import app settings">
+    <Card title="Export & import" subtitle="Back up your settings and restore them on this or another device">
       <PrimaryButton
-        label="Export settings"
-        onPress={() => {
-          Preferences.setSetting("pref_last_backup_at", new Date().toISOString());
-          void Share.share({ title: "British Radio Player Backup", message: Preferences.exportBackup() });
-        }}
+        label={isExporting ? "Exporting…" : "Export settings"}
+        disabled={isExporting}
+        onPress={() => void exportSettings()}
       />
       <BodyText>Last backup: {lastBackup ? new Date(lastBackup).toLocaleString() : "Never"}</BodyText>
       <SecondaryButton
