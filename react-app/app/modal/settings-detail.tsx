@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import {
   Alert,
+  Platform,
   ScrollView,
   Share,
   StyleSheet,
@@ -24,13 +25,15 @@ import { useAppTheme, useThemeMode, setAppTheme, ThemeMode } from "../../src/the
 import { NativeAndroid } from "../../src/native/nativeAndroid";
 import { LastFmApi } from "../../src/api/lastfm";
 
+const AUTO_NAME = Platform.OS === "ios" ? "CarPlay" : "Android Auto";
+
 const TITLES: Record<string, string> = {
   theme: "Theme",
   playback: "Playback",
   lastfm: "Last.fm Scrobbler",
   alarm: "Alarm",
   startup_page: "Startup page",
-  android_auto: "Android Auto",
+  android_auto: AUTO_NAME,
   subscriptions: "Subscriptions",
   indexing: "Indexing",
   backup: "Backup",
@@ -204,11 +207,20 @@ function LastFmPage() {
     </Card>
     <Card title="Scrobbling options" subtitle="Control which playback events are sent to scrobbling services">
       <SwitchRow title="Direct Last.fm scrobbling" subtitle="Send Now Playing and scrobbles to your linked profile" value={settings.direct && !!settings.sessionKey} disabled={!settings.sessionKey} onChange={(value) => { Preferences.setLastFmDirect(value); setSettings(Preferences.getLastFm()); }} />
-      <SwitchRow title="External scrobbler broadcasts" subtitle="Broadcast tracks to third-party scrobbler apps" value={settings.broadcast} onChange={(value) => { Preferences.setLastFmBroadcast(value); setSettings(Preferences.getLastFm()); }} />
+      {Platform.OS === "android" && (
+        <SwitchRow title="External scrobbler broadcasts" subtitle="Broadcast tracks to third-party scrobbler apps" value={settings.broadcast} onChange={(value) => { Preferences.setLastFmBroadcast(value); setSettings(Preferences.getLastFm()); }} />
+      )}
       <SwitchRow title="Scrobble podcasts" subtitle="Also scrobble podcast episodes as tracks" value={settings.podcasts} onChange={(value) => { Preferences.setLastFmPodcasts(value); setSettings(Preferences.getLastFm()); }} />
     </Card>
     <Card title="Recent activity" subtitle="Last.fm scrobbling status">
       <BodyText>{Preferences.getLastFmLastScrobbled() || "No tracks scrobbled yet"}</BodyText>
+    </Card>
+    <Card title="How Scrobbling Works">
+      <BodyText>
+        BBC Radio Player detects songs played on live BBC music stations (such as Radio 1, Radio 2, 6 Music, and 1Xtra) using the BBC RMS feed.
+        {"\n\n"}
+        Tracks are marked 'Now Playing' as soon as they start, and are submitted as scrobbles once you have listened for at least 50% of the song's duration or 4 minutes.
+      </BodyText>
     </Card>
   </>;
 }
@@ -236,7 +248,7 @@ function AndroidAutoPage() {
   };
 
   return <>
-    <Card title="Default station" subtitle="Station selected when Android Auto starts playback">
+    <Card title="Default station" subtitle={`Station selected when ${AUTO_NAME} starts playback`}>
       <Dropdown
         value={settings.station}
         options={stationOptions}
@@ -245,10 +257,10 @@ function AndroidAutoPage() {
         renderLeading={(option) => <StationLeading stationId={option.value} />}
       />
     </Card>
-    <Card title="Playback" subtitle="Control playback behaviour in Android Auto">
+    <Card title="Playback" subtitle={`Control playback behaviour in ${AUTO_NAME}`}>
       <SwitchRow
         title="Automatically resume playback"
-        subtitle="Resume the last station when Android Auto connects"
+        subtitle={`Resume the last station when ${AUTO_NAME} connects`}
         value={settings.autoResume}
         onChange={(value) => update("autoResume", value)}
       />
@@ -398,7 +410,7 @@ function StartupPage() {
     setCurrent(value);
   };
   return (
-    <Card title="Default screen" subtitle="Applies to the app and Android Auto">
+    <Card title="Default screen" subtitle={`Applies to the app and ${AUTO_NAME}`}>
       <Dropdown value={current} options={STARTUP_OPTIONS} onChange={update} />
     </Card>
   );
@@ -597,12 +609,14 @@ function IndexingPage() {
   </>;
 }
 
-function Card({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
+function Card({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   const theme = useAppTheme();
   return (
     <View style={[styles.card, { backgroundColor: theme.surfaceContainer, borderColor: theme.outlineVariant }]}>
       <Text style={[styles.cardTitle, { color: theme.onSurface }]}>{title}</Text>
-      <Text style={[styles.cardSubtitle, { color: theme.onSurfaceVariant }]}>{subtitle}</Text>
+      {subtitle ? (
+        <Text style={[styles.cardSubtitle, { color: theme.onSurfaceVariant }]}>{subtitle}</Text>
+      ) : null}
       {children}
     </View>
   );

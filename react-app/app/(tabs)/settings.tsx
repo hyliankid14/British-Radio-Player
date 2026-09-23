@@ -1,5 +1,6 @@
 import React from "react";
 import {
+  Platform,
   View,
   Text,
   TouchableOpacity,
@@ -88,7 +89,7 @@ export default function SettingsScreen() {
         <SettingsRow
           theme={theme}
           icon="directions-car"
-          title="Android Auto"
+          title={Platform.OS === "ios" ? "CarPlay" : "Android Auto"}
           subtitle="In-car playback preferences"
           onPress={() => open("android_auto")}
         />
