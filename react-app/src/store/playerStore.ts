@@ -8,6 +8,7 @@ import { LastFmApi } from "../api/lastfm";
 import { notifyNativePhonePlaybackStarted } from "../auto/autoBridge";
 import { getDownloadedUri } from "../downloads/downloadStore";
 import { getNetworkStatus } from "./networkStore";
+import { trackEpisodePlay, trackStationPlay } from "../analytics/analytics";
 
 interface PlayerState {
   currentStation: Station | null;
@@ -146,6 +147,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       await TrackPlayer.play();
       set({ isPlaying: true, isBuffering: false });
       notifyNativePhonePlaybackStarted();
+      void trackStationPlay(station.id, station.title);
 
       // Fetch show info immediately
       const show = await fetchShowInfo(station.id);
@@ -229,6 +231,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       set({ isPlaying: true, isBuffering: false });
       notifyNativePhonePlaybackStarted();
       beginScrobble(podcast.title, episode.title, episode.durationMins * 60, true);
+      void trackEpisodePlay(podcast.id, episode.id, episode.title, podcast.title);
       Preferences.addPodcastHistory({
         id: episode.id,
         title: episode.title,

@@ -299,7 +299,7 @@ export default function PodcastDetailModal() {
 
   const submitRating = async (value: number) => {
     if (!podcast) return;
-    if (!Preferences.getSetting("pref_analytics", true)) {
+    if (!Preferences.getSetting("pref_analytics", false)) {
       showToast("Enable analytics in Settings to submit ratings");
       return;
     }

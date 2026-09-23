@@ -468,7 +468,7 @@ function PrivacyPage() {
   const [enabled, setEnabled] = useState<boolean>(Preferences.getSetting("pref_analytics", false));
   return <>
     <Card title="Analytics" subtitle="Help improve British Radio Player with anonymous usage data">
-      <SwitchRow title="Enable analytics" subtitle="No personal information or device identifiers are collected" value={enabled} onChange={(value) => { Preferences.setSetting("pref_analytics", value); setEnabled(value); }} />
+      <SwitchRow title="Enable analytics" subtitle="No personal information or device identifiers are collected" value={enabled} onChange={(value) => { Preferences.setSetting("pref_analytics", value); Preferences.setSetting("pref_analytics_prompted", true); setEnabled(value); }} />
     </Card>
     <Card title="Privacy policy" subtitle="Review how data is handled">
       <SecondaryButton

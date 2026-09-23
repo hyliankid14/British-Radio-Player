@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { Stack, useRouter } from "expo-router";
 import * as Linking from "expo-linking";
 import { StatusBar } from "expo-status-bar";
@@ -10,6 +10,12 @@ import { usePlayerStore } from "../src/store/playerStore";
 import { initAutoSync } from "../src/auto/autoSync";
 import { runLegacyMigration } from "../src/storage/legacyMigration";
 import { useAppTheme, useIsDarkTheme } from "../src/theme/colors";
+import { AnalyticsConsentDialog } from "../src/components/AnalyticsConsentDialog";
+import {
+  markAnalyticsPromptShown,
+  setAnalyticsEnabled,
+  shouldShowAnalyticsPrompt
+} from "../src/analytics/analytics";
 import { initWearSync, pushWearState } from "../src/wear/wearSync";
 import { syncBackgroundSync } from "../src/background/backgroundSync";
 import { registerBackgroundTask } from "../src/background/backgroundTask";
@@ -66,6 +72,14 @@ export default function RootLayout() {
   const theme = useAppTheme();
   const isDark = useIsDarkTheme();
   const initStore = usePlayerStore((state) => state.init);
+  const [showAnalyticsConsent, setShowAnalyticsConsent] = useState(false);
+
+  // Show the analytics opt-in dialog on first launch (after the UI has settled).
+  useEffect(() => {
+    if (!shouldShowAnalyticsPrompt()) return;
+    const timer = setTimeout(() => setShowAnalyticsConsent(true), 1200);
+    return () => clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     async function handleDeepLink(url: string) {
@@ -238,6 +252,19 @@ export default function RootLayout() {
           options={{ presentation: "card", headerShown: false }}
         />
       </Stack>
+      <AnalyticsConsentDialog
+        visible={showAnalyticsConsent}
+        onApprove={() => {
+          setAnalyticsEnabled(true);
+          markAnalyticsPromptShown();
+          setShowAnalyticsConsent(false);
+        }}
+        onDecline={() => {
+          setAnalyticsEnabled(false);
+          markAnalyticsPromptShown();
+          setShowAnalyticsConsent(false);
+        }}
+      />
     </SafeAreaProvider>
   );
 }
