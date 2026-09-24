@@ -116,30 +116,43 @@ object AutoArtwork {
     canvas.drawColor(config.backgroundColor)
 
     val circle = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = config.circleColor }
-    val radius = size * 0.30f
+    val radius = size * 0.42f
     canvas.drawCircle(size / 2f, size / 2f, radius, circle)
 
     val label = Paint(Paint.ANTI_ALIAS_FLAG).apply {
       color = config.textColor
       textAlign = Paint.Align.CENTER
-      typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-      textSize = size * 0.30f
+      typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
+    }
+    val normalizedLabel = config.label.uppercase()
+    val baseTextSize = radius * 1.58f
+    label.textSize = baseTextSize
+    val maxTextWidth = radius * 1.72f
+    val measuredWidth = label.measureText(normalizedLabel)
+    if (measuredWidth > maxTextWidth && measuredWidth > 0f) {
+      label.textSize = baseTextSize * (maxTextWidth / measuredWidth)
     }
     val metrics = label.fontMetrics
     val centerY = size / 2f - (metrics.ascent + metrics.descent) / 2f
-    canvas.drawText(config.label, size / 2f, centerY, label)
+    canvas.drawText(normalizedLabel, size / 2f, centerY, label)
 
-    config.badgeLabel?.let { badge ->
-      val badgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
-      val badgeBack = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#D32F2F") }
-      val badgeSize = size * 0.22f
-      val rect = RectF(size - badgeSize - size * 0.04f, size * 0.04f, size.toFloat() - size * 0.04f, badgeSize + size * 0.04f)
-      canvas.drawRoundRect(rect, badgeSize / 2f, badgeSize / 2f, badgeBack)
-      badgePaint.textAlign = Paint.Align.CENTER
-      badgePaint.textSize = badgeSize * 0.68f
-      badgePaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+    val badge = config.badgeLabel?.trim().orEmpty()
+    if (badge.isNotEmpty()) {
+      val badgeRadius = size * 0.12f
+      val badgeCx = size / 2f + radius * 0.78f
+      val badgeCy = size / 2f - radius * 0.78f
+      val badgeCirclePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#111111") }
+      canvas.drawCircle(badgeCx, badgeCy, badgeRadius, badgeCirclePaint)
+
+      val badgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textAlign = Paint.Align.CENTER
+        typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
+        textSize = badgeRadius * 1.4f
+      }
       val bm = badgePaint.fontMetrics
-      canvas.drawText(badge, rect.centerX(), rect.centerY() - (bm.ascent + bm.descent) / 2f, badgePaint)
+      val badgeTextY = badgeCy - (bm.ascent + bm.descent) / 2f
+      canvas.drawText(badge, badgeCx, badgeTextY, badgePaint)
     }
 
     return bitmap

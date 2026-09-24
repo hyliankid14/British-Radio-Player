@@ -9,8 +9,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ServiceInfo
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import java.net.HttpURLConnection
+import java.net.URL
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -82,7 +85,7 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
       if (kind == Kind.EPISODE && player.isPlaying) persistProgress()
       if (kind == Kind.STATION) {
         val now = System.currentTimeMillis()
-        if (now - lastShowRefreshMs > 60_000L) {
+        if (now - lastShowRefreshMs > 20_000L) {
           lastShowRefreshMs = now
           refreshStationShowTitleIfNeeded()
         }
@@ -525,12 +528,13 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
     val station = stationJson ?: return
     val serviceId = station.optString("serviceId")
     if (serviceId.isEmpty()) return
-    if (AutoShowInfo.cachedShowTitle(serviceId).isNotEmpty()) return
     if (!showRefreshInFlight.add(serviceId)) return
     Thread {
       try {
-        val title = AutoShowInfo.refreshShowTitle(serviceId)
-        if (title.isNotEmpty() && kind == Kind.STATION && stationJson?.optString("serviceId") == serviceId) {
+        val before = AutoShowInfo.cachedShowInfo(serviceId)
+        val info = AutoShowInfo.refreshShowInfo(serviceId)
+        val changed = before.track != info.track || before.artist != info.artist || before.songArtworkUrl != info.songArtworkUrl || before.showTitle != info.showTitle
+        if (changed && kind == Kind.STATION && stationJson?.optString("serviceId") == serviceId) {
           handler.post {
             if (kind == Kind.STATION && stationJson?.optString("serviceId") == serviceId) {
               updateSessionMetadata()
@@ -544,23 +548,54 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
     }.start()
   }
 
+  private fun findPodcast(podcastId: String): JSONObject? {
+    if (podcastId.isEmpty()) return null
+    return AutoState.subscriptions(this).firstOrNull { it.optString("id") == podcastId }
+  }
+
   private fun buildMediaMetadata(): MediaMetadata {
     if (kind == Kind.STATION) {
       val station = stationJson
-      val showTitle = AutoShowInfo.cachedShowTitle(station?.optString("serviceId").orEmpty())
-      return MediaMetadata.Builder()
-        .setTitle(station?.optString("title") ?: "BBC Radio")
-        .setArtist(showTitle.ifEmpty { "BBC Radio" })
-        .setSubtitle(showTitle)
+      val serviceId = station?.optString("serviceId").orEmpty()
+      val stationTitle = station?.optString("title") ?: "BBC Radio"
+      val info = AutoShowInfo.cachedShowInfo(serviceId)
+      val hasSong = info.track.isNotEmpty() || info.artist.isNotEmpty()
+
+      val title = if (hasSong) {
+        if (info.track.isNotEmpty() && info.artist.isNotEmpty()) info.track
+        else info.track.ifEmpty { info.artist }
+      } else {
+        stationTitle
+      }
+      val artistSubtitle = if (hasSong) {
+        if (info.artist.isNotEmpty()) "${info.artist} · $stationTitle" else stationTitle
+      } else {
+        info.showTitle.ifEmpty { "BBC Radio" }
+      }
+
+      val builder = MediaMetadata.Builder()
+        .setTitle(title)
+        .setArtist(artistSubtitle)
+        .setAlbumTitle(stationTitle)
+        .setSubtitle(artistSubtitle)
         .setIsBrowsable(false)
         .setIsPlayable(true)
-        .setArtworkUri(station?.optString("logoUrl")?.takeIf { it.isNotEmpty() }?.let { Uri.parse(it) })
-        .build()
+
+      if (info.songArtworkUrl.isNotEmpty()) {
+        builder.setArtworkUri(Uri.parse(info.songArtworkUrl))
+      }
+      return builder.build()
     }
     val episode = episodeJson
+    val podcastTitle = episode?.optString("podcastTitle").orEmpty().ifEmpty {
+      val pid = episode?.optString("podcastId").orEmpty()
+      findPodcast(pid)?.optString("title").orEmpty().ifEmpty { pid }
+    }
     return MediaMetadata.Builder()
       .setTitle(episode?.optString("title") ?: "")
-      .setArtist(episode?.optString("podcastTitle").orEmpty().ifEmpty { episode?.optString("podcastId").orEmpty() })
+      .setArtist(podcastTitle)
+      .setAlbumTitle(podcastTitle)
+      .setSubtitle(podcastTitle)
       .setIsBrowsable(false)
       .setIsPlayable(true)
       .setArtworkUri(episode?.let { episodeArtwork(it) }?.takeIf { it.isNotEmpty() }?.let { Uri.parse(it) })
@@ -571,24 +606,65 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
     val metadata = MediaMetadataCompat.Builder()
     if (kind == Kind.STATION) {
       val station = stationJson ?: return
-      val showTitle = AutoShowInfo.cachedShowTitle(station.optString("serviceId"))
-      val subtitle = showTitle.ifEmpty { "BBC Radio" }
+      val stationId = station.optString("id")
+      val serviceId = station.optString("serviceId")
+      val stationTitle = station.optString("title")
+      val info = AutoShowInfo.cachedShowInfo(serviceId)
+      val hasSong = info.track.isNotEmpty() || info.artist.isNotEmpty()
+
+      val title = if (hasSong) {
+        if (info.track.isNotEmpty() && info.artist.isNotEmpty()) info.track
+        else info.track.ifEmpty { info.artist }
+      } else {
+        stationTitle
+      }
+      val artistSubtitle = if (hasSong) {
+        if (info.artist.isNotEmpty()) "${info.artist} · $stationTitle" else stationTitle
+      } else {
+        info.showTitle.ifEmpty { "BBC Radio" }
+      }
+
       metadata
-        .putString(MediaMetadataCompat.METADATA_KEY_TITLE, station.optString("title"))
-        .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, subtitle)
-        .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_TITLE, station.optString("title"))
-        .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, subtitle)
-        .putString(MediaMetadataCompat.METADATA_KEY_ALBUM_ART_URI, station.optString("logoUrl"))
-        .putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, AutoArtwork.createBitmap(station.optString("id"), 256))
+        .putString(MediaMetadataCompat.METADATA_KEY_TITLE, title)
+        .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, artistSubtitle)
+        .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, stationTitle)
+        .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_TITLE, title)
+        .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, artistSubtitle)
+        .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_DESCRIPTION, stationTitle)
+
+      val songArtworkBitmap = AutoShowInfo.cachedArtworkBitmap(serviceId)
+      if (info.songArtworkUrl.isNotEmpty()) {
+        metadata
+          .putString(MediaMetadataCompat.METADATA_KEY_ALBUM_ART_URI, info.songArtworkUrl)
+          .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON_URI, info.songArtworkUrl)
+          .putString(MediaMetadataCompat.METADATA_KEY_ART_URI, info.songArtworkUrl)
+        if (songArtworkBitmap != null) {
+          metadata.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, songArtworkBitmap)
+          metadata.putBitmap(MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON, songArtworkBitmap)
+          metadata.putBitmap(MediaMetadataCompat.METADATA_KEY_ART, songArtworkBitmap)
+        }
+      } else {
+        // Without song art, display the custom station ident bitmap and pass NO art URI
+        // so that Android Auto will never load the BBC station square logo.
+        val identBitmap = AutoArtwork.createBitmap(stationId, 512)
+        metadata
+          .putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, identBitmap)
+          .putBitmap(MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON, identBitmap)
+          .putBitmap(MediaMetadataCompat.METADATA_KEY_ART, identBitmap)
+      }
     } else {
       val episode = episodeJson ?: return
+      val podcastTitle = episode.optString("podcastTitle").ifEmpty {
+        val pid = episode.optString("podcastId")
+        findPodcast(pid)?.optString("title").orEmpty().ifEmpty { pid }
+      }
       metadata
         .putString(MediaMetadataCompat.METADATA_KEY_TITLE, episode.optString("title"))
-        .putString(
-          MediaMetadataCompat.METADATA_KEY_ARTIST,
-          episode.optString("podcastTitle").ifEmpty { episode.optString("podcastId") }
-        )
+        .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, podcastTitle)
+        .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, podcastTitle)
         .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_TITLE, episode.optString("title"))
+        .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, podcastTitle)
+        .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_DESCRIPTION, podcastTitle)
         .putString(MediaMetadataCompat.METADATA_KEY_ALBUM_ART_URI, episodeArtwork(episode))
         .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, episode.optLong("durationMins", 0L) * 60_000L)
     }
@@ -627,17 +703,6 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
       )
 
     if (kind == Kind.EPISODE) {
-      builder
-        .addCustomAction(
-          PlaybackStateCompat.CustomAction.Builder(
-            CUSTOM_ACTION_SEEK_BACK, "Back 10s", android.R.drawable.ic_media_rew
-          ).build()
-        )
-        .addCustomAction(
-          PlaybackStateCompat.CustomAction.Builder(
-            CUSTOM_ACTION_SEEK_FORWARD, "Forward 30s", android.R.drawable.ic_media_ff
-          ).build()
-        )
       val podcastId = episodeJson?.optString("podcastId").orEmpty()
       if (podcastId.isNotEmpty()) {
         val subscribed = AutoState.isSubscribed(this, podcastId)
@@ -760,14 +825,36 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
     if (kind == Kind.NONE) return null
     val title: String
     val subtitle: String
+    val largeIcon: Bitmap?
     if (kind == Kind.STATION) {
       val station = stationJson ?: return null
-      title = station.optString("title")
-      subtitle = "BBC Radio"
+      val stationId = station.optString("id")
+      val serviceId = station.optString("serviceId")
+      val stationTitle = station.optString("title")
+      val info = AutoShowInfo.cachedShowInfo(serviceId)
+      val hasSong = info.track.isNotEmpty() || info.artist.isNotEmpty()
+      title = if (hasSong) {
+        if (info.track.isNotEmpty() && info.artist.isNotEmpty()) info.track
+        else info.track.ifEmpty { info.artist }
+      } else {
+        stationTitle
+      }
+      subtitle = if (hasSong) {
+        if (info.artist.isNotEmpty()) "${info.artist} · $stationTitle" else stationTitle
+      } else {
+        info.showTitle.ifEmpty { "BBC Radio" }
+      }
+      largeIcon = AutoShowInfo.cachedArtworkBitmap(serviceId)
+        ?: AutoArtwork.createBitmap(stationId, 256)
     } else {
       val episode = episodeJson ?: return null
+      val podcastTitle = episode.optString("podcastTitle").ifEmpty {
+        val pid = episode.optString("podcastId")
+        findPodcast(pid)?.optString("title").orEmpty().ifEmpty { pid }
+      }
       title = episode.optString("title")
-      subtitle = episode.optString("podcastTitle").ifEmpty { episode.optString("podcastId") }
+      subtitle = podcastTitle
+      largeIcon = null
     }
 
     val playPause = if (player.isPlaying) {
@@ -791,6 +878,10 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
       .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
       .setOnlyAlertOnce(true)
       .setOngoing(player.isPlaying)
+    if (largeIcon != null) {
+      builder.setLargeIcon(largeIcon)
+    }
+    builder
       .addAction(android.R.drawable.ic_media_previous, "Previous", pendingIntentFor(ACTION_PREVIOUS, 2))
       .addAction(playPause)
       .addAction(android.R.drawable.ic_media_next, "Next", pendingIntentFor(ACTION_NEXT, 3))
@@ -876,8 +967,17 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
     result: Result<List<MediaBrowserCompat.MediaItem>>,
     options: Bundle
   ) {
-    val page = options.getInt(EXTRA_PAGE, -1)
-    val pageSize = options.getInt(EXTRA_PAGE_SIZE, EPISODE_PAGE_SIZE)
+    val page = when {
+      options.containsKey(MediaBrowserCompat.EXTRA_PAGE) -> options.getInt(MediaBrowserCompat.EXTRA_PAGE)
+      options.containsKey(EXTRA_PAGE) -> options.getInt(EXTRA_PAGE)
+      else -> -1
+    }
+    val pageSize = when {
+      options.containsKey(MediaBrowserCompat.EXTRA_PAGE_SIZE) -> options.getInt(MediaBrowserCompat.EXTRA_PAGE_SIZE)
+      options.containsKey(EXTRA_PAGE_SIZE) -> options.getInt(EXTRA_PAGE_SIZE)
+      else -> EPISODE_PAGE_SIZE
+    }.coerceIn(1, 100)
+
     if (page < 0 || !isPodcastEpisodeParent(parentId)) {
       onLoadChildren(parentId, result)
       return
@@ -1047,6 +1147,9 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
         parentId.startsWith("podcast_") -> {
           val podcastId = parentId.removePrefix("podcast_").substringBefore(':')
           var episodes = AutoState.episodes(this, podcastId)
+          if (episodes.isEmpty()) {
+            triggerPodcastEpisodeFetch(podcastId, parentId)
+          }
           if (AutoState.settingBoolean(this, "carplayHidePlayed", false)) {
             episodes = episodes.filterNot { AutoState.isPlayed(this, it.optString("id")) }
           }
@@ -1054,6 +1157,8 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
             val from = page * pageSize
             episodes = if (from >= episodes.size) emptyList()
             else episodes.subList(from, (from + pageSize).coerceAtMost(episodes.size)).toList()
+          } else {
+            episodes = episodes.take(EPISODE_PAGE_SIZE.coerceAtLeast(50))
           }
           val downloadedIds = AutoState.downloads(this).map { it.optString("id") }.toSet()
           for (episode in episodes) {
@@ -1199,12 +1304,154 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
   }
 
   private fun rootItemOrder(startupPage: String): List<String> {
-    val first = when (startupPage) {
-      "favourites" -> MEDIA_ID_FAVORITES
-      "subscribed_podcasts", "playlists" -> MEDIA_ID_PODCASTS
-      else -> MEDIA_ID_ALL_STATIONS
+    return listOf(MEDIA_ID_FAVORITES, MEDIA_ID_ALL_STATIONS, MEDIA_ID_PODCASTS)
+  }
+
+  private val podcastFetchInFlight = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
+  private fun triggerPodcastEpisodeFetch(podcastId: String, parentId: String) {
+    if (!podcastFetchInFlight.add(podcastId)) return
+    io.execute {
+      try {
+        val podcast = findPodcast(podcastId)
+        val rssUrl = podcast?.optString("rssUrl").orEmpty().ifEmpty {
+          "https://podcasts.files.bbci.co.uk/$podcastId.rss"
+        }
+        val parsedEpisodes = fetchAndParseRssEpisodes(podcastId, rssUrl, 50)
+        if (parsedEpisodes.isNotEmpty()) {
+          AutoState.saveEpisodes(this, podcastId, parsedEpisodes)
+          handler.post {
+            try { notifyChildrenChanged(parentId) } catch (_: Exception) { }
+          }
+        }
+      } catch (e: Exception) {
+        Log.w(TAG, "Failed to background-fetch episodes for $podcastId: ${e.message}")
+      } finally {
+        podcastFetchInFlight.remove(podcastId)
+      }
     }
-    return listOf(first) + listOf(MEDIA_ID_FAVORITES, MEDIA_ID_ALL_STATIONS, MEDIA_ID_PODCASTS).filter { it != first }
+  }
+
+  private fun fetchAndParseRssEpisodes(podcastId: String, rssUrl: String, limit: Int): List<JSONObject> {
+    var currentUrl = rssUrl.replace("http://", "https://")
+    var redirects = 0
+    var xmlText = ""
+    while (redirects < 5) {
+      val conn = (URL(currentUrl).openConnection() as java.net.HttpURLConnection).apply {
+        connectTimeout = 8000
+        readTimeout = 8000
+        instanceFollowRedirects = false
+        setRequestProperty("User-Agent", "BritishRadioPlayer/1.0 (Android)")
+        setRequestProperty("Accept", "application/rss+xml,application/xml,text/xml,*/*")
+      }
+      try {
+        val code = conn.responseCode
+        if (code in 300..399) {
+          val location = conn.getHeaderField("Location") ?: break
+          currentUrl = if (location.startsWith("/")) URL(URL(currentUrl), location).toString() else location
+          redirects++
+          continue
+        }
+        if (code != java.net.HttpURLConnection.HTTP_OK) return emptyList()
+        xmlText = conn.inputStream.bufferedReader().use { it.readText() }
+        break
+      } finally {
+        try { conn.disconnect() } catch (_: Exception) { }
+      }
+    }
+    if (xmlText.isEmpty()) return emptyList()
+
+    val chStart = xmlText.indexOf("<channel>")
+    if (chStart != -1) {
+      val tStart = xmlText.indexOf("<title>", chStart)
+      if (tStart != -1) {
+        val tEnd = xmlText.indexOf("</title>", tStart)
+        if (tEnd != -1) {
+          val channelTitle = xmlText.slice(tStart + 7 until tEnd).replace(Regex("<[^>]*>"), "").trim()
+          if (channelTitle.isNotEmpty()) {
+            AutoState.updatePodcastTitle(this, podcastId, channelTitle)
+          }
+        }
+      }
+    }
+
+    val episodes = mutableListOf<JSONObject>()
+    var itemStart = 0
+    while (episodes.size < limit) {
+      itemStart = xmlText.indexOf("<item", itemStart)
+      if (itemStart == -1) break
+      val tagClose = xmlText.indexOf(">", itemStart)
+      if (tagClose == -1) break
+      val itemEnd = xmlText.indexOf("</item>", tagClose)
+      if (itemEnd == -1) break
+      val content = xmlText.slice(tagClose + 1 until itemEnd)
+      itemStart = itemEnd + 7
+
+      val title = extractXmlTag(content, "title")
+      val desc = extractXmlTag(content, "description").ifEmpty { extractXmlTag(content, "itunes:summary") }
+      var audioUrl = ""
+      val secIdx = content.indexOf("<ppg:enclosureSecure")
+      if (secIdx != -1) {
+        val uIdx = content.indexOf("url=\"", secIdx)
+        if (uIdx != -1) {
+          val uEnd = content.indexOf("\"", uIdx + 5)
+          if (uEnd != -1) audioUrl = content.slice(uIdx + 5 until uEnd).trim()
+        }
+      }
+      if (audioUrl.isEmpty()) {
+        val encIdx = content.indexOf("<enclosure")
+        if (encIdx != -1) {
+          val uIdx = content.indexOf("url=\"", encIdx)
+          if (uIdx != -1) {
+            val uEnd = content.indexOf("\"", uIdx + 5)
+            if (uEnd != -1) audioUrl = content.slice(uIdx + 5 until uEnd).trim().replace("http://", "https://")
+          }
+        }
+      }
+
+      val pubDate = extractXmlTag(content, "pubDate")
+      val guid = extractXmlTag(content, "guid")
+      val id = guid.substringAfterLast('/').substringAfterLast(':').ifEmpty { "$podcastId-${episodes.size}" }
+
+      if (title.isNotEmpty() && audioUrl.isNotEmpty()) {
+        episodes.add(JSONObject().apply {
+          put("id", id)
+          put("title", title)
+          put("description", desc)
+          put("audioUrl", audioUrl)
+          put("imageUrl", "")
+          put("pubDate", pubDate)
+          put("pubDateEpochMs", 0L)
+          put("durationMins", 0L)
+          put("podcastId", podcastId)
+          put("podcastTitle", "")
+        })
+      }
+    }
+    return episodes
+  }
+
+  private fun extractXmlTag(block: String, tag: String): String {
+    val open = "<$tag"
+    val s = block.indexOf(open)
+    if (s == -1) return ""
+    val cs = block.indexOf(">", s + open.length)
+    if (cs == -1) return ""
+    val close = "</$tag>"
+    val e = block.indexOf(close, cs + 1)
+    if (e == -1) return ""
+    var v = block.slice(cs + 1 until e).trim()
+    if (v.startsWith("<![CDATA[")) {
+      v = v.removePrefix("<![CDATA[").substringBefore("]]>")
+    }
+    return v.replace(Regex("<[^>]*>"), "")
+      .replace("&amp;", "&")
+      .replace("&quot;", "\"")
+      .replace("&lt;", "<")
+      .replace("&gt;", ">")
+      .replace("&#39;", "'")
+      .replace("&apos;", "'")
+      .trim()
   }
 
   private fun episodeSubtitle(

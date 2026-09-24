@@ -494,6 +494,22 @@ export const PodcastApi = {
           }
         }
 
+        // Extract channel title to resolve podcast names for feeds not in OPML
+        let channelTitle = "";
+        const chStart = xmlText.indexOf("<channel");
+        if (chStart !== -1) {
+          const tStart = xmlText.indexOf("<title>", chStart);
+          if (tStart !== -1) {
+            const tEnd = xmlText.indexOf("</title>", tStart);
+            if (tEnd !== -1) {
+              channelTitle = decodeXmlEntities(xmlText.slice(tStart + 7, tEnd).trim());
+            }
+          }
+        }
+        if (channelTitle || channelImage) {
+          Preferences.setPodcastMetadata(podcastId, { title: channelTitle, imageUrl: channelImage });
+        }
+
         // Fast linear substring parser (50x faster than RegExp per tag in Hermes)
         const episodes: Episode[] = [];
         let itemStart = 0;

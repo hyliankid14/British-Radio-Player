@@ -178,7 +178,10 @@ async function prefetchSubscribedEpisodes(): Promise<void> {
     const subscribed = Preferences.getSubscribedPodcasts().slice(0, MAX_PREFETCH_PODCASTS);
     const missing = subscribed.filter((id) => {
       const cached = PodcastApi.getEpisodesFromCache(id);
-      return !cached || cached.length === 0;
+      const meta = Preferences.getPodcastMetadata(id);
+      const catalogPod = byId.get(id);
+      const hasTitle = (catalogPod?.title && catalogPod.title !== id) || (meta?.title && meta.title !== id);
+      return !cached || cached.length === 0 || !hasTitle;
     });
     if (!missing.length) return;
 

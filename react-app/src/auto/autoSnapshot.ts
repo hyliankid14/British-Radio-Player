@@ -185,14 +185,34 @@ export async function buildAutoSnapshot(includePodcastData = true): Promise<Auto
   const subscriptions: AutoPodcast[] = [];
 
   if (includePodcastData) {
+    const historyEntries = Preferences.getPodcastHistory();
+    const savedEntriesList = Preferences.getPodcastPlaylistEntries("saved");
+    const findFallbackTitle = (id: string): string => {
+      const meta = Preferences.getPodcastMetadata(id);
+      if (meta?.title && meta.title !== id) return meta.title;
+      const hist = historyEntries.find((e) => e.podcastId === id && e.podcastTitle && e.podcastTitle !== id);
+      if (hist) return hist.podcastTitle;
+      const sav = savedEntriesList.find((e) => e.podcastId === id && e.podcastTitle && e.podcastTitle !== id);
+      if (sav) return sav.podcastTitle;
+      return id;
+    };
+    const findFallbackImage = (id: string): string => {
+      const meta = Preferences.getPodcastMetadata(id);
+      if (meta?.imageUrl) return meta.imageUrl;
+      const hist = historyEntries.find((e) => e.podcastId === id && e.imageUrl);
+      if (hist) return hist.imageUrl;
+      return "";
+    };
+
     const cachedPodcastIds = new Set<string>(subscribedIds);
     for (const podcastId of cachedPodcastIds) {
       const cached = PodcastApi.getEpisodesFromCache(podcastId);
       if (cached && cached.length) {
         const podcast = catalogById.get(podcastId);
-        const title = podcast?.title || podcastId;
-        const image = podcast?.imageUrl || "";
-        const sorted = sortEpisodes(cached, podcastId);
+        const title = (podcast?.title && podcast.title !== podcastId) ? podcast.title : findFallbackTitle(podcastId);
+        const image = podcast?.imageUrl || findFallbackImage(podcastId);
+        // Cap to 50 episodes to prevent Android Binder TransactionTooLargeException
+        const sorted = sortEpisodes(cached, podcastId).slice(0, 50);
         episodes[podcastId] = sorted.map((episode) => toAutoEpisode(episode, podcastId, title, image));
       }
     }
@@ -201,12 +221,14 @@ export async function buildAutoSnapshot(includePodcastData = true): Promise<Auto
       const podcast = catalogById.get(podcastId);
       const cached = PodcastApi.getEpisodesFromCache(podcastId) || [];
       const latest = cached.reduce((max, episode) => Math.max(max, parseEpisodeDateEpoch(episode.pubDate)), 0);
+      const title = (podcast?.title && podcast.title !== podcastId) ? podcast.title : findFallbackTitle(podcastId);
+      const imageUrl = podcast?.imageUrl || findFallbackImage(podcastId);
       subscriptions.push({
         id: podcastId,
-        title: podcast?.title || podcastId,
+        title,
         description: podcast?.description || "",
         rssUrl: podcast?.rssUrl || `https://podcasts.files.bbci.co.uk/${podcastId}.rss`,
-        imageUrl: podcast?.imageUrl || "",
+        imageUrl,
         genres: podcast?.genres || [],
         typicalDurationMins: podcast?.typicalDurationMins || 0,
         latestUpdateMs: latest

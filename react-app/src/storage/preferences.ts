@@ -319,6 +319,26 @@ export const Preferences = {
     storage.set(KEYS.SUBSCRIBED_PODCASTS, JSON.stringify(podcastIds));
   },
 
+  getPodcastMetadata(podcastId: string): { title?: string; imageUrl?: string } | null {
+    const raw = storage.getString(`pref_podcast_meta_${podcastId}`);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  },
+
+  setPodcastMetadata(podcastId: string, meta: { title?: string; imageUrl?: string }): void {
+    if (!podcastId) return;
+    const existing = this.getPodcastMetadata(podcastId) || {};
+    const updated = {
+      title: meta.title && meta.title !== podcastId ? meta.title : existing.title,
+      imageUrl: meta.imageUrl || existing.imageUrl
+    };
+    storage.set(`pref_podcast_meta_${podcastId}`, JSON.stringify(updated));
+  },
+
   isPodcastNotificationsEnabled(podcastId: string): boolean {
     if (!this.getSubscribedPodcasts().includes(podcastId)) return false;
     return storage.getBoolean(`pref_podcast_notifications_${podcastId}`) ?? false;

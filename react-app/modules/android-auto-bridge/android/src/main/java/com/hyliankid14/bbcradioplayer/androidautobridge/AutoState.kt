@@ -228,6 +228,37 @@ object AutoState {
     return out
   }
 
+  fun saveEpisodes(context: Context, podcastId: String, episodes: List<JSONObject>) {
+    synchronized(lock) {
+      val snap = snapshot(context)
+      val episodesObj = snap.optJSONObject("episodes") ?: JSONObject()
+      episodesObj.put(podcastId, JSONArray(episodes))
+      snap.put("episodes", episodesObj)
+      prefs(context).edit().putString(KEY_SNAPSHOT, snap.toString()).apply()
+      snapshotCache = snap
+    }
+  }
+
+  fun updatePodcastTitle(context: Context, podcastId: String, title: String) {
+    if (title.isBlank() || title == podcastId) return
+    synchronized(lock) {
+      val snap = snapshot(context)
+      val subs = snap.optJSONArray("subscriptions") ?: return
+      var changed = false
+      for (i in 0 until subs.length()) {
+        val p = subs.optJSONObject(i) ?: continue
+        if (p.optString("id") == podcastId && (p.optString("title") == podcastId || p.optString("title").isBlank())) {
+          p.put("title", title)
+          changed = true
+        }
+      }
+      if (changed) {
+        prefs(context).edit().putString(KEY_SNAPSHOT, snap.toString()).apply()
+        snapshotCache = snap
+      }
+    }
+  }
+
   fun playlists(context: Context): List<JSONObject> = objectList(context, "playlists")
 
   fun playlistEntries(context: Context, playlistId: String): List<JSONObject> {
