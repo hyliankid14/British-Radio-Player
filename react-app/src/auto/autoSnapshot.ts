@@ -1,3 +1,4 @@
+import { isAnalyticsEnabled } from "../analytics/analytics";
 import { Episode, Podcast, PodcastApi } from "../api/podcasts";
 import { AudioQuality, StationRepository } from "../data/stations";
 import { PodcastHistoryEntry, Preferences, SavedEpisodeEntry } from "../storage/preferences";
@@ -76,6 +77,8 @@ export interface AutoSnapshot {
   playedIds: string[];
   progress: Record<string, number>;
   lastPlayedEpoch: Record<string, number>;
+  /** Whether the user has opted in to anonymous analytics. */
+  analyticsEnabled: boolean;
   /** Set by the sync layer so native code can avoid double playback. */
   phonePlaybackActive: boolean;
 }
@@ -297,6 +300,7 @@ export async function buildAutoSnapshot(includePodcastData = true): Promise<Auto
     playedIds: Preferences.getPlayedEpisodeIds(),
     progress: progressMs,
     lastPlayedEpoch: Preferences.getMap("pref_last_played_epoch"),
+    analyticsEnabled: isAnalyticsEnabled(),
     phonePlaybackActive: false
   };
 }

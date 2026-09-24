@@ -230,8 +230,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       await TrackPlayer.play();
       set({ isPlaying: true, isBuffering: false });
       notifyNativePhonePlaybackStarted();
-      beginScrobble(podcast.title, episode.title, episode.durationMins * 60, true);
-      void trackEpisodePlay(podcast.id, episode.id, episode.title, podcast.title);
+      const podId = (podcast?.id || episode?.podcastId || "").trim();
+      const epId = (episode?.id || "").trim();
+      const podTitle = (podcast?.title || (episode as any)?.podcastTitle || "").trim();
+      const epTitle = (episode?.title || "").trim();
+      void trackEpisodePlay(podId, epId, epTitle, podTitle);
       Preferences.addPodcastHistory({
         id: episode.id,
         title: episode.title,

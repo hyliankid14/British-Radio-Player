@@ -4,6 +4,8 @@ interface NativeAndroidBridge {
   hasLegacyData(): boolean;
   readLegacyPreferences(): string;
   migrationFlagKey(): string;
+  getLegacyAnalyticsEnabled(): boolean;
+  setNativeAnalyticsEnabled(enabled: boolean): void;
   extractPalette(imageUrl: string, isDarkMode: boolean): Promise<string>;
   isVpnActive(): boolean;
   startShakeDetection(): void;
@@ -111,6 +113,22 @@ export const NativeAndroid = {
       return load()?.migrationFlagKey() ?? "pref_native_migrated";
     } catch {
       return "pref_native_migrated";
+    }
+  },
+
+  getLegacyAnalyticsEnabled(): boolean {
+    try {
+      return load()?.getLegacyAnalyticsEnabled() ?? false;
+    } catch {
+      return false;
+    }
+  },
+
+  setNativeAnalyticsEnabled(enabled: boolean): void {
+    try {
+      load()?.setNativeAnalyticsEnabled(enabled);
+    } catch {
+      // Ignore
     }
   },
 

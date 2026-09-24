@@ -158,6 +158,15 @@ object AutoState {
   fun favorites(context: Context): List<String> =
     effectiveList(context, "favorites").ifEmpty { emptyList() }
 
+  fun isAnalyticsEnabled(context: Context): Boolean {
+    val snap = snapshot(context)
+    if (snap.has("analyticsEnabled")) {
+      return snap.optBoolean("analyticsEnabled", false)
+    }
+    val prefs = context.getSharedPreferences("privacy_analytics", Context.MODE_PRIVATE)
+    return prefs.getBoolean("analytics_enabled", false)
+  }
+
   fun toggleFavorite(context: Context, stationId: String): Boolean {
     val current = favorites(context).toMutableList()
     val isFav: Boolean

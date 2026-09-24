@@ -1,4 +1,5 @@
 import { createMMKV } from "react-native-mmkv";
+import { NativeAndroid } from "../native/nativeAndroid";
 import { AudioQuality } from "../data/stations";
 
 export interface SavedEpisodeEntry {
@@ -39,6 +40,7 @@ let storage: {
   set: (key: string, value: string | boolean | number) => void;
   getBoolean: (key: string) => boolean | undefined;
   getNumber: (key: string) => number | undefined;
+  contains: (key: string) => boolean;
   remove: (key: string) => boolean;
   clearAll: () => void;
   addOnValueChangedListener: (listener: (key: string) => void) => { remove: () => void };
@@ -58,6 +60,7 @@ try {
     },
     getBoolean: (key: string) => memoryStore.get(key),
     getNumber: (key: string) => memoryStore.get(key),
+    contains: (key: string) => memoryStore.has(key),
     remove: (key: string) => {
       const existed = memoryStore.delete(key);
       memoryListeners.forEach((listener) => listener(key));
@@ -162,11 +165,23 @@ export const Preferences = {
   setLastFmDirect(value: boolean): void { storage.set(KEYS.LASTFM_DIRECT, value); },
   setLastFmBroadcast(value: boolean): void { storage.set(KEYS.LASTFM_BROADCAST, value); },
   setLastFmPodcasts(value: boolean): void { storage.set(KEYS.LASTFM_PODCASTS, value); },
+  hasSetting(key: string): boolean {
+    return storage.contains(key);
+  },
   getSetting<T extends string | boolean | number>(key: string, fallback: T): T {
     const value = typeof fallback === "boolean" ? storage.getBoolean(key) : typeof fallback === "number" ? storage.getNumber(key) : storage.getString(key);
     return (value ?? fallback) as T;
   },
-  setSetting(key: string, value: string | boolean | number): void { storage.set(key, value); },
+  setSetting(key: string, value: string | boolean | number): void {
+    storage.set(key, value);
+    if (key === KEYS.ANALYTICS && typeof value === "boolean") {
+      try {
+        NativeAndroid.setNativeAnalyticsEnabled(value);
+      } catch {
+        // Ignore off Android
+      }
+    }
+  },
   getStartupPage(): string { return storage.getString(KEYS.STARTUP_PAGE) || "all_stations"; },
   setStartupPage(value: string): void { storage.set(KEYS.STARTUP_PAGE, value); },
   getLastFmLastScrobbled(): string { return storage.getString("pref_lastfm_last_scrobbled") || ""; },

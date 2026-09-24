@@ -79,6 +79,15 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
   private var isStopped = true
   private var lastNotificationKey = ""
 
+  private var stationAnalyticsRunnable: Runnable? = null
+  private var stationAnalyticsPending = false
+  private var stationAnalyticsScheduled = false
+
+  private var episodeAnalyticsRunnable: Runnable? = null
+  private var episodeAnalyticsPending = false
+  private var episodeAnalyticsScheduled = false
+  private var lastTrackedEpisodeAnalyticsId: String? = null
+
   private val progressTick = object : Runnable {
     override fun run() {
       updatePlaybackState()
@@ -260,7 +269,27 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
       }
 
       override fun onIsPlayingChanged(isPlaying: Boolean) {
-        if (isPlaying) startProgressTicker() else handler.removeCallbacks(progressTick)
+        if (isPlaying) {
+          startProgressTicker()
+          if (stationAnalyticsPending && !stationAnalyticsScheduled && stationAnalyticsRunnable != null) {
+            handler.postDelayed(stationAnalyticsRunnable!!, 10_000L)
+            stationAnalyticsScheduled = true
+          }
+          if (episodeAnalyticsPending && !episodeAnalyticsScheduled && episodeAnalyticsRunnable != null) {
+            handler.postDelayed(episodeAnalyticsRunnable!!, 10_000L)
+            episodeAnalyticsScheduled = true
+          }
+        } else {
+          handler.removeCallbacks(progressTick)
+          if (stationAnalyticsScheduled) {
+            stationAnalyticsRunnable?.let { handler.removeCallbacks(it) }
+            stationAnalyticsScheduled = false
+          }
+          if (episodeAnalyticsScheduled) {
+            episodeAnalyticsRunnable?.let { handler.removeCallbacks(it) }
+            episodeAnalyticsScheduled = false
+          }
+        }
         updatePlaybackState()
       }
 
@@ -302,11 +331,24 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
     return null
   }
 
+  private fun cancelAnalyticsTimers() {
+    stationAnalyticsRunnable?.let { handler.removeCallbacks(it) }
+    stationAnalyticsRunnable = null
+    stationAnalyticsPending = false
+    stationAnalyticsScheduled = false
+
+    episodeAnalyticsRunnable?.let { handler.removeCallbacks(it) }
+    episodeAnalyticsRunnable = null
+    episodeAnalyticsPending = false
+    episodeAnalyticsScheduled = false
+  }
+
   private fun playStation(stationId: String) {
     val station = findStation(stationId) ?: run {
       Log.w(TAG, "Station not found: $stationId")
       return
     }
+    cancelAnalyticsTimers()
     kind = Kind.STATION
     stationJson = station
     episodeJson = null
@@ -323,10 +365,22 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
       stopPlayback()
       return
     }
+    val stationTitle = station.optString("title")
+    stationAnalyticsRunnable = Runnable {
+      io.execute {
+        AutoAnalytics.trackStationPlay(this@AndroidAutoMediaService, stationId, stationTitle)
+      }
+      stationAnalyticsPending = false
+      stationAnalyticsScheduled = false
+      stationAnalyticsRunnable = null
+    }
+    stationAnalyticsPending = true
+    stationAnalyticsScheduled = false
+
     emitMutation("playbackStarted", JSONObject().apply {
       put("kind", "station")
       put("id", stationId)
-      put("title", station.optString("title"))
+      put("title", stationTitle)
       put("subtitle", "BBC Radio")
       put("imageUrl", station.optString("logoUrl"))
     })
@@ -338,6 +392,7 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
       Log.w(TAG, "Episode has no playable audio: ${episode.optString("id")}")
       return
     }
+    cancelAnalyticsTimers()
     kind = Kind.EPISODE
     episodeJson = episode
     stationJson = null
@@ -350,12 +405,36 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
       stopPlayback()
       return
     }
+
+    val epId = episode.optString("id")
+    val podId = episode.optString("podcastId").ifEmpty {
+      findEpisode(epId)?.optString("podcastId").orEmpty()
+    }
+    val epTitle = episode.optString("title")
+    val podTitle = episode.optString("podcastTitle").ifEmpty {
+      findPodcast(podId)?.optString("title").orEmpty()
+    }
+
+    if (lastTrackedEpisodeAnalyticsId != epId) {
+      episodeAnalyticsRunnable = Runnable {
+        io.execute {
+          AutoAnalytics.trackEpisodePlay(this@AndroidAutoMediaService, podId, epId, epTitle, podTitle)
+          lastTrackedEpisodeAnalyticsId = epId
+        }
+        episodeAnalyticsPending = false
+        episodeAnalyticsScheduled = false
+        episodeAnalyticsRunnable = null
+      }
+      episodeAnalyticsPending = true
+      episodeAnalyticsScheduled = false
+    }
+
     emitMutation("playbackStarted", JSONObject().apply {
       put("kind", "episode")
-      put("id", episode.optString("id"))
-      put("podcastId", episode.optString("podcastId"))
-      put("title", episode.optString("title"))
-      put("subtitle", episode.optString("podcastTitle").ifEmpty { episode.optString("podcastId") })
+      put("id", epId)
+      put("podcastId", podId)
+      put("title", epTitle)
+      put("subtitle", podTitle.ifEmpty { podId })
       put("imageUrl", episode.optString("imageUrl"))
     })
   }
@@ -434,6 +513,7 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
   }
 
   private fun stopPlayback() {
+    cancelAnalyticsTimers()
     persistProgress()
     kind = Kind.NONE
     stationJson = null

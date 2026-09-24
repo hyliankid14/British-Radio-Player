@@ -43,6 +43,23 @@ class NativeAndroidModule : Module() {
       LegacyMigration.MIGRATION_FLAG_KEY
     }
 
+    /** Returns whether analytics was enabled in the legacy Kotlin app's SharedPreferences. */
+    Function("getLegacyAnalyticsEnabled") { ->
+      val ctx = context ?: return@Function false
+      ctx.getSharedPreferences("privacy_analytics", Context.MODE_PRIVATE)
+        .getBoolean("analytics_enabled", false)
+    }
+
+    /** Syncs the analytics enabled state into native SharedPreferences so native services can read it. */
+    Function("setNativeAnalyticsEnabled") { enabled: Boolean ->
+      val ctx = context ?: return@Function null
+      ctx.getSharedPreferences("privacy_analytics", Context.MODE_PRIVATE)
+        .edit()
+        .putBoolean("analytics_enabled", enabled)
+        .apply()
+      null
+    }
+
     /**
      * Extracts the adaptive Now Playing palette from artwork, mirroring the Kotlin
      * `Palette.from(bitmap)` behaviour. Returns "{}" when the image cannot be loaded.

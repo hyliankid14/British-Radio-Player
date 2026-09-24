@@ -43,7 +43,8 @@ object LegacyMigration {
     "alarm_prefs",
     "startup_prefs",
     "lastfm_prefs",
-    "widget_prefs"
+    "widget_prefs",
+    "privacy_analytics"
   )
 
   private fun prefs(context: Context, name: String): SharedPreferences =
@@ -323,6 +324,15 @@ object LegacyMigration {
     copyBoolean(lastfm, "broadcast_scrobble_enabled", out, "pref_lastfm_broadcast")
     copyBoolean(lastfm, "scrobble_podcasts", out, "pref_lastfm_podcasts")
     copyString(lastfm, "last_scrobbled_track", out, "pref_lastfm_last_scrobbled")
+
+    // ── Privacy Analytics ───────────────────────────────────────────────────
+    val analytics = try { prefs(context, "privacy_analytics").all } catch (_: Exception) { emptyMap<String, Any?>() }
+    copyBoolean(analytics, "analytics_enabled", out, "pref_analytics")
+    val firstRun = analytics["analytics_first_run"] as? Boolean
+    if (firstRun != null) {
+      out.put("pref_analytics_prompted", !firstRun)
+    }
+    copyString(analytics, "anon_install_id", out, "pref_anon_install_id")
 
     // ── Downloads (episode files) ───────────────────────────────────────────
     val downloadedSet = stringSet(context, "downloaded_episodes_prefs", "downloaded_set")
