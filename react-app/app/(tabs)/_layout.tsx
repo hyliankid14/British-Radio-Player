@@ -53,6 +53,8 @@ export default function TabLayout() {
       <Tabs
         screenOptions={{
           headerShown: false,
+          tabBarLabelPosition: "below-icon",
+          tabBarItemStyle: styles.tabBarItem,
           tabBarStyle: [
             styles.tabBar,
             {
@@ -198,6 +200,11 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 10,
     elevation: 4
+  },
+  tabBarItem: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingTop: 4
   },
   iconIndicator: {
     width: 64,

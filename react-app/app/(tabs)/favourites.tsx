@@ -1144,7 +1144,7 @@ export default function FavouritesScreen() {
       <VpnBanner />
 
       {/* Pill group under Top App Bar matching favorites_toggle_group */}
-      <View style={styles.pillGroupContainer}>
+      <View style={[styles.pillGroupContainer, isTablet && styles.pillGroupContainerTablet]}>
         {CATEGORY_ITEMS.map((item) => {
           const isSelected = activeCategory === item.id;
           return (
@@ -1152,11 +1152,11 @@ export default function FavouritesScreen() {
               key={item.id}
               style={[
                 styles.categoryPill,
-                isTablet && (isSelected ? styles.categoryPillTabletSelected : styles.categoryPillTabletUnselected),
+                isTablet && styles.categoryPillTablet,
                 {
                   // M3 Expressive connected button group: a small gap separates the segments
                   // and the selected segment is a full pill, rounder than the rest.
-                  borderRadius: isSelected ? 20 : 8,
+                  borderRadius: isSelected ? 24 : 12,
                   height: isSelected ? 44 : 40,
                   marginVertical: isSelected ? -2 : 0,
                   backgroundColor: isSelected
@@ -1175,11 +1175,16 @@ export default function FavouritesScreen() {
                   size={18}
                   color={isSelected ? (theme.navIndicatorIcon || theme.primary) : theme.onSurfaceVariant}
                 />
-                {isTablet && isSelected ? (
+                {isTablet ? (
                   <Text
                     style={[
                       styles.categoryPillText,
-                      { color: theme.navIndicatorIcon || theme.primary }
+                      {
+                        color: isSelected
+                          ? (theme.navIndicatorIcon || theme.primary)
+                          : theme.onSurfaceVariant,
+                        fontWeight: isSelected ? "700" : "500"
+                      }
                     ]}
                     numberOfLines={1}
                   >
@@ -2201,7 +2206,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 12,
     paddingVertical: 8,
-    gap: 2
+    gap: 4
+  },
+  pillGroupContainerTablet: {
+    maxWidth: 720,
+    alignSelf: "center",
+    width: "100%",
+    paddingHorizontal: 16
   },
   categoryPill: {
     flex: 1,
@@ -2209,22 +2220,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center"
   },
-  categoryPillTabletSelected: {
+  categoryPillTablet: {
     flex: 1,
-    paddingHorizontal: 16
-  },
-  categoryPillTabletUnselected: {
-    flex: 0,
-    width: 48
+    paddingHorizontal: 8
   },
   pillContent: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8
+    gap: 6
   },
   categoryPillText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "600"
   },
   listContent: {
