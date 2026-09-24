@@ -3,6 +3,7 @@ import TrackPlayer, { State, TrackType } from "react-native-track-player";
 import { Station, StationRepository, AudioQuality, getStreamCandidates } from "../data/stations";
 import { Preferences } from "../storage/preferences";
 import { CurrentShow, fetchShowInfo } from "../api/showInfo";
+import { useStationShowStore } from "./stationShowStore";
 import { Podcast, Episode, PodcastApi } from "../api/podcasts";
 import { LastFmApi } from "../api/lastfm";
 import { notifyNativePhonePlaybackStarted } from "../auto/autoBridge";
@@ -152,6 +153,16 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       // Fetch show info immediately
       const show = await fetchShowInfo(station.id);
       set({ currentShow: show });
+      if (show.title && show.title !== "BBC Radio") {
+        useStationShowStore.getState().updateShow(station.id, {
+          title: show.title,
+          episodeTitle: show.episodeTitle,
+          startTimeMs: show.startTimeMs,
+          endTimeMs: show.endTimeMs,
+          nextShowTitle: show.nextShowTitle,
+          imageUrl: show.imageUrl
+        });
+      }
       beginScrobble(show.artist || "", show.track || "");
       if (show.artist || show.track) {
         Preferences.addRecentSong({
@@ -189,6 +200,16 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         if (currentStation && isPlaying) {
           const updated = await fetchShowInfo(currentStation.id);
           set({ currentShow: updated });
+          if (updated.title && updated.title !== "BBC Radio") {
+            useStationShowStore.getState().updateShow(currentStation.id, {
+              title: updated.title,
+              episodeTitle: updated.episodeTitle,
+              startTimeMs: updated.startTimeMs,
+              endTimeMs: updated.endTimeMs,
+              nextShowTitle: updated.nextShowTitle,
+              imageUrl: updated.imageUrl
+            });
+          }
           beginScrobble(updated.artist || "", updated.track || "");
           if (updated.artist || updated.track) {
             Preferences.addRecentSong({
@@ -485,6 +506,16 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     if (currentStation) {
       const show = await fetchShowInfo(currentStation.id);
       set({ currentShow: show });
+      if (show.title && show.title !== "BBC Radio") {
+        useStationShowStore.getState().updateShow(currentStation.id, {
+          title: show.title,
+          episodeTitle: show.episodeTitle,
+          startTimeMs: show.startTimeMs,
+          endTimeMs: show.endTimeMs,
+          nextShowTitle: show.nextShowTitle,
+          imageUrl: show.imageUrl
+        });
+      }
       if (isPlaying) {
         const hasSong = !!(show.artist || show.track);
         const songTitle = show.track

@@ -9,7 +9,10 @@ export interface CurrentShow {
   imageUrl?: string;
   startTime?: string;
   endTime?: string;
+  startTimeMs?: number;
+  endTimeMs?: number;
   nextShowTitle?: string;
+  nextShowStartTimeMs?: number;
 }
 
 export interface ScheduleEntry {
@@ -92,6 +95,11 @@ export async function fetchShowInfo(stationId: string): Promise<CurrentShow> {
   let episodeTitle: string | undefined;
   let essImageUrl: string | undefined;
   let nextShowTitle: string | undefined;
+  let startTime: string | undefined;
+  let endTime: string | undefined;
+  let startTimeMs: number | undefined;
+  let endTimeMs: number | undefined;
+  let nextShowStartTimeMs: number | undefined;
 
   try {
     const essRes = await fetch(`https://ess.api.bbci.co.uk/schedules?serviceId=${serviceId}&mediatypes=audio`, {
@@ -101,6 +109,7 @@ export async function fetchShowInfo(stationId: string): Promise<CurrentShow> {
       const essData = await essRes.json();
       const items = essData?.items || [];
       const now = Date.now();
+      const entries: ScheduleEntry[] = [];
 
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
@@ -110,27 +119,51 @@ export async function fetchShowInfo(stationId: string): Promise<CurrentShow> {
         const start = new Date(publishedTime.start).getTime();
         const end = new Date(publishedTime.end).getTime();
 
+        const brand = item.brand;
+        const episode = item.episode;
+        const itemTitle = brand?.title || episode?.title || "BBC Radio";
+        const itemEpTitle = brand?.title && episode?.title && episode.title !== brand.title ? episode.title : undefined;
+        const imageObj = episode?.image || brand?.image;
+        const template = imageObj?.template_url;
+        const itemImageUrl = template ? template.replace("{recipe}", "320x320") : undefined;
+
+        entries.push({
+          title: itemTitle,
+          episodeTitle: itemEpTitle,
+          startTimeMs: start,
+          endTimeMs: end,
+          imageUrl: itemImageUrl
+        });
+
         if (now >= start && now <= end) {
-          const brand = item.brand;
-          const episode = item.episode;
-          showTitle = brand?.title || episode?.title || "BBC Radio";
+          showTitle = itemTitle;
           if (brand?.title && episode?.title) {
             episodeTitle = episode.title;
           }
-
-          const imageObj = episode?.image || brand?.image;
-          const template = imageObj?.template_url;
-          if (template) {
-            essImageUrl = template.replace("{recipe}", "320x320");
+          if (itemImageUrl) {
+            essImageUrl = itemImageUrl;
           }
+          startTime = publishedTime.start;
+          endTime = publishedTime.end;
+          startTimeMs = start;
+          endTimeMs = end;
 
           // Next show
           if (i + 1 < items.length) {
             const nextItem = items[i + 1];
             nextShowTitle = nextItem.brand?.title || nextItem.episode?.title;
+            if (nextItem.published_time?.start) {
+              nextShowStartTimeMs = new Date(nextItem.published_time.start).getTime();
+            }
           }
-          break;
         }
+      }
+
+      if (entries.length > 0) {
+        entries.sort((a, b) => a.startTimeMs - b.startTimeMs);
+        const todayDate = new Date();
+        const todayStr = `${todayDate.getFullYear()}-${String(todayDate.getMonth() + 1).padStart(2, "0")}-${String(todayDate.getDate()).padStart(2, "0")}`;
+        scheduleCache.set(`${stationId}_${todayStr}`, entries);
       }
     }
   } catch (err) {
@@ -143,11 +176,30 @@ export async function fetchShowInfo(stationId: string): Promise<CurrentShow> {
     artist,
     track,
     imageUrl: rmsImageUrl || essImageUrl,
-    nextShowTitle
+    startTime,
+    endTime,
+    startTimeMs,
+    endTimeMs,
+    nextShowTitle,
+    nextShowStartTimeMs
   };
 }
 
 const scheduleCache = new Map<string, ScheduleEntry[]>();
+
+/**
+ * Find the scheduled show for a station at a given timestamp using the cached schedule.
+ */
+export function getUpcomingShowFromSchedule(
+  stationId: string,
+  timestampMs: number = Date.now()
+): ScheduleEntry | undefined {
+  const d = new Date(timestampMs);
+  const todayStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const entries = scheduleCache.get(`${stationId}_${todayStr}`);
+  if (!entries || !entries.length) return undefined;
+  return entries.find((e) => timestampMs >= e.startTimeMs && timestampMs < e.endTimeMs);
+}
 
 /**
  * Format timestamp (ms) to HH:mm in local time.

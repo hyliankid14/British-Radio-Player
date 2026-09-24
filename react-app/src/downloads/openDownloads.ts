@@ -10,6 +10,23 @@ import { NativeAndroid } from "../native/nativeAndroid";
 export async function openDownloadsFolder(): Promise<void> {
   if (Platform.OS === "android") {
     if (NativeAndroid.openDownloadsFolder()) return;
+
+    // Try common Android content URIs via Linking before showing alert
+    const contentUris = [
+      "content://com.android.externalstorage.documents/document/primary%3APodcasts%2FBritish%20Radio%20Player",
+      "content://com.android.externalstorage.documents/tree/primary%3APodcasts%2FBritish%20Radio%20Player"
+    ];
+    for (const uri of contentUris) {
+      try {
+        if (await Linking.canOpenURL(uri)) {
+          await Linking.openURL(uri);
+          return;
+        }
+      } catch {
+        // continue to next URI or fallback
+      }
+    }
+
     const path = NativeAndroid.getDownloadsFolderPath() ?? "Podcasts/British Radio Player";
     Alert.alert(
       "Downloads folder",

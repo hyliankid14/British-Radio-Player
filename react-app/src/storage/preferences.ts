@@ -567,7 +567,7 @@ export const Preferences = {
 
   updatePodcastSearch(
     id: string,
-    updates: { name?: string; query?: string; notificationsEnabled?: boolean }
+    updates: { name?: string; query?: string; notificationsEnabled?: boolean; latestResultDate?: string }
   ): void {
     const searches = this.getSavedPodcastSearches().map((search) =>
       search.id === id ? { ...search, ...updates } : search

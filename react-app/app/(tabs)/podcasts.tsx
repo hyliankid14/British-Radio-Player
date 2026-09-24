@@ -11,12 +11,14 @@ import {
   ActivityIndicator,
   Alert,
   NativeSyntheticEvent,
-  NativeScrollEvent
+  NativeScrollEvent,
+  Modal,
+  Switch
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { MaterialIcons } from "@expo/vector-icons";
-import { useAppTheme } from "../../src/theme/colors";
+import { useAppTheme, useIsDarkTheme } from "../../src/theme/colors";
 import {
   Podcast,
   Episode,
@@ -26,7 +28,8 @@ import {
   NewPodcastEntry,
   PodcastRatingSummary,
   PodcastApi,
-  decodeXmlEntities
+  decodeXmlEntities,
+  matchesBooleanSearch
 } from "../../src/api/podcasts";
 import { Preferences } from "../../src/storage/preferences";
 import { applyLanguageFilter } from "../../src/podcasts/languageFilter";
@@ -129,75 +132,7 @@ function getGenreIcon(genre: string): any {
   return "podcasts";
 }
 
-type BooleanSearchNode =
-  | { type: "term"; value: string }
-  | { type: "not"; child: BooleanSearchNode }
-  | { type: "and" | "or"; left: BooleanSearchNode; right: BooleanSearchNode };
 
-function parseBooleanSearch(query: string): BooleanSearchNode | null {
-  const normalisedQuery = query.replace(/[“”]/g, '"');
-  const tokens = normalisedQuery.match(/"[^"]+"|\(|\)|\bAND\b|\bOR\b|\bNOT\b|[^\s()]+/gi) || [];
-  let index = 0;
-  const peek = () => tokens[index]?.toUpperCase();
-  const parsePrimary = (): BooleanSearchNode | null => {
-    if (peek() === "NOT") {
-      index++;
-      const child = parsePrimary();
-      return child ? { type: "not", child } : null;
-    }
-    if (tokens[index] === "(") {
-      index++;
-      const expression = parseOr();
-      if (tokens[index] === ")") index++;
-      return expression;
-    }
-    const token = tokens[index++];
-    if (!token || /^(AND|OR|NOT)$/i.test(token)) return null;
-    return { type: "term", value: token.replace(/^["“”]|["“”]$/g, "").toLowerCase() };
-  };
-  const parseAnd = (): BooleanSearchNode | null => {
-    let left = parsePrimary();
-    while (left && (peek() === "AND" || (tokens[index] && tokens[index] !== ")" && peek() !== "OR"))) {
-      if (peek() === "AND") index++;
-      const right = parsePrimary();
-      if (!right) break;
-      left = { type: "and", left, right };
-    }
-    return left;
-  };
-  const parseOr = (): BooleanSearchNode | null => {
-    let left = parseAnd();
-    while (left && peek() === "OR") {
-      index++;
-      const right = parseAnd();
-      if (!right) break;
-      left = { type: "or", left, right };
-    }
-    return left;
-  };
-  return parseOr();
-}
-
-function matchesBooleanSearch(query: string, text: string): boolean {
-  const expression = parseBooleanSearch(query);
-  if (!expression) return false;
-  const haystack = text
-    .replace(/<[^>]*>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
-  const evaluate = (node: BooleanSearchNode): boolean => {
-    if (node.type === "term") {
-      const term = node.value.replace(/\s+/g, " ").trim();
-      return haystack.includes(term);
-    }
-    if (node.type === "not") return !evaluate(node.child);
-    if (node.type === "and") return evaluate(node.left) && evaluate(node.right);
-    return evaluate(node.left) || evaluate(node.right);
-  };
-  return evaluate(expression);
-}
 
 export default function PodcastsScreen() {
   const router = useRouter();
@@ -233,7 +168,19 @@ export default function PodcastsScreen() {
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const searchDebounceTimer = useRef<any>(null);
 
+  const isDark = useIsDarkTheme();
+  const [savedSearches, setSavedSearches] = useState(() => Preferences.getSavedPodcastSearches());
+  const [saveSearchModalVisible, setSaveSearchModalVisible] = useState(false);
+  const [saveSearchName, setSaveSearchName] = useState("");
+  const [saveSearchNotify, setSaveSearchNotify] = useState(true);
+
   const { playEpisode } = usePlayerStore();
+
+  useFocusEffect(
+    useCallback(() => {
+      setSavedSearches(Preferences.getSavedPodcastSearches());
+    }, [])
+  );
 
   useEffect(() => {
     setRecentSearches(Preferences.getRecentPodcastSearches());
@@ -316,34 +263,26 @@ export default function PodcastsScreen() {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [catalog]);
 
-  const saveSearch = useCallback(() => {
+  const currentSavedSearch = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return null;
+    return savedSearches.find((s) => s.query.trim().toLowerCase() === q) || null;
+  }, [searchQuery, savedSearches]);
+
+  const isSearchSaved = !!currentSavedSearch;
+
+  const handleOpenSaveSearch = useCallback(() => {
     const query = searchQuery.trim();
     if (!query) return;
-    Alert.prompt("Save search", "Name this search", (name) => {
-      const trimmedName = name.trim();
-      if (!trimmedName) return;
-      Alert.alert("Search alerts", "Receive an alert when new episodes match this search?", [
-        {
-          text: "Enable alerts",
-          onPress: () => Preferences.savePodcastSearch({
-            id: `search-${Date.now()}`,
-            name: trimmedName,
-            query,
-            notificationsEnabled: true
-          })
-        },
-        {
-          text: "Not now",
-          onPress: () => Preferences.savePodcastSearch({
-            id: `search-${Date.now()}`,
-            name: trimmedName,
-            query,
-            notificationsEnabled: false
-          })
-        }
-      ]);
-    }, "plain-text", searchQuery);
-  }, [searchQuery]);
+    if (currentSavedSearch) {
+      setSaveSearchName(currentSavedSearch.name);
+      setSaveSearchNotify(currentSavedSearch.notificationsEnabled);
+    } else {
+      setSaveSearchName(query);
+      setSaveSearchNotify(true);
+    }
+    setSaveSearchModalVisible(true);
+  }, [searchQuery, currentSavedSearch]);
 
   // Handle Search Input querying the Raspberry Pi database
   const handleSearchChange = useCallback(
@@ -395,10 +334,14 @@ export default function PodcastsScreen() {
           setSearchEpisodeMatches(matchingEpisodes);
           const latestResultDate = matchingEpisodes
             .map((episode) => episode.pubDate)
-            .filter((date) => Number.isFinite(Date.parse(date)))
+            .filter((date) => typeof date === "string" && Number.isFinite(Date.parse(date)))
             .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
-          if (params.savedSearchId && latestResultDate) {
-            Preferences.updatePodcastSearchLatestResult(params.savedSearchId, latestResultDate);
+          const matchedSavedSearch = Preferences.getSavedPodcastSearches().find(
+            (s) => s.query.trim().toLowerCase() === q.toLowerCase()
+          );
+          const targetSavedSearchId = params.savedSearchId || matchedSavedSearch?.id;
+          if (targetSavedSearchId && latestResultDate) {
+            Preferences.updatePodcastSearchLatestResult(targetSavedSearchId, latestResultDate);
           }
         } catch (err) {
           console.warn("Search failed:", err);
@@ -672,10 +615,24 @@ export default function PodcastsScreen() {
             />
             {searchQuery ? (
               <View style={styles.searchActions}>
-                <TouchableOpacity onPress={saveSearch} style={styles.clearSearchBtn} accessibilityLabel="Save search">
-                  <MaterialIcons name="star-border" size={20} color={theme.onSurfaceVariant} />
+                <TouchableOpacity
+                  onPress={handleOpenSaveSearch}
+                  style={styles.clearSearchBtn}
+                  accessibilityLabel={isSearchSaved ? "Edit saved search" : "Save search"}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <MaterialIcons
+                    name={isSearchSaved ? "star" : "star-border"}
+                    size={20}
+                    color={isSearchSaved ? theme.star : theme.onSurfaceVariant}
+                  />
                 </TouchableOpacity>
-                <TouchableOpacity onPress={() => handleSearchChange("")} style={styles.clearSearchBtn}>
+                <TouchableOpacity
+                  onPress={() => handleSearchChange("")}
+                  style={styles.clearSearchBtn}
+                  accessibilityLabel="Clear search"
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
                   <MaterialIcons name="cancel" size={20} color={theme.onSurfaceVariant} />
                 </TouchableOpacity>
               </View>
@@ -926,6 +883,114 @@ export default function PodcastsScreen() {
           <MaterialIcons name="arrow-upward" size={24} color={theme.onPrimary} />
         </TouchableOpacity>
       )}
+
+      {/* Save Search Modal */}
+      <Modal
+        visible={saveSearchModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSaveSearchModalVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.dialogBackdrop}
+          activeOpacity={1}
+          onPress={() => setSaveSearchModalVisible(false)}
+        >
+          <View
+            style={[styles.dialogCard, { backgroundColor: theme.surfaceContainer }]}
+            onStartShouldSetResponder={() => true}
+          >
+            <Text style={[styles.dialogTitle, { color: theme.onSurface }]}>
+              {currentSavedSearch ? "Edit Saved Search" : "Save Search"}
+            </Text>
+            <Text style={[styles.dialogLabel, { color: theme.onSurfaceVariant }]}>Name</Text>
+            <TextInput
+              style={[
+                styles.dialogInput,
+                { color: theme.onSurface, borderColor: theme.outlineVariant, backgroundColor: theme.surface }
+              ]}
+              placeholder="Search name"
+              placeholderTextColor={theme.onSurfaceVariant}
+              value={saveSearchName}
+              onChangeText={setSaveSearchName}
+              autoFocus
+            />
+
+            <View style={styles.dialogSwitchRow}>
+              <View style={{ flex: 1, marginRight: 12 }}>
+                <Text style={[styles.dialogSwitchLabel, { color: theme.onSurface }]}>New episode alerts</Text>
+                <Text style={{ fontSize: 12, color: theme.onSurfaceVariant, marginTop: 2 }}>
+                  Receive a notification when new episodes match this search
+                </Text>
+              </View>
+              <Switch
+                value={saveSearchNotify}
+                onValueChange={setSaveSearchNotify}
+                trackColor={{
+                  false: isDark ? "#38353F" : "#E2E2E6",
+                  true: isDark ? "#A078FF" : theme.primary
+                }}
+                thumbColor={saveSearchNotify ? "#FFFFFF" : isDark ? "#A5A0AD" : "#F4F3F7"}
+              />
+            </View>
+
+            <View style={styles.dialogActions}>
+              {currentSavedSearch ? (
+                <TouchableOpacity
+                  onPress={() => {
+                    Preferences.removePodcastSearch(currentSavedSearch.id);
+                    setSavedSearches(Preferences.getSavedPodcastSearches());
+                    setSaveSearchModalVisible(false);
+                  }}
+                  style={[styles.dialogButton, { backgroundColor: "#BA1A1A18", marginRight: "auto" }]}
+                >
+                  <Text style={{ color: "#BA1A1A", fontWeight: "600" }}>Remove</Text>
+                </TouchableOpacity>
+              ) : null}
+
+              <TouchableOpacity
+                onPress={() => setSaveSearchModalVisible(false)}
+                style={styles.dialogButton}
+              >
+                <Text style={{ color: theme.primary, fontWeight: "600" }}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => {
+                  const query = searchQuery.trim();
+                  const name = saveSearchName.trim() || query;
+                  if (!query) return;
+                  const latestDate = searchEpisodeMatches
+                    .map((episode) => episode.pubDate)
+                    .filter((date) => typeof date === "string" && Number.isFinite(Date.parse(date)))
+                    .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
+                  if (currentSavedSearch) {
+                    Preferences.updatePodcastSearch(currentSavedSearch.id, {
+                      name,
+                      query,
+                      notificationsEnabled: saveSearchNotify,
+                      ...(latestDate ? { latestResultDate: latestDate } : {})
+                    });
+                  } else {
+                    Preferences.savePodcastSearch({
+                      id: `search-${Date.now()}`,
+                      name,
+                      query,
+                      notificationsEnabled: saveSearchNotify,
+                      latestResultDate: latestDate
+                    });
+                  }
+                  setSavedSearches(Preferences.getSavedPodcastSearches());
+                  setSaveSearchModalVisible(false);
+                }}
+                style={[styles.dialogButton, { backgroundColor: theme.primary }]}
+              >
+                <Text style={{ color: theme.onPrimary, fontWeight: "700" }}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </SafeAreaView>
   );
 
@@ -1258,5 +1323,64 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.25,
     shadowRadius: 4
+  },
+  dialogBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24
+  },
+  dialogCard: {
+    width: "100%",
+    maxWidth: 360,
+    borderRadius: 24,
+    padding: 24,
+    elevation: 24,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16
+  },
+  dialogTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    marginBottom: 8
+  },
+  dialogLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    marginBottom: 4
+  },
+  dialogInput: {
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    fontSize: 15,
+    marginBottom: 16
+  },
+  dialogSwitchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 16,
+    paddingVertical: 4
+  },
+  dialogSwitchLabel: {
+    fontSize: 14,
+    fontWeight: "500"
+  },
+  dialogActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 8
+  },
+  dialogButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10
   }
 });

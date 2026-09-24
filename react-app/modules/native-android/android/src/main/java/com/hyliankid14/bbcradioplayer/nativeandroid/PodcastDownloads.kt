@@ -127,17 +127,70 @@ object PodcastDownloads {
       File(folderPath()).mkdirs()
     } catch (_: Exception) {
     }
+
     val docId = "primary:$RELATIVE_PATH"
-    val uri = DocumentsContract.buildDocumentUri("com.android.externalstorage.documents", docId)
-    return try {
+
+    // 1. Try DocumentsContract buildDocumentUri with ACTION_VIEW directly (no restrictive MIME, no chooser)
+    try {
+      val uri = DocumentsContract.buildDocumentUri("com.android.externalstorage.documents", docId)
+      val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+      }
+      context.startActivity(intent)
+      return true
+    } catch (_: Exception) {}
+
+    // 2. Try with vnd.android.document/directory MIME type
+    try {
+      val uri = DocumentsContract.buildDocumentUri("com.android.externalstorage.documents", docId)
       val intent = Intent(Intent.ACTION_VIEW).apply {
         setDataAndType(uri, "vnd.android.document/directory")
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
       }
-      context.startActivity(Intent.createChooser(intent, "Open downloads").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-      true
-    } catch (_: Exception) {
-      false
+      context.startActivity(intent)
+      return true
+    } catch (_: Exception) {}
+
+    // 3. Try DocumentsContract tree document URI
+    try {
+      val treeUri = DocumentsContract.buildTreeDocumentUri("com.android.externalstorage.documents", docId)
+      val intent = Intent(Intent.ACTION_VIEW, treeUri).apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+      }
+      context.startActivity(intent)
+      return true
+    } catch (_: Exception) {}
+
+    // 4. Try ACTION_VIEW_DOWNLOADS
+    try {
+      val dlIntent = Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS).apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      }
+      context.startActivity(dlIntent)
+      return true
+    } catch (_: Exception) {}
+
+    // 5. Try launching default/installed file manager app directly
+    val fileManagerPackages = listOf(
+      "com.google.android.apps.nbu.files",
+      "com.android.documentsui",
+      "com.sec.android.app.myfiles",
+      "com.oneplus.filemanager",
+      "com.coloros.filemanager",
+      "com.mi.android.globalFileexplorer",
+      "com.huawei.hidisk"
+    )
+    for (pkg in fileManagerPackages) {
+      try {
+        val launchIntent = context.packageManager.getLaunchIntentForPackage(pkg)
+        if (launchIntent != null) {
+          launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+          context.startActivity(launchIntent)
+          return true
+        }
+      } catch (_: Exception) {}
     }
+
+    return false
   }
 }

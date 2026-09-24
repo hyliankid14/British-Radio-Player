@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -13,12 +13,12 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { FontAwesome5, MaterialIcons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { Station, StationCategory, StationRepository } from "../../src/data/stations";
 import { usePlayerStore } from "../../src/store/playerStore";
+import { useStationShowStore } from "../../src/store/stationShowStore";
 import { StationLogo } from "../../src/components/StationLogo";
 import { useAppTheme } from "../../src/theme/colors";
-import { fetchShowInfo } from "../../src/api/showInfo";
 import { Preferences } from "../../src/storage/preferences";
 import { OfflineBanner, VpnBanner } from "../../src/components/NetworkBanners";
 
@@ -29,7 +29,7 @@ export default function AllStationsScreen() {
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
   const [activeSubTab, setActiveSubTab] = useState<SubCategoryTab>("National");
-  const [showTitles, setShowTitles] = useState<Record<string, string>>({});
+  const { shows, fetchShowsForStations, checkAndAdvanceShows } = useStationShowStore();
   const [recentSongs, setRecentSongs] = useState(Preferences.getRecentSongs());
   const [selectedSong, setSelectedSong] = useState<(typeof recentSongs)[number] | null>(null);
 
@@ -44,30 +44,6 @@ export default function AllStationsScreen() {
   } = usePlayerStore();
 
   const allStations = useMemo(() => StationRepository.getAll(), []);
-
-  // Fetch show info for visible stations
-  useEffect(() => {
-    let isMounted = true;
-    async function loadShows() {
-      const nationalStations = allStations.filter(
-        (s) => s.category === StationCategory.NATIONAL
-      );
-      for (const s of nationalStations.slice(0, 10)) {
-        try {
-          const info = await fetchShowInfo(s.id);
-          if (isMounted && info?.title) {
-            setShowTitles((prev) => ({ ...prev, [s.id]: info.title }));
-          }
-        } catch {
-          // ignore background errors
-        }
-      }
-    }
-    loadShows();
-    return () => {
-      isMounted = false;
-    };
-  }, [allStations]);
 
   useEffect(() => {
     if (activeSubTab === "Songs") setRecentSongs(Preferences.getRecentSongs());
@@ -123,10 +99,29 @@ export default function AllStationsScreen() {
     return [];
   }, [allStations, activeSubTab]);
 
+  useEffect(() => {
+    if (filteredStations.length > 0) {
+      void fetchShowsForStations(filteredStations.map((s) => s.id));
+    }
+  }, [filteredStations, fetchShowsForStations]);
+
+  useFocusEffect(
+    useCallback(() => {
+      checkAndAdvanceShows();
+      if (filteredStations.length > 0) {
+        void fetchShowsForStations(filteredStations.map((s) => s.id));
+      }
+    }, [filteredStations, checkAndAdvanceShows, fetchShowsForStations])
+  );
+
   const renderStationItem = ({ item }: { item: Station }) => {
     const isCurrent = currentStation?.id === item.id;
     const isFav = favorites.includes(item.id);
-    const subtitle = showTitles[item.id] || "";
+    const livePlayingTitle =
+      isCurrent && currentShow?.title && currentShow.title !== "BBC Radio"
+        ? currentShow.title
+        : undefined;
+    const subtitle = livePlayingTitle || shows[item.id]?.title || "";
 
     return (
       <TouchableOpacity

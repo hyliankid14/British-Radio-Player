@@ -22,7 +22,7 @@ import { AUDIO_QUALITIES, AudioQuality, StationRepository } from "../../src/data
 import { StationLogo } from "../../src/components/StationLogo";
 import { Dropdown, DropdownOption } from "../../src/components/Dropdown";
 import { usePlayerStore } from "../../src/store/playerStore";
-import { useAppTheme, useThemeMode, setAppTheme, ThemeMode } from "../../src/theme/colors";
+import { useAppTheme, useThemeMode, setAppTheme, ThemeMode, useIsDarkTheme } from "../../src/theme/colors";
 import { NativeAndroid } from "../../src/native/nativeAndroid";
 import { LastFmApi } from "../../src/api/lastfm";
 import { useDownloadStore } from "../../src/downloads/downloadStore";
@@ -1393,11 +1393,41 @@ function SwitchRow({
   onChange: (value: boolean) => void;
 }) {
   const theme = useAppTheme();
+  const isDark = useIsDarkTheme();
+
+  // Distinctive high-contrast toggle styling for both dark and light modes
+  const activeTrack = isDark ? "#A078FF" : theme.primary;
+  const inactiveTrack = isDark ? "#38353F" : "#E2E2E6";
+  const activeThumb = "#FFFFFF";
+  const inactiveThumb = isDark ? "#A5A0AD" : "#F4F3F7";
+
   return (
     <View style={styles.switchRow}>
       {icon ? (
-        <View style={[styles.iconCircle, { backgroundColor: theme.surfaceVariant }]}>
-          <MaterialIcons name={icon} size={20} color={disabled ? theme.outline : theme.onSurface} />
+        <View
+          style={[
+            styles.iconCircle,
+            {
+              backgroundColor: value
+                ? (isDark ? "#A078FF25" : theme.primaryContainer + "40")
+                : theme.surfaceVariant,
+              borderColor: value
+                ? (isDark ? "#A078FF50" : theme.primary + "30")
+                : "transparent"
+            }
+          ]}
+        >
+          <MaterialIcons
+            name={icon}
+            size={20}
+            color={
+              disabled
+                ? theme.outline
+                : value
+                ? (isDark ? "#D0BCFF" : theme.primary)
+                : theme.onSurface
+            }
+          />
         </View>
       ) : null}
       <View style={styles.flex}>
@@ -1419,16 +1449,11 @@ function SwitchRow({
           disabled={disabled}
           onValueChange={onChange}
           trackColor={{
-            false: Platform.OS === "android" ? theme.surfaceVariant : undefined,
-            true: theme.primary
+            false: inactiveTrack,
+            true: activeTrack
           }}
-          thumbColor={
-            Platform.OS === "android"
-              ? value
-                ? theme.onPrimary
-                : theme.outline
-              : undefined
-          }
+          thumbColor={value ? activeThumb : inactiveThumb}
+          ios_backgroundColor={inactiveTrack}
         />
       </View>
     </View>

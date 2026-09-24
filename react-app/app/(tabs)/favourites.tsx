@@ -24,8 +24,8 @@ import { Station, StationRepository } from "../../src/data/stations";
 import { usePlayerStore } from "../../src/store/playerStore";
 import { StationLogo } from "../../src/components/StationLogo";
 import { useAppTheme } from "../../src/theme/colors";
-import { fetchShowInfo } from "../../src/api/showInfo";
-import { Podcast, PodcastApi, decodeXmlEntities, Episode } from "../../src/api/podcasts";
+import { useStationShowStore } from "../../src/store/stationShowStore";
+import { Podcast, PodcastApi, decodeXmlEntities, Episode, matchesBooleanSearch } from "../../src/api/podcasts";
 import { Preferences, PodcastHistoryEntry } from "../../src/storage/preferences";
 import { OfflineBanner, VpnBanner } from "../../src/components/NetworkBanners";
 import { NativeAndroid } from "../../src/native/nativeAndroid";
@@ -252,7 +252,7 @@ export default function FavouritesScreen() {
       : "Stations";
   });
   const [draggingStationId, setDraggingStationId] = useState<string | null>(null);
-  const [showTitles, setShowTitles] = useState<Record<string, string>>({});
+  const { shows, fetchShowsForStations, checkAndAdvanceShows } = useStationShowStore();
   const [subscribedPodcasts, setSubscribedPodcasts] = useState<Podcast[]>([]);
   const [newEpisodeIds, setNewEpisodeIds] = useState<Set<string>>(new Set());
   const [podcastSort, setPodcastSort] = useState<PodcastSort>(
@@ -331,30 +331,19 @@ export default function FavouritesScreen() {
   );
 
   useEffect(() => {
-    let isMounted = true;
-
-    async function loadShowTitles() {
-      const results = await Promise.all(
-        favorites.map(async (stationId) => {
-          try {
-            const show = await fetchShowInfo(stationId);
-            return [stationId, show.title !== "BBC Radio" ? show.title : ""] as const;
-          } catch {
-            return [stationId, ""] as const;
-          }
-        })
-      );
-
-      if (isMounted) {
-        setShowTitles(Object.fromEntries(results));
-      }
+    if (favorites.length > 0) {
+      void fetchShowsForStations(favorites);
     }
+  }, [favorites, fetchShowsForStations]);
 
-    loadShowTitles();
-    return () => {
-      isMounted = false;
-    };
-  }, [favorites]);
+  useFocusEffect(
+    useCallback(() => {
+      checkAndAdvanceShows();
+      if (favorites.length > 0) {
+        void fetchShowsForStations(favorites);
+      }
+    }, [favorites, checkAndAdvanceShows, fetchShowsForStations])
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -423,12 +412,17 @@ export default function FavouritesScreen() {
       void Promise.all(
         searches.map(async (search) => {
           const results = await PodcastApi.searchEpisodesOnPi(search.query, 100);
-          const latestResultDate = results
+          const matchingEpisodes = results.filter((episode) =>
+            matchesBooleanSearch(search.query, `${episode.title} ${episode.description}`)
+          );
+          const latestResultDate = matchingEpisodes
             .map((episode) => episode.pubDate)
-            .filter((date) => Number.isFinite(Date.parse(date)))
+            .filter((date) => typeof date === "string" && Number.isFinite(Date.parse(date)))
             .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
-          if (latestResultDate && latestResultDate !== search.latestResultDate) {
-            Preferences.updatePodcastSearchLatestResult(search.id, latestResultDate);
+          if (latestResultDate !== search.latestResultDate) {
+            if (latestResultDate || results.length > 0) {
+              Preferences.updatePodcastSearchLatestResult(search.id, latestResultDate);
+            }
           }
         })
       ).then(() => {
@@ -448,6 +442,9 @@ export default function FavouritesScreen() {
         key.includes("played")
       ) {
         setPodcastHistory(Preferences.getPodcastHistory());
+      }
+      if (key.includes("saved_podcast_searches")) {
+        setSavedSearches(Preferences.getSavedPodcastSearches());
       }
     });
     return () => sub.remove();
@@ -639,14 +636,27 @@ export default function FavouritesScreen() {
     setNewTagInput("");
   }, [taggingPodcast, newTagInput]);
 
-  const handleSaveSearchEdit = useCallback(() => {
+  const handleSaveSearchEdit = useCallback(async () => {
     if (!editSearchTarget) return;
     const name = editSearchName.trim() || editSearchTarget.query;
     const query = editSearchQuery.trim() || editSearchTarget.query;
+    const queryChanged = query.toLowerCase() !== editSearchTarget.query.toLowerCase();
+    let latestResultDate = editSearchTarget.latestResultDate;
+    if (queryChanged) {
+      const results = await PodcastApi.searchEpisodesOnPi(query, 100);
+      const matching = results.filter((ep) =>
+        matchesBooleanSearch(query, `${ep.title} ${ep.description}`)
+      );
+      latestResultDate = matching
+        .map((ep) => ep.pubDate)
+        .filter((d) => typeof d === "string" && Number.isFinite(Date.parse(d)))
+        .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
+    }
     Preferences.updatePodcastSearch(editSearchTarget.id, {
       name,
       query,
-      notificationsEnabled: editSearchNotify
+      notificationsEnabled: editSearchNotify,
+      latestResultDate
     });
     setSavedSearches(Preferences.getSavedPodcastSearches());
     setEditSearchTarget(null);
@@ -1013,15 +1023,15 @@ export default function FavouritesScreen() {
           onSchedule={handleOpenSchedule}
           onToggleFavorite={toggleFavorite}
           showTitle={
-            currentStation?.id === item.id && currentShow?.title !== "BBC Radio"
-              ? currentShow?.title
-              : showTitles[item.id]
+            currentStation?.id === item.id && currentShow?.title && currentShow.title !== "BBC Radio"
+              ? currentShow.title
+              : (shows[item.id]?.title || "")
           }
           theme={theme}
         />
       );
     },
-    [draggingStationId, createPanResponder, panY, scaleAnim, getTranslation, handlePlayStation, handleOpenSchedule, toggleFavorite, currentStation?.id, currentShow, showTitles, theme]
+    [draggingStationId, createPanResponder, panY, scaleAnim, getTranslation, handlePlayStation, handleOpenSchedule, toggleFavorite, currentStation?.id, currentShow, shows, theme]
   );
 
   const renderHistoryItem = useCallback(
