@@ -27,7 +27,6 @@ import {
 } from "../src/notifications/notifications";
 import { Preferences } from "../src/storage/preferences";
 import { NativeAndroid } from "../src/native/nativeAndroid";
-import { LastFmApi } from "../src/api/lastfm";
 import { StationRepository } from "../src/data/stations";
 import { formatShowDisplayTitle } from "../src/api/showInfo";
 
@@ -87,20 +86,13 @@ export default function RootLayout() {
       try {
         const parsed = Linking.parse(url);
 
-        // A Last.fm OAuth redirect carries a one-time token; exchange it once here so
-        // the connection succeeds regardless of which screen is open.
-        const token = typeof parsed.queryParams?.token === "string" ? parsed.queryParams.token : null;
-        if (token) {
-          try {
-            const session = await LastFmApi.exchangeToken(token);
-            Preferences.setLastFmSession(session.username, session.sessionKey);
-            Alert.alert("Last.fm connected", `Connected as ${session.username}.`);
-          } catch (error) {
-            Alert.alert(
-              "Last.fm connection failed",
-              error instanceof Error ? error.message : "Could not connect to Last.fm."
-            );
-          }
+        // A Last.fm OAuth redirect carries a one-time token. Route to /lastfm-auth
+        // so it can exchange the token, display connection state, and redirect back.
+        if (parsed.path === "lastfm-auth" || parsed.hostname === "lastfm-auth" || parsed.queryParams?.token) {
+          router.navigate({
+            pathname: "/lastfm-auth" as any,
+            params: parsed.queryParams as any
+          });
           return;
         }
 
@@ -208,6 +200,7 @@ export default function RootLayout() {
         }}
       >
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="lastfm-auth" options={{ headerShown: false }} />
         <Stack.Screen
           name="modal/now-playing"
           options={{
