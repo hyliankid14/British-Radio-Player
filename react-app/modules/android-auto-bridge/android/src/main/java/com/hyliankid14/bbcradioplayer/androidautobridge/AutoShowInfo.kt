@@ -23,6 +23,7 @@ object AutoShowInfo {
 
   data class ShowInfo(
     val showTitle: String = "",
+    val showSubtitle: String = "",
     val artist: String = "",
     val track: String = "",
     val songArtworkUrl: String = "",
@@ -42,6 +43,13 @@ object AutoShowInfo {
     val entry = infoCache[serviceId] ?: return ""
     if (System.currentTimeMillis() - entry.fetchedAtMs > ESS_CACHE_TTL_MS) return ""
     return entry.showTitle
+  }
+
+  /** Returns the cached current-show subtitle, or "" when missing/stale. */
+  fun cachedShowSubtitle(serviceId: String): String {
+    val entry = infoCache[serviceId] ?: return ""
+    if (System.currentTimeMillis() - entry.fetchedAtMs > ESS_CACHE_TTL_MS) return ""
+    return entry.showSubtitle
   }
 
   /** Returns the downloaded song artwork bitmap if available. */
@@ -67,15 +75,15 @@ object AutoShowInfo {
       Triple(existing?.artist.orEmpty(), existing?.track.orEmpty(), existing?.songArtworkUrl.orEmpty())
     }
 
-    val showTitle = try {
+    val (showTitle, showSubtitle) = try {
       if (existing != null && existing.showTitle.isNotEmpty() && now - existing.fetchedAtMs <= ESS_CACHE_TTL_MS) {
-        existing.showTitle
+        Pair(existing.showTitle, existing.showSubtitle)
       } else {
-        fetchCurrentShowTitle(serviceId)
+        fetchCurrentShowDetails(serviceId)
       }
     } catch (e: Exception) {
       Log.d(TAG, "ESS show info fetch failed for $serviceId: ${e.message}")
-      existing?.showTitle.orEmpty()
+      Pair(existing?.showTitle.orEmpty(), existing?.showSubtitle.orEmpty())
     }
 
     // Download artwork bitmap if new artwork URL is present
@@ -94,6 +102,7 @@ object AutoShowInfo {
 
     val updated = ShowInfo(
       showTitle = showTitle,
+      showSubtitle = showSubtitle,
       artist = artist,
       track = track,
       songArtworkUrl = songArtworkUrl,
@@ -179,6 +188,10 @@ object AutoShowInfo {
   }
 
   private fun fetchCurrentShowTitle(serviceId: String): String {
+    return fetchCurrentShowDetails(serviceId).first
+  }
+
+  private fun fetchCurrentShowDetails(serviceId: String): Pair<String, String> {
     val connection = (URL("https://ess.api.bbci.co.uk/schedules?serviceId=$serviceId&mediatypes=audio")
       .openConnection() as HttpURLConnection).apply {
       connectTimeout = 8000
@@ -188,9 +201,9 @@ object AutoShowInfo {
       setRequestProperty("Accept", "application/json")
     }
     try {
-      if (connection.responseCode != HttpURLConnection.HTTP_OK) return ""
+      if (connection.responseCode != HttpURLConnection.HTTP_OK) return Pair("", "")
       val body = connection.inputStream.bufferedReader().use { it.readText() }
-      val items = JSONObject(body).optJSONArray("items") ?: return ""
+      val items = JSONObject(body).optJSONArray("items") ?: return Pair("", "")
       val now = System.currentTimeMillis()
       for (i in 0 until items.length()) {
         val item = items.optJSONObject(i) ?: continue
@@ -203,16 +216,26 @@ object AutoShowInfo {
         if (now in start..end) {
           val brand = item.optJSONObject("brand")
           val episode = item.optJSONObject("episode")
-          val title = brand?.optString("title", "")?.takeIf { it.isNotEmpty() }
-            ?: episode?.optString("title", "")?.takeIf { it.isNotEmpty() }
-            ?: ""
-          return title
+          val brandTitle = brand?.optString("title", "").orEmpty().trim()
+          val episodeTitle = episode?.optString("title", "").orEmpty().trim()
+          val shortSynopsis = episode?.optJSONObject("synopses")?.optString("short", "").orEmpty().trim()
+            .ifEmpty { item.optJSONObject("synopses")?.optString("short", "").orEmpty().trim() }
+
+          val showTitle = brandTitle.ifEmpty { episodeTitle }
+          val showSubtitle = if (brandTitle.isNotEmpty() && episodeTitle.isNotEmpty() && !episodeTitle.equals(brandTitle, ignoreCase = true)) {
+            episodeTitle
+          } else if (shortSynopsis.isNotEmpty() && !shortSynopsis.equals(showTitle, ignoreCase = true)) {
+            shortSynopsis
+          } else {
+            ""
+          }
+          return Pair(showTitle, showSubtitle)
         }
       }
     } finally {
       try { connection.disconnect() } catch (_: Exception) { }
     }
-    return ""
+    return Pair("", "")
   }
 
   private fun parseIso(raw: String): Long? {

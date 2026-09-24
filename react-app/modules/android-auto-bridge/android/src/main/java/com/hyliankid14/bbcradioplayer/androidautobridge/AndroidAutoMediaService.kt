@@ -692,25 +692,26 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
       val info = AutoShowInfo.cachedShowInfo(serviceId)
       val hasSong = info.track.isNotEmpty() || info.artist.isNotEmpty()
 
-      val title = if (hasSong) {
-        if (info.track.isNotEmpty() && info.artist.isNotEmpty()) info.track
+      val title = stationTitle
+      val subtitle = if (hasSong) {
+        if (info.artist.isNotEmpty() && info.track.isNotEmpty()) "${info.artist} - ${info.track}"
         else info.track.ifEmpty { info.artist }
       } else {
-        info.showTitle.ifEmpty { stationTitle }
-      }
-      val artistSubtitle = if (hasSong) {
-        if (info.artist.isNotEmpty()) "${info.artist} · $stationTitle" else stationTitle
-      } else {
-        stationTitle
+        val show = info.showTitle.ifEmpty { stationTitle }
+        if (info.showSubtitle.isNotEmpty() && !info.showSubtitle.equals(show, ignoreCase = true)) {
+          "$show - ${info.showSubtitle}"
+        } else {
+          show
+        }
       }
 
       metadata
         .putString(MediaMetadataCompat.METADATA_KEY_TITLE, title)
-        .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, artistSubtitle)
+        .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, subtitle)
         .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, stationTitle)
         .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_TITLE, title)
-        .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, artistSubtitle)
-        .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_DESCRIPTION, stationTitle)
+        .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, subtitle)
+        .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_DESCRIPTION, if (hasSong) info.showTitle.ifEmpty { stationTitle } else stationTitle)
 
       val songArtworkBitmap = AutoShowInfo.cachedArtworkBitmap(serviceId)
       if (hasSong && info.songArtworkUrl.isNotEmpty()) {
@@ -913,16 +914,17 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
       val stationTitle = station.optString("title")
       val info = AutoShowInfo.cachedShowInfo(serviceId)
       val hasSong = info.track.isNotEmpty() || info.artist.isNotEmpty()
-      title = if (hasSong) {
-        if (info.track.isNotEmpty() && info.artist.isNotEmpty()) info.track
+      title = stationTitle
+      subtitle = if (hasSong) {
+        if (info.artist.isNotEmpty() && info.track.isNotEmpty()) "${info.artist} - ${info.track}"
         else info.track.ifEmpty { info.artist }
       } else {
-        info.showTitle.ifEmpty { stationTitle }
-      }
-      subtitle = if (hasSong) {
-        if (info.artist.isNotEmpty()) "${info.artist} · $stationTitle" else stationTitle
-      } else {
-        stationTitle
+        val show = info.showTitle.ifEmpty { stationTitle }
+        if (info.showSubtitle.isNotEmpty() && !info.showSubtitle.equals(show, ignoreCase = true)) {
+          "$show - ${info.showSubtitle}"
+        } else {
+          show
+        }
       }
       largeIcon = if (hasSong) {
         AutoShowInfo.cachedArtworkBitmap(serviceId) ?: AutoArtwork.createBitmap(stationId, 256)
@@ -952,8 +954,14 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
       PendingIntent.getActivity(this, 0, launchIntent, flags)
     }
 
+    val smallIconRes = try {
+      R.drawable.ic_stat_notification
+    } catch (_: Throwable) {
+      applicationInfo.icon
+    }
+
     val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-      .setSmallIcon(applicationInfo.icon)
+      .setSmallIcon(smallIconRes)
       .setContentTitle(title)
       .setContentText(subtitle)
       .setContentIntent(contentIntent)
@@ -1172,11 +1180,19 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
 
       MEDIA_ID_PODCASTS_DOWNLOADED -> {
         for (entry in AutoState.downloads(this)) {
+          val played = AutoState.isPlayed(this, entry.optString("id"))
+          val inProgress = !played && AutoState.progress(this, entry.optString("id")) > 0L
           items.add(
             playable(
               "podcast_episode_${entry.optString("id")}",
               entry.optString("title"),
-              episodeSubtitle(entry.optString("pubDate"), entry.optString("podcastTitle"), false, false, true),
+              episodeSubtitle(
+                pubDate = entry.optString("pubDate"),
+                podcastTitle = entry.optString("podcastTitle"),
+                played = played,
+                inProgress = inProgress,
+                downloaded = true
+              ),
               entry.optString("imageUrl")
             )
           )
@@ -1184,6 +1200,7 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
       }
 
       MEDIA_ID_PODCASTS_HISTORY -> {
+        val downloadedIds = AutoState.downloads(this).map { it.optString("id") }.toSet()
         for (entry in AutoState.history(this)) {
           val played = AutoState.isPlayed(this, entry.optString("id"))
           val inProgress = !played && AutoState.progress(this, entry.optString("id")) > 0L
@@ -1191,7 +1208,13 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
             playable(
               "podcast_episode_${entry.optString("id")}",
               entry.optString("title"),
-              episodeSubtitle(entry.optString("pubDate"), entry.optString("podcastTitle"), played, inProgress, false),
+              episodeSubtitle(
+                pubDate = entry.optString("pubDate"),
+                podcastTitle = entry.optString("podcastTitle"),
+                played = played,
+                inProgress = inProgress,
+                downloaded = downloadedIds.contains(entry.optString("id"))
+              ),
               entry.optString("imageUrl")
             )
           )
@@ -1220,7 +1243,13 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
               playable(
                 "playlistep_$playlistId|${entry.optString("id")}",
                 entry.optString("title"),
-                episodeSubtitle(entry.optString("pubDate"), entry.optString("podcastTitle"), played, inProgress, downloadedIds.contains(entry.optString("id"))),
+                episodeSubtitle(
+                  pubDate = entry.optString("pubDate"),
+                  podcastTitle = entry.optString("podcastTitle"),
+                  played = played,
+                  inProgress = inProgress,
+                  downloaded = downloadedIds.contains(entry.optString("id"))
+                ),
                 entry.optString("imageUrl")
               )
             )
@@ -1251,7 +1280,13 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
               playable(
                 "podcast_episode_${episode.optString("id")}",
                 episode.optString("title"),
-                episodeSubtitle(episode.optString("pubDate"), episode.optString("podcastTitle"), played, inProgress, downloadedIds.contains(episode.optString("id"))),
+                episodeSubtitle(
+                  pubDate = episode.optString("pubDate"),
+                  podcastTitle = "",
+                  played = played,
+                  inProgress = inProgress,
+                  downloaded = downloadedIds.contains(episode.optString("id"))
+                ),
                 episode.optString("imageUrl")
               )
             )
@@ -1324,6 +1359,20 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
     return out
   }
 
+  private fun loadDrawableAsBitmap(drawableResId: Int, sizePixels: Int = 128): Bitmap? {
+    return try {
+      val drawable = androidx.core.content.ContextCompat.getDrawable(this, drawableResId) ?: return null
+      val bitmap = Bitmap.createBitmap(sizePixels, sizePixels, Bitmap.Config.ARGB_8888)
+      val canvas = android.graphics.Canvas(bitmap)
+      drawable.setBounds(0, 0, sizePixels, sizePixels)
+      drawable.draw(canvas)
+      bitmap
+    } catch (e: Exception) {
+      Log.e("AndroidAutoMediaService", "Failed to load drawable as bitmap: ${e.message}")
+      null
+    }
+  }
+
   private fun browsable(
     mediaId: String,
     title: String,
@@ -1334,7 +1383,9 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
       .setMediaId(mediaId)
       .setTitle(title)
       .setSubtitle(subtitle)
-    iconRes?.let { description.setIconBitmap(BitmapFactory.decodeResource(resources, it)) }
+    iconRes?.let { resId ->
+      loadDrawableAsBitmap(resId)?.let { description.setIconBitmap(it) }
+    }
     return MediaBrowserCompat.MediaItem(description.build(), MediaBrowserCompat.MediaItem.FLAG_BROWSABLE)
   }
 
@@ -1539,20 +1590,26 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
 
   private fun episodeSubtitle(
     pubDate: String,
-    podcastTitle: String,
+    podcastTitle: String = "",
     played: Boolean,
     inProgress: Boolean,
     downloaded: Boolean
   ): String {
-    val parts = mutableListOf<String>()
-    formatEpisodeDate(pubDate).takeIf { it.isNotEmpty() }?.let { parts.add(it) }
-    if (podcastTitle.isNotBlank()) parts.add(podcastTitle)
-    val markers = mutableListOf<String>()
-    if (played) markers.add("Played")
-    if (inProgress) markers.add("In progress")
-    if (downloaded) markers.add("Downloaded")
-    if (markers.isNotEmpty()) parts.add(markers.joinToString(" · "))
-    return parts.joinToString(" · ")
+    val isNew = !played && !inProgress
+    val formattedDate = formatEpisodeDate(pubDate)
+    return buildString {
+      when {
+        played -> append("✅ ")
+        inProgress -> append("~ ")
+        isNew -> append("● ")
+      }
+      if (downloaded) append("⬇ ")
+      append(formattedDate)
+      if (podcastTitle.isNotBlank()) {
+        if (formattedDate.isNotBlank()) append(" • ")
+        append(podcastTitle)
+      }
+    }.trim()
   }
 
   private fun formatEpisodeDate(raw: String): String {

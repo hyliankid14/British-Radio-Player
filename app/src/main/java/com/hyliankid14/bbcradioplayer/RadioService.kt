@@ -3337,8 +3337,6 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
         val titleCandidate = (currentShowInfo.episodeTitle ?: currentShowTitle).orEmpty()
         val titleVal: String = if (isPodcast) {
             if (titleCandidate.isNotBlank() && !titleCandidate.equals(currentStationTitle, ignoreCase = true)) titleCandidate else ""
-        } else if (hasSongData) {
-            trackStr.ifEmpty { currentShowInfo.getFormattedTitle().ifEmpty { currentStationTitle.orEmpty() } }
         } else {
             currentStationTitle.orEmpty()
         }
@@ -3347,9 +3345,16 @@ val pbShow = PlaybackStateHelper.getCurrentShow()
             // artist field can carry author/host or show name for podcasts
             currentShowName.orEmpty()
         } else if (hasSongData) {
-            artistStr.ifEmpty { artistTrackStr.orEmpty() }
+            if (artistStr.isNotEmpty() && trackStr.isNotEmpty()) "$artistStr - $trackStr"
+            else artistStr.ifEmpty { trackStr.ifEmpty { artistTrackStr.orEmpty() } }
         } else {
-            currentShowName.orEmpty()
+            val showName = currentShowName.orEmpty()
+            val showSubtitle = currentShowInfo.episodeTitle.orEmpty()
+            if (showName.isNotEmpty() && showSubtitle.isNotEmpty() && !showSubtitle.equals(showName, ignoreCase = true)) {
+                "$showName - $showSubtitle"
+            } else {
+                showName.ifEmpty { currentStationTitle.orEmpty() }
+            }
         }
 
         // Compute the subtitle (centralized) and let computeUiSubtitle() keep PlaybackStateHelper in sync.

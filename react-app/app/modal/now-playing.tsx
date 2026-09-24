@@ -221,11 +221,11 @@ export default function NowPlayingModal() {
         .filter(Boolean)
         .join(" - ")
     : "";
-  const artistSong =
-    artistTrack ||
-    (currentShow?.episodeTitle && currentShow.episodeTitle !== radioShowName
-      ? currentShow.episodeTitle
-      : undefined);
+  const radioSubtitle = isSongPlaying
+    ? artistTrack
+    : (currentShow?.episodeTitle && currentShow.episodeTitle !== radioShowName)
+      ? `${radioShowName} - ${currentShow.episodeTitle}`
+      : (radioShowName !== currentStation?.title ? radioShowName : undefined);
 
   React.useEffect(() => {
     setImageError(false);
@@ -527,7 +527,7 @@ export default function NowPlayingModal() {
         </View>
 
         <Text style={[styles.showName, { color: screenTextColor }]} numberOfLines={2}>
-          {isPodcast ? decodeXmlEntities(activeEpisode?.title || "") : radioShowName}
+          {isPodcast ? decodeXmlEntities(activeEpisode?.title || "") : (currentStation?.title || radioShowName)}
         </Text>
 
         {isPodcast ? (
@@ -544,9 +544,9 @@ export default function NowPlayingModal() {
               </Text>
             ) : null}
 
-            {artistSong ? (
+            {radioSubtitle ? (
               <Text style={[styles.episodeTitle, { color: screenTextColor }]} numberOfLines={2}>
-                {artistSong}
+                {radioSubtitle}
               </Text>
             ) : null}
           </>

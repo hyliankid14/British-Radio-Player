@@ -169,14 +169,16 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         ? (show.artist ? `${show.artist} - ${show.track}` : show.track)
         : (show.artist || "");
       const showTitle = (show.title && show.title !== "BBC Radio") ? show.title : station.title;
-      const showSubtitle = (show.episodeTitle && show.episodeTitle !== showTitle)
-        ? show.episodeTitle
-        : station.title;
+      const subtitleText = hasSong
+        ? songTitle
+        : (show.episodeTitle && show.episodeTitle !== showTitle
+          ? `${showTitle} - ${show.episodeTitle}`
+          : showTitle);
 
       await TrackPlayer.updateMetadataForTrack(0, {
-        title: hasSong ? songTitle : showTitle,
-        artist: hasSong ? station.title : showSubtitle,
-        album: station.title,
+        title: station.title,
+        artist: subtitleText,
+        album: showTitle,
         artwork: (hasSong && show.imageUrl) ? show.imageUrl : (show.imageUrl || station.logoUrl)
       });
 
@@ -489,14 +491,16 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
           ? (show.artist ? `${show.artist} - ${show.track}` : show.track)
           : (show.artist || "");
         const showTitle = (show.title && show.title !== "BBC Radio") ? show.title : currentStation.title;
-        const showSubtitle = (show.episodeTitle && show.episodeTitle !== showTitle)
-          ? show.episodeTitle
-          : currentStation.title;
+        const subtitleText = hasSong
+          ? songTitle
+          : (show.episodeTitle && show.episodeTitle !== showTitle
+            ? `${showTitle} - ${show.episodeTitle}`
+            : showTitle);
 
         await TrackPlayer.updateMetadataForTrack(0, {
-          title: hasSong ? songTitle : showTitle,
-          artist: hasSong ? currentStation.title : showSubtitle,
-          album: currentStation.title,
+          title: currentStation.title,
+          artist: subtitleText,
+          album: showTitle,
           artwork: (hasSong && show.imageUrl) ? show.imageUrl : (show.imageUrl || currentStation.logoUrl)
         });
       }
