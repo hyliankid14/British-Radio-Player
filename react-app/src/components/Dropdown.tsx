@@ -28,12 +28,12 @@ interface DropdownProps<T extends string | number> {
   renderLeading?: (option: DropdownOption<T>) => React.ReactNode;
 }
 
-const MENU_MAX_HEIGHT = 320;
-const OPTION_HEIGHT = 56;
+const MENU_MAX_HEIGHT = 340;
+const OPTION_HEIGHT = 54;
 
 /**
- * Material-style select control. Collapses long option lists into a single row and
- * opens a compact menu anchored to the field (not a full-screen picker).
+ * Modern Material 3 / iOS styled select control.
+ * Features a rounded surface container with smooth popover anchoring.
  */
 export function Dropdown<T extends string | number>({
   value,
@@ -52,11 +52,11 @@ export function Dropdown<T extends string | number>({
   const selected = options.find((option) => option.value === value);
 
   const menuHeight = Math.min(options.length * OPTION_HEIGHT, MENU_MAX_HEIGHT);
-  const showAbove = anchor ? anchor.y + anchor.height + menuHeight > windowHeight - 16 : false;
+  const showAbove = anchor ? anchor.y + anchor.height + menuHeight > windowHeight - 24 : false;
   const menuTop = anchor
-    ? Math.max(8, showAbove ? anchor.y - menuHeight - 4 : anchor.y + anchor.height + 4)
+    ? Math.max(12, showAbove ? anchor.y - menuHeight - 6 : anchor.y + anchor.height + 6)
     : 0;
-  const menuLeft = anchor ? Math.max(8, Math.min(anchor.x, windowWidth - anchor.width - 8)) : 0;
+  const menuLeft = anchor ? Math.max(12, Math.min(anchor.x, windowWidth - anchor.width - 12)) : 0;
 
   const close = () => setVisible(false);
 
@@ -77,11 +77,14 @@ export function Dropdown<T extends string | number>({
         <TouchableOpacity
           style={[
             styles.field,
-            { borderColor: theme.outline, backgroundColor: theme.surfaceContainer },
+            {
+              borderColor: visible ? theme.primary : theme.outlineVariant + "45",
+              backgroundColor: theme.surfaceVariant
+            },
             disabled && styles.disabled
           ]}
           onPress={open}
-          activeOpacity={0.7}
+          activeOpacity={0.75}
           accessibilityRole="button"
           accessibilityState={{ expanded: visible, disabled }}
         >
@@ -91,13 +94,20 @@ export function Dropdown<T extends string | number>({
           <Text
             style={[
               styles.fieldText,
-              { color: selected ? theme.onSurface : theme.onSurfaceVariant }
+              {
+                color: selected ? theme.onSurface : theme.onSurfaceVariant,
+                fontWeight: selected ? "500" : "400"
+              }
             ]}
             numberOfLines={1}
           >
             {selected?.label ?? placeholder}
           </Text>
-          <MaterialIcons name="arrow-drop-down" size={24} color={theme.onSurfaceVariant} />
+          <MaterialIcons
+            name={visible ? "keyboard-arrow-up" : "keyboard-arrow-down"}
+            size={22}
+            color={visible ? theme.primary : theme.onSurfaceVariant}
+          />
         </TouchableOpacity>
       </View>
 
@@ -119,7 +129,7 @@ export function Dropdown<T extends string | number>({
                   width: anchor.width,
                   height: menuHeight,
                   backgroundColor: theme.surfaceContainer,
-                  borderColor: theme.outlineVariant
+                  borderColor: theme.outlineVariant + "40"
                 }
               ]}
               onPress={() => {}}
@@ -129,12 +139,17 @@ export function Dropdown<T extends string | number>({
                 bounces={false}
                 showsVerticalScrollIndicator={options.length * OPTION_HEIGHT > MENU_MAX_HEIGHT}
               >
-                {options.map((option) => {
+                {options.map((option, index) => {
                   const active = option.value === value;
+                  const isLast = index === options.length - 1;
                   return (
                     <TouchableOpacity
                       key={String(option.value)}
-                      style={[styles.option, { borderBottomColor: theme.outlineVariant }]}
+                      style={[
+                        styles.option,
+                        active && { backgroundColor: theme.primaryContainer + "30" },
+                        !isLast && { borderBottomColor: theme.outlineVariant + "25", borderBottomWidth: StyleSheet.hairlineWidth }
+                      ]}
                       onPress={() => {
                         onChange(option.value);
                         close();
@@ -145,18 +160,30 @@ export function Dropdown<T extends string | number>({
                         <View style={styles.optionLeading}>{renderLeading(option)}</View>
                       ) : null}
                       <View style={styles.optionText}>
-                        <Text style={[styles.optionLabel, { color: theme.onSurface }]}>
+                        <Text
+                          style={[
+                            styles.optionLabel,
+                            {
+                              color: active ? theme.primary : theme.onSurface,
+                              fontWeight: active ? "600" : "400"
+                            }
+                          ]}
+                          numberOfLines={1}
+                        >
                           {option.label}
                         </Text>
                         {option.description ? (
                           <Text
                             style={[styles.optionDescription, { color: theme.onSurfaceVariant }]}
+                            numberOfLines={1}
                           >
                             {option.description}
                           </Text>
                         ) : null}
                       </View>
-                      {active && <MaterialIcons name="check" size={22} color={theme.primary} />}
+                      {active && (
+                        <MaterialIcons name="check" size={20} color={theme.primary} />
+                      )}
                     </TouchableOpacity>
                   );
                 })}
@@ -170,42 +197,41 @@ export function Dropdown<T extends string | number>({
 }
 
 const styles = StyleSheet.create({
-  label: { fontSize: 14, fontWeight: "600", marginTop: 18, marginBottom: 4 },
+  label: { fontSize: 13, fontWeight: "600", marginTop: 14, marginBottom: 6, letterSpacing: 0.2 },
   field: {
-    minHeight: 52,
+    minHeight: 50,
     borderWidth: 1,
-    borderRadius: 4,
+    borderRadius: 14,
     paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginVertical: 8
+    marginVertical: 6
   },
-  disabled: { opacity: 0.5 },
-  fieldText: { fontSize: 16, flex: 1, marginRight: 8 },
+  disabled: { opacity: 0.45 },
+  fieldText: { fontSize: 15, flex: 1, marginRight: 8 },
   fieldLeading: { marginRight: 12 },
   optionLeading: { marginRight: 12 },
-  backdrop: { flex: 1 },
+  backdrop: { flex: 1, backgroundColor: "rgba(0, 0, 0, 0.25)" },
   menu: {
     position: "absolute",
     borderWidth: 1,
-    borderRadius: 8,
+    borderRadius: 18,
     overflow: "hidden",
-    elevation: 8,
+    elevation: 10,
     shadowColor: "#000000",
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 }
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 }
   },
   option: {
     minHeight: OPTION_HEIGHT,
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth
+    paddingVertical: 10
   },
   optionText: { flex: 1, marginRight: 12 },
-  optionLabel: { fontSize: 16 },
-  optionDescription: { fontSize: 13, marginTop: 2 }
+  optionLabel: { fontSize: 15 },
+  optionDescription: { fontSize: 12, marginTop: 2 }
 });
