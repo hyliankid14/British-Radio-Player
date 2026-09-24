@@ -205,6 +205,39 @@ function StationRow({
   );
 }
 
+function checkPodcastHasNewEpisodes(
+  podcastId: string,
+  episodes: Episode[],
+  playedEpisodeIds: Set<string>
+): boolean {
+  if (!episodes || episodes.length === 0) return false;
+
+  // 1. If every single episode has been played, there are definitely no new episodes.
+  const hasUnplayed = episodes.some((ep) => !playedEpisodeIds.has(ep.id));
+  if (!hasUnplayed) {
+    const latestEpoch = episodes.reduce((max, ep) => {
+      const t = ep.pubDate ? Date.parse(ep.pubDate) : 0;
+      return isNaN(t) ? max : Math.max(max, t);
+    }, 0);
+    if (latestEpoch > 0) {
+      Preferences.setLastPlayedEpoch(podcastId, latestEpoch);
+    }
+    return false;
+  }
+
+  // 2. If the newest episode has already been played, do not show the new episode dot.
+  //    (Older unplayed episodes do not make a podcast "new")
+  const latestEpisode = episodes[0];
+  if (!latestEpisode || playedEpisodeIds.has(latestEpisode.id)) {
+    return false;
+  }
+
+  // 3. If there is a lastPlayedEpoch recorded, only mark new if the latest episode was published after it.
+  const latestEpoch = latestEpisode.pubDate ? Date.parse(latestEpisode.pubDate) || 0 : 0;
+  const lastPlayedEpoch = Preferences.getLastPlayedEpoch(podcastId);
+  return lastPlayedEpoch <= 0 || latestEpoch > lastPlayedEpoch;
+}
+
 export default function FavouritesScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ category?: string }>();
@@ -327,19 +360,34 @@ export default function FavouritesScreen() {
     useCallback(() => {
       let isMounted = true;
       const subscribedIds = Preferences.getSubscribedPodcasts();
+      const livePlayed = new Set(Preferences.getPlayedEpisodeIds());
 
       setSubscribedPodcasts((current) =>
         current.filter((podcast) => subscribedIds.includes(podcast.id))
       );
 
+      // Phase 1: Immediately evaluate cached episodes to eliminate flicker
+      const initialNewIds = new Set<string>();
+      for (const podcastId of subscribedIds) {
+        const cached = PodcastApi.getEpisodesFromCache(podcastId);
+        if (cached && cached.length > 0) {
+          if (checkPodcastHasNewEpisodes(podcastId, cached, livePlayed)) {
+            initialNewIds.add(podcastId);
+          }
+        }
+      }
+      setNewEpisodeIds(initialNewIds);
+
+      // Phase 2: Fetch live catalog and check fresh episodes
       PodcastApi.fetchLiveCatalog().then((catalog) => {
         if (!isMounted) return;
         const subscribed = new Set(Preferences.getSubscribedPodcasts());
-        const subscribedPodcasts = catalog.filter((podcast) => subscribed.has(podcast.id));
-        setSubscribedPodcasts(subscribedPodcasts);
+        const subscribedPodcastsList = catalog.filter((podcast) => subscribed.has(podcast.id));
+        setSubscribedPodcasts(subscribedPodcastsList);
 
+        const currentPlayed = new Set(Preferences.getPlayedEpisodeIds());
         Promise.all(
-          subscribedPodcasts.map(async (podcast) => {
+          subscribedPodcastsList.map(async (podcast) => {
             const episodes = await PodcastApi.fetchEpisodes(podcast.rssUrl, podcast.id);
             const latestEpisode = episodes[0];
             if (latestEpisode) {
@@ -348,8 +396,7 @@ export default function FavouritesScreen() {
                 [podcast.id]: new Date(latestEpisode.pubDate).getTime() || 0
               }));
             }
-            return latestEpisode &&
-              Preferences.getPodcastPosition(latestEpisode.id) <= 0
+            return checkPodcastHasNewEpisodes(podcast.id, episodes, currentPlayed)
               ? podcast.id
               : null;
           })
@@ -2047,6 +2094,35 @@ export default function FavouritesScreen() {
             >
               <MaterialIcons name="label-outline" size={22} color={theme.primary} />
               <Text style={[styles.optionRowText, { color: theme.onSurface }]}>Add category</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.optionRowButton}
+              onPress={async () => {
+                if (subOptionsTarget) {
+                  const target = subOptionsTarget;
+                  setSubOptionsTarget(null);
+                  try {
+                    const eps = await PodcastApi.fetchEpisodes(target.rssUrl, target.id);
+                    const toMark = eps.map((ep) => ({
+                      id: ep.id,
+                      podcastId: target.id,
+                      pubDateEpochMs: ep.pubDate ? Date.parse(ep.pubDate) || 0 : 0
+                    }));
+                    Preferences.markEpisodesPlayed(toMark);
+                    setNewEpisodeIds((prev) => {
+                      const next = new Set(prev);
+                      next.delete(target.id);
+                      return next;
+                    });
+                  } catch (e) {
+                    console.warn("Failed to mark all played", e);
+                  }
+                }
+              }}
+            >
+              <MaterialIcons name="done-all" size={22} color={theme.primary} />
+              <Text style={[styles.optionRowText, { color: theme.onSurface }]}>Mark all as played</Text>
             </TouchableOpacity>
 
             <TouchableOpacity

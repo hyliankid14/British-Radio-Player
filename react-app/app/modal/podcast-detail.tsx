@@ -264,6 +264,19 @@ export default function PodcastDetailModal() {
     }
   }, [podcast, isSubscribed, areAllDownloaded, episodes, downloads, showToast]);
 
+  const handleMarkAllPlayed = useCallback(() => {
+    if (!podcast || episodes.length === 0) return;
+    setOverflowMenuVisible(false);
+    const toMark = episodes.map((ep) => ({
+      id: ep.id,
+      podcastId: podcast.id,
+      pubDateEpochMs: ep.pubDate ? Date.parse(ep.pubDate) || 0 : 0
+    }));
+    Preferences.markEpisodesPlayed(toMark);
+    setPlayedIds(new Set(episodes.map((ep) => ep.id)));
+    showToast(`Marked ${episodes.length} episode(s) as played`);
+  }, [podcast, episodes, showToast]);
+
   const handleAddToPlaylist = useCallback((playlistId: string, playlistName: string) => {
     if (!podcast || selectedEpisodes.length === 0) return;
     selectedEpisodes.forEach((ep) => {
@@ -882,6 +895,16 @@ export default function PodcastDetailModal() {
               >
                 {hidePlayed && <MaterialIcons name="check" size={15} color={theme.onPrimary} />}
               </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.overflowMenuItem}
+              onPress={handleMarkAllPlayed}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.overflowMenuText, { color: theme.onSurface }]}>
+                Mark all as played
+              </Text>
             </TouchableOpacity>
 
             <TouchableOpacity

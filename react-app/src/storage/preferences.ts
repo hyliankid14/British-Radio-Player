@@ -675,6 +675,37 @@ export const Preferences = {
     return this.getMap(KEYS.LAST_PLAYED_EPOCH)[podcastId] || 0;
   },
 
+  setLastPlayedEpoch(podcastId: string, epochMs: number): void {
+    if (!podcastId || epochMs <= 0) return;
+    const map = this.getMap(KEYS.LAST_PLAYED_EPOCH);
+    if (epochMs > (map[podcastId] || 0)) {
+      map[podcastId] = epochMs;
+      storage.set(KEYS.LAST_PLAYED_EPOCH, JSON.stringify(map));
+    }
+  },
+
+  markEpisodesPlayed(episodes: { id: string; podcastId?: string; pubDateEpochMs?: number }[]): void {
+    if (!episodes || episodes.length === 0) return;
+    const played = new Set(this.getPlayedEpisodeIds());
+    const progressMap = this.getMap(KEYS.EPISODE_PROGRESS);
+    const epochMap = this.getMap(KEYS.LAST_PLAYED_EPOCH);
+
+    for (const ep of episodes) {
+      if (!ep.id) continue;
+      played.add(ep.id);
+      delete progressMap[ep.id];
+      if (ep.podcastId && ep.pubDateEpochMs && ep.pubDateEpochMs > 0) {
+        if (ep.pubDateEpochMs > (epochMap[ep.podcastId] || 0)) {
+          epochMap[ep.podcastId] = ep.pubDateEpochMs;
+        }
+      }
+    }
+
+    storage.set(KEYS.PLAYED_EPISODE_IDS, JSON.stringify(Array.from(played)));
+    storage.set(KEYS.EPISODE_PROGRESS, JSON.stringify(progressMap));
+    storage.set(KEYS.LAST_PLAYED_EPOCH, JSON.stringify(epochMap));
+  },
+
   getPodcastEpisodeSort(podcastId: string): "newest_first" | "oldest_first" {
     const map = this.getStringMap(KEYS.EPISODE_SORT);
     return map[podcastId] === "oldest_first" ? "oldest_first" : "newest_first";
