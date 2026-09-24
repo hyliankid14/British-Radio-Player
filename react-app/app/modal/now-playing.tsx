@@ -216,9 +216,11 @@ export default function NowPlayingModal() {
       ? currentShow.title
       : currentStation?.title || currentShow?.title || "Radio";
 
-  const artistTrack = [currentShow?.artist?.trim(), currentShow?.track?.trim()]
-    .filter(Boolean)
-    .join(" - ");
+  const artistTrack = isSongPlaying
+    ? [currentShow?.artist?.trim(), currentShow?.track?.trim()]
+        .filter(Boolean)
+        .join(" - ")
+    : "";
   const artistSong =
     artistTrack ||
     (currentShow?.episodeTitle && currentShow.episodeTitle !== radioShowName

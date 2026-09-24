@@ -30,6 +30,12 @@ export function formatShowDisplayTitle(show: CurrentShow): string {
   if (show.artist) {
     return show.artist;
   }
+  if (show.title && show.title !== "BBC Radio") {
+    if (show.episodeTitle && show.episodeTitle !== show.title) {
+      return `${show.title} — ${show.episodeTitle}`;
+    }
+    return show.title;
+  }
   if (show.episodeTitle) {
     return show.episodeTitle;
   }
@@ -46,7 +52,7 @@ export async function fetchShowInfo(stationId: string): Promise<CurrentShow> {
   let rmsImageUrl: string | undefined;
 
   // 1. Fetch live song/segment from RMS API. Only a currently-playing music segment
-  // supplies artist/song details; speech, news or an absent segment fall back to the
+  // supplies artist/song details; speech, news, or a finished song fall back to the
   // programme (show) details from the schedule below.
   try {
     const rmsRes = await fetch(`https://rms.api.bbc.co.uk/v2/services/${serviceId}/segments/latest?t=${Date.now()}`, {
@@ -56,11 +62,23 @@ export async function fetchShowInfo(stationId: string): Promise<CurrentShow> {
       const data = await rmsRes.json();
       const segment = data?.data?.[0];
       const isMusic = String(segment?.segment_type || "").toLowerCase() === "music";
-      if (segment && isMusic) {
-        artist = segment.titles?.primary;
-        track = segment.titles?.secondary || segment.titles?.tertiary;
+      const offset = segment?.offset;
+      const label = String(offset?.label || "").toLowerCase();
+      // BBC RMS sets now_playing: true and label: "Now Playing" while track is on air.
+      // Once ended, now_playing is false and label indicates e.g. "X Minutes Ago".
+      const isNowPlaying = (offset?.now_playing === true || label === "now playing") &&
+        offset?.now_playing !== false &&
+        !label.includes("ago");
+
+      if (segment && isMusic && isNowPlaying) {
+        artist = segment.titles?.primary?.trim() || undefined;
+        track = (segment.titles?.secondary || segment.titles?.tertiary)?.trim() || undefined;
         const imgTemplate = segment.image_url;
-        if (imgTemplate) {
+        if (
+          imgTemplate &&
+          !imgTemplate.toLowerCase().includes("default") &&
+          !imgTemplate.toLowerCase().includes("p01tqv8z")
+        ) {
           rmsImageUrl = imgTemplate.replace("{recipe}", "320x320");
         }
       }

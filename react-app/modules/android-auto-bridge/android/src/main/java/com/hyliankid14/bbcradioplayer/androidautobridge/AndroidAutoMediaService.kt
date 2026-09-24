@@ -645,12 +645,12 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
         if (info.track.isNotEmpty() && info.artist.isNotEmpty()) info.track
         else info.track.ifEmpty { info.artist }
       } else {
-        stationTitle
+        info.showTitle.ifEmpty { stationTitle }
       }
       val artistSubtitle = if (hasSong) {
         if (info.artist.isNotEmpty()) "${info.artist} · $stationTitle" else stationTitle
       } else {
-        info.showTitle.ifEmpty { "BBC Radio" }
+        stationTitle
       }
 
       val builder = MediaMetadata.Builder()
@@ -696,12 +696,12 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
         if (info.track.isNotEmpty() && info.artist.isNotEmpty()) info.track
         else info.track.ifEmpty { info.artist }
       } else {
-        stationTitle
+        info.showTitle.ifEmpty { stationTitle }
       }
       val artistSubtitle = if (hasSong) {
         if (info.artist.isNotEmpty()) "${info.artist} · $stationTitle" else stationTitle
       } else {
-        info.showTitle.ifEmpty { "BBC Radio" }
+        stationTitle
       }
 
       metadata
@@ -713,7 +713,7 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
         .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_DESCRIPTION, stationTitle)
 
       val songArtworkBitmap = AutoShowInfo.cachedArtworkBitmap(serviceId)
-      if (info.songArtworkUrl.isNotEmpty()) {
+      if (hasSong && info.songArtworkUrl.isNotEmpty()) {
         metadata
           .putString(MediaMetadataCompat.METADATA_KEY_ALBUM_ART_URI, info.songArtworkUrl)
           .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON_URI, info.songArtworkUrl)
@@ -917,15 +917,18 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
         if (info.track.isNotEmpty() && info.artist.isNotEmpty()) info.track
         else info.track.ifEmpty { info.artist }
       } else {
-        stationTitle
+        info.showTitle.ifEmpty { stationTitle }
       }
       subtitle = if (hasSong) {
         if (info.artist.isNotEmpty()) "${info.artist} · $stationTitle" else stationTitle
       } else {
-        info.showTitle.ifEmpty { "BBC Radio" }
+        stationTitle
       }
-      largeIcon = AutoShowInfo.cachedArtworkBitmap(serviceId)
-        ?: AutoArtwork.createBitmap(stationId, 256)
+      largeIcon = if (hasSong) {
+        AutoShowInfo.cachedArtworkBitmap(serviceId) ?: AutoArtwork.createBitmap(stationId, 256)
+      } else {
+        AutoArtwork.createBitmap(stationId, 256)
+      }
     } else {
       val episode = episodeJson ?: return null
       val podcastTitle = episode.optString("podcastTitle").ifEmpty {

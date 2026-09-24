@@ -19,7 +19,7 @@ object AutoShowInfo {
 
   private const val TAG = "AutoShowInfo"
   private const val ESS_CACHE_TTL_MS = 5 * 60 * 1000L
-  private const val RMS_CACHE_TTL_MS = 25 * 1000L
+  private const val RMS_CACHE_TTL_MS = 15 * 1000L
 
   data class ShowInfo(
     val showTitle: String = "",
@@ -127,16 +127,33 @@ object AutoShowInfo {
       if (data.length() == 0) return Triple("", "", "")
       val segment = data.optJSONObject(0) ?: return Triple("", "", "")
       val isMusic = segment.optString("segment_type", "").equals("music", ignoreCase = true)
-      val titles = segment.optJSONObject("titles")
-      val primary = titles?.optString("primary", "").orEmpty()
-      val secondary = titles?.optString("secondary", "").orEmpty()
-      val tertiary = titles?.optString("tertiary", "").orEmpty()
+      if (!isMusic) return Triple("", "", "")
 
-      if (isMusic || primary.isNotEmpty()) {
+      val offset = segment.optJSONObject("offset")
+      val isNowPlaying = offset?.optBoolean("now_playing", false) ?: false
+      val label = offset?.optString("label", "").orEmpty()
+      val isActuallyPlaying = (isNowPlaying || label.equals("Now Playing", ignoreCase = true)) &&
+        offset?.optBoolean("now_playing", true) != false &&
+        !label.contains("Ago", ignoreCase = true)
+
+      if (!isActuallyPlaying) return Triple("", "", "")
+
+      val titles = segment.optJSONObject("titles")
+      val primary = titles?.optString("primary", "").orEmpty().trim()
+      val secondary = titles?.optString("secondary", "").orEmpty().trim()
+      val tertiary = titles?.optString("tertiary", "").orEmpty().trim()
+
+      if (primary.isNotEmpty() || secondary.isNotEmpty() || tertiary.isNotEmpty()) {
         val artist = primary
         val track = secondary.ifEmpty { tertiary }
         val template = segment.optString("image_url", "")
-        val artworkUrl = if (template.isNotEmpty()) template.replace("{recipe}", "640x640") else ""
+        val artworkUrl = if (template.isNotEmpty() &&
+          !template.contains("default", ignoreCase = true) &&
+          !template.contains("p01tqv8z", ignoreCase = true)) {
+          template.replace("{recipe}", "640x640")
+        } else {
+          ""
+        }
         return Triple(artist, track, artworkUrl)
       }
     } finally {

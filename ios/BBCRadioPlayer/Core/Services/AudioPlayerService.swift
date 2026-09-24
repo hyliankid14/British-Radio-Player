@@ -568,21 +568,30 @@ final class AudioPlayerService: NSObject, ObservableObject, AVPlayerItemMetadata
             guard (200..<300).contains(http.statusCode) else { return }
 
             let payload = try JSONDecoder().decode(RMSSegmentResponse.self, from: data)
-            guard let segment = payload.data.first else { return }
-            if segment.offset?.nowPlaying == false { return }
+            let segment = payload.data.first
+            let isMusic = segment?.segmentType?.lowercased() == "music"
+            let isPlaying = segment?.offset?.nowPlaying == true || segment?.offset?.label?.lowercased() == "now playing"
+            let hasEnded = segment?.offset?.nowPlaying == false || (segment?.offset?.label?.lowercased().contains("ago") == true)
 
-            if let text = formatDetail(from: segment.titles), !text.isEmpty {
+            if let segment, isMusic, isPlaying, !hasEnded, let text = formatDetail(from: segment.titles), !text.isEmpty {
                 nowPlayingDetail = text
                 configureNowPlaying(title: currentStation?.title ?? "BBC Radio", subtitle: text)
-            }
 
-            if let image = segment.imageURL,
-               !image.isEmpty,
-               !image.lowercased().contains("default") {
-                let prepared = image
-                    .replacingOccurrences(of: "\\/", with: "/")
-                    .replacingOccurrences(of: "{recipe}", with: "320x320")
-                nowPlayingArtworkURL = URL(string: prepared)
+                if let image = segment.imageURL,
+                   !image.isEmpty,
+                   !image.lowercased().contains("default") {
+                    let prepared = image
+                        .replacingOccurrences(of: "\\/", with: "/")
+                        .replacingOccurrences(of: "{recipe}", with: "320x320")
+                    nowPlayingArtworkURL = URL(string: prepared)
+                    loadNowPlayingArtworkIfNeeded()
+                }
+            } else {
+                // Song stopped or not playing: replace with live show info
+                let showTitle = await fetchCurrentShowTitle(serviceID: serviceID) ?? currentStation?.title ?? "BBC Radio"
+                nowPlayingDetail = showTitle
+                nowPlayingArtworkURL = nil
+                configureNowPlaying(title: currentStation?.title ?? "BBC Radio", subtitle: showTitle)
                 loadNowPlayingArtworkIfNeeded()
             }
         } catch {

@@ -164,13 +164,23 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       }
 
       // Update TrackPlayer metadata with live show info
+      const hasSong = !!(show.artist || show.track);
+      const songTitle = show.track
+        ? (show.artist ? `${show.artist} - ${show.track}` : show.track)
+        : (show.artist || "");
+      const showTitle = (show.title && show.title !== "BBC Radio") ? show.title : station.title;
+      const showSubtitle = (show.episodeTitle && show.episodeTitle !== showTitle)
+        ? show.episodeTitle
+        : station.title;
+
       await TrackPlayer.updateMetadataForTrack(0, {
-        title: show.track ? `${show.artist} - ${show.track}` : show.title,
-        artist: show.track ? station.title : (show.episodeTitle || station.title),
-        artwork: show.imageUrl || station.logoUrl
+        title: hasSong ? songTitle : showTitle,
+        artist: hasSong ? station.title : showSubtitle,
+        album: station.title,
+        artwork: (hasSong && show.imageUrl) ? show.imageUrl : (show.imageUrl || station.logoUrl)
       });
 
-      // Poll show info every 30s
+      // Poll show info every 20s
       if (showInfoInterval) clearInterval(showInfoInterval);
       showInfoInterval = setInterval(async () => {
         const { currentStation, isPlaying } = get();
@@ -187,13 +197,23 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
               stationName: currentStation.title
             });
           }
+          const updatedHasSong = !!(updated.artist || updated.track);
+          const updatedSongTitle = updated.track
+            ? (updated.artist ? `${updated.artist} - ${updated.track}` : updated.track)
+            : (updated.artist || "");
+          const updatedShowTitle = (updated.title && updated.title !== "BBC Radio") ? updated.title : currentStation.title;
+          const updatedShowSubtitle = (updated.episodeTitle && updated.episodeTitle !== updatedShowTitle)
+            ? updated.episodeTitle
+            : currentStation.title;
+
           await TrackPlayer.updateMetadataForTrack(0, {
-            title: updated.track ? `${updated.artist} - ${updated.track}` : updated.title,
-            artist: updated.track ? currentStation.title : (updated.episodeTitle || currentStation.title),
-            artwork: updated.imageUrl || currentStation.logoUrl
+            title: updatedHasSong ? updatedSongTitle : updatedShowTitle,
+            artist: updatedHasSong ? currentStation.title : updatedShowSubtitle,
+            album: currentStation.title,
+            artwork: (updatedHasSong && updated.imageUrl) ? updated.imageUrl : (updated.imageUrl || currentStation.logoUrl)
           });
         }
-      }, 30000);
+      }, 20000);
     } catch (err) {
       console.warn("Error playing station:", err);
       set({ isBuffering: false, isPlaying: false });
@@ -458,10 +478,28 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     if (next) await get().playEpisode(currentPodcast, next);
   },
 
-  refreshShowInfo: async () => {    const { currentStation } = get();
+  refreshShowInfo: async () => {
+    const { currentStation, isPlaying } = get();
     if (currentStation) {
       const show = await fetchShowInfo(currentStation.id);
       set({ currentShow: show });
+      if (isPlaying) {
+        const hasSong = !!(show.artist || show.track);
+        const songTitle = show.track
+          ? (show.artist ? `${show.artist} - ${show.track}` : show.track)
+          : (show.artist || "");
+        const showTitle = (show.title && show.title !== "BBC Radio") ? show.title : currentStation.title;
+        const showSubtitle = (show.episodeTitle && show.episodeTitle !== showTitle)
+          ? show.episodeTitle
+          : currentStation.title;
+
+        await TrackPlayer.updateMetadataForTrack(0, {
+          title: hasSong ? songTitle : showTitle,
+          artist: hasSong ? currentStation.title : showSubtitle,
+          album: currentStation.title,
+          artwork: (hasSong && show.imageUrl) ? show.imageUrl : (show.imageUrl || currentStation.logoUrl)
+        });
+      }
     }
   },
 
