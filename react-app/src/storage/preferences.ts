@@ -451,6 +451,14 @@ export const Preferences = {
     storage.set("pref_hide_played_episodes_in_playlists", hidden);
   },
 
+  getHidePlayedEpisodesInPodcastDetail(podcastId: string): boolean {
+    return storage.getBoolean(`hide_played_podcast_detail_${podcastId}`) ?? false;
+  },
+
+  setHidePlayedEpisodesInPodcastDetail(podcastId: string, hidden: boolean): void {
+    storage.set(`hide_played_podcast_detail_${podcastId}`, hidden);
+  },
+
   getRecentPodcastSearches(): string[] {
     const raw = storage.getString("pref_recent_podcast_searches");
     if (!raw) return [];

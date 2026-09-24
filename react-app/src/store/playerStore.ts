@@ -446,7 +446,6 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const sorted = [...cached].sort((a, b) => {
       const aEpoch = parsePodcastDateEpoch(a.pubDate);
       const bEpoch = parsePodcastDateEpoch(b.pubDate);
-      if (!aEpoch || !bEpoch) return 0;
       return oldestFirst ? aEpoch - bEpoch : bEpoch - aEpoch;
     });
     const index = sorted.findIndex((episode) => episode.id === currentEpisode.id);

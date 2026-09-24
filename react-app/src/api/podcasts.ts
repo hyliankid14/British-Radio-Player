@@ -593,6 +593,13 @@ export const PodcastApi = {
           }
         }
 
+        // Ensure episodes are sorted by default with the newest episode first
+        episodes.sort((a, b) => {
+          const timeA = a.pubDate ? Date.parse(a.pubDate) || 0 : 0;
+          const timeB = b.pubDate ? Date.parse(b.pubDate) || 0 : 0;
+          return timeB - timeA;
+        });
+
         episodesCache.set(podcastId, episodes);
         return episodes;
       } catch (err) {

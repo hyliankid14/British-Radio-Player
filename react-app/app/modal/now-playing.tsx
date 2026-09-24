@@ -8,8 +8,7 @@ import {
   ActivityIndicator,
   Share,
   ScrollView,
-  Modal,
-  Dimensions
+  Modal
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -26,9 +25,7 @@ import { Preferences } from "../../src/storage/preferences";
 import { toSavedEpisodeEntry, useDownloadStore } from "../../src/downloads/downloadStore";
 import { NativeAndroid, ArtworkPalette } from "../../src/native/nativeAndroid";
 import { OfflineBanner, VpnBanner } from "../../src/components/NetworkBanners";
-
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
-const ARTWORK_SIZE = Math.min(SCREEN_WIDTH - 64, 300);
+import { useResponsiveLayout } from "../../src/theme/responsive";
 
 interface DerivedColours {
   subtle: string;
@@ -123,6 +120,8 @@ export default function NowPlayingModal() {
     episodeData?: string;
   }>();
   const theme = useAppTheme();
+  const responsive = useResponsiveLayout();
+  const artworkSize = responsive.nowPlayingArtworkSize;
   const {
     currentStation,
     currentShow,
@@ -508,19 +507,19 @@ export default function NowPlayingModal() {
           {hasCustomArtwork && !imageError ? (
             <Image
               source={{ uri: artworkUrl }}
-              style={[styles.artworkImage, { width: ARTWORK_SIZE, height: ARTWORK_SIZE }]}
+              style={[styles.artworkImage, { width: artworkSize, height: artworkSize }]}
               onError={() => setImageError(true)}
             />
           ) : currentStation ? (
-            <StationLogo stationId={currentStation.id} size={ARTWORK_SIZE} borderRadius={16} />
+            <StationLogo stationId={currentStation.id} size={artworkSize} borderRadius={16} />
           ) : (
             <View
               style={[
                 styles.artworkFallback,
-                { width: ARTWORK_SIZE, height: ARTWORK_SIZE, backgroundColor: theme.primaryContainer }
+                { width: artworkSize, height: artworkSize, backgroundColor: theme.primaryContainer }
               ]}
             >
-              <MaterialIcons name="podcasts" size={96} color={theme.primary} />
+              <MaterialIcons name="podcasts" size={responsive.isTablet ? 72 : 96} color={theme.primary} />
             </View>
           )}
         </View>
@@ -901,7 +900,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingTop: 16,
     paddingBottom: 16,
-    paddingHorizontal: 24
+    paddingHorizontal: 24,
+    maxWidth: 600,
+    width: "100%",
+    alignSelf: "center"
   },
   artworkContainer: {
     marginVertical: 12,
@@ -989,7 +991,10 @@ const styles = StyleSheet.create({
 
   progressSection: {
     paddingHorizontal: 16,
-    paddingBottom: 4
+    paddingBottom: 4,
+    maxWidth: 520,
+    width: "100%",
+    alignSelf: "center"
   },
   progressLabels: {
     flexDirection: "row",
@@ -1006,7 +1011,10 @@ const styles = StyleSheet.create({
     justifyContent: "space-evenly",
     paddingHorizontal: 12,
     paddingVertical: 16,
-    marginBottom: 12
+    marginBottom: 12,
+    maxWidth: 440,
+    width: "100%",
+    alignSelf: "center"
   },
   controlIconButton: {
     width: 48,

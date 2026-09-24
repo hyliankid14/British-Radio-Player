@@ -29,6 +29,7 @@ import { Podcast, PodcastApi, decodeXmlEntities, Episode } from "../../src/api/p
 import { Preferences, PodcastHistoryEntry } from "../../src/storage/preferences";
 import { OfflineBanner, VpnBanner } from "../../src/components/NetworkBanners";
 import { NativeAndroid } from "../../src/native/nativeAndroid";
+import { useResponsiveLayout } from "../../src/theme/responsive";
 
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -38,6 +39,14 @@ type FavCategory = "Stations" | "Subscribed" | "Playlists" | "Searches" | "Histo
 type PodcastSort = "most_recently_updated" | "least_recently_updated" | "alphabetical" | "manual" | "tags";
 type PlaylistSummary = { id: string; name: string; isDefault: boolean; itemCount: number };
 type SavedPodcastSearch = { id: string; name: string; query: string; notificationsEnabled: boolean; latestResultDate?: string };
+
+const CATEGORY_ITEMS: { id: FavCategory; label: string; icon: string }[] = [
+  { id: "Stations", label: "Stations", icon: "star" },
+  { id: "Subscribed", label: "Subscribed", icon: "headphones" },
+  { id: "Playlists", label: "Playlists", icon: "bookmark" },
+  { id: "Searches", label: "Searches", icon: "search" },
+  { id: "History", label: "History", icon: "history" }
+];
 
 const ITEM_HEIGHT = 72;
 const PODCAST_ITEM_HEIGHT = 104;
@@ -201,6 +210,8 @@ export default function FavouritesScreen() {
   const params = useLocalSearchParams<{ category?: string }>();
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
+  const responsive = useResponsiveLayout();
+  const isTablet = responsive.isTablet;
   const [activeCategory, setActiveCategory] = useState<FavCategory>(() => {
     const requested = params.category as FavCategory | undefined;
     return requested && ["Stations", "Subscribed", "Playlists", "Searches", "History"].includes(requested)
@@ -1134,19 +1145,14 @@ export default function FavouritesScreen() {
 
       {/* Pill group under Top App Bar matching favorites_toggle_group */}
       <View style={styles.pillGroupContainer}>
-        {[
-          { id: "Stations", icon: "star" },
-          { id: "Subscribed", icon: "headphones" },
-          { id: "Playlists", icon: "bookmark" },
-          { id: "Searches", icon: "search" },
-          { id: "History", icon: "history" }
-        ].map((item) => {
+        {CATEGORY_ITEMS.map((item) => {
           const isSelected = activeCategory === item.id;
           return (
             <TouchableOpacity
               key={item.id}
               style={[
                 styles.categoryPill,
+                isTablet && (isSelected ? styles.categoryPillTabletSelected : styles.categoryPillTabletUnselected),
                 {
                   // M3 Expressive connected button group: a small gap separates the segments
                   // and the selected segment is a full pill, rounder than the rest.
@@ -1158,13 +1164,29 @@ export default function FavouritesScreen() {
                     : theme.surfaceVariant
                 }
               ]}
-              onPress={() => setActiveCategory(item.id as FavCategory)}
+              onPress={() => setActiveCategory(item.id)}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: isSelected }}
+              accessibilityLabel={item.label}
             >
-              <MaterialIcons
-                name={item.icon as any}
-                size={18}
-                color={isSelected ? theme.primary : theme.onSurfaceVariant}
-              />
+              <View style={styles.pillContent}>
+                <MaterialIcons
+                  name={item.icon as any}
+                  size={18}
+                  color={isSelected ? (theme.navIndicatorIcon || theme.primary) : theme.onSurfaceVariant}
+                />
+                {isTablet && isSelected ? (
+                  <Text
+                    style={[
+                      styles.categoryPillText,
+                      { color: theme.navIndicatorIcon || theme.primary }
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {item.label}
+                  </Text>
+                ) : null}
+              </View>
             </TouchableOpacity>
           );
         })}
@@ -2186,6 +2208,24 @@ const styles = StyleSheet.create({
     height: 40,
     alignItems: "center",
     justifyContent: "center"
+  },
+  categoryPillTabletSelected: {
+    flex: 1,
+    paddingHorizontal: 16
+  },
+  categoryPillTabletUnselected: {
+    flex: 0,
+    width: 48
+  },
+  pillContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8
+  },
+  categoryPillText: {
+    fontSize: 14,
+    fontWeight: "600"
   },
   listContent: {
     paddingBottom: 170

@@ -35,6 +35,8 @@
     "android": "expo run:android",
     "build:android:debug": "../scripts/build-react-debug-apk.sh",
     "install:android": "../scripts/install-react-debug.sh",
+    "install:ios": "../scripts/install-ios-debug.sh",
+    "install:ios:debug": "../scripts/install-ios-debug.sh",
     "ios": "expo run:ios",
     "ios:dev": "expo start --dev-client --localhost",
     "ios:simulator": "../scripts/launch-ios-simulator.sh",

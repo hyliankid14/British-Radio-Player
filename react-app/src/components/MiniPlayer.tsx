@@ -7,10 +7,12 @@ import { formatShowDisplayTitle } from "../api/showInfo";
 import { StationLogo } from "./StationLogo";
 import { useAppTheme } from "../theme/colors";
 import { Preferences } from "../storage/preferences";
+import { useResponsiveLayout } from "../theme/responsive";
 
 export function MiniPlayer() {
   const router = useRouter();
   const theme = useAppTheme();
+  const responsive = useResponsiveLayout();
   const [, forceRefresh] = React.useState(0);
   const {
     currentStation,
@@ -26,7 +28,9 @@ export function MiniPlayer() {
     playPrevious,
     seekBy,
     favorites,
-    toggleFavorite
+    toggleFavorite,
+    positionSeconds,
+    durationSeconds
   } = usePlayerStore();
 
   const isPodcast = !currentStation && !!currentEpisode && !!currentPodcast;
@@ -66,126 +70,165 @@ export function MiniPlayer() {
     else void playNext();
   };
 
+  const artworkSize = responsive.miniPlayerArtworkSize;
+  const isTablet = responsive.isTablet;
+  const iconSize = isTablet ? 28 : 26;
+  const playIconSize = isTablet ? 32 : 30;
+
+  const renderTextContent = () => (
+    <TouchableOpacity
+      activeOpacity={0.8}
+      onPress={openNowPlaying}
+      style={isTablet ? styles.textContainerTablet : styles.textContainerPhone}
+    >
+      <Text
+        style={[styles.stationTitle, { color: theme.onSurface }]}
+        numberOfLines={1}
+      >
+        {title}
+      </Text>
+      <Text
+        style={[styles.showSubtitle, { color: theme.onSurfaceVariant }]}
+        numberOfLines={1}
+      >
+        {subtitle}
+      </Text>
+      {isPodcast && durationSeconds > 0 ? (
+        <View style={[styles.progressTrack, { backgroundColor: theme.surfaceVariant }]}>
+          <View
+            style={[
+              styles.progressIndicator,
+              {
+                backgroundColor: theme.primary,
+                width: `${Math.min(100, Math.max(0, (positionSeconds / durationSeconds) * 100))}%`
+              }
+            ]}
+          />
+        </View>
+      ) : null}
+    </TouchableOpacity>
+  );
+
+  const renderControls = () => (
+    <View style={isTablet ? styles.controlsRowTablet : styles.controlsRowPhone}>
+      {/* Stop Button */}
+      <TouchableOpacity
+        style={isTablet ? [styles.controlButtonTablet, { width: responsive.miniPlayerButtonSize, height: responsive.miniPlayerButtonSize, padding: responsive.miniPlayerButtonPadding }] : styles.controlButtonPhone}
+        onPress={stop}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <MaterialIcons name="stop" size={iconSize} color={theme.miniPlayerIconTint} />
+      </TouchableOpacity>
+
+      {/* Previous Button */}
+      <TouchableOpacity
+        style={isTablet ? [styles.controlButtonTablet, { width: responsive.miniPlayerButtonSize, height: responsive.miniPlayerButtonSize, padding: responsive.miniPlayerButtonPadding }] : styles.controlButtonPhone}
+        onPress={handlePrevious}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <MaterialIcons name="skip-previous" size={iconSize} color={theme.miniPlayerIconTint} />
+      </TouchableOpacity>
+
+      {/* Play/Pause Button */}
+      <TouchableOpacity
+        style={isTablet ? [styles.controlButtonTablet, { width: responsive.miniPlayerButtonSize, height: responsive.miniPlayerButtonSize, padding: responsive.miniPlayerButtonPadding }] : styles.controlButtonPhone}
+        onPress={togglePlayPause}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        {isBuffering ? (
+          <ActivityIndicator size="small" color={theme.primary} />
+        ) : (
+          <MaterialIcons
+            name={isPlaying ? "pause" : "play-arrow"}
+            size={playIconSize}
+            color={theme.miniPlayerIconTint}
+          />
+        )}
+      </TouchableOpacity>
+
+      {/* Next Button */}
+      <TouchableOpacity
+        style={isTablet ? [styles.controlButtonTablet, { width: responsive.miniPlayerButtonSize, height: responsive.miniPlayerButtonSize, padding: responsive.miniPlayerButtonPadding }] : styles.controlButtonPhone}
+        onPress={handleNext}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <MaterialIcons name="skip-next" size={iconSize} color={theme.miniPlayerIconTint} />
+      </TouchableOpacity>
+
+      {/* Favorite / Subscribed Star Button */}
+      <TouchableOpacity
+        style={isTablet ? [styles.controlButtonTablet, { width: responsive.miniPlayerButtonSize, height: responsive.miniPlayerButtonSize, padding: responsive.miniPlayerButtonPadding }] : styles.controlButtonPhone}
+        onPress={() => {
+          if (currentStation) {
+            toggleFavorite(currentStation.id);
+          } else if (currentPodcast) {
+            Preferences.togglePodcastSubscription(currentPodcast.id);
+            forceRefresh((value) => value + 1);
+          }
+        }}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <MaterialIcons
+          name={isPodcast ? (isSubscribed ? "star" : "star-border") : isFav ? "star" : "star-border"}
+          size={iconSize}
+          color={isPodcast ? (isSubscribed ? theme.star : theme.miniPlayerIconTint) : isFav ? theme.star : theme.miniPlayerIconTint}
+        />
+      </TouchableOpacity>
+    </View>
+  );
+
   return (
-    <View style={[styles.container, { backgroundColor: theme.miniPlayerBg }]}>
+    <View
+      style={[
+        styles.container,
+        {
+          backgroundColor: theme.miniPlayerBg,
+          paddingVertical: isTablet ? 12 : 8
+        }
+      ]}
+    >
       {/* Station / Podcast Artwork */}
       <TouchableOpacity
         activeOpacity={0.8}
         onPress={openNowPlaying}
-        style={styles.artworkContainer}
+        style={[styles.artworkContainer, { marginRight: isTablet ? 20 : 16 }]}
       >
         {artworkUrl ? (
           <Image
             source={{ uri: artworkUrl }}
-            style={{ width: 72, height: 72, borderRadius: 10 }}
+            style={{ width: artworkSize, height: artworkSize, borderRadius: 10 }}
             resizeMode="cover"
           />
         ) : currentStation ? (
-          <StationLogo stationId={currentStation.id} size={72} borderRadius={10} />
+          <StationLogo stationId={currentStation.id} size={artworkSize} borderRadius={10} />
         ) : (
           <View
             style={{
-              width: 72,
-              height: 72,
+              width: artworkSize,
+              height: artworkSize,
               borderRadius: 10,
               backgroundColor: theme.primaryContainer,
               alignItems: "center",
               justifyContent: "center"
             }}
           >
-            <MaterialIcons name="podcasts" size={36} color={theme.primary} />
+            <MaterialIcons name="podcasts" size={isTablet ? 40 : 36} color={theme.primary} />
           </View>
         )}
       </TouchableOpacity>
 
       {/* Info & Controls */}
-      <View style={styles.contentColumn}>
-        <TouchableOpacity
-          activeOpacity={0.8}
-          onPress={openNowPlaying}
-          style={styles.textContainer}
-        >
-          <Text
-            style={[styles.stationTitle, { color: theme.onSurface }]}
-            numberOfLines={1}
-          >
-            {title}
-          </Text>
-          <Text
-            style={[styles.showSubtitle, { color: theme.onSurfaceVariant }]}
-            numberOfLines={1}
-          >
-            {subtitle}
-          </Text>
-        </TouchableOpacity>
-
-        {/* 5-button control row matching mini_player.xml */}
-        <View style={styles.controlsRow}>
-          {/* Stop Button */}
-          <TouchableOpacity
-            style={styles.controlButton}
-            onPress={stop}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <MaterialIcons name="stop" size={26} color={theme.miniPlayerIconTint} />
-          </TouchableOpacity>
-
-          {/* Previous Button */}
-          <TouchableOpacity
-            style={styles.controlButton}
-            onPress={handlePrevious}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <MaterialIcons name="skip-previous" size={26} color={theme.miniPlayerIconTint} />
-          </TouchableOpacity>
-
-          {/* Play/Pause Button */}
-          <TouchableOpacity
-            style={styles.controlButton}
-            onPress={togglePlayPause}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            {isBuffering ? (
-              <ActivityIndicator size="small" color={theme.primary} />
-            ) : (
-              <MaterialIcons
-                name={isPlaying ? "pause" : "play-arrow"}
-                size={30}
-                color={theme.miniPlayerIconTint}
-              />
-            )}
-          </TouchableOpacity>
-
-          {/* Next Button */}
-          <TouchableOpacity
-            style={styles.controlButton}
-            onPress={handleNext}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <MaterialIcons name="skip-next" size={26} color={theme.miniPlayerIconTint} />
-          </TouchableOpacity>
-
-          {/* Favorite / Subscribed Star Button */}
-          <TouchableOpacity
-            style={styles.controlButton}
-            onPress={() => {
-              if (currentStation) {
-                toggleFavorite(currentStation.id);
-              } else if (currentPodcast) {
-                Preferences.togglePodcastSubscription(currentPodcast.id);
-                forceRefresh((value) => value + 1);
-              }
-            }}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <MaterialIcons
-              name={isPodcast ? (isSubscribed ? "star" : "star-border") : isFav ? "star" : "star-border"}
-              size={26}
-              color={isPodcast ? (isSubscribed ? theme.star : theme.miniPlayerIconTint) : isFav ? theme.star : theme.miniPlayerIconTint}
-            />
-          </TouchableOpacity>
+      {isTablet ? (
+        <View style={styles.contentRowTablet}>
+          {renderTextContent()}
+          {renderControls()}
         </View>
-      </View>
+      ) : (
+        <View style={styles.contentColumnPhone}>
+          {renderTextContent()}
+          {renderControls()}
+        </View>
+      )}
     </View>
   );
 }
@@ -195,7 +238,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingVertical: 8,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: "rgba(0,0,0,0.08)",
     shadowColor: "#000",
@@ -205,14 +247,26 @@ const styles = StyleSheet.create({
     elevation: 4
   },
   artworkContainer: {
-    marginRight: 16
+    alignItems: "center",
+    justifyContent: "center"
   },
-  contentColumn: {
+  contentColumnPhone: {
     flex: 1,
     justifyContent: "center"
   },
-  textContainer: {
+  contentRowTablet: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between"
+  },
+  textContainerPhone: {
     marginBottom: 4
+  },
+  textContainerTablet: {
+    flex: 1,
+    marginRight: 16,
+    justifyContent: "center"
   },
   stationTitle: {
     fontSize: 16,
@@ -223,14 +277,33 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 1
   },
-  controlsRow: {
+  progressTrack: {
+    height: 4,
+    borderRadius: 2,
+    marginTop: 4,
+    overflow: "hidden"
+  },
+  progressIndicator: {
+    height: "100%",
+    borderRadius: 2
+  },
+  controlsRowPhone: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingRight: 4
   },
-  controlButton: {
+  controlsRowTablet: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end"
+  },
+  controlButtonPhone: {
     padding: 6,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  controlButtonTablet: {
     alignItems: "center",
     justifyContent: "center"
   }

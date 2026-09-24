@@ -28,6 +28,12 @@ import {
   ensureNotificationPermissions
 } from "../../src/notifications/notifications";
 
+function parseEpisodeEpoch(pubDate?: string): number {
+  if (!pubDate) return 0;
+  const parsed = Date.parse(pubDate);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
 export default function PodcastDetailModal() {
   const router = useRouter();
   const theme = useAppTheme();
@@ -81,14 +87,16 @@ export default function PodcastDetailModal() {
   const { playEpisode, pause, resume, currentEpisode, isPlaying } = usePlayerStore();
   const downloads = useDownloadStore((state) => state.downloads);
   const { isOnline } = useNetworkStatus();
-  // Offline mode only exposes episodes that are already downloaded, matching the Kotlin feed.
-  const displayEpisodes = React.useMemo(
-    () =>
-      isOnline
-        ? episodes
-        : episodes.filter((episode) => Preferences.isEpisodeDownloaded(episode.id)),
-    [episodes, isOnline, downloads]
-  );
+  const [overflowMenuVisible, setOverflowMenuVisible] = useState(false);
+  const [episodeSort, setEpisodeSort] = useState<"newest_first" | "oldest_first">(() => {
+    const pid = podcast?.id || params.podcastId;
+    return pid ? Preferences.getPodcastEpisodeSort(pid) : "newest_first";
+  });
+  const [hidePlayed, setHidePlayed] = useState<boolean>(() => {
+    const pid = podcast?.id || params.podcastId;
+    return pid ? Preferences.getHidePlayedEpisodesInPodcastDetail(pid) : false;
+  });
+  const [playedSectionExpanded, setPlayedSectionExpanded] = useState(false);
   const [savedIds, setSavedIds] = useState<Set<string>>(
     () => new Set(Preferences.getPodcastPlaylistEntries("saved").map((entry) => entry.id))
   );
@@ -99,6 +107,33 @@ export default function PodcastDetailModal() {
   const [playlistModalVisible, setPlaylistModalVisible] = useState(false);
   const [newPlaylistDialogVisible, setNewPlaylistDialogVisible] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState("");
+
+  const candidateEpisodes = useMemo(() => {
+    const list = isOnline
+      ? [...episodes]
+      : episodes.filter((episode) => Preferences.isEpisodeDownloaded(episode.id));
+
+    return list.sort((a, b) => {
+      const timeA = parseEpisodeEpoch(a.pubDate);
+      const timeB = parseEpisodeEpoch(b.pubDate);
+      return episodeSort === "oldest_first" ? timeA - timeB : timeB - timeA;
+    });
+  }, [episodes, isOnline, downloads, episodeSort]);
+
+  const displayEpisodes = useMemo(() => {
+    if (!hidePlayed) return candidateEpisodes;
+    return candidateEpisodes.filter((ep) => !playedIds.has(ep.id));
+  }, [candidateEpisodes, hidePlayed, playedIds]);
+
+  const playedEpisodes = useMemo(() => {
+    if (!hidePlayed) return [];
+    return candidateEpisodes.filter((ep) => playedIds.has(ep.id));
+  }, [candidateEpisodes, hidePlayed, playedIds]);
+
+  const areAllDownloaded = useMemo(
+    () => episodes.length > 0 && episodes.every((ep) => downloads[ep.id]?.status === "downloaded"),
+    [episodes, downloads]
+  );
 
   const showToast = useCallback((msg: string) => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -123,8 +158,8 @@ export default function PodcastDetailModal() {
   }, []);
 
   const selectedEpisodes = useMemo(
-    () => displayEpisodes.filter((ep) => selectedIds.has(ep.id)),
-    [displayEpisodes, selectedIds]
+    () => candidateEpisodes.filter((ep) => selectedIds.has(ep.id)),
+    [candidateEpisodes, selectedIds]
   );
 
   const allSelectedPlayed = useMemo(
@@ -181,6 +216,53 @@ export default function PodcastDetailModal() {
     }
     setSelectedIds(new Set());
   }, [podcast, selectedEpisodes, allSelectedDownloaded, downloads, showToast]);
+
+  const handleToggleSort = useCallback(() => {
+    if (!podcast) return;
+    const nextSort = episodeSort === "oldest_first" ? "newest_first" : "oldest_first";
+    Preferences.setPodcastEpisodeSort(podcast.id, nextSort);
+    setEpisodeSort(nextSort);
+    setOverflowMenuVisible(false);
+    showToast(nextSort === "oldest_first" ? "Showing oldest episodes first" : "Showing newest episodes first");
+  }, [podcast, episodeSort, showToast]);
+
+  const handleToggleHidePlayed = useCallback(() => {
+    if (!podcast) return;
+    const nextHide = !hidePlayed;
+    Preferences.setHidePlayedEpisodesInPodcastDetail(podcast.id, nextHide);
+    setHidePlayed(nextHide);
+    setOverflowMenuVisible(false);
+    showToast(nextHide ? "Played episodes hidden" : "Played episodes shown");
+  }, [podcast, hidePlayed, showToast]);
+
+  const handleToggleDownloadAll = useCallback(() => {
+    if (!podcast) return;
+    setOverflowMenuVisible(false);
+
+    if (!isSubscribed) {
+      showToast("Subscribe to this podcast to download all episodes");
+      return;
+    }
+
+    const store = useDownloadStore.getState();
+    if (areAllDownloaded) {
+      const toDelete = episodes.filter((ep) => downloads[ep.id]?.status === "downloaded");
+      toDelete.forEach((ep) => {
+        store.remove(ep.id);
+      });
+      showToast(`Deleted ${toDelete.length} download(s)`);
+    } else {
+      const pending = episodes.filter((ep) => downloads[ep.id]?.status !== "downloaded");
+      if (pending.length === 0) {
+        showToast("All episodes are already downloaded");
+        return;
+      }
+      pending.forEach((ep) => {
+        void store.download(toSavedEpisodeEntry(podcast, ep));
+      });
+      showToast(`Downloading ${pending.length} episode(s)`);
+    }
+  }, [podcast, isSubscribed, areAllDownloaded, episodes, downloads, showToast]);
 
   const handleAddToPlaylist = useCallback((playlistId: string, playlistName: string) => {
     if (!podcast || selectedEpisodes.length === 0) return;
@@ -241,6 +323,8 @@ export default function PodcastDetailModal() {
         if (mounted) {
           setIsSubscribed(subscribed.includes(currentPod.id));
           setNotificationsEnabled(Preferences.isPodcastNotificationsEnabled(currentPod.id));
+          setEpisodeSort(Preferences.getPodcastEpisodeSort(currentPod.id));
+          setHidePlayed(Preferences.getHidePlayedEpisodesInPodcastDetail(currentPod.id));
         }
 
         const cached = PodcastApi.getEpisodesFromCache(currentPod.id);
@@ -589,6 +673,15 @@ export default function PodcastDetailModal() {
         </View>
       );
     }
+    if (hidePlayed && playedEpisodes.length > 0) {
+      return (
+        <View style={[styles.emptyBox, { backgroundColor: theme.surface }]}>
+          <Text style={[styles.emptyText, { color: theme.onSurfaceVariant }]}>
+            All episodes have been played.
+          </Text>
+        </View>
+      );
+    }
     return (
       <View style={[styles.emptyBox, { backgroundColor: theme.surface }]}>
         <Text style={[styles.emptyText, { color: theme.onSurfaceVariant }]}>
@@ -596,7 +689,39 @@ export default function PodcastDetailModal() {
         </Text>
       </View>
     );
-  }, [isLoadingEpisodes, theme]);
+  }, [isLoadingEpisodes, hidePlayed, playedEpisodes.length, theme]);
+
+  const renderListFooter = useCallback(() => {
+    if (!hidePlayed || playedEpisodes.length === 0) return null;
+    return (
+      <View style={styles.playedSection}>
+        <TouchableOpacity
+          style={styles.playedSectionHeader}
+          onPress={() => setPlayedSectionExpanded((prev) => !prev)}
+          activeOpacity={0.7}
+        >
+          <Text style={[styles.playedSectionTitle, { color: theme.onSurface }]}>
+            Played episodes
+          </Text>
+          <MaterialIcons
+            name={playedSectionExpanded ? "expand-less" : "expand-more"}
+            size={24}
+            color={theme.onSurface}
+          />
+        </TouchableOpacity>
+
+        {playedSectionExpanded ? (
+          <View style={styles.playedList}>
+            {playedEpisodes.map((ep) => (
+              <React.Fragment key={ep.id}>
+                {renderEpisodeItem({ item: ep })}
+              </React.Fragment>
+            ))}
+          </View>
+        ) : null}
+      </View>
+    );
+  }, [hidePlayed, playedEpisodes, playedSectionExpanded, theme, renderEpisodeItem]);
 
   if (!podcast) {
     return (
@@ -615,7 +740,7 @@ export default function PodcastDetailModal() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.surfaceContainer }]} edges={["top"]}>
-      {/* 56dp Top App Bar (title shown once, in the header card below) */}
+      {/* 56dp Top App Bar with back button, title, and overflow menu */}
       <View style={[styles.appBar, { borderBottomColor: theme.outlineVariant }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <MaterialIcons name="arrow-back" size={24} color={theme.onSurface} />
@@ -623,6 +748,13 @@ export default function PodcastDetailModal() {
         <Text style={[styles.appBarTitle, { color: theme.onSurface }]} numberOfLines={1}>
           {decodeXmlEntities(podcast.title)}
         </Text>
+        <TouchableOpacity
+          onPress={() => setOverflowMenuVisible(true)}
+          style={styles.moreButton}
+          accessibilityLabel="More options"
+        >
+          <MaterialIcons name="more-vert" size={24} color={theme.onSurface} />
+        </TouchableOpacity>
       </View>
 
       <FlatList
@@ -630,8 +762,18 @@ export default function PodcastDetailModal() {
         renderItem={renderEpisodeItem}
         ListHeaderComponent={renderHeader}
         ListEmptyComponent={renderEmpty}
+        ListFooterComponent={renderListFooter}
         data={displayEpisodes.slice(0, visibleEpisodeCount)}
-        extraData={{ selectedIds, playedIds, downloads, isPlaying, currentEpisodeId: currentEpisode?.id }}
+        extraData={{
+          selectedIds,
+          playedIds,
+          downloads,
+          isPlaying,
+          currentEpisodeId: currentEpisode?.id,
+          hidePlayed,
+          playedSectionExpanded,
+          episodeSort
+        }}
         initialNumToRender={10}
         maxToRenderPerBatch={20}
         windowSize={7}
@@ -689,6 +831,70 @@ export default function PodcastDetailModal() {
             </Text>
           </ScrollView>
         </View>
+      </Modal>
+
+      {/* Overflow options menu */}
+      <Modal
+        visible={overflowMenuVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setOverflowMenuVisible(false)}
+      >
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={() => setOverflowMenuVisible(false)}
+          style={styles.overflowMenuBackdrop}
+        >
+          <View
+            style={[
+              styles.overflowMenuDropdown,
+              {
+                top: insets.top + 48,
+                backgroundColor: theme.surfaceContainer
+              }
+            ]}
+          >
+            <TouchableOpacity
+              style={styles.overflowMenuItem}
+              onPress={handleToggleSort}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.overflowMenuText, { color: theme.onSurface }]}>
+                {episodeSort === "oldest_first" ? "Listen from newest first" : "Listen from oldest first"}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.overflowMenuItem}
+              onPress={handleToggleHidePlayed}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.overflowMenuText, { color: theme.onSurface }]}>
+                Hide played episodes
+              </Text>
+              <View
+                style={[
+                  styles.checkboxSquare,
+                  hidePlayed
+                    ? { backgroundColor: theme.primary, borderColor: theme.primary }
+                    : { borderColor: theme.outline, backgroundColor: "transparent" }
+                ]}
+              >
+                {hidePlayed && <MaterialIcons name="check" size={15} color={theme.onPrimary} />}
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.overflowMenuItem}
+              onPress={handleToggleDownloadAll}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.overflowMenuText, { color: theme.onSurface }]}>
+                {areAllDownloaded ? "Delete all downloads" : "Download all episodes"}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
       </Modal>
 
       {/* Add to playlist modal */}
@@ -865,6 +1071,12 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth
   },
   backButton: {
+    width: 48,
+    height: 48,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  moreButton: {
     width: 48,
     height: 48,
     alignItems: "center",
@@ -1263,5 +1475,58 @@ const styles = StyleSheet.create({
   dialogButtonText: {
     fontSize: 14,
     fontWeight: "600"
+  },
+  overflowMenuBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.15)"
+  },
+  overflowMenuDropdown: {
+    position: "absolute",
+    right: 12,
+    minWidth: 240,
+    borderRadius: 12,
+    paddingVertical: 6,
+    elevation: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10
+  },
+  overflowMenuItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 14
+  },
+  overflowMenuText: {
+    fontSize: 15,
+    fontWeight: "400"
+  },
+  checkboxSquare: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 16
+  },
+  playedSection: {
+    marginTop: 8
+  },
+  playedSectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 14
+  },
+  playedSectionTitle: {
+    fontSize: 16,
+    fontWeight: "700"
+  },
+  playedList: {
+    width: "100%"
   }
 });

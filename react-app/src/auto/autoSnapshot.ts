@@ -91,10 +91,7 @@ function sortEpisodes(episodes: Episode[], podcastId: string): Episode[] {
   return [...episodes].sort((a, b) => {
     const aEpoch = parseEpisodeDateEpoch(a.pubDate);
     const bEpoch = parseEpisodeDateEpoch(b.pubDate);
-    if (aEpoch && bEpoch) {
-      return order === "oldest_first" ? aEpoch - bEpoch : bEpoch - aEpoch;
-    }
-    return 0;
+    return order === "oldest_first" ? aEpoch - bEpoch : bEpoch - aEpoch;
   });
 }
 
