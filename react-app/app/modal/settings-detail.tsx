@@ -17,7 +17,8 @@ import * as Sharing from "expo-sharing";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
-import { Preferences } from "../../src/storage/preferences";
+import { Preferences, LastFmScrobbleEntry } from "../../src/storage/preferences";
+import { formatSongPlayedAt } from "../../src/utils/dateUtils";
 import { AUDIO_QUALITIES, AudioQuality, StationRepository } from "../../src/data/stations";
 import { StationLogo } from "../../src/components/StationLogo";
 import { Dropdown, DropdownOption } from "../../src/components/Dropdown";
@@ -617,10 +618,16 @@ function BackupPage() {
 function LastFmPage() {
   const theme = useAppTheme();
   const [settings, setSettings] = useState(Preferences.getLastFm());
+  const [recentScrobbles, setRecentScrobbles] = useState<LastFmScrobbleEntry[]>(() =>
+    Preferences.getLastFmRecentScrobbles()
+  );
 
   useEffect(() => {
     const subscription = Preferences.onChanged((key) => {
-      if (key.startsWith("pref_lastfm")) setSettings(Preferences.getLastFm());
+      if (key.startsWith("pref_lastfm")) {
+        setSettings(Preferences.getLastFm());
+        setRecentScrobbles(Preferences.getLastFmRecentScrobbles());
+      }
     });
     return () => subscription.remove();
   }, []);
@@ -723,14 +730,50 @@ function LastFmPage() {
 
       <SettingsSectionHeader label="ACTIVITY & INFO" />
       <SettingsCard>
-        <Text style={[styles.cardTitle, { color: theme.onSurface }]}>Recent scrobbles</Text>
-        <Text style={[styles.cardSubtitle, { color: theme.onSurfaceVariant, marginBottom: 12 }]}>
-          {Preferences.getLastFmLastScrobbled() || "No tracks scrobbled yet"}
-        </Text>
+        <Text style={[styles.cardTitle, { color: theme.onSurface, marginBottom: 4 }]}>Recent scrobbles</Text>
+        {recentScrobbles.length === 0 ? (
+          <Text style={[styles.cardSubtitle, { color: theme.onSurfaceVariant, marginBottom: 12 }]}>
+            No tracks scrobbled yet
+          </Text>
+        ) : (
+          <View style={{ marginTop: 4, marginBottom: 12 }}>
+            {recentScrobbles.slice(0, 10).map((item, index) => {
+              const playedAt = formatSongPlayedAt(item.timestampMs);
+              return (
+                <View key={`${item.artist}-${item.track}-${item.timestampMs}-${index}`}>
+                  {index > 0 && (
+                    <View
+                      style={{
+                        height: 1,
+                        backgroundColor: theme.outlineVariant + "40",
+                        marginVertical: 8
+                      }}
+                    />
+                  )}
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                    <View style={{ flex: 1, marginRight: 8 }}>
+                      <Text style={[styles.switchTitle, { color: theme.onSurface }]} numberOfLines={1}>
+                        {item.track}
+                      </Text>
+                      <Text style={[styles.cardSubtitle, { color: theme.onSurfaceVariant }]} numberOfLines={1}>
+                        {item.artist}{item.stationName ? ` • ${item.stationName}` : ""}
+                      </Text>
+                    </View>
+                    {playedAt ? (
+                      <Text style={{ fontSize: 12, color: theme.onSurfaceVariant }}>
+                        {playedAt}
+                      </Text>
+                    ) : null}
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        )}
         <ItemSeparator />
         <Text style={[styles.inputLabel, { color: theme.onSurfaceVariant, marginTop: 8 }]}>How scrobbling works</Text>
         <Text style={[styles.body, { color: theme.onSurfaceVariant }]}>
-          BBC Radio Player reads live song titles from BBC RMS streams (Radio 1, 2, 6 Music, 1Xtra).
+          BBC Radio Player reads live song titles across all BBC radio stations that broadcast music track information (including National, Regional, and Local stations), as well as podcasts if enabled.
           {"\n\n"}
           Songs are marked "Now Playing" immediately, and scrobbled after listening to at least 50% of the song or 4 minutes.
         </Text>

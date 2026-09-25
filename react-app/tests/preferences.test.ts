@@ -125,6 +125,62 @@ function createMockPreferences() {
     },
     clearPodcastHistory(): void {
       storage.set("pref_podcast_history", JSON.stringify([]));
+    },
+    getLastFmRecentScrobbles(): any[] {
+      const raw = storage.getString("pref_lastfm_recent_scrobbles");
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        } catch {
+          // fallback below
+        }
+      }
+      const single = storage.getString("pref_lastfm_last_scrobbled");
+      if (single) {
+        const timeMs = storage.getNumber("pref_lastfm_last_scrobbled_time_ms") || Date.now();
+        const parts = single.split(" - ");
+        return [{
+          artist: parts[0] || "",
+          track: parts.slice(1).join(" - ") || parts[0] || "",
+          timestampMs: timeMs
+        }];
+      }
+      return [];
+    },
+    addLastFmRecentScrobble(entry: any): void {
+      if (!entry.artist?.trim() && !entry.track?.trim()) return;
+      const recent = this.getLastFmRecentScrobbles();
+      const isDup = recent.some(
+        (item) =>
+          Math.abs(item.timestampMs - entry.timestampMs) < 60_000 &&
+          item.artist.toLowerCase() === entry.artist.toLowerCase() &&
+          item.track.toLowerCase() === entry.track.toLowerCase()
+      );
+      if (isDup) return;
+
+      const updated = [entry, ...recent].slice(0, 20);
+      storage.set("pref_lastfm_recent_scrobbles", JSON.stringify(updated));
+      storage.set("pref_lastfm_last_scrobbled", `${entry.artist} - ${entry.track}`);
+      storage.set("pref_lastfm_last_scrobbled_time_ms", entry.timestampMs);
+    },
+    getLastFmLastScrobbled(): string {
+      const recent = this.getLastFmRecentScrobbles();
+      if (recent.length > 0) {
+        return `${recent[0].artist} - ${recent[0].track}`;
+      }
+      return storage.getString("pref_lastfm_last_scrobbled") || "";
+    },
+    setLastFmLastScrobbled(value: string): void {
+      storage.set("pref_lastfm_last_scrobbled", value);
+      if (value) {
+        const parts = value.split(" - ");
+        this.addLastFmRecentScrobble({
+          artist: parts[0] || "",
+          track: parts.slice(1).join(" - ") || parts[0] || "",
+          timestampMs: Date.now()
+        });
+      }
     }
   };
 }
@@ -237,3 +293,57 @@ test("Preferences - podcast history tracking and ordering", () => {
   prefs.clearPodcastHistory();
   assert.deepEqual(prefs.getPodcastHistory(), []);
 });
+
+test("Preferences - Last.fm recent scrobbles history, ordering, deduplication, and fallback", () => {
+  const prefs = createMockPreferences();
+
+  // Test fallback to single LASTFM_LAST_SCROBBLED if recent list empty
+  prefs.setLastFmLastScrobbled("Dua Lipa - Training Season");
+  let scrobbles = prefs.getLastFmRecentScrobbles();
+  assert.equal(scrobbles.length, 1);
+  assert.equal(scrobbles[0].artist, "Dua Lipa");
+  assert.equal(scrobbles[0].track, "Training Season");
+  assert.equal(prefs.getLastFmLastScrobbled(), "Dua Lipa - Training Season");
+
+  // Add another scrobble
+  const now = Date.now();
+  prefs.addLastFmRecentScrobble({
+    artist: "Chappell Roan",
+    track: "Good Luck, Babe!",
+    stationName: "Radio 1",
+    timestampMs: now + 5000
+  });
+
+  scrobbles = prefs.getLastFmRecentScrobbles();
+  assert.equal(scrobbles.length, 2);
+  assert.equal(scrobbles[0].artist, "Chappell Roan");
+  assert.equal(scrobbles[0].track, "Good Luck, Babe!");
+  assert.equal(scrobbles[0].stationName, "Radio 1");
+  assert.equal(prefs.getLastFmLastScrobbled(), "Chappell Roan - Good Luck, Babe!");
+
+  // Deduplication within 60s
+  prefs.addLastFmRecentScrobble({
+    artist: "Chappell Roan",
+    track: "Good Luck, Babe!",
+    stationName: "Radio 1",
+    timestampMs: now + 6000
+  });
+  scrobbles = prefs.getLastFmRecentScrobbles();
+  assert.equal(scrobbles.length, 2);
+
+  // Add multiple tracks and verify 20 items cap
+  for (let i = 1; i <= 25; i++) {
+    prefs.addLastFmRecentScrobble({
+      artist: `Artist ${i}`,
+      track: `Track ${i}`,
+      stationName: "Radio 2",
+      timestampMs: now + 100_000 + i * 70_000
+    });
+  }
+
+  scrobbles = prefs.getLastFmRecentScrobbles();
+  assert.equal(scrobbles.length, 20);
+  assert.equal(scrobbles[0].artist, "Artist 25");
+  assert.equal(scrobbles[0].track, "Track 25");
+});
+

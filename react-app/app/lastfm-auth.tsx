@@ -34,10 +34,14 @@ export default function LastFmAuthScreen() {
           error instanceof Error ? error.message : "Could not connect to Last.fm."
         );
       } finally {
-        router.replace({
-          pathname: "/modal/settings-detail",
-          params: { section: "lastfm" }
-        });
+        if (router.canGoBack()) {
+          router.back();
+        } else {
+          router.replace({
+            pathname: "/modal/settings-detail",
+            params: { section: "lastfm" }
+          });
+        }
       }
     }
 

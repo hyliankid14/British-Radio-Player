@@ -274,6 +274,16 @@ class ScrobbleCoordinator {
 
     const settings = Preferences.getLastFm();
     if (track.isPodcast && !settings.podcasts) return;
+
+    if (settings.broadcast && (!settings.direct || !settings.sessionKey)) {
+      Preferences.addLastFmRecentScrobble({
+        artist: track.artist,
+        track: track.track,
+        stationName: track.album,
+        timestampMs: track.startTimeMs
+      });
+    }
+
     if (!settings.direct || !settings.sessionKey) return;
 
     const timestampSec = Math.floor(track.startTimeMs / 1000);
@@ -286,7 +296,8 @@ class ScrobbleCoordinator {
       track.track,
       timestampSec,
       track.album || undefined,
-      track.durationSec > 0 ? track.durationSec : undefined
+      track.durationSec > 0 ? track.durationSec : undefined,
+      track.album || undefined
     ).catch((err) => {
       console.warn(`[ScrobbleManager] Scrobble failed for ${track.artist} - ${track.track}:`, err);
     });

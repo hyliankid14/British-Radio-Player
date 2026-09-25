@@ -35,6 +35,13 @@ export interface PodcastHistoryEntry {
   playedAtMs: number;
 }
 
+export interface LastFmScrobbleEntry {
+  artist: string;
+  track: string;
+  stationName?: string;
+  timestampMs: number;
+}
+
 let storage: {
   getString: (key: string) => string | undefined;
   set: (key: string, value: string | boolean | number) => void;
@@ -47,7 +54,7 @@ let storage: {
 };
 
 try {
-  storage = createMMKV({ id: "british-radio-player-prefs" });
+  storage = createMMKV({ id: "british-radio-player-prefs", mode: "multi-process" });
 } catch {
   // In-memory fallback for unit tests / web environments
   const memoryStore = new Map<string, any>();
@@ -104,7 +111,10 @@ const KEYS = {
   LASTFM_USERNAME: "pref_lastfm_username",
   LASTFM_DIRECT: "pref_lastfm_direct",
   LASTFM_BROADCAST: "pref_lastfm_broadcast",
-  LASTFM_PODCASTS: "pref_lastfm_podcasts"
+  LASTFM_PODCASTS: "pref_lastfm_podcasts",
+  LASTFM_LAST_SCROBBLED: "pref_lastfm_last_scrobbled",
+  LASTFM_LAST_SCROBBLED_TIME_MS: "pref_lastfm_last_scrobbled_time_ms",
+  LASTFM_RECENT_SCROBBLES: "pref_lastfm_recent_scrobbles"
   ,AUTO_QUALITY: "pref_auto_quality"
   ,PODCAST_ARTWORK: "pref_podcast_artwork"
   ,PAUSE_BUFFERING: "pref_pause_buffering"
@@ -184,8 +194,65 @@ export const Preferences = {
   },
   getStartupPage(): string { return storage.getString(KEYS.STARTUP_PAGE) || "all_stations"; },
   setStartupPage(value: string): void { storage.set(KEYS.STARTUP_PAGE, value); },
-  getLastFmLastScrobbled(): string { return storage.getString("pref_lastfm_last_scrobbled") || ""; },
-  setLastFmLastScrobbled(value: string): void { storage.set("pref_lastfm_last_scrobbled", value); },
+  getLastFmRecentScrobbles(): LastFmScrobbleEntry[] {
+    const raw = storage.getString(KEYS.LASTFM_RECENT_SCROBBLES);
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch {
+        // Fall back below
+      }
+    }
+    const single = storage.getString(KEYS.LASTFM_LAST_SCROBBLED);
+    if (single) {
+      const timeMs = storage.getNumber(KEYS.LASTFM_LAST_SCROBBLED_TIME_MS) || Date.now();
+      const parts = single.split(" - ");
+      return [{
+        artist: parts[0] || "",
+        track: parts.slice(1).join(" - ") || parts[0] || "",
+        timestampMs: timeMs
+      }];
+    }
+    return [];
+  },
+
+  addLastFmRecentScrobble(entry: LastFmScrobbleEntry): void {
+    if (!entry.artist.trim() && !entry.track.trim()) return;
+    const recent = this.getLastFmRecentScrobbles();
+    const isDup = recent.some(
+      (item) =>
+        Math.abs(item.timestampMs - entry.timestampMs) < 60_000 &&
+        item.artist.toLowerCase() === entry.artist.toLowerCase() &&
+        item.track.toLowerCase() === entry.track.toLowerCase()
+    );
+    if (isDup) return;
+
+    const updated = [entry, ...recent].slice(0, 20);
+    storage.set(KEYS.LASTFM_RECENT_SCROBBLES, JSON.stringify(updated));
+    storage.set(KEYS.LASTFM_LAST_SCROBBLED, `${entry.artist} - ${entry.track}`);
+    storage.set(KEYS.LASTFM_LAST_SCROBBLED_TIME_MS, entry.timestampMs);
+  },
+
+  getLastFmLastScrobbled(): string {
+    const recent = this.getLastFmRecentScrobbles();
+    if (recent.length > 0) {
+      return `${recent[0].artist} - ${recent[0].track}`;
+    }
+    return storage.getString(KEYS.LASTFM_LAST_SCROBBLED) || "";
+  },
+
+  setLastFmLastScrobbled(value: string): void {
+    storage.set(KEYS.LASTFM_LAST_SCROBBLED, value);
+    if (value) {
+      const parts = value.split(" - ");
+      this.addLastFmRecentScrobble({
+        artist: parts[0] || "",
+        track: parts.slice(1).join(" - ") || parts[0] || "",
+        timestampMs: Date.now()
+      });
+    }
+  },
   getRecentSongs(): {
     artist: string;
     track: string;

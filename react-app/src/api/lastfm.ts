@@ -4,7 +4,7 @@ import { Preferences } from "../storage/preferences";
 const API_URL = "https://ws.audioscrobbler.com/2.0/";
 const API_KEY = process.env.EXPO_PUBLIC_LASTFM_API_KEY || "";
 const API_SECRET = process.env.EXPO_PUBLIC_LASTFM_API_SECRET || "";
-export const LASTFM_CALLBACK = Linking.createURL("lastfm-auth");
+export const LASTFM_CALLBACK = "bbcradioplayer://lastfm-auth";
 
 import SparkMD5 from "spark-md5";
 
@@ -82,7 +82,7 @@ export const LastFmApi = {
       throw err;
     }
   },
-  async scrobble(artist: string, track: string, timestampSec: number, album?: string, durationSec?: number): Promise<boolean> {
+  async scrobble(artist: string, track: string, timestampSec: number, album?: string, durationSec?: number, stationName?: string): Promise<boolean> {
     const sessionKey = Preferences.getLastFm().sessionKey;
     if (!sessionKey) return false;
     try {
@@ -103,7 +103,12 @@ export const LastFmApi = {
       }
 
       console.log(`[LastFmApi] Successfully scrobbled: ${artist} - ${track}`);
-      Preferences.setLastFmLastScrobbled(`${artist} - ${track}`);
+      Preferences.addLastFmRecentScrobble({
+        artist,
+        track,
+        stationName: stationName || album,
+        timestampMs: timestampSec * 1000
+      });
       return true;
     } catch (err) {
       console.warn(`[LastFmApi] Failed to scrobble ${artist} - ${track}:`, err);
