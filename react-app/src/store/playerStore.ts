@@ -46,6 +46,23 @@ let showInfoInterval: any = null;
 let scrobbleTimer: any = null;
 let activeScrobbleKey = "";
 
+function startShowInfoInterval() {
+  if (showInfoInterval) clearInterval(showInfoInterval);
+  showInfoInterval = setInterval(async () => {
+    const { currentStation, isPlaying } = usePlayerStore.getState();
+    if (currentStation && isPlaying) {
+      await usePlayerStore.getState().refreshShowInfo();
+    }
+  }, 5000);
+}
+
+function stopShowInfoInterval() {
+  if (showInfoInterval) {
+    clearInterval(showInfoInterval);
+    showInfoInterval = null;
+  }
+}
+
 function parsePodcastDateEpoch(pubDate?: string): number {
   if (!pubDate) return 0;
   const parsed = Date.parse(pubDate);
@@ -151,7 +168,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       notifyNativePhonePlaybackStarted();
       void trackStationPlay(station.id, station.title);
 
-      // Fetch show info immediately
+      // Fetch show info immediately (reset delay state so tune-in displays immediately)
+      resetStationRmsDelay(station.id);
       const show = await fetchShowInfo(station.id);
       set({ currentShow: show });
       if (show.title && show.title !== "BBC Radio") {
@@ -165,11 +183,13 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         });
       }
       beginScrobble(show.artist || "", show.track || "");
-      if (show.artist || show.track) {
+      const songArtist = show.rawArtist || show.artist || "";
+      const songTrack = show.rawTrack || show.track || "";
+      if (songArtist || songTrack) {
         Preferences.addRecentSong({
-          artist: show.artist || "",
-          track: show.track || "",
-          imageUrl: show.imageUrl || station.logoUrl,
+          artist: songArtist,
+          track: songTrack,
+          imageUrl: show.rawImageUrl || show.imageUrl || station.logoUrl,
           stationId: station.id,
           stationName: station.title
         });
@@ -194,14 +214,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         artwork: (hasSong && show.imageUrl) ? show.imageUrl : (show.imageUrl || station.logoUrl)
       });
 
-      // Poll show info every 10s (delayed RMS promotion triggers immediate refresh)
-      if (showInfoInterval) clearInterval(showInfoInterval);
-      showInfoInterval = setInterval(async () => {
-        const { currentStation, isPlaying } = get();
-        if (currentStation && isPlaying) {
-          await get().refreshShowInfo();
-        }
-      }, 10000);
+      // Poll show info every 5s (delayed RMS promotion triggers immediate refresh)
+      startShowInfoInterval();
     } catch (err) {
       console.warn("Error playing station:", err);
       set({ isBuffering: false, isPlaying: false });
@@ -210,10 +224,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   playEpisode: async (podcast: Podcast, episode: Episode) => {
     resetStationRmsDelay();
-    if (showInfoInterval) {
-      clearInterval(showInfoInterval);
-      showInfoInterval = null;
-    }
+    stopShowInfoInterval();
     const podId = (podcast?.id || episode?.podcastId || "").trim();
     const epId = (episode?.id || "").trim();
     const podTitle = (podcast?.title || (episode as any)?.podcastTitle || "").trim();
@@ -295,6 +306,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   pause: async () => {
     try {
+      stopShowInfoInterval();
       await TrackPlayer.pause();
       set({ isPlaying: false });
     } catch (e) {
@@ -305,10 +317,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   stop: async () => {
     try {
       resetStationRmsDelay();
-      if (showInfoInterval) {
-        clearInterval(showInfoInterval);
-        showInfoInterval = null;
-      }
+      stopShowInfoInterval();
       if (scrobbleTimer) {
         clearTimeout(scrobbleTimer);
         scrobbleTimer = null;
@@ -375,6 +384,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       }
       await TrackPlayer.play();
       set({ isPlaying: true });
+      startShowInfoInterval();
+      void get().refreshShowInfo();
     } catch (e) {
       console.warn("Resume fallback to playStation:", e);
       await get().playStation(currentStation);
@@ -515,11 +526,13 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         });
       }
       beginScrobble(show.artist || "", show.track || "");
-      if (show.artist || show.track) {
+      const songArtist = show.rawArtist || show.artist || "";
+      const songTrack = show.rawTrack || show.track || "";
+      if (songArtist || songTrack) {
         Preferences.addRecentSong({
-          artist: show.artist || "",
-          track: show.track || "",
-          imageUrl: show.imageUrl || currentStation.logoUrl,
+          artist: songArtist,
+          track: songTrack,
+          imageUrl: show.rawImageUrl || show.imageUrl || currentStation.logoUrl,
           stationId: currentStation.id,
           stationName: currentStation.title
         });

@@ -87,6 +87,7 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
   private var episodeAnalyticsPending = false
   private var episodeAnalyticsScheduled = false
   private var lastTrackedEpisodeAnalyticsId: String? = null
+  private var lastTrackedSongSignature: String = ""
 
   private val progressTick = object : Runnable {
     override fun run() {
@@ -648,6 +649,22 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
               updateSessionMetadata()
               updateNotification()
             }
+          }
+        }
+        val sArtist = info.rawArtist.ifEmpty { info.artist }
+        val sTrack = info.rawTrack.ifEmpty { info.track }
+        if (sTrack.isNotEmpty() || sArtist.isNotEmpty()) {
+          val songKey = "$sArtist|$sTrack"
+          if (songKey != lastTrackedSongSignature) {
+            lastTrackedSongSignature = songKey
+            val songImage = info.rawArtworkUrl.ifEmpty { info.songArtworkUrl.ifEmpty { station.optString("logoUrl") } }
+            emitMutation("recentSongAdded", JSONObject().apply {
+              put("artist", sArtist)
+              put("track", sTrack)
+              put("imageUrl", songImage)
+              put("stationId", station.optString("id"))
+              put("stationName", station.optString("title"))
+            })
           }
         }
       } finally {

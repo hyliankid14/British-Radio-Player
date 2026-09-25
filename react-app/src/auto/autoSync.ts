@@ -164,6 +164,20 @@ function handleNativeEvent(event: AutoNativeEvent): void {
       break;
     }
 
+    case "recentSongAdded": {
+      const entry = payload as Record<string, any>;
+      if (entry?.artist || entry?.track) {
+        Preferences.addRecentSong({
+          artist: String(entry.artist || ""),
+          track: String(entry.track || ""),
+          imageUrl: String(entry.imageUrl || ""),
+          stationId: String(entry.stationId || ""),
+          stationName: String(entry.stationName || "")
+        });
+      }
+      break;
+    }
+
     case "playbackStarted": {
       // The car has taken over playback: stop the phone player so audio does not overlap.
       const state = usePlayerStore.getState();

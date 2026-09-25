@@ -38,7 +38,10 @@ object AutoShowInfo {
     val fetchedAtMs: Long = 0L,
     val showStartMs: Long = 0L,
     val showEndMs: Long = 0L,
-    val essFetchedAtMs: Long = 0L
+    val essFetchedAtMs: Long = 0L,
+    val rawArtist: String = "",
+    val rawTrack: String = "",
+    val rawArtworkUrl: String = ""
   )
 
   data class ShowDetails(
@@ -211,7 +214,10 @@ object AutoShowInfo {
       fetchedAtMs = now,
       showStartMs = details.startMs,
       showEndMs = details.endMs,
-      essFetchedAtMs = details.fetchedAtMs
+      essFetchedAtMs = details.fetchedAtMs,
+      rawArtist = rawArtist,
+      rawTrack = rawTrack,
+      rawArtworkUrl = rawArtworkUrl
     )
     infoCache[serviceId] = updated
     return updated

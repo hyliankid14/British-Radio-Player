@@ -46,6 +46,15 @@ export default function AllStationsScreen() {
   const allStations = useMemo(() => StationRepository.getAll(), []);
 
   useEffect(() => {
+    const sub = Preferences.onChanged((key) => {
+      if (key.includes("recent_songs")) {
+        setRecentSongs(Preferences.getRecentSongs());
+      }
+    });
+    return () => sub.remove();
+  }, []);
+
+  useEffect(() => {
     if (activeSubTab === "Songs") setRecentSongs(Preferences.getRecentSongs());
   }, [activeSubTab, currentShow]);
 
@@ -77,16 +86,19 @@ export default function AllStationsScreen() {
   };
 
   useEffect(() => {
-    if (!currentStation || !currentShow || (!currentShow.artist && !currentShow.track)) return;
+    if (!currentStation || !currentShow) return;
+    const songArtist = (currentShow as any).rawArtist || currentShow.artist || "";
+    const songTrack = (currentShow as any).rawTrack || currentShow.track || "";
+    if (!songArtist && !songTrack) return;
     Preferences.addRecentSong({
-      artist: currentShow.artist || "",
-      track: currentShow.track || "",
-      imageUrl: currentShow.imageUrl || currentStation.logoUrl,
+      artist: songArtist,
+      track: songTrack,
+      imageUrl: (currentShow as any).rawImageUrl || currentShow.imageUrl || currentStation.logoUrl,
       stationId: currentStation.id,
       stationName: currentStation.title
     });
-    if (activeSubTab === "Songs") setRecentSongs(Preferences.getRecentSongs());
-  }, [activeSubTab, currentShow, currentStation]);
+    setRecentSongs(Preferences.getRecentSongs());
+  }, [currentShow, currentStation]);
 
   const filteredStations = useMemo(() => {
     if (activeSubTab === "National") {
@@ -107,6 +119,7 @@ export default function AllStationsScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      setRecentSongs(Preferences.getRecentSongs());
       checkAndAdvanceShows();
       if (filteredStations.length > 0) {
         void fetchShowsForStations(filteredStations.map((s) => s.id));
@@ -247,7 +260,12 @@ export default function AllStationsScreen() {
                     { borderBottomColor: theme.primary }
                   ]
                 ]}
-                onPress={() => setActiveSubTab(tab)}
+                onPress={() => {
+                  setActiveSubTab(tab);
+                  if (tab === "Songs") {
+                    setRecentSongs(Preferences.getRecentSongs());
+                  }
+                }}
               >
                 <Text
                   style={[
