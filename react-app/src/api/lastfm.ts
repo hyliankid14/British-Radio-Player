@@ -82,7 +82,7 @@ export const LastFmApi = {
       throw err;
     }
   },
-  async scrobble(artist: string, track: string, timestampSec: number, album?: string, durationSec?: number, stationName?: string): Promise<boolean> {
+  async scrobble(artist: string, track: string, timestampSec: number, album?: string, durationSec?: number): Promise<boolean> {
     const sessionKey = Preferences.getLastFm().sessionKey;
     if (!sessionKey) return false;
     try {
@@ -103,12 +103,6 @@ export const LastFmApi = {
       }
 
       console.log(`[LastFmApi] Successfully scrobbled: ${artist} - ${track}`);
-      Preferences.addLastFmRecentScrobble({
-        artist,
-        track,
-        stationName: stationName || album,
-        timestampMs: timestampSec * 1000
-      });
       return true;
     } catch (err) {
       console.warn(`[LastFmApi] Failed to scrobble ${artist} - ${track}:`, err);

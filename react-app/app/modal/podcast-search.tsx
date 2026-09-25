@@ -18,16 +18,24 @@ import { useAppTheme, useIsDarkTheme } from "../../src/theme/colors";
 import {
   Podcast,
   SearchEpisodeResult,
+  SearchPodcastResult,
   PodcastRatingSummary,
   PodcastApi,
   decodeXmlEntities,
-  matchesBooleanSearch
+  matchesBooleanSearch,
+  isAdvancedBooleanQuery,
+  extractPositiveQuery,
+  episodeMatchesQuery
 } from "../../src/api/podcasts";
 import { Preferences } from "../../src/storage/preferences";
 import { applyLanguageFilter } from "../../src/podcasts/languageFilter";
 import { usePlayerStore } from "../../src/store/playerStore";
 import { OfflineBanner, VpnBanner } from "../../src/components/NetworkBanners";
 import { ensureNotificationPermissions } from "../../src/notifications/notifications";
+
+const SEARCH_DEBOUNCE_MS = 250;
+const EPISODE_SEARCH_PAGE_SIZE = 500;
+const MAX_EPISODE_SEARCH_PAGES = 50;
 
 export default function PodcastSearchScreen() {
   const router = useRouter();
@@ -54,6 +62,16 @@ export default function PodcastSearchScreen() {
 
   const searchDebounceTimer = useRef<any>(null);
   const textInputRef = useRef<TextInput>(null);
+
+  // Search plumbing refs. These keep the latest server payload and query so the
+  // displayed matches can be re-derived without refetching, and so responses
+  // from superseded queries can never overwrite the current results.
+  const catalogRef = useRef<Podcast[]>([]);
+  const searchSeqRef = useRef(0);
+  const lastQueryRef = useRef("");
+  const piPodcastResultsRef = useRef<SearchPodcastResult[]>([]);
+  const piEpisodeResultsRef = useRef<SearchEpisodeResult[]>([]);
+  const resultsQueryRef = useRef("");
 
   const [savedSearches, setSavedSearches] = useState(() => Preferences.getSavedPodcastSearches());
   const [saveSearchModalVisible, setSaveSearchModalVisible] = useState(false);
@@ -111,10 +129,73 @@ export default function PodcastSearchScreen() {
     setSaveSearchModalVisible(true);
   }, [searchQuery, currentSavedSearch]);
 
+  // Apply client-side filtering to server results and update state.
+  // Mirrors the Kotlin episodeMatchesQuery / textMatchesNormalized logic.
+  const applySearchResults = useCallback(() => {
+    const q = lastQueryRef.current;
+    if (!q) return;
+
+    const catalog = catalogRef.current;
+
+    // Podcasts: filter on server-provided title+description, then enrich with
+    // catalog metadata. Unlike episodes we don't have a podcast name to pass
+    // to episodeMatchesQuery, so we use matchesBooleanSearch directly.
+    const podcastCandidates = piPodcastResultsRef.current.filter((p) =>
+      matchesBooleanSearch(q, `${p.title} ${p.description}`)
+    );
+    const enriched = applyLanguageFilter(
+      PodcastApi.enrichSearchResults(podcastCandidates, catalog)
+    );
+
+    if (enriched.length === 0 && catalog.length > 0) {
+      const fallback = applyLanguageFilter(
+        catalog.filter((p) =>
+          matchesBooleanSearch(q, `${p.title} ${p.description} ${p.genres.join(" ")}`)
+        )
+      );
+      setSearchPodcastMatches(fallback);
+    } else {
+      setSearchPodcastMatches(enriched);
+    }
+
+    // Episodes: use the Kotlin-style matcher that checks title OR description
+    // with normalised word-boundary matching, and enforces NOT terms.
+    const matchingEpisodes = piEpisodeResultsRef.current.filter((ep) => {
+      const podcast = catalog.find((p) => p.id === ep.podcastId);
+      const podcastName = podcast ? podcast.title : "";
+      return episodeMatchesQuery(ep.title, ep.description, podcastName, q);
+    });
+    setSearchEpisodeMatches(matchingEpisodes);
+
+    const latestResultDate = matchingEpisodes
+      .map((episode) => episode.pubDate)
+      .filter((date) => typeof date === "string" && Number.isFinite(Date.parse(date)))
+      .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
+
+    const matchedSavedSearch = Preferences.getSavedPodcastSearches().find(
+      (s) => s.query.trim().toLowerCase() === q.toLowerCase()
+    );
+    const targetSavedSearchId = params.savedSearchId || matchedSavedSearch?.id;
+    if (targetSavedSearchId && latestResultDate) {
+      Preferences.updatePodcastSearchLatestResult(targetSavedSearchId, latestResultDate);
+    }
+  }, [params.savedSearchId]);
+
   const executeSearch = useCallback(
     (text: string) => {
       const q = text.trim();
+      const seq = ++searchSeqRef.current;
+      lastQueryRef.current = q;
+
+      if (searchDebounceTimer.current) {
+        clearTimeout(searchDebounceTimer.current);
+        searchDebounceTimer.current = null;
+      }
+
       if (!q) {
+        piPodcastResultsRef.current = [];
+        piEpisodeResultsRef.current = [];
+        resultsQueryRef.current = "";
         setSearchPodcastMatches([]);
         setSearchEpisodeMatches([]);
         setIsSearching(false);
@@ -122,59 +203,50 @@ export default function PodcastSearchScreen() {
       }
 
       setIsSearching(true);
-      if (searchDebounceTimer.current) {
-        clearTimeout(searchDebounceTimer.current);
-      }
 
       searchDebounceTimer.current = setTimeout(async () => {
         try {
-          const [piPodcasts, piEpisodes] = await Promise.all([
-            PodcastApi.searchPodcastsOnPi(q, 50),
-            PodcastApi.searchEpisodesOnPi(q, 30)
-          ]);
+          // Strip NOT terms before sending to the server, mirroring the Kotlin
+          // extractPositiveQuery. The server does not understand -term exclusion.
+          const qFts = extractPositiveQuery(q);
 
-          const enriched = applyLanguageFilter(
-            PodcastApi.enrichSearchResults(piPodcasts, catalog).filter((podcast) =>
-              matchesBooleanSearch(q, `${podcast.title} ${podcast.description} ${podcast.genres.join(" ")}`)
-            )
-          );
+          // Fetch podcast results (single call, limited).
+          const piPodcasts = await PodcastApi.searchPodcastsOnPi(qFts, 100);
 
-          if (enriched.length === 0 && catalog.length > 0) {
-            const fallback = applyLanguageFilter(
-              catalog.filter((p) =>
-                matchesBooleanSearch(q, `${p.title} ${p.description} ${p.genres.join(" ")}`)
-              )
-            );
-            setSearchPodcastMatches(fallback);
-          } else {
-            setSearchPodcastMatches(enriched);
+          // Fetch ALL matching episodes in pages, mirroring the Kotlin full
+          // background load (page size 500, up to 50 pages). This avoids the
+          // previous 30-result cap.
+          const allEpisodes: SearchEpisodeResult[] = [];
+          for (let page = 0; page < MAX_EPISODE_SEARCH_PAGES; page++) {
+            if (seq !== searchSeqRef.current) return;
+            const offset = page * EPISODE_SEARCH_PAGE_SIZE;
+            const batch = await PodcastApi.searchEpisodesOnPi(qFts, EPISODE_SEARCH_PAGE_SIZE, offset);
+            if (batch.length === 0) break;
+            // Deduplicate by episodeId
+            const existingIds = new Set(allEpisodes.map((e) => e.episodeId));
+            for (const ep of batch) {
+              if (!existingIds.has(ep.episodeId)) {
+                allEpisodes.push(ep);
+                existingIds.add(ep.episodeId);
+              }
+            }
+            if (batch.length < EPISODE_SEARCH_PAGE_SIZE) break;
           }
 
-          const matchingEpisodes = piEpisodes.filter((episode) =>
-            matchesBooleanSearch(q, `${episode.title} ${episode.description}`)
-          );
-          setSearchEpisodeMatches(matchingEpisodes);
+          if (seq !== searchSeqRef.current) return;
 
-          const latestResultDate = matchingEpisodes
-            .map((episode) => episode.pubDate)
-            .filter((date) => typeof date === "string" && Number.isFinite(Date.parse(date)))
-            .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
-
-          const matchedSavedSearch = Preferences.getSavedPodcastSearches().find(
-            (s) => s.query.trim().toLowerCase() === q.toLowerCase()
-          );
-          const targetSavedSearchId = params.savedSearchId || matchedSavedSearch?.id;
-          if (targetSavedSearchId && latestResultDate) {
-            Preferences.updatePodcastSearchLatestResult(targetSavedSearchId, latestResultDate);
-          }
+          piPodcastResultsRef.current = piPodcasts;
+          piEpisodeResultsRef.current = allEpisodes;
+          resultsQueryRef.current = q;
+          applySearchResults();
         } catch (err) {
           console.warn("Search failed:", err);
         } finally {
-          setIsSearching(false);
+          if (seq === searchSeqRef.current) setIsSearching(false);
         }
-      }, 250);
+      }, SEARCH_DEBOUNCE_MS);
     },
-    [catalog, params.savedSearchId]
+    [applySearchResults]
   );
 
   const handleSearchChange = (text: string) => {
@@ -189,6 +261,16 @@ export default function PodcastSearchScreen() {
       executeSearch(initialQuery);
     }
   }, [params.search, executeSearch]);
+
+  // Keep the ref in sync and re-derive matches once the catalog arrives, so a
+  // search issued before the catalog loaded is enriched rather than left on
+  // placeholder metadata.
+  useEffect(() => {
+    catalogRef.current = catalog;
+    if (lastQueryRef.current && resultsQueryRef.current === lastQueryRef.current) {
+      applySearchResults();
+    }
+  }, [catalog, applySearchResults]);
 
   // Live suggestions when typing
   useEffect(() => {

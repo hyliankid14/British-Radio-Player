@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import {
   parseBooleanSearch,
   matchesBooleanSearch,
+  isAdvancedBooleanQuery,
+  extractPositiveQuery,
+  episodeMatchesQuery,
   type BooleanSearchNode
 } from "../src/utils/searchUtils.ts";
 
@@ -71,6 +74,53 @@ test("matchesBooleanSearch handles single terms and HTML descriptions", () => {
       query,
       "Discussion on hair salons and grooming."
     ),
+    false
+  );
+});
+
+test("isAdvancedBooleanQuery distinguishes plain from Boolean queries", () => {
+  assert.equal(isAdvancedBooleanQuery("andy burnham"), false);
+  assert.equal(isAdvancedBooleanQuery("AC/DC"), false);
+  assert.equal(isAdvancedBooleanQuery("café"), false);
+  assert.equal(isAdvancedBooleanQuery('"public service broadcasting"'), true);
+  assert.equal(isAdvancedBooleanQuery("zelda OR link"), true);
+  assert.equal(isAdvancedBooleanQuery("news NOT football"), true);
+  assert.equal(isAdvancedBooleanQuery("(a OR b) AND c"), true);
+  assert.equal(isAdvancedBooleanQuery("candy"), false);
+});
+
+test("extractPositiveQuery strips NOT terms", () => {
+  assert.equal(extractPositiveQuery("andy burnham"), "andy burnham");
+  assert.equal(extractPositiveQuery("andy -burnham"), "andy");
+  assert.equal(extractPositiveQuery("news NOT football"), "news");
+  assert.equal(extractPositiveQuery("Nestle -noodles"), "Nestle");
+  assert.equal(extractPositiveQuery("-term1 hello -term2"), "hello");
+});
+
+test("episodeMatchesQuery uses normalised word-boundary matching like Kotlin", () => {
+  // Simple query: title OR description match with normalised word-boundary
+  assert.equal(
+    episodeMatchesQuery("Andy Burnham meets Trump", "Political discussion", "Podcast", "andy burnham"),
+    true
+  );
+  // Description match
+  assert.equal(
+    episodeMatchesQuery("Daily News", "Andy Burnham holds meeting", "Podcast", "andy burnham"),
+    true
+  );
+  // No match
+  assert.equal(
+    episodeMatchesQuery("Daily News", "Weather forecast", "Podcast", "andy burnham"),
+    false
+  );
+  // Partial word should NOT match (word-boundary)
+  assert.equal(
+    episodeMatchesQuery("Miranda", "Daily updates", "Podcast", "iran"),
+    false
+  );
+  // NOT term enforcement
+  assert.equal(
+    episodeMatchesQuery("football news", "Football daily", "Podcast", "football -nfl"),
     false
   );
 });

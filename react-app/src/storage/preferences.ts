@@ -206,7 +206,12 @@ export const Preferences = {
     }
     const single = storage.getString(KEYS.LASTFM_LAST_SCROBBLED);
     if (single) {
-      const timeMs = storage.getNumber(KEYS.LASTFM_LAST_SCROBBLED_TIME_MS) || Date.now();
+      const stored = storage.getNumber(KEYS.LASTFM_LAST_SCROBBLED_TIME_MS);
+      // Pre-4.0 installs and the Android legacy migration only persisted the
+      // "artist - track" string, with no timestamp to recover. Never invent one:
+      // a fabricated Date.now() renders as "Today at <now>" and shifts on every
+      // read. 0 makes formatSongPlayedAt return "" so the row shows no time.
+      const timeMs = typeof stored === "number" && Number.isFinite(stored) && stored > 0 ? stored : 0;
       const parts = single.split(" - ");
       return [{
         artist: parts[0] || "",
@@ -219,12 +224,17 @@ export const Preferences = {
 
   addLastFmRecentScrobble(entry: LastFmScrobbleEntry): void {
     if (!entry.artist.trim() && !entry.track.trim()) return;
-    const recent = this.getLastFmRecentScrobbles();
+    const sameTrack = (item: LastFmScrobbleEntry) =>
+      item.artist.toLowerCase() === entry.artist.toLowerCase() &&
+      item.track.toLowerCase() === entry.track.toLowerCase();
+    // Rows recovered from the pre-4.0 single-string key carry no real time.
+    // When that same track scrobbles for real, replace the row rather than
+    // listing the track twice.
+    const recent = this.getLastFmRecentScrobbles().filter(
+      (item) => item.timestampMs > 0 || !sameTrack(item)
+    );
     const isDup = recent.some(
-      (item) =>
-        Math.abs(item.timestampMs - entry.timestampMs) < 60_000 &&
-        item.artist.toLowerCase() === entry.artist.toLowerCase() &&
-        item.track.toLowerCase() === entry.track.toLowerCase()
+      (item) => Math.abs(item.timestampMs - entry.timestampMs) < 60_000 && sameTrack(item)
     );
     if (isDup) return;
 

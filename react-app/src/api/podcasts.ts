@@ -100,6 +100,37 @@ function parseDurationSeconds(durationStr: string): number {
   return isNaN(secs) ? 0 : Math.round(secs / 60);
 }
 
+// Search requests can be slow on the first call after the backend index cache
+// expires. Bound each attempt and retry once so a transient timeout does not
+// surface to the user as "no results".
+const SEARCH_REQUEST_TIMEOUT_MS = 15000;
+const SEARCH_REQUEST_ATTEMPTS = 2;
+
+async function fetchJsonArrayWithRetry(url: string): Promise<unknown[]> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < SEARCH_REQUEST_ATTEMPTS; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), SEARCH_REQUEST_TIMEOUT_MS);
+    try {
+      const res = await fetch(url, {
+        headers: { Accept: "application/json" },
+        signal: controller.signal
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    } catch (err) {
+      lastError = err;
+      if (attempt < SEARCH_REQUEST_ATTEMPTS - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 350));
+      }
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Request failed");
+}
+
 export const PodcastApi = {
   getRatingsBaseUrl(): string {
     return PI_BASE_URL;
@@ -187,7 +218,7 @@ export const PodcastApi = {
   /**
    * Search podcasts on Raspberry Pi database via /search/podcasts
    */
-  async searchPodcastsOnPi(query: string, limit: number = 50): Promise<SearchPodcastResult[]> {
+  async searchPodcastsOnPi(query: string, limit: number = 100): Promise<SearchPodcastResult[]> {
     if (!query.trim()) return [];
     try {
       // The index endpoint tokenises terms but does not understand phrase
@@ -195,12 +226,7 @@ export const PodcastApi = {
       // evaluator after the broad result set has been returned.
       const backendQuery = query.trim().replace(/[“”"]/g, "");
       const url = `${PI_BASE_URL}/search/podcasts?q=${encodeURIComponent(backendQuery)}&limit=${limit}`;
-      const res = await fetch(url, {
-        headers: { Accept: "application/json" }
-      });
-      if (!res.ok) return [];
-      const data = await res.json();
-      return Array.isArray(data) ? data : [];
+      return (await fetchJsonArrayWithRetry(url)) as SearchPodcastResult[];
     } catch (err) {
       console.warn("Failed to search podcasts on Raspberry Pi:", err);
       return [];
@@ -210,18 +236,13 @@ export const PodcastApi = {
   /**
    * Search episodes on Raspberry Pi database via /search/episodes
    */
-  async searchEpisodesOnPi(query: string, limit: number = 30, offset: number = 0): Promise<SearchEpisodeResult[]> {
+  async searchEpisodesOnPi(query: string, limit: number = 50, offset: number = 0): Promise<SearchEpisodeResult[]> {
     if (!query.trim()) return [];
     try {
       const backendQuery = query.trim().replace(/[“”"]/g, "");
       const search = async (value: string, resultLimit: number) => {
         const url = `${PI_BASE_URL}/search/episodes?q=${encodeURIComponent(value)}&limit=${resultLimit}&offset=${offset}`;
-        const res = await fetch(url, {
-          headers: { Accept: "application/json" }
-        });
-        if (!res.ok) return [];
-        const data = await res.json();
-        return Array.isArray(data) ? data as SearchEpisodeResult[] : [];
+        return (await fetchJsonArrayWithRetry(url)) as SearchEpisodeResult[];
       };
 
       const results = await search(backendQuery, limit);
@@ -248,12 +269,7 @@ export const PodcastApi = {
     if (!query.trim() || query.trim().length < 2) return [];
     try {
       const url = `${PI_BASE_URL}/search/suggestions?q=${encodeURIComponent(query.trim())}&limit=${limit}`;
-      const res = await fetch(url, {
-        headers: { Accept: "application/json" }
-      });
-      if (!res.ok) return [];
-      const data = await res.json();
-      return Array.isArray(data) ? data : [];
+      return (await fetchJsonArrayWithRetry(url)) as { podcastId: string; title: string }[];
     } catch (err) {
       console.warn("Failed to get suggestions from Raspberry Pi:", err);
       return [];

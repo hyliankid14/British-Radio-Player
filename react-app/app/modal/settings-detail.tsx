@@ -19,6 +19,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { MaterialIcons } from "@expo/vector-icons";
 import { Preferences, LastFmScrobbleEntry } from "../../src/storage/preferences";
 import { formatSongPlayedAt } from "../../src/utils/dateUtils";
+import { useNow } from "../../src/hooks/useNow";
 import { AUDIO_QUALITIES, AudioQuality, StationRepository } from "../../src/data/stations";
 import { StationLogo } from "../../src/components/StationLogo";
 import { Dropdown, DropdownOption } from "../../src/components/Dropdown";
@@ -623,6 +624,7 @@ function LastFmPage() {
   const [recentScrobbles, setRecentScrobbles] = useState<LastFmScrobbleEntry[]>(() =>
     Preferences.getLastFmRecentScrobbles()
   );
+  const now = useNow();
 
   useEffect(() => {
     const subscription = Preferences.onChanged((key) => {
@@ -740,7 +742,7 @@ function LastFmPage() {
         ) : (
           <View style={{ marginTop: 4, marginBottom: 12 }}>
             {recentScrobbles.slice(0, 10).map((item, index) => {
-              const playedAt = formatSongPlayedAt(item.timestampMs);
+              const playedAt = formatSongPlayedAt(item.timestampMs, now);
               return (
                 <View key={`${item.artist}-${item.track}-${item.timestampMs}-${index}`}>
                   {index > 0 && (

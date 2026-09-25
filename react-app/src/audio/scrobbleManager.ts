@@ -275,14 +275,15 @@ class ScrobbleCoordinator {
     const settings = Preferences.getLastFm();
     if (track.isPodcast && !settings.podcasts) return;
 
-    if (settings.broadcast && (!settings.direct || !settings.sessionKey)) {
-      Preferences.addLastFmRecentScrobble({
-        artist: track.artist,
-        track: track.track,
-        stationName: track.album,
-        timestampMs: track.startTimeMs
-      });
-    }
+    // Record the scrobble locally whenever the threshold is met, independent of
+    // how (or whether) it is delivered. The history is this app's record of what
+    // it scrobbled, so it must not depend on the broadcast or direct settings.
+    Preferences.addLastFmRecentScrobble({
+      artist: track.artist,
+      track: track.track,
+      stationName: track.album || undefined,
+      timestampMs: track.startTimeMs
+    });
 
     if (!settings.direct || !settings.sessionKey) return;
 
@@ -296,8 +297,7 @@ class ScrobbleCoordinator {
       track.track,
       timestampSec,
       track.album || undefined,
-      track.durationSec > 0 ? track.durationSec : undefined,
-      track.album || undefined
+      track.durationSec > 0 ? track.durationSec : undefined
     ).catch((err) => {
       console.warn(`[ScrobbleManager] Scrobble failed for ${track.artist} - ${track.track}:`, err);
     });

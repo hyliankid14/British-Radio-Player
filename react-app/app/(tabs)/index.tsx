@@ -22,6 +22,7 @@ import { useAppTheme } from "../../src/theme/colors";
 import { Preferences } from "../../src/storage/preferences";
 import { OfflineBanner, VpnBanner } from "../../src/components/NetworkBanners";
 import { formatSongPlayedAt } from "../../src/utils/dateUtils";
+import { useNow } from "../../src/hooks/useNow";
 
 type SubCategoryTab = "National" | "Regions" | "Local" | "Songs";
 
@@ -33,6 +34,9 @@ export default function AllStationsScreen() {
   const { shows, fetchShowsForStations, checkAndAdvanceShows } = useStationShowStore();
   const [recentSongs, setRecentSongs] = useState(Preferences.getRecentSongs());
   const [selectedSong, setSelectedSong] = useState<(typeof recentSongs)[number] | null>(null);
+  // Only the Songs list and the music sheet render relative times, so keep the
+  // clock paused elsewhere rather than re-rendering the whole tab every minute.
+  const now = useNow(60_000, activeSubTab === "Songs" || selectedSong !== null);
 
   const {
     currentStation,
@@ -292,7 +296,7 @@ export default function AllStationsScreen() {
           style={{ backgroundColor: theme.surface }}
           contentContainerStyle={[styles.listContent, { paddingBottom: 170 + insets.bottom }]}
           renderItem={({ item }) => {
-            const playedAtStr = formatSongPlayedAt(item.playedAtMs);
+            const playedAtStr = formatSongPlayedAt(item.playedAtMs, now);
             return (
               <TouchableOpacity
                 style={[styles.songRow, { backgroundColor: theme.surface }]}
@@ -366,7 +370,7 @@ export default function AllStationsScreen() {
                   <Text style={{ color: theme.onSurfaceVariant, fontSize: 13, marginTop: 2 }} numberOfLines={1}>
                     {selectedSong.artist}
                     {selectedSong.stationName ? ` • ${selectedSong.stationName}` : ""}
-                    {selectedSong.playedAtMs ? ` • ${formatSongPlayedAt(selectedSong.playedAtMs)}` : ""}
+                    {selectedSong.playedAtMs ? ` • ${formatSongPlayedAt(selectedSong.playedAtMs, now)}` : ""}
                   </Text>
                 ) : null}
               </View>

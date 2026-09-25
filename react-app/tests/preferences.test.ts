@@ -138,7 +138,9 @@ function createMockPreferences() {
       }
       const single = storage.getString("pref_lastfm_last_scrobbled");
       if (single) {
-        const timeMs = storage.getNumber("pref_lastfm_last_scrobbled_time_ms") || Date.now();
+        const stored = storage.getNumber("pref_lastfm_last_scrobbled_time_ms");
+        const timeMs =
+          typeof stored === "number" && Number.isFinite(stored) && stored > 0 ? stored : 0;
         const parts = single.split(" - ");
         return [{
           artist: parts[0] || "",
@@ -150,12 +152,14 @@ function createMockPreferences() {
     },
     addLastFmRecentScrobble(entry: any): void {
       if (!entry.artist?.trim() && !entry.track?.trim()) return;
-      const recent = this.getLastFmRecentScrobbles();
+      const sameTrack = (item: any) =>
+        item.artist.toLowerCase() === entry.artist.toLowerCase() &&
+        item.track.toLowerCase() === entry.track.toLowerCase();
+      const recent = this.getLastFmRecentScrobbles().filter(
+        (item) => item.timestampMs > 0 || !sameTrack(item)
+      );
       const isDup = recent.some(
-        (item) =>
-          Math.abs(item.timestampMs - entry.timestampMs) < 60_000 &&
-          item.artist.toLowerCase() === entry.artist.toLowerCase() &&
-          item.track.toLowerCase() === entry.track.toLowerCase()
+        (item) => Math.abs(item.timestampMs - entry.timestampMs) < 60_000 && sameTrack(item)
       );
       if (isDup) return;
 
@@ -181,7 +185,8 @@ function createMockPreferences() {
           timestampMs: Date.now()
         });
       }
-    }
+    },
+    storage
   };
 }
 
@@ -345,5 +350,40 @@ test("Preferences - Last.fm recent scrobbles history, ordering, deduplication, a
   assert.equal(scrobbles.length, 20);
   assert.equal(scrobbles[0].artist, "Artist 25");
   assert.equal(scrobbles[0].track, "Track 25");
+});
+
+test("Preferences - legacy single scrobble without a stored time does not fabricate now", () => {
+  const prefs = createMockPreferences();
+
+  // Pre-4.0 installs and the Android legacy migration persisted only the
+  // "artist - track" string, with no accompanying timestamp.
+  prefs.storage.set("pref_lastfm_last_scrobbled", "Dua Lipa - Training Season");
+
+  const before = Date.now();
+  const scrobbles = prefs.getLastFmRecentScrobbles();
+  const after = Date.now();
+
+  assert.equal(scrobbles.length, 1);
+  assert.equal(scrobbles[0].artist, "Dua Lipa");
+  assert.equal(scrobbles[0].track, "Training Season");
+  // Must be falsy so formatSongPlayedAt renders no time at all, rather than
+  // drifting forward to the current time on every read.
+  assert.equal(scrobbles[0].timestampMs, 0);
+
+  // A second read must not advance the value either.
+  assert.equal(prefs.getLastFmRecentScrobbles()[0].timestampMs, 0);
+  assert.ok(after >= before);
+});
+
+test("Preferences - legacy single scrobble keeps a real stored time when present", () => {
+  const prefs = createMockPreferences();
+  const scrobbledAt = Date.now() - 6 * 60 * 60 * 1000;
+
+  prefs.storage.set("pref_lastfm_last_scrobbled", "Chappell Roan - Good Luck, Babe!");
+  prefs.storage.set("pref_lastfm_last_scrobbled_time_ms", scrobbledAt);
+
+  const scrobbles = prefs.getLastFmRecentScrobbles();
+  assert.equal(scrobbles.length, 1);
+  assert.equal(scrobbles[0].timestampMs, scrobbledAt);
 });
 
