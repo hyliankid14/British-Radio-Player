@@ -70,11 +70,11 @@ function stationRotation(): Station[] {
 }
 
 /** Chooses between episode and podcast artwork for podcast playback. */
-function resolvePodcastArtwork(podcast: Podcast, episode: Episode): string {
+function resolvePodcastArtwork(podcast?: Podcast | null, episode?: Episode | null): string {
   const preference = Preferences.getSetting<string>("pref_podcast_artwork", "episode");
-  return preference === "podcast"
-    ? podcast.imageUrl || episode.imageUrl
-    : episode.imageUrl || podcast.imageUrl;
+  const podImg = podcast?.imageUrl || "";
+  const epImg = episode?.imageUrl || "";
+  return preference === "podcast" ? (podImg || epImg) : (epImg || podImg);
 }
 
 function beginScrobble(artist: string, track: string, durationSec = 0, isPodcast = false): void {
@@ -214,50 +214,71 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       clearInterval(showInfoInterval);
       showInfoInterval = null;
     }
+    const podId = (podcast?.id || episode?.podcastId || "").trim();
+    const epId = (episode?.id || "").trim();
+    const podTitle = (podcast?.title || (episode as any)?.podcastTitle || "").trim();
+    const epTitle = (episode?.title || "").trim();
+    const artwork = resolvePodcastArtwork(podcast, episode);
+
     set({
       currentStation: null,
       currentShow: null,
-      currentPodcast: podcast,
+      currentPodcast:
+        podcast ||
+        (podId
+          ? {
+              id: podId,
+              title: podTitle,
+              description: "",
+              rssUrl: "",
+              htmlUrl: "",
+              imageUrl: artwork,
+              genres: [],
+              typicalDurationMins: episode?.durationMins || 0
+            }
+          : null),
       currentEpisode: episode,
       isBuffering: true,
       isPlaying: false,
       positionSeconds: 0,
-      durationSeconds: episode.durationMins * 60
+      durationSeconds: (episode?.durationMins || 0) * 60
     });
+
+    // Record to listening history immediately (mirrors Kotlin RadioService.kt)
+    try {
+      Preferences.addPodcastHistory({
+        id: epId || episode.id,
+        title: epTitle || episode.title,
+        description: episode.description || "",
+        imageUrl: artwork || episode.imageUrl || podcast?.imageUrl || "",
+        audioUrl: episode.audioUrl || "",
+        pubDate: episode.pubDate || "",
+        durationMins: episode.durationMins || 0,
+        podcastId: podId,
+        podcastTitle: podTitle
+      });
+    } catch (histErr) {
+      console.warn("Failed to record podcast history:", histErr);
+    }
+
     try {
       await TrackPlayer.reset();
-      const artwork = resolvePodcastArtwork(podcast, episode);
       await TrackPlayer.add({
-        id: episode.id,
-        url: getDownloadedUri(episode.id) ?? episode.audioUrl,
+        id: epId || episode.id,
+        url: getDownloadedUri(epId || episode.id) ?? episode.audioUrl,
         type: TrackType.Default,
-        title: episode.title,
-        artist: podcast.title,
+        title: epTitle || episode.title,
+        artist: podTitle || podcast?.title || "BBC Radio",
         artwork,
-        duration: episode.durationMins * 60
+        duration: (episode.durationMins || 0) * 60
       });
       await TrackPlayer.play();
       set({ isPlaying: true, isBuffering: false });
       notifyNativePhonePlaybackStarted();
-      const podId = (podcast?.id || episode?.podcastId || "").trim();
-      const epId = (episode?.id || "").trim();
-      const podTitle = (podcast?.title || (episode as any)?.podcastTitle || "").trim();
-      const epTitle = (episode?.title || "").trim();
       void trackEpisodePlay(podId, epId, epTitle, podTitle);
-      Preferences.addPodcastHistory({
-        id: episode.id,
-        title: episode.title,
-        description: episode.description,
-        imageUrl: artwork,
-        audioUrl: episode.audioUrl,
-        pubDate: episode.pubDate,
-        durationMins: episode.durationMins,
-        podcastId: podcast.id,
-        podcastTitle: podcast.title
-      });
 
       // Resume where the listener left off (mirrors the Kotlin app's position restore).
-      const resumeSeconds = Preferences.getEpisodeProgress(episode.id);
+      const resumeSeconds = Preferences.getEpisodeProgress(epId || episode.id);
       if (resumeSeconds > 5) {
         try {
           await TrackPlayer.seekTo(resumeSeconds);
@@ -321,13 +342,23 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   resume: async () => {
     const { currentStation, currentPodcast, currentEpisode } = get();
-    if (currentEpisode && currentPodcast) {
+    if (currentEpisode) {
       try {
         await TrackPlayer.play();
         set({ isPlaying: true });
         return;
       } catch (e) {
-        await get().playEpisode(currentPodcast, currentEpisode);
+        const pod: Podcast = currentPodcast || {
+          id: currentEpisode.podcastId || "",
+          title: (currentEpisode as any).podcastTitle || "",
+          description: "",
+          rssUrl: "",
+          htmlUrl: "",
+          imageUrl: currentEpisode.imageUrl,
+          genres: [],
+          typicalDurationMins: currentEpisode.durationMins
+        };
+        await get().playEpisode(pod, currentEpisode);
         return;
       }
     }

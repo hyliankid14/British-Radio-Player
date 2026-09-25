@@ -218,7 +218,7 @@ object AutoState {
   }
 
   private fun objectList(context: Context, key: String): List<JSONObject> {
-    val array = snapshot(context).optJSONArray(key) ?: return emptyList()
+    val array = overlay(context).optJSONArray(key) ?: snapshot(context).optJSONArray(key) ?: return emptyList()
     val out = ArrayList<JSONObject>(array.length())
     for (i in 0 until array.length()) {
       array.optJSONObject(i)?.let { out.add(it) }
@@ -303,6 +303,17 @@ object AutoState {
   }
 
   fun history(context: Context): List<JSONObject> = objectList(context, "history")
+
+  fun addHistory(context: Context, episode: JSONObject) {
+    val epId = episode.optString("id")
+    if (epId.isEmpty()) return
+    val current = history(context).filter { it.optString("id") != epId }.toMutableList()
+    current.add(0, episode)
+    val trimmed = current.take(20)
+    updateOverlay(context) { it.put("history", JSONArray(trimmed)) }
+    addMutation(context, "podcastHistoryAdded", episode)
+    notifyChanged(context)
+  }
 
   fun playedIds(context: Context): List<String> = effectiveList(context, "playedIds")
 

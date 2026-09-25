@@ -145,9 +145,44 @@ function handleNativeEvent(event: AutoNativeEvent): void {
       break;
     }
 
+    case "podcastHistoryAdded": {
+      const entry = payload as Record<string, any>;
+      const episodeId = String(entry.id || "");
+      if (!episodeId) break;
+      Preferences.addPodcastHistory({
+        id: episodeId,
+        title: String(entry.title || ""),
+        description: String(entry.description || ""),
+        imageUrl: String(entry.imageUrl || entry.podcastImageUrl || ""),
+        audioUrl: String(entry.audioUrl || ""),
+        pubDate: String(entry.pubDate || ""),
+        durationMins: Number(entry.durationMins || 0),
+        podcastId: String(entry.podcastId || ""),
+        podcastTitle: String(entry.podcastTitle || ""),
+        playedAtMs: typeof entry.playedAtMs === "number" ? entry.playedAtMs : Date.now()
+      });
+      break;
+    }
+
     case "playbackStarted": {
       // The car has taken over playback: stop the phone player so audio does not overlap.
       const state = usePlayerStore.getState();
+      if (payload.kind === "episode") {
+        const episodeId = String(payload.id || "");
+        if (episodeId) {
+          Preferences.addPodcastHistory({
+            id: episodeId,
+            title: String(payload.title || ""),
+            description: String(payload.description || ""),
+            imageUrl: String(payload.imageUrl || payload.podcastImageUrl || ""),
+            audioUrl: String(payload.audioUrl || ""),
+            pubDate: String(payload.pubDate || ""),
+            durationMins: Number(payload.durationMins || 0),
+            podcastId: String(payload.podcastId || ""),
+            podcastTitle: String(payload.subtitle || payload.podcastTitle || "")
+          });
+        }
+      }
       const stationId = String(payload.id || "");
       const station =
         payload.kind === "station" && stationId ? StationRepository.getById(stationId) : undefined;

@@ -730,10 +730,24 @@ export const Preferences = {
     }
   },
 
-  addPodcastHistory(entry: Omit<PodcastHistoryEntry, "playedAtMs"> & { playedAtMs?: number }): void {
+  addPodcastHistory(entry: Partial<PodcastHistoryEntry> & { id: string }): void {
     if (!entry?.id) return;
-    const existing = this.getPodcastHistory().filter((item) => item.id !== entry.id);
-    const record: PodcastHistoryEntry = { ...entry, playedAtMs: entry.playedAtMs ?? Date.now() };
+    const epId = String(entry.id).trim();
+    if (!epId) return;
+    const existing = this.getPodcastHistory().filter((item) => item.id !== epId);
+    const record: PodcastHistoryEntry = {
+      id: epId,
+      title: String(entry.title || "").trim(),
+      description: String(entry.description || "").trim(),
+      imageUrl: String(entry.imageUrl || "").trim(),
+      audioUrl: String(entry.audioUrl || "").trim(),
+      pubDate: String(entry.pubDate || "").trim(),
+      durationMins: Number(entry.durationMins || 0),
+      podcastId: String(entry.podcastId || "").trim(),
+      podcastTitle: String(entry.podcastTitle || "").trim(),
+      playedAtMs:
+        typeof entry.playedAtMs === "number" && entry.playedAtMs > 0 ? entry.playedAtMs : Date.now()
+    };
     storage.set(KEYS.PODCAST_HISTORY, JSON.stringify([record, ...existing].slice(0, 20)));
   },
 

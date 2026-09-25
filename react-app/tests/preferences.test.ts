@@ -84,6 +84,47 @@ function createMockPreferences() {
       } catch {
         return false;
       }
+    },
+    getPodcastHistory(): any[] {
+      const raw = storage.getString("pref_podcast_history");
+      if (!raw) return [];
+      try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed)
+          ? parsed.filter((entry) => entry && typeof entry.id === "string")
+          : [];
+      } catch {
+        return [];
+      }
+    },
+    addPodcastHistory(entry: any): void {
+      if (!entry?.id) return;
+      const epId = String(entry.id).trim();
+      if (!epId) return;
+      const existing = this.getPodcastHistory().filter((item) => item.id !== epId);
+      const record = {
+        id: epId,
+        title: String(entry.title || "").trim(),
+        description: String(entry.description || "").trim(),
+        imageUrl: String(entry.imageUrl || "").trim(),
+        audioUrl: String(entry.audioUrl || "").trim(),
+        pubDate: String(entry.pubDate || "").trim(),
+        durationMins: Number(entry.durationMins || 0),
+        podcastId: String(entry.podcastId || "").trim(),
+        podcastTitle: String(entry.podcastTitle || "").trim(),
+        playedAtMs:
+          typeof entry.playedAtMs === "number" && entry.playedAtMs > 0 ? entry.playedAtMs : Date.now()
+      };
+      storage.set("pref_podcast_history", JSON.stringify([record, ...existing].slice(0, 20)));
+    },
+    removePodcastHistoryEntry(id: string): void {
+      storage.set(
+        "pref_podcast_history",
+        JSON.stringify(this.getPodcastHistory().filter((item) => item.id !== id))
+      );
+    },
+    clearPodcastHistory(): void {
+      storage.set("pref_podcast_history", JSON.stringify([]));
     }
   };
 }
@@ -124,4 +165,75 @@ test("Preferences - backup export & import compatibility", () => {
   assert.deepEqual(prefs.getFavorites(), ["radio1", "radio3unwind", "worldservice"]);
   assert.equal(prefs.getAudioQuality(), "LOW");
   assert.equal(prefs.getGeoBlocked(), true);
+});
+
+test("Preferences - podcast history tracking and ordering", () => {
+  const prefs = createMockPreferences();
+  assert.deepEqual(prefs.getPodcastHistory(), []);
+
+  // Add first episode
+  prefs.addPodcastHistory({
+    id: "ep-1",
+    title: "Episode 1",
+    podcastId: "pod-1",
+    podcastTitle: "Podcast One",
+    playedAtMs: 1000
+  });
+  let history = prefs.getPodcastHistory();
+  assert.equal(history.length, 1);
+  assert.equal(history[0].id, "ep-1");
+  assert.equal(history[0].title, "Episode 1");
+  assert.equal(history[0].podcastTitle, "Podcast One");
+
+  // Add second episode - must prepend
+  prefs.addPodcastHistory({
+    id: "ep-2",
+    title: "Episode 2",
+    podcastId: "pod-1",
+    podcastTitle: "Podcast One",
+    playedAtMs: 2000
+  });
+  history = prefs.getPodcastHistory();
+  assert.equal(history.length, 2);
+  assert.equal(history[0].id, "ep-2");
+  assert.equal(history[1].id, "ep-1");
+
+  // Re-playing ep-1 moves it back to top
+  prefs.addPodcastHistory({
+    id: "ep-1",
+    title: "Episode 1 (Updated)",
+    podcastId: "pod-1",
+    podcastTitle: "Podcast One",
+    playedAtMs: 3000
+  });
+  history = prefs.getPodcastHistory();
+  assert.equal(history.length, 2);
+  assert.equal(history[0].id, "ep-1");
+  assert.equal(history[0].title, "Episode 1 (Updated)");
+  assert.equal(history[1].id, "ep-2");
+
+  // Max 20 entries truncation
+  for (let i = 3; i <= 25; i++) {
+    prefs.addPodcastHistory({
+      id: `ep-${i}`,
+      title: `Episode ${i}`,
+      podcastId: "pod-1",
+      podcastTitle: "Podcast One"
+    });
+  }
+  history = prefs.getPodcastHistory();
+  assert.equal(history.length, 20);
+  assert.equal(history[0].id, "ep-25");
+  // Oldest ep-2 and ep-1 should be evicted past 20 items
+  assert.equal(history.some((e) => e.id === "ep-2"), false);
+
+  // Remove entry
+  prefs.removePodcastHistoryEntry("ep-25");
+  history = prefs.getPodcastHistory();
+  assert.equal(history.length, 19);
+  assert.equal(history[0].id, "ep-24");
+
+  // Clear history
+  prefs.clearPodcastHistory();
+  assert.deepEqual(prefs.getPodcastHistory(), []);
 });

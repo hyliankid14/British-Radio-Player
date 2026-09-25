@@ -22,12 +22,30 @@ object AutoShowInfo {
   private const val RMS_CACHE_TTL_MS = 5 * 1000L
   private const val RMS_DELAY_MS = 20_000L
 
+  data class ScheduleEntry(
+    val title: String,
+    val subtitle: String,
+    val startMs: Long,
+    val endMs: Long
+  )
+
   data class ShowInfo(
     val showTitle: String = "",
     val showSubtitle: String = "",
     val artist: String = "",
     val track: String = "",
     val songArtworkUrl: String = "",
+    val fetchedAtMs: Long = 0L,
+    val showStartMs: Long = 0L,
+    val showEndMs: Long = 0L,
+    val essFetchedAtMs: Long = 0L
+  )
+
+  data class ShowDetails(
+    val title: String = "",
+    val subtitle: String = "",
+    val startMs: Long = 0L,
+    val endMs: Long = 0L,
     val fetchedAtMs: Long = 0L
   )
 
@@ -47,6 +65,7 @@ object AutoShowInfo {
   private val infoCache = ConcurrentHashMap<String, ShowInfo>()
   private val artworkBitmapCache = ConcurrentHashMap<String, Bitmap>()
   private val delayedRmsCache = ConcurrentHashMap<String, DelayedRms>()
+  private val scheduleCache = ConcurrentHashMap<String, List<ScheduleEntry>>()
 
   fun resetDelay(serviceId: String? = null) {
     if (serviceId != null) {
@@ -58,21 +77,35 @@ object AutoShowInfo {
 
   /** Returns the cached ShowInfo, or an empty ShowInfo if missing. */
   fun cachedShowInfo(serviceId: String): ShowInfo {
-    return infoCache[serviceId] ?: ShowInfo()
+    val cached = infoCache[serviceId] ?: return ShowInfo()
+    val now = System.currentTimeMillis()
+    val streamTime = now - RMS_DELAY_MS
+    // If the current show has ended on the audio stream and we have a schedule cached,
+    // transition seamlessly to the next schedule entry.
+    if (cached.showEndMs > 0L && streamTime >= cached.showEndMs) {
+      val next = scheduleCache[serviceId]?.firstOrNull { streamTime in it.startMs until it.endMs }
+      if (next != null && (next.title != cached.showTitle || next.subtitle != cached.showSubtitle)) {
+        val updated = cached.copy(
+          showTitle = next.title,
+          showSubtitle = next.subtitle,
+          showStartMs = next.startMs,
+          showEndMs = next.endMs
+        )
+        infoCache[serviceId] = updated
+        return updated
+      }
+    }
+    return cached
   }
 
   /** Returns the cached current-show title, or "" when missing/stale. */
   fun cachedShowTitle(serviceId: String): String {
-    val entry = infoCache[serviceId] ?: return ""
-    if (System.currentTimeMillis() - entry.fetchedAtMs > ESS_CACHE_TTL_MS) return ""
-    return entry.showTitle
+    return cachedShowInfo(serviceId).showTitle
   }
 
   /** Returns the cached current-show subtitle, or "" when missing/stale. */
   fun cachedShowSubtitle(serviceId: String): String {
-    val entry = infoCache[serviceId] ?: return ""
-    if (System.currentTimeMillis() - entry.fetchedAtMs > ESS_CACHE_TTL_MS) return ""
-    return entry.showSubtitle
+    return cachedShowInfo(serviceId).showSubtitle
   }
 
   /** Returns the downloaded song artwork bitmap if available. */
@@ -87,15 +120,20 @@ object AutoShowInfo {
     if (serviceId.isBlank()) return ShowInfo()
     val existing = infoCache[serviceId]
     val now = System.currentTimeMillis()
-    if (existing != null && now - existing.fetchedAtMs <= RMS_CACHE_TTL_MS) {
-      return existing
-    }
+    val streamTime = now - RMS_DELAY_MS
 
-    val (rawArtist, rawTrack, rawArtworkUrl) = try {
-      fetchRmsNowPlaying(serviceId)
-    } catch (e: Exception) {
-      Log.d(TAG, "RMS segment fetch failed for $serviceId: ${e.message}")
+    // Check if we should skip RMS network call if within RMS_CACHE_TTL_MS
+    val rmsFresh = existing != null && (now - existing.fetchedAtMs <= RMS_CACHE_TTL_MS)
+
+    val (rawArtist, rawTrack, rawArtworkUrl) = if (rmsFresh) {
       Triple(existing?.artist.orEmpty(), existing?.track.orEmpty(), existing?.songArtworkUrl.orEmpty())
+    } else {
+      try {
+        fetchRmsNowPlaying(serviceId)
+      } catch (e: Exception) {
+        Log.d(TAG, "RMS segment fetch failed for $serviceId: ${e.message}")
+        Triple(existing?.artist.orEmpty(), existing?.track.orEmpty(), existing?.songArtworkUrl.orEmpty())
+      }
     }
 
     // Delay RMS song metadata updates by 20s to account for audio stream buffer delay
@@ -120,15 +158,34 @@ object AutoShowInfo {
     val track = delayState.applied.track
     val songArtworkUrl = delayState.applied.songArtworkUrl
 
-    val (showTitle, showSubtitle) = try {
-      if (existing != null && existing.showTitle.isNotEmpty() && now - existing.fetchedAtMs <= ESS_CACHE_TTL_MS) {
-        Pair(existing.showTitle, existing.showSubtitle)
-      } else {
-        fetchCurrentShowDetails(serviceId)
+    // ── ESS Show Details ──────────────────────────────────────────────────
+    val scheduleEntries = scheduleCache[serviceId]
+    val currentScheduled = scheduleEntries?.firstOrNull { streamTime in it.startMs until it.endMs }
+    val showEnded = existing != null && existing.showEndMs > 0L && streamTime >= existing.showEndMs
+    val essExpired = existing == null || existing.showTitle.isEmpty() || (now - existing.essFetchedAtMs > ESS_CACHE_TTL_MS)
+
+    val details: ShowDetails = if (essExpired || (showEnded && currentScheduled == null)) {
+      try {
+        val fetched = fetchCurrentShowDetails(serviceId, streamTime)
+        if (fetched.title.isNotEmpty()) {
+          fetched
+        } else if (currentScheduled != null) {
+          ShowDetails(currentScheduled.title, currentScheduled.subtitle, currentScheduled.startMs, currentScheduled.endMs, existing?.essFetchedAtMs ?: now)
+        } else {
+          ShowDetails(existing?.showTitle.orEmpty(), existing?.showSubtitle.orEmpty(), existing?.showStartMs ?: 0L, existing?.showEndMs ?: 0L, existing?.essFetchedAtMs ?: 0L)
+        }
+      } catch (e: Exception) {
+        Log.d(TAG, "ESS show info fetch failed for $serviceId: ${e.message}")
+        if (currentScheduled != null) {
+          ShowDetails(currentScheduled.title, currentScheduled.subtitle, currentScheduled.startMs, currentScheduled.endMs, existing?.essFetchedAtMs ?: now)
+        } else {
+          ShowDetails(existing?.showTitle.orEmpty(), existing?.showSubtitle.orEmpty(), existing?.showStartMs ?: 0L, existing?.showEndMs ?: 0L, existing?.essFetchedAtMs ?: 0L)
+        }
       }
-    } catch (e: Exception) {
-      Log.d(TAG, "ESS show info fetch failed for $serviceId: ${e.message}")
-      Pair(existing?.showTitle.orEmpty(), existing?.showSubtitle.orEmpty())
+    } else if (currentScheduled != null && (currentScheduled.title != existing?.showTitle || currentScheduled.subtitle != existing?.showSubtitle)) {
+      ShowDetails(currentScheduled.title, currentScheduled.subtitle, currentScheduled.startMs, currentScheduled.endMs, existing?.essFetchedAtMs ?: now)
+    } else {
+      ShowDetails(existing?.showTitle.orEmpty(), existing?.showSubtitle.orEmpty(), existing?.showStartMs ?: 0L, existing?.showEndMs ?: 0L, existing?.essFetchedAtMs ?: 0L)
     }
 
     // Download artwork bitmap if new artwork URL is present
@@ -146,12 +203,15 @@ object AutoShowInfo {
     }
 
     val updated = ShowInfo(
-      showTitle = showTitle,
-      showSubtitle = showSubtitle,
+      showTitle = details.title,
+      showSubtitle = details.subtitle,
       artist = artist,
       track = track,
       songArtworkUrl = songArtworkUrl,
-      fetchedAtMs = now
+      fetchedAtMs = now,
+      showStartMs = details.startMs,
+      showEndMs = details.endMs,
+      essFetchedAtMs = details.fetchedAtMs
     )
     infoCache[serviceId] = updated
     return updated
@@ -170,6 +230,7 @@ object AutoShowInfo {
       requestMethod = "GET"
       setRequestProperty("User-Agent", "BritishRadioPlayer/1.0 (Android)")
       setRequestProperty("Accept", "application/json")
+      setRequestProperty("Cache-Control", "no-cache")
     }
     try {
       if (connection.responseCode == 404) {
@@ -232,24 +293,22 @@ object AutoShowInfo {
     }
   }
 
-  private fun fetchCurrentShowTitle(serviceId: String): String {
-    return fetchCurrentShowDetails(serviceId).first
-  }
-
-  private fun fetchCurrentShowDetails(serviceId: String): Pair<String, String> {
-    val connection = (URL("https://ess.api.bbci.co.uk/schedules?serviceId=$serviceId&mediatypes=audio")
+  private fun fetchCurrentShowDetails(serviceId: String, streamTime: Long): ShowDetails {
+    val connection = (URL("https://ess.api.bbci.co.uk/schedules?serviceId=$serviceId&mediatypes=audio&t=${System.currentTimeMillis()}")
       .openConnection() as HttpURLConnection).apply {
       connectTimeout = 8000
       readTimeout = 8000
       requestMethod = "GET"
       setRequestProperty("User-Agent", "BritishRadioPlayer/1.0 (Android)")
       setRequestProperty("Accept", "application/json")
+      setRequestProperty("Cache-Control", "no-cache")
     }
     try {
-      if (connection.responseCode != HttpURLConnection.HTTP_OK) return Pair("", "")
+      if (connection.responseCode != HttpURLConnection.HTTP_OK) return ShowDetails()
       val body = connection.inputStream.bufferedReader().use { it.readText() }
-      val items = JSONObject(body).optJSONArray("items") ?: return Pair("", "")
-      val now = System.currentTimeMillis()
+      val items = JSONObject(body).optJSONArray("items") ?: return ShowDetails()
+      val entries = mutableListOf<ScheduleEntry>()
+
       for (i in 0 until items.length()) {
         val item = items.optJSONObject(i) ?: continue
         val published = item.optJSONObject("published_time") ?: continue
@@ -258,38 +317,57 @@ object AutoShowInfo {
         if (startRaw.isEmpty() || endRaw.isEmpty()) continue
         val start = parseIso(startRaw) ?: continue
         val end = parseIso(endRaw) ?: continue
-        if (now in start..end) {
-          val brand = item.optJSONObject("brand")
-          val episode = item.optJSONObject("episode")
-          val brandTitle = brand?.optString("title", "").orEmpty().trim()
-          val episodeTitle = episode?.optString("title", "").orEmpty().trim()
-          val shortSynopsis = episode?.optJSONObject("synopses")?.optString("short", "").orEmpty().trim()
-            .ifEmpty { item.optJSONObject("synopses")?.optString("short", "").orEmpty().trim() }
 
-          val showTitle = brandTitle.ifEmpty { episodeTitle }
-          val showSubtitle = if (brandTitle.isNotEmpty() && episodeTitle.isNotEmpty() && !episodeTitle.equals(brandTitle, ignoreCase = true)) {
-            episodeTitle
-          } else if (shortSynopsis.isNotEmpty() && !shortSynopsis.equals(showTitle, ignoreCase = true)) {
-            shortSynopsis
-          } else {
-            ""
-          }
-          return Pair(showTitle, showSubtitle)
+        val brand = item.optJSONObject("brand")
+        val episode = item.optJSONObject("episode")
+        val brandTitle = brand?.optString("title", "").orEmpty().trim()
+        val episodeTitle = episode?.optString("title", "").orEmpty().trim()
+        val shortSynopsis = episode?.optJSONObject("synopses")?.optString("short", "").orEmpty().trim()
+          .ifEmpty { item.optJSONObject("synopses")?.optString("short", "").orEmpty().trim() }
+
+        val showTitle = brandTitle.ifEmpty { episodeTitle }
+        val showSubtitle = if (brandTitle.isNotEmpty() && episodeTitle.isNotEmpty() && !episodeTitle.equals(brandTitle, ignoreCase = true)) {
+          episodeTitle
+        } else if (shortSynopsis.isNotEmpty() && !shortSynopsis.equals(showTitle, ignoreCase = true)) {
+          shortSynopsis
+        } else {
+          ""
+        }
+
+        if (showTitle.isNotEmpty()) {
+          entries.add(ScheduleEntry(showTitle, showSubtitle, start, end))
+        }
+      }
+
+      if (entries.isNotEmpty()) {
+        entries.sortBy { it.startMs }
+        scheduleCache[serviceId] = entries
+      }
+
+      val now = System.currentTimeMillis()
+      val current = entries.firstOrNull { streamTime in it.startMs until it.endMs }
+      return if (current != null) {
+        ShowDetails(current.title, current.subtitle, current.startMs, current.endMs, now)
+      } else {
+        val upcoming = entries.firstOrNull { it.startMs > streamTime } ?: entries.firstOrNull()
+        if (upcoming != null) {
+          ShowDetails(upcoming.title, upcoming.subtitle, upcoming.startMs, upcoming.endMs, now)
+        } else {
+          ShowDetails("", "", 0L, 0L, now)
         }
       }
     } finally {
       try { connection.disconnect() } catch (_: Exception) { }
     }
-    return Pair("", "")
   }
 
   private fun parseIso(raw: String): Long? {
     val normalised = raw.trim().replace("Z", "+0000")
     val formats = listOf(
-      "yyyy-MM-dd'T'HH:mm:ssZ",
-      "yyyy-MM-dd'T'HH:mm:ss.SSSZ",
-      "yyyy-MM-dd'T'HH:mm:ssXXX",
-      "yyyy-MM-dd'T'HH:mm:ss.SSSXXX"
+        "yyyy-MM-dd'T'HH:mm:ssZ",
+        "yyyy-MM-dd'T'HH:mm:ss.SSSZ",
+        "yyyy-MM-dd'T'HH:mm:ssXXX",
+        "yyyy-MM-dd'T'HH:mm:ss.SSSXXX"
     )
     for (pattern in formats) {
       try {

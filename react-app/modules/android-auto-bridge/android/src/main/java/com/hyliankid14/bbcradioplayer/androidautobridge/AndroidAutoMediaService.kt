@@ -429,13 +429,41 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
       episodeAnalyticsScheduled = false
     }
 
+    val epDesc = episode.optString("description")
+    val epAudio = episode.optString("audioUrl")
+    val epPubDate = episode.optString("pubDate")
+    val epDuration = episode.optInt("durationMins", 0)
+    val epImage = episode.optString("imageUrl").ifEmpty {
+      findEpisode(epId)?.optString("imageUrl").orEmpty()
+    }.ifEmpty {
+      findPodcast(podId)?.optString("imageUrl").orEmpty()
+    }
+
+    val historyEntry = JSONObject().apply {
+      put("id", epId)
+      put("title", epTitle)
+      put("description", epDesc)
+      put("imageUrl", epImage)
+      put("audioUrl", epAudio)
+      put("pubDate", epPubDate)
+      put("durationMins", epDuration)
+      put("podcastId", podId)
+      put("podcastTitle", podTitle)
+      put("playedAtMs", System.currentTimeMillis())
+    }
+    AutoState.addHistory(this, historyEntry)
+
     emitMutation("playbackStarted", JSONObject().apply {
       put("kind", "episode")
       put("id", epId)
       put("podcastId", podId)
       put("title", epTitle)
       put("subtitle", podTitle.ifEmpty { podId })
-      put("imageUrl", episode.optString("imageUrl"))
+      put("imageUrl", epImage)
+      put("description", epDesc)
+      put("audioUrl", epAudio)
+      put("pubDate", epPubDate)
+      put("durationMins", epDuration)
     })
   }
 
@@ -613,7 +641,7 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
       try {
         val before = AutoShowInfo.cachedShowInfo(serviceId)
         val info = AutoShowInfo.refreshShowInfo(serviceId)
-        val changed = before.track != info.track || before.artist != info.artist || before.songArtworkUrl != info.songArtworkUrl || before.showTitle != info.showTitle
+        val changed = before.track != info.track || before.artist != info.artist || before.songArtworkUrl != info.songArtworkUrl || before.showTitle != info.showTitle || before.showSubtitle != info.showSubtitle
         if (changed && kind == Kind.STATION && stationJson?.optString("serviceId") == serviceId) {
           handler.post {
             if (kind == Kind.STATION && stationJson?.optString("serviceId") == serviceId) {

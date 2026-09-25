@@ -450,6 +450,12 @@ export default function FavouritesScreen() {
     return () => sub.remove();
   }, []);
 
+  useEffect(() => {
+    if (activeCategory === "History") {
+      setPodcastHistory(Preferences.getPodcastHistory());
+    }
+  }, [activeCategory]);
+
   const handleOpenHistoryEntry = useCallback(
     (item: PodcastHistoryEntry) => {
       const isCurrent = currentEpisode?.id === item.id;
@@ -1221,7 +1227,12 @@ export default function FavouritesScreen() {
                     : theme.surfaceVariant
                 }
               ]}
-              onPress={() => setActiveCategory(item.id)}
+              onPress={() => {
+                setActiveCategory(item.id);
+                if (item.id === "History") {
+                  setPodcastHistory(Preferences.getPodcastHistory());
+                }
+              }}
               accessibilityRole="tab"
               accessibilityState={{ selected: isSelected }}
               accessibilityLabel={item.label}

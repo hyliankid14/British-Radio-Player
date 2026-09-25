@@ -417,6 +417,7 @@ object ShowInfoFetcher {
             connection.connectTimeout = 5000
             connection.readTimeout = 5000
             connection.setRequestProperty("User-Agent", "AndroidAutoRadioPlayer/1.0")
+            connection.setRequestProperty("Cache-Control", "no-cache")
             
             val responseCode = connection.responseCode
             Log.d(TAG, "ESS Response code: $responseCode")
@@ -526,7 +527,7 @@ object ShowInfoFetcher {
             val jsonObject = org.json.JSONObject(json)
             val items = jsonObject.optJSONArray("items") ?: return null
             
-            val now = System.currentTimeMillis()
+            val now = System.currentTimeMillis() - RMS_DELAY_MS
             // Handle ISO 8601 with potential millis and Z
             // Examples: "2026-01-04T18:00:53.092Z", "2026-01-04T18:00:00.000Z"
             val sdf = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US)

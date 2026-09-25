@@ -213,13 +213,19 @@ export async function fetchShowInfo(stationId: string): Promise<CurrentShow> {
   let nextShowStartTimeMs: number | undefined;
 
   try {
-    const essRes = await fetch(`https://ess.api.bbci.co.uk/schedules?serviceId=${serviceId}&mediatypes=audio`, {
-      headers: { "User-Agent": "BritishRadioPlayer/1.0" }
-    });
+    const essRes = await fetch(
+      `https://ess.api.bbci.co.uk/schedules?serviceId=${serviceId}&mediatypes=audio&t=${Date.now()}`,
+      {
+        headers: {
+          "User-Agent": "BritishRadioPlayer/1.0",
+          "Cache-Control": "no-cache"
+        }
+      }
+    );
     if (essRes.ok) {
       const essData = await essRes.json();
       const items = essData?.items || [];
-      const now = Date.now();
+      const now = Date.now() - RMS_DELAY_MS;
       const entries: ScheduleEntry[] = [];
 
       for (let i = 0; i < items.length; i++) {
@@ -276,9 +282,25 @@ export async function fetchShowInfo(stationId: string): Promise<CurrentShow> {
         const todayStr = `${todayDate.getFullYear()}-${String(todayDate.getMonth() + 1).padStart(2, "0")}-${String(todayDate.getDate()).padStart(2, "0")}`;
         scheduleCache.set(`${stationId}_${todayStr}`, entries);
       }
+    } else {
+      const cached = getUpcomingShowFromSchedule(stationId, Date.now() - RMS_DELAY_MS);
+      if (cached) {
+        showTitle = cached.title;
+        episodeTitle = cached.episodeTitle;
+        essImageUrl = cached.imageUrl;
+        startTimeMs = cached.startTimeMs;
+        endTimeMs = cached.endTimeMs;
+      }
     }
   } catch (err) {
-    // Transient schedule error
+    const cached = getUpcomingShowFromSchedule(stationId, Date.now() - RMS_DELAY_MS);
+    if (cached) {
+      showTitle = cached.title;
+      episodeTitle = cached.episodeTitle;
+      essImageUrl = cached.imageUrl;
+      startTimeMs = cached.startTimeMs;
+      endTimeMs = cached.endTimeMs;
+    }
   }
 
   return {
