@@ -31,6 +31,7 @@ import { Preferences } from "../src/storage/preferences";
 import { NativeAndroid, AlarmLaunch } from "../src/native/nativeAndroid";
 import { StationRepository } from "../src/data/stations";
 import { formatShowDisplayTitle } from "../src/api/showInfo";
+import { RadioAlarm } from "../src/audio/radioAlarm";
 
 LogBox.ignoreAllLogs();
 
@@ -134,14 +135,7 @@ export default function RootLayout() {
     return () => sub.remove();
   }, [navigateToTarget]);
 
-  // Open the podcast or search result a tapped notification refers to (Expo Notifications)
-  useEffect(() => {
-    return initNotificationNavigation((url) => {
-      navigateToTarget(url);
-    });
-  }, [navigateToTarget]);
-
-  // Listen for native Android notification taps while app is running/backgrounded
+  // Handles alarm playback on both Android and iOS
   const handleAlarmPlayback = useCallback(async (alarm: AlarmLaunch | null) => {
     if (!alarm?.stationId) return;
     const station = StationRepository.getById(alarm.stationId);
@@ -163,6 +157,18 @@ export default function RootLayout() {
       console.warn("Alarm playback failed:", error);
     }
   }, []);
+
+  // Open the podcast, search result, or alarm a notification refers to (Expo Notifications)
+  useEffect(() => {
+    return initNotificationNavigation(
+      (url) => {
+        navigateToTarget(url);
+      },
+      (alarm) => {
+        void handleAlarmPlayback(alarm);
+      }
+    );
+  }, [navigateToTarget, handleAlarmPlayback]);
 
   // Listen for native Android notification taps while app is running/backgrounded
   useEffect(() => {
@@ -216,6 +222,9 @@ export default function RootLayout() {
     async function start() {
       await setupPlayer();
       await initStore();
+
+      // Ensure radio alarm is scheduled from preferences (especially on iOS)
+      void RadioAlarm.scheduleFromPreferences();
 
       // If the app was launched by the radio alarm, start the chosen station and ramp up.
       const alarm = NativeAndroid.consumeAlarmLaunch();

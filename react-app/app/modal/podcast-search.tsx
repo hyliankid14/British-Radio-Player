@@ -27,6 +27,7 @@ import { Preferences } from "../../src/storage/preferences";
 import { applyLanguageFilter } from "../../src/podcasts/languageFilter";
 import { usePlayerStore } from "../../src/store/playerStore";
 import { OfflineBanner, VpnBanner } from "../../src/components/NetworkBanners";
+import { ensureNotificationPermissions } from "../../src/notifications/notifications";
 
 export default function PodcastSearchScreen() {
   const router = useRouter();
@@ -647,10 +648,13 @@ export default function PodcastSearchScreen() {
               </TouchableOpacity>
 
               <TouchableOpacity
-                onPress={() => {
+                onPress={async () => {
                   const query = searchQuery.trim();
                   const name = saveSearchName.trim() || query;
                   if (!query) return;
+                  if (saveSearchNotify) {
+                    await ensureNotificationPermissions();
+                  }
                   const latestDate = searchEpisodeMatches
                     .map((episode) => episode.pubDate)
                     .filter((date) => typeof date === "string" && Number.isFinite(Date.parse(date)))

@@ -22,7 +22,7 @@ let handlerRegistered = false;
  * Loads expo-notifications lazily so the JS bundle keeps working on native builds
  * that have not yet linked the module.
  */
-function getNotifications(): NotificationsModule | null {
+export function getNotifications(): NotificationsModule | null {
   if (moduleRef || moduleLoadFailed) return moduleRef;
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -44,6 +44,9 @@ function getNotifications(): NotificationsModule | null {
   }
   return moduleRef;
 }
+
+// Eagerly initialize notification handler
+getNotifications();
 
 export function isNotificationModuleAvailable(): boolean {
   return getNotifications() !== null;
@@ -111,7 +114,12 @@ async function present(
 ): Promise<void> {
   await ensureChannel(Notifications);
   await Notifications.scheduleNotificationAsync({
-    content: { title, body, data: { url, ...extraData } },
+    content: {
+      title,
+      body,
+      sound: true,
+      data: { url, ...extraData }
+    },
     trigger:
       Platform.OS === "android"
         ? {
@@ -121,6 +129,22 @@ async function present(
           }
         : null
   });
+}
+
+/** Sends a test notification to verify delivery and sound immediately. */
+export async function sendTestNotification(): Promise<boolean> {
+  const Notifications = getNotifications();
+  if (!Notifications) return false;
+  const granted = await ensureNotificationPermissions();
+  if (!granted) return false;
+  await present(
+    Notifications,
+    "British Radio Player",
+    "Test notification: audio alerts are working!",
+    "/modal/settings-detail?section=indexing",
+    { test: true }
+  );
+  return true;
 }
 
 function episodeEpoch(pubDate?: string): number {
@@ -343,8 +367,11 @@ export async function checkForNewPodcasts(force = false): Promise<void> {
   }
 }
 
-/** Opens the deep link carried by a tapped notification. */
-export function initNotificationNavigation(onOpenUrl: (url: string) => void): () => void {
+/** Opens the deep link carried by a tapped notification or handles alarm playback. */
+export function initNotificationNavigation(
+  onOpenUrl: (url: string) => void,
+  onAlarm?: (alarm: { stationId: string; ramp: boolean; volume: number }) => void
+): () => void {
   const Notifications = getNotifications();
   if (!Notifications) return () => {};
 
@@ -365,6 +392,15 @@ export function initNotificationNavigation(onOpenUrl: (url: string) => void): ()
       } catch {}
     }
     if (!data || typeof data !== "object") return;
+
+    if (data.type === "alarm" && typeof data.stationId === "string" && data.stationId) {
+      onAlarm?.({
+        stationId: data.stationId,
+        ramp: Boolean(data.ramp),
+        volume: Number(data.volume) || 5
+      });
+      return;
+    }
 
     if (typeof data.url === "string" && data.url) {
       onOpenUrl(data.url);
@@ -394,6 +430,27 @@ export function initNotificationNavigation(onOpenUrl: (url: string) => void): ()
       .catch(() => {});
   }
 
-  const subscription = Notifications.addNotificationResponseReceivedListener(handleResponse);
-  return () => subscription.remove();
+  const responseSubscription = Notifications.addNotificationResponseReceivedListener(handleResponse);
+
+  // If an alarm notification arrives while the app is in the foreground:
+  const receivedSubscription = Notifications.addNotificationReceivedListener((notification) => {
+    let data = notification.request.content.data as Record<string, any> | string | undefined;
+    if (typeof data === "string") {
+      try {
+        data = JSON.parse(data);
+      } catch {}
+    }
+    if (data && typeof data === "object" && data.type === "alarm" && typeof data.stationId === "string" && data.stationId) {
+      onAlarm?.({
+        stationId: data.stationId,
+        ramp: Boolean(data.ramp),
+        volume: Number(data.volume) || 5
+      });
+    }
+  });
+
+  return () => {
+    responseSubscription.remove();
+    receivedSubscription.remove();
+  };
 }

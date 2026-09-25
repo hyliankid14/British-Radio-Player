@@ -36,8 +36,10 @@ import {
 } from "../../src/config/distribution";
 import {
   checkForNewPodcasts,
-  ensureNotificationPermissions
+  ensureNotificationPermissions,
+  sendTestNotification
 } from "../../src/notifications/notifications";
+import { RadioAlarm } from "../../src/audio/radioAlarm";
 
 const AUTO_NAME = Platform.OS === "ios" ? "CarPlay" : "Android Auto";
 
@@ -879,29 +881,34 @@ function AlarmPage() {
     days: Preferences.getSetting("pref_alarm_days", "1,2,3,4,5")
   });
 
-  const update = (key: string, value: string | number | boolean) => {
+  const update = async (key: string, value: string | number | boolean) => {
+    if (key === "enabled" && value === true) {
+      const granted = await RadioAlarm.requestPermissions();
+      if (!granted) {
+        Alert.alert(
+          "Notifications required",
+          "Enable notifications for British Radio Player in Settings to receive wake-up alarm alerts.",
+          [
+            { text: "Cancel", style: "cancel" },
+            { text: "Open Settings", onPress: () => void Linking.openSettings() }
+          ]
+        );
+      }
+    }
     Preferences.setSetting(`pref_alarm_${key}`, value);
     setSettings((current) => ({ ...current, [key]: value }));
   };
 
   useEffect(() => {
-    const mask = String(settings.days)
-      .split(",")
-      .filter(Boolean)
-      .reduce((acc, day) => acc | (1 << Number(day)), 0);
-    if (settings.enabled && settings.station) {
-      NativeAndroid.requestNotificationPermission();
-      NativeAndroid.scheduleAlarm(
-        Number(settings.hour),
-        Number(settings.minute),
-        mask,
-        String(settings.station),
-        Boolean(settings.ramp),
-        Number(settings.volume)
-      );
-    } else {
-      NativeAndroid.cancelAlarm();
-    }
+    void RadioAlarm.schedule({
+      enabled: Boolean(settings.enabled),
+      hour: Number(settings.hour),
+      minute: Number(settings.minute),
+      days: String(settings.days),
+      station: String(settings.station),
+      ramp: Boolean(settings.ramp),
+      volume: Number(settings.volume)
+    });
   }, [settings]);
 
   const DAYS = [
@@ -1043,6 +1050,44 @@ function AlarmPage() {
             </View>
           </View>
         ) : null}
+      </SettingsCard>
+
+      <SettingsSectionHeader label="ALARM TEST" />
+      <SettingsCard>
+        <Text style={[styles.cardTitle, { color: theme.onSurface }]}>Preview alarm notification</Text>
+        <Text style={[styles.cardSubtitle, { color: theme.onSurfaceVariant, marginBottom: 12 }]}>
+          Triggers a test alarm notification in 2 seconds with sound. Tap the notification banner to verify station playback.
+        </Text>
+        <SecondaryButton
+          icon="alarm-on"
+          label="Test alarm notification now (2s)"
+          onPress={async () => {
+            if (!settings.station) {
+              Alert.alert("Select a station", "Please select an alarm station above first before testing.");
+              return;
+            }
+            const sent = await RadioAlarm.sendTestAlarm(
+              String(settings.station),
+              Boolean(settings.ramp),
+              Number(settings.volume)
+            );
+            if (sent) {
+              Alert.alert(
+                "Test alarm scheduled",
+                "A test alarm notification will fire in 2 seconds with sound. Tap the banner to start your station."
+              );
+            } else {
+              Alert.alert(
+                "Notifications required",
+                "Enable notifications for British Radio Player in Settings to receive alarm alerts.",
+                [
+                  { text: "Cancel", style: "cancel" },
+                  { text: "Open Settings", onPress: () => void Linking.openSettings() }
+                ]
+              );
+            }
+          }}
+        />
       </SettingsCard>
     </>
   );
@@ -1200,8 +1245,12 @@ function IndexingPage() {
       const granted = await ensureNotificationPermissions();
       if (!granted) {
         Alert.alert(
-          "Notifications disabled",
-          "Enable notifications for British Radio Player in system settings to receive new podcast alerts."
+          "Notifications required",
+          "Enable notifications for British Radio Player in Settings to receive new podcast alerts.",
+          [
+            { text: "Cancel", style: "cancel" },
+            { text: "Open Settings", onPress: () => void Linking.openSettings() }
+          ]
         );
         return;
       }
@@ -1241,6 +1290,28 @@ function IndexingPage() {
           value={excludeEnglish}
           onChange={toggleExcludeEnglish}
         />
+        <ItemSeparator />
+        <View style={{ marginTop: 4 }}>
+          <SecondaryButton
+            icon="notifications"
+            label="Send test notification"
+            onPress={async () => {
+              const sent = await sendTestNotification();
+              if (sent) {
+                Alert.alert("Test notification sent", "A notification banner with sound was sent.");
+              } else {
+                Alert.alert(
+                  "Notifications required",
+                  "Enable notifications for British Radio Player in Settings to receive alerts.",
+                  [
+                    { text: "Cancel", style: "cancel" },
+                    { text: "Open Settings", onPress: () => void Linking.openSettings() }
+                  ]
+                );
+              }
+            }}
+          />
+        </View>
       </SettingsCard>
 
       <SettingsSectionHeader label="CLOUD INDEX STATUS" />

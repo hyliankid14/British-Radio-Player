@@ -30,6 +30,7 @@ import { Preferences, PodcastHistoryEntry } from "../../src/storage/preferences"
 import { OfflineBanner, VpnBanner } from "../../src/components/NetworkBanners";
 import { NativeAndroid } from "../../src/native/nativeAndroid";
 import { useResponsiveLayout } from "../../src/theme/responsive";
+import { ensureNotificationPermissions } from "../../src/notifications/notifications";
 
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -1579,8 +1580,12 @@ export default function FavouritesScreen() {
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.savedSearchAction}
-                onPress={() => {
-                  Preferences.updatePodcastSearchNotifications(item.id, !item.notificationsEnabled);
+                onPress={async () => {
+                  const enabling = !item.notificationsEnabled;
+                  if (enabling) {
+                    await ensureNotificationPermissions();
+                  }
+                  Preferences.updatePodcastSearchNotifications(item.id, enabling);
                   setSavedSearches(Preferences.getSavedPodcastSearches());
                 }}
                 accessibilityLabel={item.notificationsEnabled ? "Disable search alerts" : "Enable search alerts"}
