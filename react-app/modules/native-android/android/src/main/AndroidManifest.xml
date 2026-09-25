@@ -5,6 +5,8 @@
   <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
   <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
   <uses-permission android:name="android.permission.WAKE_LOCK" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
   <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
   <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
   <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
@@ -19,6 +21,11 @@
     <receiver
       android:name=".AlarmSnoozeReceiver"
       android:exported="false" />
+
+    <service
+      android:name=".AlarmPlaybackService"
+      android:exported="false"
+      android:foregroundServiceType="mediaPlayback" />
 
     <receiver
       android:name=".StationWidgetProvider"

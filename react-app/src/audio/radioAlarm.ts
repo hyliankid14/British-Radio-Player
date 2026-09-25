@@ -1,5 +1,5 @@
 import { Platform } from "react-native";
-import { StationRepository } from "../data/stations";
+import { StationRepository, getStreamCandidates } from "../data/stations";
 import { NativeAndroid } from "../native/nativeAndroid";
 import { Preferences } from "../storage/preferences";
 import { ensureNotificationPermissions, getNotifications } from "../notifications/notifications";
@@ -43,12 +43,18 @@ export const RadioAlarm = {
         .filter(Boolean)
         .reduce((acc, day) => acc | (1 << Number(day)), 0);
 
+      const station = StationRepository.getById(config.station);
+      const stationName = station?.title ?? config.station;
+      const streamUrl = station ? getStreamCandidates(station, "HIGH")[0] : null;
+
       NativeAndroid.requestNotificationPermission();
       NativeAndroid.scheduleAlarm(
         Number(config.hour),
         Number(config.minute),
         mask,
         String(config.station),
+        stationName,
+        streamUrl,
         Boolean(config.ramp),
         Number(config.volume)
       );

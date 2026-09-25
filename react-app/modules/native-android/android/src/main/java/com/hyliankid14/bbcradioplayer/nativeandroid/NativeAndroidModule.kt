@@ -119,9 +119,15 @@ class NativeAndroidModule : Module() {
     // ── Radio alarm ─────────────────────────────────────────────────────────
 
     /** Schedules (or reschedules) the exact radio alarm. */
-    Function("scheduleAlarm") { hour: Int, minute: Int, daysMask: Int, stationId: String?, ramp: Boolean, volume: Int ->
+    Function("scheduleAlarm") { hour: Int, minute: Int, daysMask: Int, stationId: String?, stationName: String?, streamUrl: String?, ramp: Boolean, volume: Int ->
       val ctx = context ?: return@Function null
-      AlarmScheduler.schedule(ctx, hour, minute, daysMask, stationId, ramp, volume)
+      AlarmScheduler.schedule(ctx, hour, minute, daysMask, stationId, stationName, streamUrl, ramp, volume)
+      null
+    }
+
+    /** Stops any in-progress native alarm playback (e.g. when the app takes over). */
+    Function("stopAlarmPlayback") { ->
+      context?.let { AlarmPlaybackService.stop(it) }
       null
     }
 

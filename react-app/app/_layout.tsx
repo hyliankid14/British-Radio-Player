@@ -141,6 +141,8 @@ export default function RootLayout() {
     const station = StationRepository.getById(alarm.stationId);
     if (!station) return;
     try {
+      // Hand playback over from the native alarm service to the in-app player.
+      NativeAndroid.stopAlarmPlayback();
       NativeAndroid.cancelAlarmNotification();
       await usePlayerStore.getState().playStation(station);
       if (alarm.ramp) {

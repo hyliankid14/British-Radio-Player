@@ -18,6 +18,8 @@ object AlarmScheduler {
   const val ACTION_SNOOZE = "com.hyliankid14.bbcradioplayer.action.ALARM_SNOOZE"
 
   const val EXTRA_STATION_ID = "alarm_station_id"
+  const val EXTRA_STATION_NAME = "alarm_station_name"
+  const val EXTRA_STREAM_URL = "alarm_stream_url"
   const val EXTRA_RAMP = "alarm_ramp"
   const val EXTRA_VOLUME = "alarm_volume"
 
@@ -29,6 +31,8 @@ object AlarmScheduler {
   private const val KEY_MINUTE = "alarm_minute"
   private const val KEY_DAYS = "alarm_days_mask"
   private const val KEY_STATION = "alarm_station_id"
+  private const val KEY_STATION_NAME = "alarm_station_name"
+  private const val KEY_STREAM_URL = "alarm_stream_url"
   private const val KEY_RAMP = "alarm_ramp"
   private const val KEY_VOLUME = "alarm_volume"
   private const val KEY_ENABLED = "alarm_enabled"
@@ -39,6 +43,8 @@ object AlarmScheduler {
     minute: Int,
     daysMask: Int,
     stationId: String?,
+    stationName: String?,
+    streamUrl: String?,
     ramp: Boolean,
     volume: Int
   ) {
@@ -48,6 +54,8 @@ object AlarmScheduler {
       .putInt(KEY_MINUTE, minute)
       .putInt(KEY_DAYS, daysMask)
       .putString(KEY_STATION, stationId)
+      .putString(KEY_STATION_NAME, stationName)
+      .putString(KEY_STREAM_URL, streamUrl)
       .putBoolean(KEY_RAMP, ramp)
       .putInt(KEY_VOLUME, volume)
       .putBoolean(KEY_ENABLED, true)
@@ -55,7 +63,7 @@ object AlarmScheduler {
 
     val manager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
     val triggerAt = nextTriggerMillis(hour, minute, daysMask)
-    val pendingIntent = buildPendingIntent(context, stationId, ramp, volume, null)
+    val pendingIntent = buildPendingIntent(context, stationId, stationName, streamUrl, ramp, volume, null)
     try {
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !manager.canScheduleExactAlarms()) {
         manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
@@ -76,12 +84,14 @@ object AlarmScheduler {
     val hour = prefs.getInt(KEY_HOUR, 7)
     val minute = prefs.getInt(KEY_MINUTE, 0)
     val stationId = prefs.getString(KEY_STATION, null)
+    val stationName = prefs.getString(KEY_STATION_NAME, null)
+    val streamUrl = prefs.getString(KEY_STREAM_URL, null)
     val ramp = prefs.getBoolean(KEY_RAMP, true)
     val volume = prefs.getInt(KEY_VOLUME, 5)
 
     val manager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
     val triggerAt = nextTriggerMillis(hour, minute, daysMask)
-    val pendingIntent = buildPendingIntent(context, stationId, ramp, volume, null)
+    val pendingIntent = buildPendingIntent(context, stationId, stationName, streamUrl, ramp, volume, null)
     try {
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !manager.canScheduleExactAlarms()) {
         manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
@@ -95,9 +105,13 @@ object AlarmScheduler {
 
   /** Schedules a one-off snooze alarm [SNOOZE_MINUTES] from now. */
   fun snooze(context: Context, stationId: String?, ramp: Boolean, volume: Int) {
+    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    val stationName = prefs.getString(KEY_STATION_NAME, null)
+    val streamUrl = prefs.getString(KEY_STREAM_URL, null)
+
     val manager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
     val triggerAt = System.currentTimeMillis() + SNOOZE_MINUTES * 60_000L
-    val pendingIntent = buildPendingIntent(context, stationId, ramp, volume, null)
+    val pendingIntent = buildPendingIntent(context, stationId, stationName, streamUrl, ramp, volume, null)
     try {
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !manager.canScheduleExactAlarms()) {
         manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
@@ -115,13 +129,15 @@ object AlarmScheduler {
       .apply()
 
     val manager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
-    val pendingIntent = buildPendingIntent(context, null, true, 5, null)
+    val pendingIntent = buildPendingIntent(context, null, null, null, true, 5, null)
     manager.cancel(pendingIntent)
   }
 
   private fun buildPendingIntent(
     context: Context,
     stationId: String?,
+    stationName: String?,
+    streamUrl: String?,
     ramp: Boolean,
     volume: Int,
     action: String?
@@ -129,6 +145,8 @@ object AlarmScheduler {
     val intent = Intent(context, AlarmReceiver::class.java).apply {
       this.action = action ?: ACTION_ALARM
       putExtra(EXTRA_STATION_ID, stationId)
+      putExtra(EXTRA_STATION_NAME, stationName)
+      putExtra(EXTRA_STREAM_URL, streamUrl)
       putExtra(EXTRA_RAMP, ramp)
       putExtra(EXTRA_VOLUME, volume)
     }

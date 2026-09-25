@@ -16,9 +16,12 @@ interface NativeAndroidBridge {
     minute: number,
     daysMask: number,
     stationId: string | null,
+    stationName: string | null,
+    streamUrl: string | null,
     ramp: boolean,
     volume: number
   ): void;
+  stopAlarmPlayback(): void;
   cancelAlarm(): void;
   cancelAlarmNotification(): void;
   canScheduleExactAlarms(): boolean;
@@ -193,13 +196,24 @@ export const NativeAndroid = {
     minute: number,
     daysMask: number,
     stationId: string | null,
+    stationName: string | null,
+    streamUrl: string | null,
     ramp: boolean,
     volume: number
   ): void {
     try {
-      load()?.scheduleAlarm(hour, minute, daysMask, stationId, ramp, volume);
+      load()?.scheduleAlarm(hour, minute, daysMask, stationId, stationName, streamUrl, ramp, volume);
     } catch {
       // Ignore scheduling failures.
+    }
+  },
+
+  /** Stops any in-progress native alarm playback (e.g. when the app takes over). */
+  stopAlarmPlayback(): void {
+    try {
+      load()?.stopAlarmPlayback();
+    } catch {
+      // Ignore.
     }
   },
 
