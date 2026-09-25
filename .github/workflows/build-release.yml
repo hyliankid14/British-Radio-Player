@@ -83,8 +83,8 @@ jobs:
             VERSION_NAME=$(jq -r '.expo.version' react-app/app.json)
             VERSION_CODE=$(jq -r '.expo.android.versionCode' react-app/app.json)
           else
-            VERSION_NAME=$(grep -Po '(?<=APP_VERSION_NAME=).+' gradle.properties)
-            VERSION_CODE=$(grep -Po '(?<=APP_VERSION_CODE=).+' gradle.properties)
+            VERSION_NAME=$(sed -nE 's/^APP_VERSION_NAME=//p' gradle.properties)
+            VERSION_CODE=$(sed -nE 's/^APP_VERSION_CODE=//p' gradle.properties)
           fi
 
           if [ -z "$VERSION_NAME" ] || [ -z "$VERSION_CODE" ] || [ "$VERSION_NAME" = "null" ]; then
