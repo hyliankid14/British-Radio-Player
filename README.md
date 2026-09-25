@@ -1,11 +1,15 @@
 # British Radio Player
 
-An unofficial Android client for BBC Radio and podcasts. It focuses on
-reliable streaming on phones and Android Auto, offering a clean Material 3
-interface with useful features for listeners.
+An unofficial client for BBC Radio and podcasts, built with React Native (Expo) and shared
+between Android and iOS. It focuses on reliable streaming on phones and Android Auto, offering a
+clean Material 3 interface with useful features for listeners.
 ## 📥 Download
 
 **[Get the latest release](https://github.com/hyliankid14/British-Radio-Player/releases)** - Download APK for your device
+
+The app is also published on Google Play. Because the React app reuses the original application
+ID, updating from an earlier version installs in place and carries your favourites,
+subscriptions, playlists and listening history across.
 
 ## 📸 Screenshots
 
@@ -63,24 +67,28 @@ interface with useful features for listeners.
 - Playback controls and episode metadata on your watch.
 
 ### Interface & Settings
-- Material 3 light/dark theme with purple accent, edge-to-edge display, and
+- Material 3 light/dark theme with purple accent, edge-to-edge display, and
   adaptive layouts for phones and tablets.
 - Drag‑and‑drop favourites, persistent mini player and a full Now Playing
   screen with artwork, share button and seekbar.
 - Audio quality switching (with network-based recommendations),
   export/import of preferences, and flexible podcast/Android Auto options.
 - VPN-detected warning banner; shake-to-shuffle gesture.
-- Powered by AndroidX Media3 for rock-solid HLS streaming.
+- Radio alarm with scheduled, ramped playback; home screen widget; background
+  sync that keeps the podcast index current without draining data.
 
 ## Requirements
 
-- Android API 21+ (Lollipop) with API 33+ recommended; Wear OS requires API 30+
-- Kotlin 1.9 or later
-- AndroidX Media3 1.4+ (replaces legacy ExoPlayer), Material 3 Components, WorkManager for background tasks
+- Android API 24+ (Android 7.0 Nougat) with API 33+ recommended; Wear OS requires API 30+
+- iOS 16+ (built from the same React Native codebase as Android)
+- React Native 0.86 / Expo SDK 57, Track Player for playback, and native modules for Android
+  Auto, the radio alarm, the home screen widget and Wear OS sync
 
 ## Changelog
 
 ### Recent Releases
+
+- **v2.0.0**: **React Native rewrite.** The phone app is now built from `react-app/` (React Native / Expo) and replaces the Kotlin implementation on Android and iOS. It installs over the previous version — same application ID — and automatically migrates your favourites, subscriptions, playlists, history, progress and settings from the old app. Playback now runs on Track Player, and the native Android Auto bridge, radio alarm, home screen widget, Last.fm scrobbling and Wear OS sync all carry over. Release builds are now split into GitHub and Google Play flavours; the Wear OS companion is unchanged and still ships with every release.
 
 - **v1.9.0** (Aug 2026): **Offline Mode:** Full offline mode support with network connectivity detection, app-wide offline warning banner, dedicated Downloaded Files section in Playlists, and offline-filtered podcast episode feeds. **Audio Service:** Auto-resume playback after transient audio focus loss and improved transient detection. **UI & Search:** Search suggestions dropdown with RecyclerView and adaptive artwork sizing across multiple screen form factors.
 
@@ -115,6 +123,19 @@ interface with useful features for listeners.
 ## Contributing
 
 Issues and pull requests are welcome. 
+
+## Project layout
+
+| Path | Purpose |
+|---|---|
+| `react-app/` | **The app.** React Native / Expo, shared by Android and iOS |
+| `wear/` | Wear OS companion (Kotlin) — still built and released alongside the phone app |
+| `app/` | Legacy Kotlin phone app, kept for reference; no longer the default build target |
+| `docs/` | Podcast index, web player and store assets |
+| `archive/ios-native-legacy/` | Archived, partial native Swift iOS port |
+| `metadata/` | Google Play listing copy and screenshots |
+
+See [`react-app/README.md`](react-app/README.md) for the build and release process.
 
 ## License
 

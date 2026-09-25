@@ -47,8 +47,8 @@ release.jks
 # and is never used to sign release builds.
 !keystore/debug.keystore
 
-# Xcode user state
-ios/BBCRadioPlayer.xcodeproj/project.xcworkspace/xcuserdata/
+# Xcode user state (the native iOS port is archived, see archive/ios-native-legacy)
+archive/ios-native-legacy/BBCRadioPlayer.xcodeproj/project.xcworkspace/xcuserdata/
 
 # Project-specific generated files
 /SShots/

@@ -1,10 +1,16 @@
-# iOS Port (Initial Implementation)
+# Archived: native Swift iOS port
 
-This directory contains the first implementation slice of a native iOS port for British Radio Player.
+**Status: frozen and superseded. Not built, not shipped, not maintained.**
 
-## Current status
+This directory is an early native Swift port of British Radio Player (bundle id
+`com.hyliankid14.bbcradioplayer.ios`, marketing version `0.1.0`). It was never completed and is
+no longer part of the build. iOS is served by the React Native / Expo app in `react-app/`, which
+shares one codebase with Android.
 
-Implemented in this first drop:
+The last state in which this was the live iOS port is preserved at the git tag
+`archive/ios-native-v0.1.0`.
+
+## What was implemented
 
 - SwiftUI app shell with tabs for Radio and Podcasts
 - AVPlayer-based playback service with lock screen command wiring (play/pause)
@@ -13,7 +19,7 @@ Implemented in this first drop:
 - Podcast repository scaffold with OPML and RSS parsing baseline
 - Remote index metadata client for `podcast-index-meta.json`
 
-Not implemented yet (planned next):
+## What was never implemented
 
 - Full station catalogue parity with Android
 - Podcast index sync and local SQLite FTS search parity
@@ -22,26 +28,28 @@ Not implemented yet (planned next):
 - Settings parity (including import/export and advanced preferences)
 - Widgets, alarms and deep-link parity
 
-## How to use this code in Xcode
+The React app implements all of the above (see `react-app/`); this port is kept only for reference.
 
-1. Ensure full Xcode is installed from the App Store (ADAM ID `497799835`) and opened once to accept the licence.
-2. Run the bootstrap script from repo root:
-   - `./scripts/setup-ios-build.sh`
-3. Open the generated project:
-   - `ios/BBCRadioPlayer.xcodeproj`
-4. In Signing & Capabilities, set your team and enable:
-   - Background Modes -> Audio, AirPlay, and Picture in Picture
-5. Build and run on your iPhone 8.
+## Reviving it
 
-Notes:
-- The script installs `xcodegen` and `mas`, generates the project, and verifies whether full Xcode is active.
-- If `xcodebuild -version` fails, switch developer tools after installing Xcode:
-  - `sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer`
+Nothing here builds as part of CI or the release workflows. To look at it again:
 
-## Immediate next tasks
+1. Install Xcode (App Store, ADAM ID `497799835`) and open it once to accept the licence.
+2. Install [XcodeGen](https://github.com/yonaskolb/XcodeGen) and generate the project:
 
-1. Expand `DefaultStationRepository` to full Android station parity.
-2. Replace regex parsing with XMLParser-based OPML/RSS parser for reliability.
-3. Add a persistent store (SQLite) and implement FTS-backed search.
-4. Add playback state persistence (last station, last podcast position).
-5. Add error/retry UX and connectivity-aware quality fallback.
+   ```sh
+   cd archive/ios-native-legacy
+   xcodegen generate
+   ```
+
+3. Open `BBCRadioPlayer.xcodeproj`, set your development team in Signing & Capabilities, and enable
+   Background Modes → Audio, AirPlay and Picture in Picture.
+
+`scripts/ios/setup-ios-build.sh` in the repository root still points here, but it is deprecated —
+use the React app's iOS scripts instead:
+
+```sh
+cd react-app
+npm run ios:simulator      # build and run on the iOS Simulator
+npm run install:ios        # build and install on a connected iPhone
+```

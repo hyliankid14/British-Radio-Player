@@ -1,16 +1,28 @@
 name: Build Debug APK
 
-# Builds a debug APK for sideloading on a device.  The APK is signed with the
-# shared debug keystore (keystore/debug.keystore) so CI and local builds share
-# the same key and can upgrade-in-place without reinstalling.
+# Builds a debug APK for sideloading on a device.  The APK is signed with the shared debug
+# keystore (keystore/debug.keystore, copied into the generated project by the
+# withAndroidCleartextTraffic config plugin) so CI and local builds share the same key and can
+# upgrade-in-place without reinstalling.
 #
-# After a successful build the APK is published as a GitHub pre-release asset
-# under the rolling tag "debug-apk-latest".  Pre-release assets have a direct
-# browser_download_url (no zip, no GitHub login required) that works in any
-# browser — including the GitHub mobile app.
+# The debug build type carries the ".debug" application id suffix, so a debug sideload can live
+# alongside the release app installed from GitHub or Google Play.
+#
+# After a successful build the APK is published as a GitHub pre-release asset under the rolling
+# tag "debug-apk-latest".  Pre-release assets have a direct browser_download_url (no zip, no
+# GitHub login required) that works in any browser — including the GitHub mobile app.
 
 on:
   workflow_dispatch:       # allow manual trigger from the Actions tab
+    inputs:
+      build_target:
+        description: 'react = React Native app (default). kotlin = legacy Kotlin app, opt-in only.'
+        required: false
+        type: choice
+        default: react
+        options:
+          - react
+          - kotlin
   # Automatic builds on push disabled:
   # push:
   #   branches:
@@ -22,7 +34,7 @@ permissions:
 jobs:
   build-debug:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
 
     steps:
       - name: Checkout repository
@@ -36,52 +48,75 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: react-app/package-lock.json
 
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew react-app/android/gradlew
+
+      # react-app/app.json is the single source of truth for the phone app version.
       - name: Compute debug version
         id: version
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Fetch the latest production (non-prerelease) release tag.
-          LATEST_TAG=$(gh release list --exclude-pre-releases --limit 1 --json tagName -q '.[0].tagName' 2>&1) || {
-            echo "WARNING: gh release list failed (exit $?): ${LATEST_TAG}" >&2
-            LATEST_TAG=""
-          }
+          set -euo pipefail
 
-          # Validate that the tag looks like a semver vX.Y.Z string before using it.
-          if [[ "$LATEST_TAG" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+          RELEASE_VERSION=$(jq -r '.expo.version' react-app/app.json)
+
+          if [[ "$RELEASE_VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
             MAJOR="${BASH_REMATCH[1]}"
             MINOR="${BASH_REMATCH[2]}"
             PATCH="${BASH_REMATCH[3]}"
 
             # Bump patch by 1 so the debug build is always ahead of the release.
             VERSION_NAME="${MAJOR}.${MINOR}.$(( PATCH + 1 ))"
-
-            echo "Latest release: ${LATEST_TAG#v} → debug version name: ${VERSION_NAME}"
+            echo "app.json version: ${RELEASE_VERSION} → debug version: ${VERSION_NAME}"
           else
-            if [[ -n "$LATEST_TAG" ]]; then
-              echo "WARNING: release tag '${LATEST_TAG}' is not a semver vX.Y.Z tag; falling back to gradle.properties." >&2
-            else
-              echo "No production release found; falling back to gradle.properties."
-            fi
-            # Fall back to the version name already in gradle.properties.
-            VERSION_NAME=$(grep -Po '(?<=APP_VERSION_NAME=).+' gradle.properties)
+            echo "::warning::app.json version '${RELEASE_VERSION}' is not semver; using it as-is." >&2
+            VERSION_NAME="$RELEASE_VERSION"
           fi
 
-          # Use a Unix timestamp as the version code so every CI run produces a
-          # unique, strictly-increasing value.  This allows users to upgrade
-          # successive debug APKs in-place without reinstalling.
-          # (Max allowed versionCode is 2,100,000,000; Unix time ~1.7 B in 2025.)
+          # A Unix timestamp as the version code lets every CI run upgrade in place without
+          # uninstalling.  (Max allowed versionCode is 2,100,000,000; Unix time is ~1.7 B.)
           VERSION_CODE=$(date -u +%s)
 
-          echo "Debug version: ${VERSION_NAME} (code ${VERSION_CODE})"
           echo "version_name=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
           echo "version_code=${VERSION_CODE}" >> "$GITHUB_OUTPUT"
 
-      - name: Build github debug APK
+      - name: Install React app dependencies
+        if: inputs.build_target != 'kotlin'
+        working-directory: react-app
+        run: npm ci
+
+      - name: Generate the React Native Android project
+        if: inputs.build_target != 'kotlin'
+        working-directory: react-app
+        run: npx expo prebuild --platform android --no-install --clean
+
+      - name: Build the React debug APK
+        if: inputs.build_target != 'kotlin'
+        working-directory: react-app/android
+        env:
+          EXPO_PUBLIC_DISTRIBUTION_CHANNEL: github
+          EXPO_PUBLIC_LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          EXPO_PUBLIC_LASTFM_API_SECRET: ${{ secrets.LASTFM_API_SECRET }}
         run: |
+          set -euo pipefail
+          # The JavaScript bundle is embedded in debug builds too (the generated project sets
+          # `debuggableVariants = []`), so the APK runs without a Metro server.
+          ./gradlew :app:assembleGithubDebug \
+            -Pandroid.enableMinifyInDebugBuilds=true \
+            -Pexpo.useLegacyPackaging=true
+
+      - name: Build the legacy Kotlin debug APK
+        if: inputs.build_target == 'kotlin'
+        run: |
+          set -euo pipefail
           ./gradlew assembleGithubDebug \
             -PAPP_VERSION_NAME="${{ steps.version.outputs.version_name }}" \
             -PAPP_VERSION_CODE="${{ steps.version.outputs.version_code }}" \
@@ -92,17 +127,29 @@ jobs:
       - name: Publish debug APK as rolling pre-release
         env:
           GH_TOKEN: ${{ github.token }}
+          BUILD_TARGET: ${{ inputs.build_target }}
         run: |
+          set -euo pipefail
           TAG="debug-apk-latest"
-          APK=$(find app/build/outputs/apk/github/debug -name "*.apk" | head -1)
+
+          if [ "$BUILD_TARGET" = "kotlin" ]; then
+            APK=$(find app/build/outputs/apk/github/debug -name '*.apk' | sort | head -1)
+          else
+            APK=$(find react-app/android/app/build/outputs/apk/github/debug -maxdepth 1 -name '*.apk' | sort | head -1)
+          fi
+
+          if [ -z "$APK" ]; then
+            echo "::error::No debug APK was produced for the '${BUILD_TARGET}' build." >&2
+            exit 1
+          fi
 
           # Rename the APK to a fixed filename so the download URL is stable.
-          DEST="app/build/outputs/apk/github/debug/british-radio-player-debug.apk"
-          mv "$APK" "$DEST"
+          DEST="$(dirname "$APK")/british-radio-player-debug.apk"
+          cp "$APK" "$DEST"
 
           # Replace any previous rolling release so only one exists at a time.
-          # --cleanup-tag deletes both the GitHub release and the associated git
-          # tag atomically via the API, preventing "release already exists" errors.
+          # --cleanup-tag deletes both the GitHub release and the associated git tag
+          # atomically via the API, preventing "release already exists" errors.
           gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
 
           DEBUG_VERSION="${{ steps.version.outputs.version_name }}"
@@ -126,6 +173,14 @@ jobs:
             echo "Tap the link above to download the APK directly (no zip, no login required)."
             echo "This build is signed with the shared debug keystore — it will install"
             echo "over an existing debug build without needing to uninstall first."
+            if [ "$BUILD_TARGET" = "kotlin" ]; then
+              echo ""
+              echo "Legacy Kotlin build (opt-in)."
+            else
+              echo ""
+              echo "React Native build — application id \`com.hyliankid14.bbcradioplayer.debug\`,"
+              echo "so it installs alongside the release app."
+            fi
             echo ""
             echo "Branch: \`${{ github.ref_name }}\`  |  Commit: \`${{ github.sha }}\`"
           } >> "$GITHUB_STEP_SUMMARY"

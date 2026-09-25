@@ -3,7 +3,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_DIR="$ROOT_DIR/react-app"
-APK_PATH="$APP_DIR/android/app/build/outputs/apk/release/app-release.apk"
+APK_PATH="$APP_DIR/android/app/build/outputs/apk/github/release/app-github-release.apk"
+APPLICATION_ID="com.hyliankid14.bbcradioplayer"
 
 if ! command -v adb >/dev/null 2>&1; then
   echo "adb is not installed or not on PATH"
@@ -83,7 +84,8 @@ echo "Building React Native Android app..."
   npx expo prebuild --platform android --no-install
   (
     cd android
-    ./gradlew --no-daemon :app:assembleRelease
+    EXPO_PUBLIC_DISTRIBUTION_CHANNEL=github \
+    ./gradlew --no-daemon :app:assembleGithubRelease
   )
 )
 
@@ -94,8 +96,8 @@ fi
 
 echo "Installing React app on: $TARGET_DEVICE"
 if ! adb -s "$TARGET_DEVICE" install -r -d "$APK_PATH"; then
-  echo "Update in place failed; removing the previous React app and retrying..."
-  adb -s "$TARGET_DEVICE" uninstall com.hyliankid14.bbcradioplayer.react >/dev/null 2>&1 || true
+  echo "Update in place failed; removing the previous app and retrying..."
+  adb -s "$TARGET_DEVICE" uninstall "$APPLICATION_ID" >/dev/null 2>&1 || true
   adb -s "$TARGET_DEVICE" install "$APK_PATH"
 fi
 

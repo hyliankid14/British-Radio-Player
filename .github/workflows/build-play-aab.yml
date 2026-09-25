@@ -1,0 +1,281 @@
+name: Build Google Play App Bundle
+
+# Produces the signed Google Play AAB for the React Native app (plus the Wear OS companion AAB)
+# and hands it off for a manual Play Console upload.  It does not talk to the Play Developer API.
+#
+# This is an in-place update of the existing listing, so the AAB must be signed with the same Play
+# upload key the listing uses.  Expected signing cert SHA-1 (set as a repository variable named
+# EXPECTED_PLAY_UPLOAD_SHA1) is verified before the bundle is published, because the wrong key
+# means a rejected upload — or, worse, an upload that cannot update the existing app.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build, e.g. 2.0.0. Defaults to react-app/app.json.'
+        required: false
+        default: ''
+      attach_to_release:
+        description: 'Also attach the AAB to the matching GitHub release.'
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-play-bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: react-app/package-lock.json
+
+      - name: Install binutils (16 KB page-size verification)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binutils
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew react-app/android/gradlew
+
+      - name: Resolve version and tag
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          VERSION_NAME=$(jq -r '.expo.version' react-app/app.json)
+          if [ -n "$INPUT_VERSION" ]; then
+            VERSION_NAME="$INPUT_VERSION"
+          fi
+          TAG="v${VERSION_NAME}"
+          VERSION_CODE=$(jq -r '.expo.android.versionCode' react-app/app.json)
+          WEAR_VERSION_CODE=$(( VERSION_CODE * 10 + 1 ))
+
+          echo "Version : ${VERSION_NAME} (build ${VERSION_CODE})"
+          echo "Tag     : ${TAG}"
+          echo "version_name=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
+          echo "version_code=${VERSION_CODE}" >> "$GITHUB_OUTPUT"
+          echo "wear_version_code=${WEAR_VERSION_CODE}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Check out the release tag
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION_NAME: ${{ steps.version.outputs.version_name }}
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+          if ! git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "::error::Tag ${TAG} does not exist. Publish the GitHub release first." >&2
+            exit 1
+          fi
+          git checkout "$TAG"
+
+          # The bundle is an in-place Play update, so its version has to be the one the tag
+          # actually contains — not whatever the default branch happens to say.
+          TAG_VERSION=$(jq -r '.expo.version' react-app/app.json)
+          if [ "$TAG_VERSION" != "$VERSION_NAME" ]; then
+            echo "::error::${TAG} contains app.json version ${TAG_VERSION}, not ${VERSION_NAME}." >&2
+            exit 1
+          fi
+          echo "Checked out ${TAG} (app.json version ${TAG_VERSION})."
+
+      - name: Setup the Play upload key
+        id: keystore
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "$RELEASE_KEYSTORE_BASE64" ]; then
+            echo "::error::RELEASE_KEYSTORE_BASE64 is not configured on this repository." >&2
+            exit 1
+          fi
+          mkdir -p /tmp/keystores
+          echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > /tmp/keystores/release.jks
+          chmod 600 /tmp/keystores/release.jks
+          echo "store_file=/tmp/keystores/release.jks" >> "$GITHUB_OUTPUT"
+
+      - name: Verify the Play upload certificate
+        id: cert
+        env:
+          KEYSTORE_FILE: ${{ steps.keystore.outputs.store_file }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          EXPECTED_SHA1: ${{ vars.EXPECTED_PLAY_UPLOAD_SHA1 }}
+        run: |
+          set -euo pipefail
+          ACTUAL_SHA1=$(keytool -list -v -keystore "$KEYSTORE_FILE" \
+            -alias "$RELEASE_KEY_ALIAS" \
+            -storepass "$RELEASE_STORE_PASSWORD" \
+            | awk -F': ' '/SHA1:/{print $2; exit}')
+
+          if [ -z "$ACTUAL_SHA1" ]; then
+            echo "::error::Could not read the SHA-1 fingerprint from ${KEYSTORE_FILE}." >&2
+            exit 1
+          fi
+
+          NORMALISED=$(printf '%s' "$ACTUAL_SHA1" | tr '[:lower:]' '[:upper:]' | tr -d '[:space:]')
+          echo "Play upload key SHA-1: ${NORMALISED}"
+
+          if [ -n "$EXPECTED_SHA1" ]; then
+            EXPECTED=$(printf '%s' "$EXPECTED_SHA1" | tr '[:lower:]' '[:upper:]' | tr -d '[:space:]')
+            if [ "$NORMALISED" != "$EXPECTED" ]; then
+              echo "::error::Release keystore fingerprint mismatch." >&2
+              echo "::error::Expected ${EXPECTED}, got ${NORMALISED}." >&2
+              echo "::error::Uploading with the wrong key cannot update the existing Play listing." >&2
+              exit 1
+            fi
+            echo "Matches EXPECTED_PLAY_UPLOAD_SHA1."
+          else
+            echo "::warning::EXPECTED_PLAY_UPLOAD_SHA1 is not set; skipping the fingerprint check." >&2
+          fi
+
+          echo "sha1=${NORMALISED}" >> "$GITHUB_OUTPUT"
+
+      - name: Install React app dependencies
+        working-directory: react-app
+        run: npm ci
+
+      - name: Generate the React Native Android project
+        working-directory: react-app
+        run: npx expo prebuild --platform android --no-install --clean
+
+      - name: Build the phone app bundle
+        working-directory: react-app/android
+        env:
+          # Selects the Play distribution: in-app updater hidden, "Google Play" on the About page.
+          EXPO_PUBLIC_DISTRIBUTION_CHANNEL: play
+          EXPO_PUBLIC_LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          EXPO_PUBLIC_LASTFM_API_SECRET: ${{ secrets.LASTFM_API_SECRET }}
+          RELEASE_STORE_FILE: ${{ steps.keystore.outputs.store_file }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          ./gradlew :app:bundlePlayRelease \
+            -Pandroid.enableMinifyInReleaseBuilds=true \
+            -Pandroid.enableShrinkResourcesInReleaseBuilds=true \
+            -Pandroid.enableBundleCompression=true
+
+      - name: Build the Wear OS app bundle
+        env:
+          RELEASE_STORE_FILE: ${{ steps.keystore.outputs.store_file }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          ./gradlew :wear:bundleRelease \
+            -PAPP_VERSION_NAME=${{ steps.version.outputs.version_name }} \
+            -PWEAR_VERSION_CODE=${{ steps.version.outputs.wear_version_code }} \
+            -PLASTFM_API_KEY=${{ secrets.LASTFM_API_KEY }} \
+            -PLASTFM_API_SECRET=${{ secrets.LASTFM_API_SECRET }}
+
+      - name: Locate the app bundles
+        id: bundles
+        run: |
+          set -euo pipefail
+          mkdir -p bundle-output
+          PHONE_AAB=$(find react-app/android/app/build/outputs/bundle/playRelease -maxdepth 1 -name '*.aab' | sort | head -1)
+          WEAR_AAB=$(find wear/build/outputs/bundle/release -maxdepth 1 -name '*.aab' | sort | head -1)
+
+          if [ -z "$PHONE_AAB" ] || [ -z "$WEAR_AAB" ]; then
+            echo "::error::Expected a phone and a Wear AAB to be produced." >&2
+            exit 1
+          fi
+
+          cp "$PHONE_AAB" bundle-output/british-radio-player.aab
+          cp "$WEAR_AAB" bundle-output/wear-british-radio-player.aab
+          ls -lh bundle-output
+
+          echo "phone_aab=bundle-output/british-radio-player.aab" >> "$GITHUB_OUTPUT"
+          echo "wear_aab=bundle-output/wear-british-radio-player.aab" >> "$GITHUB_OUTPUT"
+
+      - name: Verify 16 KB native page-size support
+        run: |
+          set -euo pipefail
+          .github/scripts/verify-16kb.sh "${{ steps.bundles.outputs.phone_aab }}" "Phone AAB"
+          .github/scripts/verify-16kb.sh "${{ steps.bundles.outputs.wear_aab }}" "Wear AAB"
+
+      - name: Verify bundle signatures
+        run: |
+          set -euo pipefail
+          for bundle in "${{ steps.bundles.outputs.phone_aab }}" "${{ steps.bundles.outputs.wear_aab }}"; do
+            if jarsigner -verify -verbose "$bundle" 2>&1 | grep -q "jar verified"; then
+              echo "✅ $(basename "$bundle") is correctly signed."
+            else
+              echo "::error::jarsigner could not verify $(basename "$bundle")." >&2
+              exit 1
+            fi
+          done
+
+      - name: Upload bundles and deobfuscation artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: play-bundle-${{ steps.version.outputs.version_name }}
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            bundle-output/*.aab
+            react-app/android/app/build/outputs/mapping/playRelease/mapping.txt
+            wear/build/outputs/mapping/release/mapping.txt
+
+      - name: Attach the AAB to the GitHub release
+        if: inputs.attach_to_release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::warning::No GitHub release for ${TAG}; skipping the attachment." >&2
+            exit 0
+          fi
+          gh release upload "$TAG" \
+            "${{ steps.bundles.outputs.phone_aab }}#british-radio-player.aab" --clobber
+          gh release upload "$TAG" \
+            "${{ steps.bundles.outputs.wear_aab }}#wear-british-radio-player.aab" --clobber
+
+      - name: Summarise the Play upload
+        env:
+          VERSION_NAME: ${{ steps.version.outputs.version_name }}
+          TAG: ${{ steps.version.outputs.tag }}
+          SHA1: ${{ steps.cert.outputs.sha1 }}
+        run: |
+          {
+            echo "## ▶️ Google Play bundle — ${VERSION_NAME}"
+            echo ""
+            echo "**Upload key SHA-1:** \`${SHA1}\`"
+            echo ""
+            echo "| Bundle | Purpose |"
+            echo "|---|---|"
+            echo "| \`british-radio-player.aab\` | phone + Android Auto |"
+            echo "| \`wear-british-radio-player.aab\` | Wear OS companion |"
+            echo ""
+            echo "### Play Console steps"
+            echo "1. Upload both AABs to the \`com.hyliankid14.bbcradioplayer\` track."
+            echo "2. Add \`mapping.txt\` from the workflow artefact to the deobfuscation section."
+            echo "3. This is an in-place update — the version code must be higher than the previous upload."
+            echo ""
+            echo "Release tag: \`${TAG}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

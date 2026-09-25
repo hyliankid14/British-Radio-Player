@@ -47,14 +47,15 @@ echo "Generating the Android project..."
 echo "Building the self-contained debug APK..."
 (
   cd "$APP_DIR/android"
-  ./gradlew --no-daemon :app:assembleDebug \
+  EXPO_PUBLIC_DISTRIBUTION_CHANNEL=github \
+  ./gradlew --no-daemon :app:assembleGithubDebug \
     -PreactNativeDebuggableVariants= \
     -PreactNativeArchitectures="$ANDROID_ARCHITECTURES" \
     -Pexpo.useLegacyPackaging=true \
     -Pandroid.enableMinifyInDebugBuilds=true
 )
 
-APK_PATH="$(find "$APP_DIR/android/app/build/outputs/apk/debug" -maxdepth 1 -type f -name '*.apk' -print -quit)"
+APK_PATH="$(find "$APP_DIR/android/app/build/outputs/apk/github/debug" -maxdepth 1 -type f -name '*.apk' -print -quit)"
 if [[ -z "$APK_PATH" || ! -f "$APK_PATH" ]]; then
   echo "Debug APK was not produced" >&2
   exit 1

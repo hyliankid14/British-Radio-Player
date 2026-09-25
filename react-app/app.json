@@ -64,6 +64,7 @@
       "expo-router",
       "expo-notifications",
       "./plugins/withAndroidCleartextTraffic",
+      "./plugins/withAndroidReleaseChannels",
       "expo-background-task",
       "expo-sharing"
     ]
