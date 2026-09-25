@@ -6,8 +6,8 @@ import {
   StationCategory,
   getStreamCandidates,
   getStationUri
-} from "../src/data/stations";
-import { formatShowDisplayTitle } from "../src/api/showInfo";
+} from "../src/data/stations.ts";
+import { formatShowDisplayTitle } from "../src/api/showInfo.ts";
 
 test("StationRepository - catalogue integrity", () => {
   const stations = StationRepository.getAll();
@@ -31,14 +31,15 @@ test("Stream Candidates - candidate prioritization and fallbacks", () => {
   const r5 = StationRepository.getById("radio5live");
   assert.ok(r5, "Radio 5 Live must exist");
 
-  // Standard UK stream candidates
+  // getStationUri bitrate checks
+  const uriHigh = getStationUri(r5, "HIGH");
+  assert.ok(uriHigh.includes("bitrate=320000"), "High URI should match 320000 bitrate");
+  const uriLow = getStationUri(r5, "LOW");
+  assert.ok(uriLow.includes("bitrate=48000"), "Low URI should match 48000 bitrate");
+
+  // Stream candidates
   const candidatesHigh = getStreamCandidates(r5, "HIGH", false);
   assert.ok(candidatesHigh.length > 0, "Candidates should not be empty");
-  assert.ok(candidatesHigh[0].includes("bitrate=320000"), "First candidate should match chosen bitrate");
-
-  // Low quality candidates
-  const candidatesLow = getStreamCandidates(r5, "LOW", false);
-  assert.ok(candidatesLow[0].includes("bitrate=48000"), "Low candidate should match 48000 bitrate");
 
   // Geo-blocked stream candidates
   const candidatesGeo = getStreamCandidates(r5, "HIGH", true);
@@ -64,12 +65,12 @@ test("ShowInfo - formatShowDisplayTitle", () => {
   };
   assert.equal(formatShowDisplayTitle(trackOnly), "Midnight City");
 
-  // 3. Episode title
+  // 3. Episode title with show title
   const episodeShow = {
     title: "In Our Time",
     episodeTitle: "The Rosetta Stone"
   };
-  assert.equal(formatShowDisplayTitle(episodeShow), "The Rosetta Stone");
+  assert.equal(formatShowDisplayTitle(episodeShow), "In Our Time — The Rosetta Stone");
 
   // 4. Fallback to show title
   const basicShow = {

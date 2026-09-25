@@ -94,7 +94,7 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
       if (kind == Kind.EPISODE && player.isPlaying) persistProgress()
       if (kind == Kind.STATION) {
         val now = System.currentTimeMillis()
-        if (now - lastShowRefreshMs > 20_000L) {
+        if (now - lastShowRefreshMs > 5_000L) {
           lastShowRefreshMs = now
           refreshStationShowTitleIfNeeded()
         }
@@ -779,30 +779,21 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
       )
       .addCustomAction(
         PlaybackStateCompat.CustomAction.Builder(
-          CUSTOM_ACTION_STOP, "Stop", android.R.drawable.ic_menu_close_clear_cancel
+          CUSTOM_ACTION_STOP, "Stop", R.drawable.ic_stop
         ).build()
       )
 
     if (kind == Kind.EPISODE) {
-      val podcastId = episodeJson?.optString("podcastId").orEmpty()
+      val podcastId = episodeJson?.optString("podcastId").orEmpty().ifEmpty {
+        findEpisode(episodeJson?.optString("id").orEmpty())?.optString("podcastId").orEmpty()
+      }
       if (podcastId.isNotEmpty()) {
         val subscribed = AutoState.isSubscribed(this, podcastId)
         builder.addCustomAction(
           PlaybackStateCompat.CustomAction.Builder(
             CUSTOM_ACTION_SUBSCRIBE,
             if (subscribed) "Unsubscribe" else "Subscribe",
-            android.R.drawable.ic_menu_add
-          ).build()
-        )
-      }
-      val episodeId = episodeJson?.optString("id").orEmpty()
-      if (episodeId.isNotEmpty()) {
-        val saved = AutoState.isEpisodeSaved(this, episodeId)
-        builder.addCustomAction(
-          PlaybackStateCompat.CustomAction.Builder(
-            CUSTOM_ACTION_TOGGLE_SAVED,
-            if (saved) "Remove saved episode" else "Save episode",
-            android.R.drawable.btn_star
+            if (subscribed) R.drawable.ic_bookmark else R.drawable.ic_bookmark_outline
           ).build()
         )
       }
@@ -814,7 +805,7 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
           PlaybackStateCompat.CustomAction.Builder(
             CUSTOM_ACTION_TOGGLE_FAVORITE,
             if (favorite) "Remove favourite" else "Add favourite",
-            android.R.drawable.btn_star
+            if (favorite) R.drawable.ic_star_filled else R.drawable.ic_star_outline
           ).build()
         )
       }

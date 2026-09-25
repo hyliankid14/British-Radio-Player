@@ -3,11 +3,12 @@ export const BBC_HLS_UK = "https://a.files.bbci.co.uk/ms6/live/3441A116-B12E-4D2
 export const BBC_HLS_NONUK = "https://a.files.bbci.co.uk/ms6/live/3441A116-B12E-4D2F-ACA8-C1984642FA4B/audio/simulcast/hls/nonuk/pc_hd_abr_v2/cf";
 export const STREAM_BASE = "https://lsn.lv/bbcradio.m3u8";
 
-export enum StationCategory {
-  NATIONAL = "National",
-  REGIONS = "Regions",
-  LOCAL = "Local"
-}
+export const StationCategory = {
+  NATIONAL: "National",
+  REGIONS: "Regions",
+  LOCAL: "Local"
+} as const;
+export type StationCategory = (typeof StationCategory)[keyof typeof StationCategory];
 
 export type AudioQuality = "AUTO" | "HIGH" | "MEDIUM" | "LOW";
 

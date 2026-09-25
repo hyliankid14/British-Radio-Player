@@ -2,7 +2,10 @@ package com.hyliankid14.bbcradioplayer.nativeandroid
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -29,7 +32,7 @@ class IndexRefreshWorker(context: Context, params: WorkerParameters) : Worker(co
         val latest = parseLatestEpisode(feed) ?: continue
         if (latest.id.isBlank() || BackgroundSync.isNotified(context, latest.id)) continue
         BackgroundSync.markNotified(context, latest.id)
-        notifyNewEpisode(context, subscription.title, latest.title)
+        notifyNewEpisode(context, subscription.id, subscription.title, latest.title)
         anyNew = true
       } catch (_: Exception) {
         // Skip feeds that fail to load.
@@ -73,14 +76,43 @@ class IndexRefreshWorker(context: Context, params: WorkerParameters) : Worker(co
       .replace("&quot;", "\"")
       .replace("&#39;", "'")
 
-  private fun notifyNewEpisode(context: Context, podcastTitle: String, episodeTitle: String) {
+  private fun notifyNewEpisode(context: Context, podcastId: String, podcastTitle: String, episodeTitle: String) {
     ensureChannel(context)
+    val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
+      flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+      data = Uri.parse("bbcradioplayer://modal/podcast-detail?podcastId=$podcastId")
+      putExtra("url", "/modal/podcast-detail?podcastId=$podcastId")
+      putExtra("podcastId", podcastId)
+    }
+    val pendingIntent = launchIntent?.let {
+      PendingIntent.getActivity(
+        context,
+        kotlin.math.abs(podcastId.hashCode()),
+        it,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+      )
+    }
+    val smallIconRes = try {
+      val resId = context.resources.getIdentifier("ic_stat_notification", "drawable", context.packageName)
+      if (resId != 0) resId else R.drawable.ic_stat_notification
+    } catch (_: Throwable) {
+      try {
+        R.drawable.ic_stat_notification
+      } catch (_: Throwable) {
+        context.applicationInfo.icon
+      }
+    }
     val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-      .setSmallIcon(android.R.drawable.ic_dialog_info)
+      .setSmallIcon(smallIconRes)
       .setContentTitle(podcastTitle.ifBlank { "New episode" })
       .setContentText(episodeTitle)
       .setPriority(NotificationCompat.PRIORITY_DEFAULT)
       .setAutoCancel(true)
+      .apply {
+        if (pendingIntent != null) {
+          setContentIntent(pendingIntent)
+        }
+      }
       .build()
     try {
       NotificationManagerCompat.from(context).notify((podcastTitle + episodeTitle).hashCode(), notification)

@@ -10,6 +10,9 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.hyliankid14.BBCRadioPlayer.react",
+      "entitlements": {
+        "com.apple.developer.carplay-audio": true
+      },
       "infoPlist": {
         "UIBackgroundModes": [
           "audio",

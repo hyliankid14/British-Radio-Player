@@ -43,6 +43,8 @@ declare class NativeAndroidModule extends NativeModule<{}> {
   updateWidgetState(stationTitle: string, showTitle: string, isPlaying: boolean): void;
   /** True when the app was launched by the widget's play/pause button. */
   consumeWidgetToggle(): boolean;
+  /** Returns the deep link or target URL when launched from a notification intent, else null. */
+  consumeNotificationLaunch(): string | null;
   /** Pushes phone state to the Wear OS companion. */
   pushWearState(payloadJson: string): void;
   /** Wear OS state events forwarded from the watch. */

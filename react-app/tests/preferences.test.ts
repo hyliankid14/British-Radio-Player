@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 // In-memory memory store test for Preferences logic
-import { AudioQuality } from "../src/data/stations";
+import type { AudioQuality } from "../src/data/stations.ts";
 
 function createMockPreferences() {
   const memoryStore = new Map<string, any>();

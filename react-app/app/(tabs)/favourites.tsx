@@ -1551,7 +1551,7 @@ export default function FavouritesScreen() {
                 style={styles.savedSearchMain}
                 onPress={() =>
                   router.push({
-                    pathname: "/(tabs)/podcasts",
+                    pathname: "/modal/podcast-search",
                     params: { search: item.query, savedSearchId: item.id }
                   })
                 }

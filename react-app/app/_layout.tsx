@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from "react";
-import { Stack, useRouter } from "expo-router";
+import React, { useEffect, useState, useRef, useCallback } from "react";
+import { Stack, useRouter, useRootNavigationState } from "expo-router";
 import * as Linking from "expo-linking";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -23,8 +23,10 @@ import { runAutoDownload } from "../src/downloads/autoDownload";
 import {
   checkForNewPodcasts,
   checkSubscriptionsForNewEpisodes,
+  checkSavedSearchesForNewEpisodes,
   initNotificationNavigation
 } from "../src/notifications/notifications";
+import { resolveAppNavigation } from "../src/utils/navigationUtils";
 import { Preferences } from "../src/storage/preferences";
 import { NativeAndroid } from "../src/native/nativeAndroid";
 import { StationRepository } from "../src/data/stations";
@@ -56,10 +58,11 @@ Preferences.onChanged((key) => {
   if (key.includes("refresh")) {
     void registerBackgroundTask();
   }
-  if (key.includes("subscrib") || key.includes("download") || key.includes("notif")) {
+  if (key.includes("subscrib") || key.includes("download") || key.includes("notif") || key.includes("search")) {
     void runAutoDownload();
     void checkSubscriptionsForNewEpisodes();
     void checkForNewPodcasts();
+    void checkSavedSearchesForNewEpisodes();
   }
 });
 
@@ -68,10 +71,73 @@ void syncBackgroundSync();
 
 export default function RootLayout() {
   const router = useRouter();
+  const rootNavigationState = useRootNavigationState();
   const theme = useAppTheme();
   const isDark = useIsDarkTheme();
   const initStore = usePlayerStore((state) => state.init);
   const [showAnalyticsConsent, setShowAnalyticsConsent] = useState(false);
+  const pendingNavigationRef = useRef<string | null>(null);
+
+  const navigateToTarget = useCallback(
+    (targetUrl: string) => {
+      if (!targetUrl) return;
+      const target = resolveAppNavigation(targetUrl);
+      if (!target) return;
+
+      // If root navigation is not mounted yet, queue for mount
+      if (!rootNavigationState?.key) {
+        pendingNavigationRef.current = targetUrl;
+        return;
+      }
+
+      try {
+        if (target.pathname.startsWith("/modal/")) {
+          router.push({
+            pathname: target.pathname as any,
+            params: target.params as any
+          });
+        } else {
+          router.navigate({
+            pathname: target.pathname as any,
+            params: target.params as any
+          });
+        }
+      } catch (e) {
+        console.warn("Failed to navigate to target:", targetUrl, e);
+      }
+    },
+    [router, rootNavigationState?.key]
+  );
+
+  // Drain pending navigation when root navigator is mounted
+  useEffect(() => {
+    if (rootNavigationState?.key && pendingNavigationRef.current) {
+      const url = pendingNavigationRef.current;
+      pendingNavigationRef.current = null;
+      const timer = setTimeout(() => {
+        navigateToTarget(url);
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [rootNavigationState?.key, navigateToTarget]);
+
+  // Deep linking (e.g. bbcradioplayer://...)
+  useEffect(() => {
+    const sub = Linking.addEventListener("url", (event) => {
+      if (event.url) navigateToTarget(event.url);
+    });
+    Linking.getInitialURL().then((url) => {
+      if (url) navigateToTarget(url);
+    });
+    return () => sub.remove();
+  }, [navigateToTarget]);
+
+  // Open the podcast or search result a tapped notification refers to
+  useEffect(() => {
+    return initNotificationNavigation((url) => {
+      navigateToTarget(url);
+    });
+  }, [navigateToTarget]);
 
   // Show the analytics opt-in dialog on first launch (after the UI has settled).
   useEffect(() => {
@@ -80,59 +146,20 @@ export default function RootLayout() {
     return () => clearTimeout(timer);
   }, []);
 
-  useEffect(() => {
-    async function handleDeepLink(url: string) {
-      if (!url) return;
-      try {
-        const parsed = Linking.parse(url);
-
-        // A Last.fm OAuth redirect carries a one-time token. Route to /lastfm-auth
-        // so it can exchange the token, display connection state, and redirect back.
-        if (parsed.path === "lastfm-auth" || parsed.hostname === "lastfm-auth" || parsed.queryParams?.token) {
-          router.navigate({
-            pathname: "/lastfm-auth" as any,
-            params: parsed.queryParams as any
-          });
-          return;
-        }
-
-        let path = parsed.path || "";
-        if (!path.startsWith("/")) path = "/" + path;
-        router.navigate({
-          pathname: path as any,
-          params: parsed.queryParams as any
-        });
-      } catch (e) {
-        console.warn("Failed to navigate to deep link:", url, e);
-      }
-    }
-
-    const sub = Linking.addEventListener("url", (event) => void handleDeepLink(event.url));
-    Linking.getInitialURL().then((url) => {
-      if (url) void handleDeepLink(url);
-    });
-
-    return () => sub.remove();
-  }, [router]);
-
-  // Open the podcast a tapped new-episode notification refers to.
-  useEffect(
-    () => initNotificationNavigation((url) => router.push(url as any)),
-    [router]
-  );
-
-  // Run auto-download and the new-episode check while the app is open, and whenever it
-  // returns to the foreground.
+  // Run auto-download, new-episode check, and saved-search check while the app is open,
+  // and whenever it returns to the foreground.
   useEffect(() => {
     void runAutoDownload();
     void checkSubscriptionsForNewEpisodes();
     void checkForNewPodcasts();
+    void checkSavedSearchesForNewEpisodes();
     void registerBackgroundTask();
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") {
         void runAutoDownload();
         void checkSubscriptionsForNewEpisodes();
         void checkForNewPodcasts();
+        void checkSavedSearchesForNewEpisodes();
       }
     });
     return () => subscription.remove();
@@ -165,9 +192,15 @@ export default function RootLayout() {
           }
         }
       }
+
+      // If the app was launched by a tapped notification via native Intent:
+      const notifUrl = NativeAndroid.consumeNotificationLaunch();
+      if (notifUrl) {
+        navigateToTarget(notifUrl);
+      }
     }
     start();
-  }, [initStore]);
+  }, [initStore, navigateToTarget]);
 
   // Keep the home screen widget in sync with playback state.
   useEffect(() => {
@@ -242,6 +275,10 @@ export default function RootLayout() {
         />
         <Stack.Screen
           name="modal/settings-detail"
+          options={{ presentation: "card", headerShown: false }}
+        />
+        <Stack.Screen
+          name="modal/podcast-search"
           options={{ presentation: "card", headerShown: false }}
         />
       </Stack>

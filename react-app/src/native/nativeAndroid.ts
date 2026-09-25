@@ -27,6 +27,7 @@ interface NativeAndroidBridge {
   downloadAndInstallUpdate(apkUrl: string, apkName: string): void;
   updateWidgetState(stationTitle: string, showTitle: string, isPlaying: boolean): void;
   consumeWidgetToggle(): boolean;
+  consumeNotificationLaunch(): string | null;
   pushWearState(payloadJson: string): void;
   addListener(
     eventName: "onWearState",
@@ -274,6 +275,15 @@ export const NativeAndroid = {
       return load()?.consumeWidgetToggle() ?? false;
     } catch {
       return false;
+    }
+  },
+
+  /** Returns target deep link or URL if launched from a notification intent, else null. */
+  consumeNotificationLaunch(): string | null {
+    try {
+      return load()?.consumeNotificationLaunch() ?? null;
+    } catch {
+      return null;
     }
   },
 

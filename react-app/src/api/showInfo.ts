@@ -1,4 +1,4 @@
-import { StationRepository } from "../data/stations";
+import { StationRepository } from "../data/stations.ts";
 
 export interface CurrentShow {
   title: string;
@@ -45,14 +45,119 @@ export function formatShowDisplayTitle(show: CurrentShow): string {
   return show.title || "BBC Radio";
 }
 
+export interface RmsTrackData {
+  artist?: string;
+  track?: string;
+  imageUrl?: string;
+}
+
+interface StationRmsDelayState {
+  applied: RmsTrackData;
+  pending?: RmsTrackData;
+  pendingApplyAtMs?: number;
+  lastRawKey?: string;
+  timer?: ReturnType<typeof setTimeout>;
+}
+
+export const RMS_DELAY_MS = 20_000;
+const stationRmsDelayMap = new Map<string, StationRmsDelayState>();
+type RmsUpdateListener = (stationId: string) => void;
+const rmsListeners = new Set<RmsUpdateListener>();
+
+export function onRmsDelayedUpdate(listener: RmsUpdateListener): () => void {
+  rmsListeners.add(listener);
+  return () => {
+    rmsListeners.delete(listener);
+  };
+}
+
+function notifyRmsUpdate(stationId: string) {
+  for (const listener of rmsListeners) {
+    try {
+      listener(stationId);
+    } catch {
+      // Ignore listener errors
+    }
+  }
+}
+
+export function resetStationRmsDelay(stationId?: string) {
+  if (stationId) {
+    const s = stationRmsDelayMap.get(stationId);
+    if (s?.timer) clearTimeout(s.timer);
+    stationRmsDelayMap.delete(stationId);
+  } else {
+    for (const s of stationRmsDelayMap.values()) {
+      if (s.timer) clearTimeout(s.timer);
+    }
+    stationRmsDelayMap.clear();
+  }
+}
+
+export function resolveDelayedRmsTrack(
+  stationId: string,
+  rawArtist?: string,
+  rawTrack?: string,
+  rawImageUrl?: string,
+  now = Date.now()
+): RmsTrackData {
+  const rawKey = `${rawArtist || ""}__${rawTrack || ""}__${rawImageUrl || ""}`;
+  let state = stationRmsDelayMap.get(stationId);
+
+  if (!state) {
+    const initial: RmsTrackData = { artist: rawArtist, track: rawTrack, imageUrl: rawImageUrl };
+    state = {
+      applied: initial,
+      lastRawKey: rawKey
+    };
+    stationRmsDelayMap.set(stationId, state);
+    return initial;
+  }
+
+  // If pending track has passed delay time, promote it
+  if (state.pendingApplyAtMs !== undefined && now >= state.pendingApplyAtMs) {
+    if (state.timer) clearTimeout(state.timer);
+    state.applied = state.pending || {};
+    state.pending = undefined;
+    state.pendingApplyAtMs = undefined;
+    state.timer = undefined;
+  }
+
+  // Detect update (new song, song change, or song ended)
+  if (state.lastRawKey !== rawKey) {
+    state.lastRawKey = rawKey;
+    if (state.timer) clearTimeout(state.timer);
+
+    const pendingData: RmsTrackData = {
+      artist: rawArtist,
+      track: rawTrack,
+      imageUrl: rawImageUrl
+    };
+    state.pending = pendingData;
+    state.pendingApplyAtMs = now + RMS_DELAY_MS;
+
+    state.timer = setTimeout(() => {
+      const s = stationRmsDelayMap.get(stationId);
+      if (!s) return;
+      s.applied = s.pending || {};
+      s.pending = undefined;
+      s.pendingApplyAtMs = undefined;
+      s.timer = undefined;
+      notifyRmsUpdate(stationId);
+    }, RMS_DELAY_MS);
+  }
+
+  return state.applied;
+}
+
 export async function fetchShowInfo(stationId: string): Promise<CurrentShow> {
   const station = StationRepository.getById(stationId);
   if (!station) return { title: "BBC Radio" };
 
   const serviceId = station.serviceId;
-  let artist: string | undefined;
-  let track: string | undefined;
-  let rmsImageUrl: string | undefined;
+  let rawArtist: string | undefined;
+  let rawTrack: string | undefined;
+  let rawRmsImageUrl: string | undefined;
 
   // 1. Fetch live song/segment from RMS API. Only a currently-playing music segment
   // supplies artist/song details; speech, news, or a finished song fall back to the
@@ -74,21 +179,27 @@ export async function fetchShowInfo(stationId: string): Promise<CurrentShow> {
         !label.includes("ago");
 
       if (segment && isMusic && isNowPlaying) {
-        artist = segment.titles?.primary?.trim() || undefined;
-        track = (segment.titles?.secondary || segment.titles?.tertiary)?.trim() || undefined;
+        rawArtist = segment.titles?.primary?.trim() || undefined;
+        rawTrack = (segment.titles?.secondary || segment.titles?.tertiary)?.trim() || undefined;
         const imgTemplate = segment.image_url;
         if (
           imgTemplate &&
           !imgTemplate.toLowerCase().includes("default") &&
           !imgTemplate.toLowerCase().includes("p01tqv8z")
         ) {
-          rmsImageUrl = imgTemplate.replace("{recipe}", "320x320");
+          rawRmsImageUrl = imgTemplate.replace("{recipe}", "320x320");
         }
       }
     }
   } catch (err) {
     // Non-critical, RMS segment might be absent or 404
   }
+
+  // Delay RMS track/artist/artwork updates by 20 seconds to match the audio stream buffer latency
+  const delayedRms = resolveDelayedRmsTrack(stationId, rawArtist, rawTrack, rawRmsImageUrl);
+  const artist = delayedRms.artist;
+  const track = delayedRms.track;
+  const rmsImageUrl = delayedRms.imageUrl;
 
   // 2. Fetch live programme title from ESS Schedules API
   let showTitle = "BBC Radio";

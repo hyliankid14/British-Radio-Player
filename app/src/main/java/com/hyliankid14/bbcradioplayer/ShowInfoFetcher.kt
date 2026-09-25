@@ -53,6 +53,32 @@ object ShowInfoFetcher {
         StationRepository.getStations().associate { it.id to it.serviceId }
     }
 
+    data class RmsSong(
+        val artist: String? = null,
+        val track: String? = null,
+        val imageUrl: String? = null,
+        val segmentStartMs: Long? = null,
+        val segmentDurationMs: Long? = null
+    )
+
+    data class DelayedRms(
+        var applied: RmsSong = RmsSong(),
+        var pending: RmsSong? = null,
+        var pendingApplyAtMs: Long = 0L,
+        var lastRaw: RmsSong = RmsSong()
+    )
+
+    private const val RMS_DELAY_MS = 20_000L
+    private val delayedRmsCache = java.util.concurrent.ConcurrentHashMap<String, DelayedRms>()
+
+    fun resetDelay(serviceId: String? = null) {
+        if (serviceId != null) {
+            delayedRmsCache.remove(serviceId)
+        } else {
+            delayedRmsCache.clear()
+        }
+    }
+
     suspend fun getCurrentShow(stationId: String): CurrentShow = withContext(Dispatchers.IO) {
         try {
             val serviceId = serviceIdMap[stationId] ?: return@withContext CurrentShow("BBC Radio")
@@ -74,11 +100,11 @@ object ShowInfoFetcher {
             
             val responseCode = connection.responseCode
             
-            var artist: String? = null
-            var track: String? = null
-            var imageUrl: String? = null
-            var segmentStartMs: Long? = null
-            var segmentDurationMs: Long? = null
+            var rawArtist: String? = null
+            var rawTrack: String? = null
+            var rawImageUrl: String? = null
+            var rawSegmentStartMs: Long? = null
+            var rawSegmentDurationMs: Long? = null
             
             if (responseCode == 200) {
                 val response = connection.inputStream.bufferedReader().readText()
@@ -92,30 +118,61 @@ object ShowInfoFetcher {
                 val segmentShow = parseShowFromRmsResponse(response)
                 if (segmentShow != null) {
                     // RMS sometimes returns Artist in 'title' (primary) and Track in 'secondary' or 'tertiary'
-                    artist = segmentShow.title
+                    rawArtist = segmentShow.title
                     // Prefer 'secondary' (common) but fall back to 'tertiary' if needed
-                    track = segmentShow.secondary ?: segmentShow.tertiary
-                    imageUrl = segmentShow.imageUrl
-                    segmentStartMs = segmentShow.segmentStartMs
-                    segmentDurationMs = segmentShow.segmentDurationMs
+                    rawTrack = segmentShow.secondary ?: segmentShow.tertiary
+                    rawImageUrl = segmentShow.imageUrl
+                    rawSegmentStartMs = segmentShow.segmentStartMs
+                    rawSegmentDurationMs = segmentShow.segmentDurationMs
                 }
             } else if (responseCode == 404) {
                 Log.d(TAG, "RMS returned 404 (No Content), assuming no song playing")
                 connection.disconnect()
-                // artist/track remain null, effectively clearing song data
+                // rawArtist/rawTrack remain null, effectively clearing song data
             } else {
                 connection.disconnect()
                 // If RMS fails (e.g. 500), throw exception to prevent overwriting valid data with empty data
                 // This ensures that if we have a transient error, we keep the previous metadata
                 throw java.io.IOException("RMS API returned $responseCode")
             }
+
+            // Delay RMS song metadata updates by 20s to account for audio stream buffer delay
+            val rawSong = RmsSong(
+                artist = rawArtist,
+                track = rawTrack,
+                imageUrl = rawImageUrl,
+                segmentStartMs = rawSegmentStartMs,
+                segmentDurationMs = rawSegmentDurationMs
+            )
+            val now = System.currentTimeMillis()
+            val delayState = delayedRmsCache.computeIfAbsent(serviceId) {
+                DelayedRms(applied = rawSong, lastRaw = rawSong)
+            }
+
+            if (delayState.pendingApplyAtMs > 0L && now >= delayState.pendingApplyAtMs) {
+                delayState.applied = delayState.pending ?: RmsSong()
+                delayState.pending = null
+                delayState.pendingApplyAtMs = 0L
+            }
+
+            if (rawSong != delayState.lastRaw) {
+                delayState.lastRaw = rawSong
+                delayState.pending = rawSong
+                delayState.pendingApplyAtMs = now + RMS_DELAY_MS
+            }
+
+            val finalSong = delayState.applied
+            val artist = finalSong.artist
+            val track = finalSong.track
+            val segmentStartMs = finalSong.segmentStartMs
+            val segmentDurationMs = finalSong.segmentDurationMs
             
             // Combine info
             // If we have a show name, use it as title. If not, fallback to "BBC Radio"
             val finalTitle = if (showName.isNotEmpty()) showName else "BBC Radio"
             
             // Use RMS image if available, otherwise ESS image
-            val finalImageUrl = imageUrl ?: scheduleShow.imageUrl
+            val finalImageUrl = finalSong.imageUrl ?: scheduleShow.imageUrl
             
             return@withContext CurrentShow(
                 title = finalTitle,

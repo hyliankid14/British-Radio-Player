@@ -205,6 +205,36 @@ class NativeAndroidModule : Module() {
       toggle
     }
 
+    /** Returns the deep link or target URL when launched from a notification intent, else null. */
+    Function("consumeNotificationLaunch") { ->
+      val activity = appContext.currentActivity ?: return@Function null
+      val intent = activity.intent ?: return@Function null
+      val url = intent.getStringExtra("url")
+      if (url != null) {
+        intent.removeExtra("url")
+        return@Function url
+      }
+      val podcastId = intent.getStringExtra("podcastId")
+      if (podcastId != null) {
+        intent.removeExtra("podcastId")
+        return@Function "/modal/podcast-detail?podcastId=$podcastId"
+      }
+      val search = intent.getStringExtra("search")
+      if (search != null) {
+        intent.removeExtra("search")
+        val savedSearchId = intent.getStringExtra("savedSearchId")
+        if (savedSearchId != null) intent.removeExtra("savedSearchId")
+        val param = if (savedSearchId != null) "&savedSearchId=$savedSearchId" else ""
+        return@Function "/podcasts?search=${java.net.URLEncoder.encode(search, "UTF-8")}$param"
+      }
+      val dataUri = intent.dataString
+      if (dataUri != null && dataUri.startsWith("bbcradioplayer://")) {
+        intent.data = null
+        return@Function dataUri
+      }
+      null
+    }
+
     // ── Wear OS sync ────────────────────────────────────────────────────────
 
     /** Pushes phone state to the Wear OS companion. */

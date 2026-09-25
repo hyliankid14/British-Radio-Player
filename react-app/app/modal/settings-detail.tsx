@@ -38,7 +38,7 @@ import {
   ensureNotificationPermissions
 } from "../../src/notifications/notifications";
 
-const AUTO_NAME = "Android Auto";
+const AUTO_NAME = Platform.OS === "ios" ? "CarPlay" : "Android Auto";
 
 const TITLES: Record<string, string> = {
   theme: "Theme",
@@ -149,7 +149,7 @@ export default function SettingsDetail() {
         {section === "theme" && <ThemePage />}
         {section === "playback" && <PlaybackPage />}
         {section === "lastfm" && <LastFmPage />}
-        {section === "android_auto" && Platform.OS === "android" && <AndroidAutoPage />}
+        {section === "android_auto" && <AndroidAutoPage />}
         {section === "backup" && <BackupPage />}
         {section === "about" && <AboutPage />}
         {section === "privacy" && <PrivacyPage />}

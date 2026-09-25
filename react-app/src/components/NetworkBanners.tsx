@@ -106,7 +106,7 @@ export function VpnBanner() {
   return (
     <View style={[styles.vpnBanner, { backgroundColor: theme.secondaryContainer }]}>
       <Text style={[styles.vpnText, { color: theme.onSecondaryContainer }]}>
-        A VPN appears to be active. Some live stations may be unavailable.
+        BBC may block some traffic routed through VPNs or proxies. Live sports streams may also be unavailable outside the UK.
       </Text>
       <TouchableOpacity
         onPress={dismissBanner}

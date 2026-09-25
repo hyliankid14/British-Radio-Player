@@ -2,7 +2,7 @@ import { create } from "zustand";
 import TrackPlayer, { State, TrackType } from "react-native-track-player";
 import { Station, StationRepository, AudioQuality, getStreamCandidates } from "../data/stations";
 import { Preferences } from "../storage/preferences";
-import { CurrentShow, fetchShowInfo } from "../api/showInfo";
+import { CurrentShow, fetchShowInfo, onRmsDelayedUpdate, resetStationRmsDelay } from "../api/showInfo";
 import { useStationShowStore } from "./stationShowStore";
 import { Podcast, Episode, PodcastApi } from "../api/podcasts";
 import { LastFmApi } from "../api/lastfm";
@@ -118,6 +118,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   playStation: async (station: Station) => {
+    resetStationRmsDelay();
     const quality = resolvePlaybackQuality(get().audioQuality);
     const geoBlocked = Preferences.getGeoBlocked();
     const candidates = getStreamCandidates(station, quality, geoBlocked);
@@ -193,50 +194,14 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         artwork: (hasSong && show.imageUrl) ? show.imageUrl : (show.imageUrl || station.logoUrl)
       });
 
-      // Poll show info every 20s
+      // Poll show info every 10s (delayed RMS promotion triggers immediate refresh)
       if (showInfoInterval) clearInterval(showInfoInterval);
       showInfoInterval = setInterval(async () => {
         const { currentStation, isPlaying } = get();
         if (currentStation && isPlaying) {
-          const updated = await fetchShowInfo(currentStation.id);
-          set({ currentShow: updated });
-          if (updated.title && updated.title !== "BBC Radio") {
-            useStationShowStore.getState().updateShow(currentStation.id, {
-              title: updated.title,
-              episodeTitle: updated.episodeTitle,
-              startTimeMs: updated.startTimeMs,
-              endTimeMs: updated.endTimeMs,
-              nextShowTitle: updated.nextShowTitle,
-              imageUrl: updated.imageUrl
-            });
-          }
-          beginScrobble(updated.artist || "", updated.track || "");
-          if (updated.artist || updated.track) {
-            Preferences.addRecentSong({
-              artist: updated.artist || "",
-              track: updated.track || "",
-              imageUrl: updated.imageUrl || currentStation.logoUrl,
-              stationId: currentStation.id,
-              stationName: currentStation.title
-            });
-          }
-          const updatedHasSong = !!(updated.artist || updated.track);
-          const updatedSongTitle = updated.track
-            ? (updated.artist ? `${updated.artist} - ${updated.track}` : updated.track)
-            : (updated.artist || "");
-          const updatedShowTitle = (updated.title && updated.title !== "BBC Radio") ? updated.title : currentStation.title;
-          const updatedShowSubtitle = (updated.episodeTitle && updated.episodeTitle !== updatedShowTitle)
-            ? updated.episodeTitle
-            : currentStation.title;
-
-          await TrackPlayer.updateMetadataForTrack(0, {
-            title: updatedHasSong ? updatedSongTitle : updatedShowTitle,
-            artist: updatedHasSong ? currentStation.title : updatedShowSubtitle,
-            album: currentStation.title,
-            artwork: (updatedHasSong && updated.imageUrl) ? updated.imageUrl : (updated.imageUrl || currentStation.logoUrl)
-          });
+          await get().refreshShowInfo();
         }
-      }, 20000);
+      }, 10000);
     } catch (err) {
       console.warn("Error playing station:", err);
       set({ isBuffering: false, isPlaying: false });
@@ -244,6 +209,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   playEpisode: async (podcast: Podcast, episode: Episode) => {
+    resetStationRmsDelay();
     if (showInfoInterval) {
       clearInterval(showInfoInterval);
       showInfoInterval = null;
@@ -317,6 +283,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   stop: async () => {
     try {
+      resetStationRmsDelay();
       if (showInfoInterval) {
         clearInterval(showInfoInterval);
         showInfoInterval = null;
@@ -516,6 +483,16 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
           imageUrl: show.imageUrl
         });
       }
+      beginScrobble(show.artist || "", show.track || "");
+      if (show.artist || show.track) {
+        Preferences.addRecentSong({
+          artist: show.artist || "",
+          track: show.track || "",
+          imageUrl: show.imageUrl || currentStation.logoUrl,
+          stationId: currentStation.id,
+          stationName: currentStation.title
+        });
+      }
       if (isPlaying) {
         const hasSong = !!(show.artist || show.track);
         const songTitle = show.track
@@ -557,3 +534,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     await get().playStation(prevStation);
   }
 }));
+
+onRmsDelayedUpdate((stationId) => {
+  const { currentStation, isPlaying, refreshShowInfo } = usePlayerStore.getState();
+  if (currentStation?.id === stationId && isPlaying) {
+    void refreshShowInfo();
+  }
+});

@@ -1,13 +1,15 @@
 import { Platform } from "react-native";
 import type * as ExpoNotifications from "expo-notifications";
 import { Preferences } from "../storage/preferences";
-import { PodcastApi } from "../api/podcasts";
+import { PodcastApi, matchesBooleanSearch } from "../api/podcasts";
 
 type NotificationsModule = typeof ExpoNotifications;
 
 const CHANNEL_ID = "new-episodes";
 const LAST_CHECK_KEY = "pref_last_notification_check";
+const LAST_SEARCH_CHECK_KEY = "pref_last_search_notification_check";
 const lastNotifiedKey = (podcastId: string) => `pref_last_notified_${podcastId}`;
+const lastSearchNotifiedKey = (searchId: string) => `pref_last_search_notified_${searchId}`;
 const MAX_NOTIFICATIONS_PER_PODCAST = 3;
 
 let moduleRef: NotificationsModule | null = null;
@@ -104,11 +106,12 @@ async function present(
   Notifications: NotificationsModule,
   title: string,
   body: string,
-  url: string
+  url: string,
+  extraData?: Record<string, any>
 ): Promise<void> {
   await ensureChannel(Notifications);
   await Notifications.scheduleNotificationAsync({
-    content: { title, body, data: { url } },
+    content: { title, body, data: { url, ...extraData } },
     trigger:
       Platform.OS === "android"
         ? {
@@ -180,7 +183,8 @@ export async function checkSubscriptionsForNewEpisodes(force = false): Promise<v
           Notifications,
           podcast.title,
           episode.title,
-          `/modal/podcast-detail?podcastId=${podcast.id}`
+          `/modal/podcast-detail?podcastId=${podcast.id}`,
+          { podcastId: podcast.id, episodeId: episode.id }
         );
       }
 
@@ -195,6 +199,96 @@ export async function checkSubscriptionsForNewEpisodes(force = false): Promise<v
     console.warn("New episode notification check failed:", error);
   } finally {
     checking = false;
+  }
+}
+
+let checkingSavedSearches = false;
+
+/**
+ * Checks saved searches with notifications enabled for new matching episodes
+ * and posts a local notification for each new one.
+ */
+export async function checkSavedSearchesForNewEpisodes(force = false): Promise<void> {
+  const Notifications = getNotifications();
+  if (!Notifications || checkingSavedSearches) return;
+
+  const savedSearches = Preferences.getSavedPodcastSearches().filter(
+    (s) => s.notificationsEnabled && s.query.trim().length > 0
+  );
+  if (savedSearches.length === 0) return;
+
+  const intervalMinutes = Number(Preferences.getSetting("pref_subscription_refresh", 60)) || 0;
+  if (!force && intervalMinutes > 0) {
+    const lastCheck = Number(Preferences.getSetting(LAST_SEARCH_CHECK_KEY, 0)) || 0;
+    if (Date.now() - lastCheck < intervalMinutes * 60_000) return;
+  }
+
+  if (!(await hasNotificationPermission())) return;
+
+  checkingSavedSearches = true;
+  Preferences.setSetting(LAST_SEARCH_CHECK_KEY, Date.now());
+
+  try {
+    for (const search of savedSearches) {
+      try {
+        const rawResults = await PodcastApi.searchEpisodesOnPi(search.query, 100);
+        if (!rawResults || rawResults.length === 0) continue;
+
+        const matching = rawResults.filter((episode) =>
+          matchesBooleanSearch(search.query, `${episode.title} ${episode.description}`)
+        );
+        if (matching.length === 0) continue;
+
+        const sorted = matching
+          .map((ep) => ({ ...ep, epoch: episodeEpoch(ep.pubDate) }))
+          .filter((ep) => ep.epoch > 0)
+          .sort((a, b) => a.epoch - b.epoch);
+
+        if (sorted.length === 0) continue;
+
+        const newestEpoch = sorted[sorted.length - 1].epoch;
+        const lastNotified = Number(Preferences.getSetting(lastSearchNotifiedKey(search.id), 0)) || 0;
+
+        // First observation establishes baseline without spamming the user
+        if (lastNotified === 0) {
+          Preferences.setSetting(lastSearchNotifiedKey(search.id), newestEpoch || Date.now());
+          const latestPubDate = sorted[sorted.length - 1].pubDate;
+          if (latestPubDate && latestPubDate !== search.latestResultDate) {
+            Preferences.updatePodcastSearchLatestResult(search.id, latestPubDate);
+          }
+          continue;
+        }
+
+        const fresh = sorted.filter((ep) => ep.epoch > lastNotified);
+        if (fresh.length > 0) {
+          const title = search.name.trim() || `Saved Search: ${search.query}`;
+          const body =
+            fresh.length === 1
+              ? `New episode match: ${fresh[0].title}`
+              : `${fresh.length} new episodes match "${search.query}"`;
+          const targetUrl = `/modal/podcast-search?search=${encodeURIComponent(search.query)}&savedSearchId=${encodeURIComponent(search.id)}`;
+
+          await present(Notifications, title, body, targetUrl, {
+            search: search.query,
+            savedSearchId: search.id
+          });
+
+          const maxEpoch = fresh.reduce((max, ep) => Math.max(max, ep.epoch), lastNotified);
+          Preferences.setSetting(lastSearchNotifiedKey(search.id), maxEpoch);
+
+          const newestPubDate = fresh[fresh.length - 1].pubDate;
+          if (newestPubDate) {
+            Preferences.updatePodcastSearchLatestResult(search.id, newestPubDate);
+          }
+        }
+      } catch (err) {
+        console.warn(`Saved search check failed for "${search.query}":`, err);
+      }
+    }
+  } catch (error) {
+    console.warn("Saved search notification check failed:", error);
+  } finally {
+    checkingSavedSearches = false;
   }
 }
 
@@ -238,7 +332,8 @@ export async function checkForNewPodcasts(force = false): Promise<void> {
         Notifications,
         "New podcast on BBC Sounds",
         entry.title,
-        `/modal/podcast-detail?podcastId=${entry.id}`
+        `/modal/podcast-detail?podcastId=${entry.id}`,
+        { podcastId: entry.id }
       );
     }
     fresh.forEach((entry) => entry.id && seen.add(entry.id));
@@ -253,14 +348,39 @@ export function initNotificationNavigation(onOpenUrl: (url: string) => void): ()
   const Notifications = getNotifications();
   if (!Notifications) return () => {};
 
-  const redirect = (response: ExpoNotifications.NotificationResponse | null) => {
-    const url = response?.notification.request.content.data?.url;
-    if (typeof url === "string" && url) onOpenUrl(url);
+  const handleResponse = (response: ExpoNotifications.NotificationResponse | null | undefined) => {
+    if (!response) return;
+    const data = response.notification.request.content.data as Record<string, any> | undefined;
+    if (!data) return;
+
+    if (typeof data.url === "string" && data.url) {
+      onOpenUrl(data.url);
+      return;
+    }
+    if (typeof data.podcastId === "string" && data.podcastId) {
+      onOpenUrl(`/modal/podcast-detail?podcastId=${encodeURIComponent(data.podcastId)}`);
+      return;
+    }
+    if (typeof data.search === "string" && data.search) {
+      const savedSearchParam = data.savedSearchId ? `&savedSearchId=${encodeURIComponent(data.savedSearchId)}` : "";
+      onOpenUrl(`/podcasts?search=${encodeURIComponent(data.search)}${savedSearchParam}`);
+      return;
+    }
   };
 
-  const last = Notifications.getLastNotificationResponse();
-  if (last) redirect(last);
+  try {
+    const last = Notifications.getLastNotificationResponse();
+    if (last) handleResponse(last);
+  } catch {}
 
-  const subscription = Notifications.addNotificationResponseReceivedListener(redirect);
+  if (typeof Notifications.getLastNotificationResponseAsync === "function") {
+    Notifications.getLastNotificationResponseAsync()
+      .then((res) => {
+        if (res) handleResponse(res);
+      })
+      .catch(() => {});
+  }
+
+  const subscription = Notifications.addNotificationResponseReceivedListener(handleResponse);
   return () => subscription.remove();
 }

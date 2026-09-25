@@ -113,9 +113,37 @@ final class CarPlayManager {
         let nowPlayingTemplate = CPNowPlayingTemplate.shared
         nowPlayingTemplate.tabTitle = "Now Playing"
         nowPlayingTemplate.tabImage = UIImage(systemName: "play.circle.fill")
+        updateNowPlayingButtons()
 
         let root = CPTabBarTemplate(templates: [favouritesTemplate, stationsTemplate, nowPlayingTemplate])
         interfaceController.setRootTemplate(root, animated: true) { _, _ in }
+    }
+
+    private func updateNowPlayingButtons() {
+        guard let container else { return }
+        var buttons: [CPNowPlayingButton] = []
+        if let episode = container.audioPlayerService.currentEpisode {
+            let isSub = container.favoritesStore.isSubscribed(podcastID: episode.podcastID)
+            let img = UIImage(systemName: isSub ? "bookmark.fill" : "bookmark") ?? UIImage()
+            let bookmarkBtn = CPNowPlayingImageButton(image: img) { [weak self] _ in
+                Task { @MainActor in
+                    self?.container?.favoritesStore.toggleSubscription(podcastID: episode.podcastID)
+                    self?.updateNowPlayingButtons()
+                }
+            }
+            buttons.append(bookmarkBtn)
+        } else if let station = container.audioPlayerService.currentStation {
+            let isFav = container.favoritesStore.isFavorite(stationID: station.id)
+            let img = UIImage(systemName: isFav ? "star.fill" : "star") ?? UIImage()
+            let favBtn = CPNowPlayingImageButton(image: img) { [weak self] _ in
+                Task { @MainActor in
+                    self?.container?.favoritesStore.toggleFavorite(stationID: station.id)
+                    self?.updateNowPlayingButtons()
+                }
+            }
+            buttons.append(favBtn)
+        }
+        CPNowPlayingTemplate.shared.updateNowPlayingButtons(buttons)
     }
 
     private func makeStationsTemplate(title: String, stations: [Station], emptyMessage: String) -> CPListTemplate {

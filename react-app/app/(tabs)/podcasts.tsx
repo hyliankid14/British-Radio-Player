@@ -2,38 +2,29 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   FlatList,
   ScrollView,
   Image,
   StyleSheet,
   ActivityIndicator,
-  Alert,
   NativeSyntheticEvent,
-  NativeScrollEvent,
-  Modal,
-  Switch
+  NativeScrollEvent
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { MaterialIcons } from "@expo/vector-icons";
-import { useAppTheme, useIsDarkTheme } from "../../src/theme/colors";
+import { useAppTheme } from "../../src/theme/colors";
 import {
   Podcast,
-  Episode,
-  SearchPodcastResult,
-  SearchEpisodeResult,
   PopularEntry,
   NewPodcastEntry,
   PodcastRatingSummary,
   PodcastApi,
-  decodeXmlEntities,
-  matchesBooleanSearch
+  decodeXmlEntities
 } from "../../src/api/podcasts";
 import { Preferences } from "../../src/storage/preferences";
 import { applyLanguageFilter } from "../../src/podcasts/languageFilter";
-import { usePlayerStore } from "../../src/store/playerStore";
 import { OfflineBanner, VpnBanner } from "../../src/components/NetworkBanners";
 import { NativeAndroid } from "../../src/native/nativeAndroid";
 
@@ -158,33 +149,14 @@ export default function PodcastsScreen() {
   const [selectedGenre, setSelectedGenre] = useState<string | null>(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
 
-  // Search state
-  const [showSearchBar, setShowSearchBar] = useState(false);
-  const [isSearchFocused, setIsSearchFocused] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [isSearching, setIsSearching] = useState(false);
-  const [searchPodcastMatches, setSearchPodcastMatches] = useState<Podcast[]>([]);
-  const [searchEpisodeMatches, setSearchEpisodeMatches] = useState<SearchEpisodeResult[]>([]);
-  const [recentSearches, setRecentSearches] = useState<string[]>([]);
-  const searchDebounceTimer = useRef<any>(null);
-
-  const isDark = useIsDarkTheme();
-  const [savedSearches, setSavedSearches] = useState(() => Preferences.getSavedPodcastSearches());
-  const [saveSearchModalVisible, setSaveSearchModalVisible] = useState(false);
-  const [saveSearchName, setSaveSearchName] = useState("");
-  const [saveSearchNotify, setSaveSearchNotify] = useState(true);
-
-  const { playEpisode } = usePlayerStore();
-
-  useFocusEffect(
-    useCallback(() => {
-      setSavedSearches(Preferences.getSavedPodcastSearches());
-    }, [])
-  );
-
   useEffect(() => {
-    setRecentSearches(Preferences.getRecentPodcastSearches());
-  }, [showSearchBar]);
+    if (params.search) {
+      router.replace({
+        pathname: "/modal/podcast-search",
+        params: { search: params.search, savedSearchId: params.savedSearchId }
+      });
+    }
+  }, [params.search, params.savedSearchId, router]);
 
   // Load catalog and Pi metadata on mount
   useEffect(() => {
@@ -263,104 +235,6 @@ export default function PodcastsScreen() {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [catalog]);
 
-  const currentSavedSearch = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return null;
-    return savedSearches.find((s) => s.query.trim().toLowerCase() === q) || null;
-  }, [searchQuery, savedSearches]);
-
-  const isSearchSaved = !!currentSavedSearch;
-
-  const handleOpenSaveSearch = useCallback(() => {
-    const query = searchQuery.trim();
-    if (!query) return;
-    if (currentSavedSearch) {
-      setSaveSearchName(currentSavedSearch.name);
-      setSaveSearchNotify(currentSavedSearch.notificationsEnabled);
-    } else {
-      setSaveSearchName(query);
-      setSaveSearchNotify(true);
-    }
-    setSaveSearchModalVisible(true);
-  }, [searchQuery, currentSavedSearch]);
-
-  // Handle Search Input querying the Raspberry Pi database
-  const handleSearchChange = useCallback(
-    (text: string) => {
-      setSearchQuery(text);
-      if (searchDebounceTimer.current) {
-        clearTimeout(searchDebounceTimer.current);
-      }
-
-      const q = text.trim();
-      if (!q) {
-        setSearchPodcastMatches([]);
-        setSearchEpisodeMatches([]);
-        setIsSearching(false);
-        return;
-      }
-
-      setIsSearching(true);
-      searchDebounceTimer.current = setTimeout(async () => {
-        try {
-          // Query Raspberry Pi server for matching podcasts and episodes
-          const [piPodcasts, piEpisodes] = await Promise.all([
-            PodcastApi.searchPodcastsOnPi(q, 50),
-            PodcastApi.searchEpisodesOnPi(q, 30)
-          ]);
-
-          // Enrich podcast matches with catalog artwork and genres
-          const enriched = applyLanguageFilter(
-            PodcastApi.enrichSearchResults(piPodcasts, catalog).filter((podcast) =>
-              matchesBooleanSearch(q, `${podcast.title} ${podcast.description} ${podcast.genres.join(" ")}`)
-            )
-          );
-
-          // If Pi returned empty or is offline, fallback to in-memory filter
-          if (enriched.length === 0 && catalog.length > 0) {
-            const fallback = applyLanguageFilter(
-              catalog.filter((p) =>
-                matchesBooleanSearch(q, `${p.title} ${p.description} ${p.genres.join(" ")}`)
-              )
-            );
-            setSearchPodcastMatches(fallback);
-          } else {
-            setSearchPodcastMatches(enriched);
-          }
-
-          const matchingEpisodes = piEpisodes.filter((episode) =>
-            matchesBooleanSearch(q, `${episode.title} ${episode.description}`)
-          );
-          setSearchEpisodeMatches(matchingEpisodes);
-          const latestResultDate = matchingEpisodes
-            .map((episode) => episode.pubDate)
-            .filter((date) => typeof date === "string" && Number.isFinite(Date.parse(date)))
-            .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
-          const matchedSavedSearch = Preferences.getSavedPodcastSearches().find(
-            (s) => s.query.trim().toLowerCase() === q.toLowerCase()
-          );
-          const targetSavedSearchId = params.savedSearchId || matchedSavedSearch?.id;
-          if (targetSavedSearchId && latestResultDate) {
-            Preferences.updatePodcastSearchLatestResult(targetSavedSearchId, latestResultDate);
-          }
-        } catch (err) {
-          console.warn("Search failed:", err);
-        } finally {
-          setIsSearching(false);
-        }
-      }, 250);
-    },
-    [catalog]
-  );
-
-  useEffect(() => {
-    const savedQuery = typeof params.search === "string" ? params.search : "";
-    if (savedQuery.trim()) {
-      setShowSearchBar(true);
-      setIsSearchFocused(true);
-      handleSearchChange(savedQuery);
-    }
-  }, [params.search, handleSearchChange]);
 
   // Shuffle button: Pick a random podcast and open its detail
   const handleShuffle = useCallback(() => {
@@ -386,26 +260,6 @@ export default function PodcastsScreen() {
       return stop;
     }, [handleShuffle])
   );
-
-  // Search suggestions dropdown, populated from the Pi suggestion endpoint.
-  const [suggestions, setSuggestions] = useState<{ podcastId: string; title: string }[]>([]);
-  useEffect(() => {
-    const trimmed = searchQuery.trim();
-    if (!isSearchFocused || trimmed.length < 2) {
-      setSuggestions([]);
-      return;
-    }
-    let cancelled = false;
-    const timer = setTimeout(async () => {
-      const results = await PodcastApi.searchSuggestionsOnPi(trimmed, 8);
-      if (!cancelled) setSuggestions(results);
-    }, 180);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [searchQuery, isSearchFocused]);
-
   // Open podcast detail
   const handleOpenPodcast = useCallback(
     (podcast: Podcast) => {
@@ -420,83 +274,6 @@ export default function PodcastsScreen() {
       });
     },
     [router]
-  );
-
-  const [resolvingEpisodeId, setResolvingEpisodeId] = useState<string | null>(null);
-
-  const openSearchEpisode = useCallback(
-    async (ep: SearchEpisodeResult) => {
-      const parentPodcast = catalog.find((p) => p.id === ep.podcastId) || {
-        id: ep.podcastId,
-        title: "BBC Podcast",
-        description: "",
-        rssUrl: `https://podcasts.files.bbci.co.uk/${ep.podcastId}.rss`,
-        htmlUrl: "",
-        imageUrl: "",
-        genres: [],
-        typicalDurationMins: 0
-      };
-
-      setResolvingEpisodeId(ep.episodeId);
-      try {
-        const episodes = await PodcastApi.fetchEpisodes(parentPodcast.rssUrl, parentPodcast.id);
-        const resolved =
-          episodes.find((e) => e.id === ep.episodeId || e.id.includes(ep.episodeId) || ep.episodeId.includes(e.id)) ||
-          episodes.find((e) => e.title.toLowerCase() === ep.title.toLowerCase());
-
-        if (resolved) {
-          router.push({
-            pathname: "/modal/now-playing",
-            params: {
-              podcastData: JSON.stringify(parentPodcast),
-              episodeData: JSON.stringify(resolved)
-            }
-          });
-        }
-      } catch (err) {
-        console.warn("Failed to open episode:", err);
-      } finally {
-        setResolvingEpisodeId(null);
-      }
-    },
-    [catalog, router]
-  );
-
-  // Play an episode directly from search results
-  const handlePlaySearchEpisode = useCallback(
-    async (ep: SearchEpisodeResult) => {
-      const parentPodcast = catalog.find((p) => p.id === ep.podcastId) || {
-        id: ep.podcastId,
-        title: "BBC Podcast",
-        description: "",
-        rssUrl: `https://podcasts.files.bbci.co.uk/${ep.podcastId}.rss`,
-        htmlUrl: "",
-        imageUrl: "",
-        genres: [],
-        typicalDurationMins: 0
-      };
-
-      setResolvingEpisodeId(ep.episodeId);
-      try {
-        const eps = await PodcastApi.fetchEpisodes(parentPodcast.rssUrl, parentPodcast.id);
-        const resolved =
-          eps.find((e) => e.id === ep.episodeId || e.id.includes(ep.episodeId) || ep.episodeId.includes(e.id)) ||
-          eps.find((e) => e.title.toLowerCase() === ep.title.toLowerCase()) ||
-          (eps.length > 0 ? eps[0] : null);
-
-        if (resolved && resolved.audioUrl) {
-          await playEpisode(parentPodcast, resolved);
-        } else {
-          // Fallback: open podcast detail so the user can select an episode
-          handleOpenPodcast(parentPodcast);
-        }
-      } catch (err) {
-        console.warn("Failed to resolve episode:", err);
-      } finally {
-        setResolvingEpisodeId(null);
-      }
-    },
-    [catalog, playEpisode, handleOpenPodcast]
   );
 
   // Sort and filter displayed podcasts for current tab
@@ -549,7 +326,6 @@ export default function PodcastsScreen() {
     flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
   };
 
-  const isSearchActive = searchQuery.trim().length > 0;
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.surfaceContainer }]} edges={["top"]}>
@@ -559,17 +335,12 @@ export default function PodcastsScreen() {
         <View style={styles.toolbarActions}>
           <TouchableOpacity
             style={styles.toolbarIconButton}
-            onPress={() => {
-              setShowSearchBar(!showSearchBar);
-              if (showSearchBar) setIsSearchFocused(false);
-            }}
+            onPress={() => router.push("/modal/podcast-search")}
+            accessibilityLabel="Search podcasts"
+            accessibilityRole="button"
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <MaterialIcons
-              name={showSearchBar ? "search-off" : "search"}
-              size={24}
-              color={theme.onSurface}
-            />
+            <MaterialIcons name="search" size={24} color={theme.onSurface} />
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -585,100 +356,8 @@ export default function PodcastsScreen() {
       <OfflineBanner />
       <VpnBanner />
 
-      {/* Collapsible Search Input matching podcasts_search_bar */}
-      {showSearchBar || isSearchActive ? (
-        <View style={[styles.searchBarContainer, { backgroundColor: theme.surfaceContainer }]}>
-          <View
-            style={[
-              styles.searchInputWrapper,
-              { backgroundColor: theme.surface, borderColor: theme.outlineVariant }
-            ]}
-          >
-            <MaterialIcons name="search" size={22} color={theme.onSurfaceVariant} style={styles.searchIcon} />
-            <TextInput
-              style={[styles.searchInput, { color: theme.onSurface }]}
-              placeholder="Search podcasts"
-              placeholderTextColor={theme.onSurfaceVariant}
-              value={searchQuery}
-              onChangeText={handleSearchChange}
-              onFocus={() => setIsSearchFocused(true)}
-              onBlur={() => setIsSearchFocused(false)}
-              onSubmitEditing={() => {
-                const query = searchQuery.trim();
-                if (query) {
-                  Preferences.addRecentPodcastSearch(query);
-                  setRecentSearches(Preferences.getRecentPodcastSearches());
-                }
-              }}
-              autoFocus={showSearchBar && !searchQuery}
-              clearButtonMode="never"
-            />
-            {searchQuery ? (
-              <View style={styles.searchActions}>
-                <TouchableOpacity
-                  onPress={handleOpenSaveSearch}
-                  style={styles.clearSearchBtn}
-                  accessibilityLabel={isSearchSaved ? "Edit saved search" : "Save search"}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <MaterialIcons
-                    name={isSearchSaved ? "star" : "star-border"}
-                    size={20}
-                    color={isSearchSaved ? theme.star : theme.onSurfaceVariant}
-                  />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => handleSearchChange("")}
-                  style={styles.clearSearchBtn}
-                  accessibilityLabel="Clear search"
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <MaterialIcons name="cancel" size={20} color={theme.onSurfaceVariant} />
-                </TouchableOpacity>
-              </View>
-            ) : null}
-          </View>
-          {isSearchFocused && !searchQuery.trim() && recentSearches.length > 0 ? (
-            <View style={[styles.recentSearches, { backgroundColor: theme.surface }]}>
-              <Text style={[styles.recentSearchesTitle, { color: theme.onSurfaceVariant }]}>Recent searches</Text>
-              {recentSearches.map((search) => (
-                <TouchableOpacity
-                  key={search}
-                  style={styles.recentSearchRow}
-                  onPress={() => handleSearchChange(search)}
-                >
-                  <MaterialIcons name="history" size={18} color={theme.onSurfaceVariant} />
-                  <Text style={[styles.recentSearchText, { color: theme.onSurface }]}>{search}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          ) : null}
-          {isSearchFocused && searchQuery.trim().length >= 2 && suggestions.length > 0 ? (
-            <View style={[styles.recentSearches, { backgroundColor: theme.surface }]}>
-              {suggestions.map((suggestion) => (
-                <TouchableOpacity
-                  key={suggestion.podcastId}
-                  style={styles.recentSearchRow}
-                  onPress={() => {
-                    setSuggestions([]);
-                    setIsSearchFocused(false);
-                    handleSearchChange(suggestion.title);
-                  }}
-                >
-                  <MaterialIcons name="search" size={18} color={theme.onSurfaceVariant} />
-                  <Text style={[styles.recentSearchText, { color: theme.onSurface }]}>
-                    {suggestion.title}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          ) : null}
-        </View>
-      ) : null}
-
       {/* Tabs matching podcasts_sort_tabs: Popular, Last Updated, New Podcasts, Genre, A-Z */}
-      {!isSearchActive && (
-        <View style={[styles.tabsContainer, { backgroundColor: theme.surfaceContainer }]}>
+      <View style={[styles.tabsContainer, { backgroundColor: theme.surfaceContainer }]}>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -716,10 +395,9 @@ export default function PodcastsScreen() {
             })}
           </ScrollView>
         </View>
-      )}
 
       {/* Active Genre Filter Indicator */}
-      {selectedGenre && !isSearchActive && (
+      {selectedGenre && (
         <View style={[styles.activeGenreBanner, { backgroundColor: theme.surface }]}>
           <Text style={[styles.activeGenreText, { color: theme.onSurface }]}>
             Genre: <Text style={{ fontWeight: "700" }}>{selectedGenre}</Text> ({displayedPodcasts.length})
@@ -739,99 +417,6 @@ export default function PodcastsScreen() {
             Loading BBC Podcasts...
           </Text>
         </View>
-      ) : isSearchActive ? (
-        /* Live Search Results from Raspberry Pi */
-        <ScrollView
-          contentContainerStyle={[styles.listContent, { paddingBottom: 160 + insets.bottom }]}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-        >
-          {isSearching && (
-            <View style={styles.searchLoadingBanner}>
-              <ActivityIndicator size="small" color={theme.primary} />
-              <Text style={[styles.searchLoadingText, { color: theme.onSurfaceVariant }]}>
-                Searching podcasts...
-              </Text>
-            </View>
-          )}
-
-          {/* Matching Podcasts Header */}
-          <Text style={[styles.sectionHeading, { color: theme.onSurface }]}>
-            Podcasts {searchPodcastMatches.length > 0 ? `(${searchPodcastMatches.length})` : ""}
-          </Text>
-
-          {searchPodcastMatches.length === 0 && !isSearching ? (
-            <Text style={[styles.emptySectionText, { color: theme.onSurfaceVariant }]}>
-              No matching podcasts found.
-            </Text>
-          ) : (
-            searchPodcastMatches.map((pod) => renderPodcastCard(pod))
-          )}
-
-          {/* Matching Episodes Header */}
-          {searchEpisodeMatches.length > 0 && (
-            <>
-              <Text style={[styles.sectionHeading, { color: theme.onSurface, marginTop: 20 }]}>
-                Episodes ({searchEpisodeMatches.length})
-              </Text>
-              {searchEpisodeMatches.map((ep) => {
-                const parentPod = catalog.find((p) => p.id === ep.podcastId) || {
-                  id: ep.podcastId,
-                  title: "BBC Podcast",
-                  description: "",
-                  rssUrl: `https://podcasts.files.bbci.co.uk/${ep.podcastId}.rss`,
-                  htmlUrl: "",
-                  imageUrl: "",
-                  genres: [],
-                  typicalDurationMins: 0
-                };
-                const isResolving = resolvingEpisodeId === ep.episodeId;
-
-                return (
-                  <View
-                    key={ep.episodeId}
-                    style={[
-                      styles.episodeResultCard,
-                      { backgroundColor: theme.surface, borderColor: theme.outlineVariant }
-                    ]}
-                  >
-                    <TouchableOpacity
-                      style={styles.episodeResultText}
-                      activeOpacity={0.7}
-                      onPress={() => openSearchEpisode(ep)}
-                    >
-                      <Text style={[styles.episodeResultTitle, { color: theme.onSurface }]} numberOfLines={2}>
-                        {decodeXmlEntities(ep.title)}
-                      </Text>
-                      {ep.pubDate ? (
-                        <Text style={[styles.episodeResultDate, { color: theme.onSurfaceVariant }]}>
-                          {ep.pubDate.split(" ").slice(0, 4).join(" ")}
-                        </Text>
-                      ) : null}
-                      {ep.description ? (
-                        <Text style={[styles.episodeResultDesc, { color: theme.onSurfaceVariant }]} numberOfLines={2}>
-                          {decodeXmlEntities(ep.description)}
-                        </Text>
-                      ) : null}
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.episodePlayBtn, { backgroundColor: theme.primary }]}
-                      onPress={() => handlePlaySearchEpisode(ep)}
-                      disabled={isResolving}
-                    >
-                      {isResolving ? (
-                        <ActivityIndicator size="small" color={theme.onPrimary} />
-                      ) : (
-                        <MaterialIcons name="play-arrow" size={24} color={theme.onPrimary} />
-                      )}
-                    </TouchableOpacity>
-                  </View>
-                );
-              })}
-            </>
-          )}
-        </ScrollView>
       ) : activeTab === "genre" && !selectedGenre ? (
         /* Genre List matching item_genre.xml */
         <FlatList
@@ -883,114 +468,6 @@ export default function PodcastsScreen() {
           <MaterialIcons name="arrow-upward" size={24} color={theme.onPrimary} />
         </TouchableOpacity>
       )}
-
-      {/* Save Search Modal */}
-      <Modal
-        visible={saveSearchModalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setSaveSearchModalVisible(false)}
-      >
-        <TouchableOpacity
-          style={styles.dialogBackdrop}
-          activeOpacity={1}
-          onPress={() => setSaveSearchModalVisible(false)}
-        >
-          <View
-            style={[styles.dialogCard, { backgroundColor: theme.surfaceContainer }]}
-            onStartShouldSetResponder={() => true}
-          >
-            <Text style={[styles.dialogTitle, { color: theme.onSurface }]}>
-              {currentSavedSearch ? "Edit Saved Search" : "Save Search"}
-            </Text>
-            <Text style={[styles.dialogLabel, { color: theme.onSurfaceVariant }]}>Name</Text>
-            <TextInput
-              style={[
-                styles.dialogInput,
-                { color: theme.onSurface, borderColor: theme.outlineVariant, backgroundColor: theme.surface }
-              ]}
-              placeholder="Search name"
-              placeholderTextColor={theme.onSurfaceVariant}
-              value={saveSearchName}
-              onChangeText={setSaveSearchName}
-              autoFocus
-            />
-
-            <View style={styles.dialogSwitchRow}>
-              <View style={{ flex: 1, marginRight: 12 }}>
-                <Text style={[styles.dialogSwitchLabel, { color: theme.onSurface }]}>New episode alerts</Text>
-                <Text style={{ fontSize: 12, color: theme.onSurfaceVariant, marginTop: 2 }}>
-                  Receive a notification when new episodes match this search
-                </Text>
-              </View>
-              <Switch
-                value={saveSearchNotify}
-                onValueChange={setSaveSearchNotify}
-                trackColor={{
-                  false: isDark ? "#38353F" : "#E2E2E6",
-                  true: isDark ? "#A078FF" : theme.primary
-                }}
-                thumbColor={saveSearchNotify ? "#FFFFFF" : isDark ? "#A5A0AD" : "#F4F3F7"}
-              />
-            </View>
-
-            <View style={styles.dialogActions}>
-              {currentSavedSearch ? (
-                <TouchableOpacity
-                  onPress={() => {
-                    Preferences.removePodcastSearch(currentSavedSearch.id);
-                    setSavedSearches(Preferences.getSavedPodcastSearches());
-                    setSaveSearchModalVisible(false);
-                  }}
-                  style={[styles.dialogButton, { backgroundColor: "#BA1A1A18", marginRight: "auto" }]}
-                >
-                  <Text style={{ color: "#BA1A1A", fontWeight: "600" }}>Remove</Text>
-                </TouchableOpacity>
-              ) : null}
-
-              <TouchableOpacity
-                onPress={() => setSaveSearchModalVisible(false)}
-                style={styles.dialogButton}
-              >
-                <Text style={{ color: theme.primary, fontWeight: "600" }}>Cancel</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={() => {
-                  const query = searchQuery.trim();
-                  const name = saveSearchName.trim() || query;
-                  if (!query) return;
-                  const latestDate = searchEpisodeMatches
-                    .map((episode) => episode.pubDate)
-                    .filter((date) => typeof date === "string" && Number.isFinite(Date.parse(date)))
-                    .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
-                  if (currentSavedSearch) {
-                    Preferences.updatePodcastSearch(currentSavedSearch.id, {
-                      name,
-                      query,
-                      notificationsEnabled: saveSearchNotify,
-                      ...(latestDate ? { latestResultDate: latestDate } : {})
-                    });
-                  } else {
-                    Preferences.savePodcastSearch({
-                      id: `search-${Date.now()}`,
-                      name,
-                      query,
-                      notificationsEnabled: saveSearchNotify,
-                      latestResultDate: latestDate
-                    });
-                  }
-                  setSavedSearches(Preferences.getSavedPodcastSearches());
-                  setSaveSearchModalVisible(false);
-                }}
-                style={[styles.dialogButton, { backgroundColor: theme.primary }]}
-              >
-                <Text style={{ color: theme.onPrimary, fontWeight: "700" }}>Save</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </TouchableOpacity>
-      </Modal>
     </SafeAreaView>
   );
 

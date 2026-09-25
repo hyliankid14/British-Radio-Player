@@ -19,7 +19,8 @@ object AutoShowInfo {
 
   private const val TAG = "AutoShowInfo"
   private const val ESS_CACHE_TTL_MS = 5 * 60 * 1000L
-  private const val RMS_CACHE_TTL_MS = 15 * 1000L
+  private const val RMS_CACHE_TTL_MS = 5 * 1000L
+  private const val RMS_DELAY_MS = 20_000L
 
   data class ShowInfo(
     val showTitle: String = "",
@@ -30,8 +31,30 @@ object AutoShowInfo {
     val fetchedAtMs: Long = 0L
   )
 
+  data class RmsSong(
+    val artist: String = "",
+    val track: String = "",
+    val songArtworkUrl: String = ""
+  )
+
+  data class DelayedRms(
+    var applied: RmsSong = RmsSong(),
+    var pending: RmsSong? = null,
+    var pendingApplyAtMs: Long = 0L,
+    var lastRaw: RmsSong = RmsSong()
+  )
+
   private val infoCache = ConcurrentHashMap<String, ShowInfo>()
   private val artworkBitmapCache = ConcurrentHashMap<String, Bitmap>()
+  private val delayedRmsCache = ConcurrentHashMap<String, DelayedRms>()
+
+  fun resetDelay(serviceId: String? = null) {
+    if (serviceId != null) {
+      delayedRmsCache.remove(serviceId)
+    } else {
+      delayedRmsCache.clear()
+    }
+  }
 
   /** Returns the cached ShowInfo, or an empty ShowInfo if missing. */
   fun cachedShowInfo(serviceId: String): ShowInfo {
@@ -68,12 +91,34 @@ object AutoShowInfo {
       return existing
     }
 
-    val (artist, track, songArtworkUrl) = try {
+    val (rawArtist, rawTrack, rawArtworkUrl) = try {
       fetchRmsNowPlaying(serviceId)
     } catch (e: Exception) {
       Log.d(TAG, "RMS segment fetch failed for $serviceId: ${e.message}")
       Triple(existing?.artist.orEmpty(), existing?.track.orEmpty(), existing?.songArtworkUrl.orEmpty())
     }
+
+    // Delay RMS song metadata updates by 20s to account for audio stream buffer delay
+    val rawSong = RmsSong(rawArtist, rawTrack, rawArtworkUrl)
+    val delayState = delayedRmsCache.computeIfAbsent(serviceId) {
+      DelayedRms(applied = rawSong, lastRaw = rawSong)
+    }
+
+    if (delayState.pendingApplyAtMs > 0L && now >= delayState.pendingApplyAtMs) {
+      delayState.applied = delayState.pending ?: RmsSong()
+      delayState.pending = null
+      delayState.pendingApplyAtMs = 0L
+    }
+
+    if (rawSong != delayState.lastRaw) {
+      delayState.lastRaw = rawSong
+      delayState.pending = rawSong
+      delayState.pendingApplyAtMs = now + RMS_DELAY_MS
+    }
+
+    val artist = delayState.applied.artist
+    val track = delayState.applied.track
+    val songArtworkUrl = delayState.applied.songArtworkUrl
 
     val (showTitle, showSubtitle) = try {
       if (existing != null && existing.showTitle.isNotEmpty() && now - existing.fetchedAtMs <= ESS_CACHE_TTL_MS) {
