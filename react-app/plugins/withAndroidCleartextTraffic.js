@@ -3,8 +3,7 @@ const path = require("path");
 const {
   withAndroidManifest,
   withAppBuildGradle,
-  withDangerousMod,
-  withEntitlementsPlist
+  withDangerousMod
 } = require("@expo/config-plugins");
 
 module.exports = function withAndroidCleartextTraffic(config) {
@@ -90,8 +89,8 @@ module.exports = function withAndroidCleartextTraffic(config) {
     return configWithBuildGradle;
   });
 
-  return withEntitlementsPlist(config, (configWithEntitlements) => {
-    configWithEntitlements.modResults["com.apple.developer.carplay-audio"] = true;
-    return configWithEntitlements;
-  });
+  // The CarPlay audio entitlement is intentionally NOT set here. It is a managed
+  // capability that must be granted by Apple for this bundle ID first; requesting it
+  // early makes the app un-signable. See plugins/withIosNative.js.
+  return config;
 };

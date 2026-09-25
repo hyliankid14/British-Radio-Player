@@ -179,7 +179,15 @@ export default function NowPlayingModal() {
   const [localPosition, setLocalPosition] = React.useState(positionSeconds);
   const [dragging, setDragging] = React.useState(false);
   const seekingUntilRef = React.useRef(0);
+  const seekCooldownTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isDescriptionTruncated, setIsDescriptionTruncated] = React.useState(false);
+
+  React.useEffect(
+    () => () => {
+      if (seekCooldownTimerRef.current) clearTimeout(seekCooldownTimerRef.current);
+    },
+    []
+  );
 
   const isPodcast = !!activeEpisode && !!activePodcast;
 
@@ -632,6 +640,15 @@ export default function NowPlayingModal() {
               } else if (activeEpisode) {
                 Preferences.setEpisodeProgress(activeEpisode.id, Math.round(seconds));
               }
+              // The cooldown suppresses the 1s poll right after committing, but the sync
+              // effect only re-runs when its deps change. Re-sync once it lapses so the bar
+              // never stays frozen on the seek target.
+              if (seekCooldownTimerRef.current) clearTimeout(seekCooldownTimerRef.current);
+              seekCooldownTimerRef.current = setTimeout(() => {
+                seekCooldownTimerRef.current = null;
+                seekingUntilRef.current = 0;
+                setLocalPosition(usePlayerStore.getState().positionSeconds);
+              }, 1300);
             }}
             onSeekEnd={() => setDragging(false)}
           />

@@ -8,8 +8,42 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.hyliankid14.BBCRadioPlayer.react",
+      "supportsTablet": false,
+      "bundleIdentifier": "com.hyliankid14.bbcradioplayer",
+      "appleTeamId": "8ZAZCKQ9LV",
+      "buildNumber": "1",
+      "privacyManifests": {
+        "NSPrivacyAccessedAPITypes": [
+          {
+            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryFileTimestamp",
+            "NSPrivacyAccessedAPITypeReasons": [
+              "C617.1",
+              "0A2A.1",
+              "3B52.1"
+            ]
+          },
+          {
+            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
+            "NSPrivacyAccessedAPITypeReasons": [
+              "CA92.1"
+            ]
+          },
+          {
+            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryDiskSpace",
+            "NSPrivacyAccessedAPITypeReasons": [
+              "E174.1",
+              "85F4.1"
+            ]
+          },
+          {
+            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategorySystemBootTime",
+            "NSPrivacyAccessedAPITypeReasons": [
+              "35F9.1"
+            ]
+          }
+        ],
+        "NSPrivacyTracking": false
+      },
       "infoPlist": {
         "UIBackgroundModes": [
           "audio",
@@ -18,8 +52,10 @@
         ],
         "UIFileSharingEnabled": true,
         "LSSupportsOpeningDocumentsInPlace": true,
+        "ITSAppUsesNonExemptEncryption": false,
         "NSAppTransportSecurity": {
-          "NSAllowsArbitraryLoads": true,
+          "NSAllowsArbitraryLoads": false,
+          "NSAllowsLocalNetworking": true,
           "NSExceptionDomains": {
             "bbci.co.uk": {
               "NSIncludesSubdomains": true,
@@ -61,6 +97,7 @@
       "predictiveBackGestureEnabled": false
     },
     "plugins": [
+      "./plugins/withIosNative",
       "expo-router",
       "expo-notifications",
       "./plugins/withAndroidCleartextTraffic",

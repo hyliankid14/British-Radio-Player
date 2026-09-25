@@ -11,6 +11,10 @@ The app is also published on Google Play. Because the React app reuses the origi
 ID, updating from an earlier version installs in place and carries your favourites,
 subscriptions, playlists and listening history across.
 
+The same React Native codebase builds the iOS app, which runs on iPhone (iOS 16.4+) and is
+prepared for the App Store. See [`react-app/README.md`](react-app/README.md#releasing-to-the-app-store)
+for the local archive and upload flow.
+
 ## 📸 Screenshots
 
 <p align="center">
@@ -80,7 +84,7 @@ subscriptions, playlists and listening history across.
 ## Requirements
 
 - Android API 24+ (Android 7.0 Nougat) with API 33+ recommended; Wear OS requires API 30+
-- iOS 16+ (built from the same React Native codebase as Android)
+- iOS 16.4+ (iPhone; built from the same React Native codebase as Android)
 - React Native 0.86 / Expo SDK 57, Track Player for playback, and native modules for Android
   Auto, the radio alarm, the home screen widget and Wear OS sync
 
@@ -88,7 +92,7 @@ subscriptions, playlists and listening history across.
 
 ### Recent Releases
 
-- **v2.0.0**: **React Native rewrite.** The phone app is now built from `react-app/` (React Native / Expo) and replaces the Kotlin implementation on Android and iOS. It installs over the previous version — same application ID — and automatically migrates your favourites, subscriptions, playlists, history, progress and settings from the old app. Playback now runs on Track Player, and the native Android Auto bridge, radio alarm, home screen widget, Last.fm scrobbling and Wear OS sync all carry over. Release builds are now split into GitHub and Google Play flavours; the Wear OS companion is unchanged and still ships with every release.
+- **v2.0.0**: **React Native rewrite.** The phone app is now built from `react-app/` (React Native / Expo) and replaces the Kotlin implementation on Android and iOS. It installs over the previous version — same application ID — and automatically migrates your favourites, subscriptions, playlists, history, progress and settings from the old app. Playback now runs on Track Player, and the native Android Auto bridge, radio alarm, home screen widget, Last.fm scrobbling and Wear OS sync all carry over. Release builds are now split into GitHub and Google Play flavours; the Wear OS companion is unchanged and still ships with every release. The iOS app is prepared for App Store distribution: its own bundle ID, iPhone-only device family, App Transport Security tightened to explicit BBC/stream exceptions, a Required Reason privacy manifest, and — so that `expo prebuild --clean` cannot lose them — deterministic signing, entitlements and native Swift configuration checked into `react-app/plugins/`.
 
 - **v1.9.0** (Aug 2026): **Offline Mode:** Full offline mode support with network connectivity detection, app-wide offline warning banner, dedicated Downloaded Files section in Playlists, and offline-filtered podcast episode feeds. **Audio Service:** Auto-resume playback after transient audio focus loss and improved transient detection. **UI & Search:** Search suggestions dropdown with RecyclerView and adaptive artwork sizing across multiple screen form factors.
 

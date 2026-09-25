@@ -306,7 +306,7 @@ export const Preferences = {
 
   getFavorites(): string[] {
     const raw = storage.getString(KEYS.FAVORITES);
-    if (!raw) return ["radio1", "radio2", "radio4", "radio5live", "radio6"];
+    if (!raw) return [];
     try {
       return JSON.parse(raw);
     } catch {

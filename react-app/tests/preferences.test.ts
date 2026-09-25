@@ -26,7 +26,7 @@ function createMockPreferences() {
   return {
     getFavorites(): string[] {
       const raw = storage.getString(KEYS.FAVORITES);
-      if (!raw) return ["radio1", "radio2", "radio4", "radio5live", "radio6"];
+      if (!raw) return [];
       try {
         return JSON.parse(raw);
       } catch {
@@ -192,17 +192,17 @@ function createMockPreferences() {
 
 test("Preferences - toggleFavorite and persistence", () => {
   const prefs = createMockPreferences();
+  assert.deepEqual(prefs.getFavorites(), []);
+
+  // Toggle on radio1
+  const isFav = prefs.toggleFavorite("radio1");
+  assert.equal(isFav, true);
   assert.equal(prefs.isFavorite("radio1"), true);
 
   // Toggle off radio1
-  const isFav = prefs.toggleFavorite("radio1");
-  assert.equal(isFav, false);
+  const isFavOff = prefs.toggleFavorite("radio1");
+  assert.equal(isFavOff, false);
   assert.equal(prefs.isFavorite("radio1"), false);
-
-  // Toggle back on
-  const isFavBack = prefs.toggleFavorite("radio1");
-  assert.equal(isFavBack, true);
-  assert.equal(prefs.isFavorite("radio1"), true);
 });
 
 test("Preferences - backup export & import compatibility", () => {
