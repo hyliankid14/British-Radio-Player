@@ -348,10 +348,23 @@ export function initNotificationNavigation(onOpenUrl: (url: string) => void): ()
   const Notifications = getNotifications();
   if (!Notifications) return () => {};
 
+  const handledResponseIds = new Set<string>();
+
   const handleResponse = (response: ExpoNotifications.NotificationResponse | null | undefined) => {
     if (!response) return;
-    const data = response.notification.request.content.data as Record<string, any> | undefined;
-    if (!data) return;
+    const identifier = response.notification?.request?.identifier;
+    if (identifier) {
+      if (handledResponseIds.has(identifier)) return;
+      handledResponseIds.add(identifier);
+    }
+
+    let data = response.notification?.request?.content?.data as Record<string, any> | string | undefined;
+    if (typeof data === "string") {
+      try {
+        data = JSON.parse(data);
+      } catch {}
+    }
+    if (!data || typeof data !== "object") return;
 
     if (typeof data.url === "string" && data.url) {
       onOpenUrl(data.url);
@@ -363,7 +376,7 @@ export function initNotificationNavigation(onOpenUrl: (url: string) => void): ()
     }
     if (typeof data.search === "string" && data.search) {
       const savedSearchParam = data.savedSearchId ? `&savedSearchId=${encodeURIComponent(data.savedSearchId)}` : "";
-      onOpenUrl(`/podcasts?search=${encodeURIComponent(data.search)}${savedSearchParam}`);
+      onOpenUrl(`/modal/podcast-search?search=${encodeURIComponent(data.search)}${savedSearchParam}`);
       return;
     }
   };

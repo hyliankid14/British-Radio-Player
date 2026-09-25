@@ -33,6 +33,10 @@ interface NativeAndroidBridge {
     eventName: "onWearState",
     listener: (event: { payload: string }) => void
   ): { remove(): void };
+  addListener(
+    eventName: "onNotificationOpen",
+    listener: (event: { url: string }) => void
+  ): { remove(): void };
   syncBackgroundSubscriptions(subscriptionsJson: string): void;
   scheduleBackgroundSync(intervalMinutes: number, wifiOnly: boolean): void;
   getDownloadsFolderPath(): string;
@@ -284,6 +288,20 @@ export const NativeAndroid = {
       return load()?.consumeNotificationLaunch() ?? null;
     } catch {
       return null;
+    }
+  },
+
+  /** Subscribes to notification open events received while the app is running; returns cleanup function. */
+  addNotificationOpenListener(listener: (url: string) => void): () => void {
+    const bridge = load();
+    if (!bridge) return () => {};
+    try {
+      const subscription = bridge.addListener("onNotificationOpen", (event) => {
+        if (event?.url) listener(event.url);
+      });
+      return () => subscription?.remove?.();
+    } catch {
+      return () => {};
     }
   },
 

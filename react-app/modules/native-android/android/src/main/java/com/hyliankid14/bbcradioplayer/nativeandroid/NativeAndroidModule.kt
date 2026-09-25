@@ -1,6 +1,7 @@
 package com.hyliankid14.bbcradioplayer.nativeandroid
 
 import android.content.Context
+import android.content.Intent
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 
@@ -21,7 +22,15 @@ class NativeAndroidModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("NativeAndroid")
 
-    Events("onShake", "onWearState")
+    Events("onShake", "onWearState", "onNotificationOpen")
+
+    OnCreate {
+      instance = this@NativeAndroidModule
+    }
+
+    OnDestroy {
+      if (instance === this@NativeAndroidModule) instance = null
+    }
 
     /** True when the legacy Kotlin app left preference data behind on this device. */
     Function("hasLegacyData") { ->
@@ -207,32 +216,14 @@ class NativeAndroidModule : Module() {
 
     /** Returns the deep link or target URL when launched from a notification intent, else null. */
     Function("consumeNotificationLaunch") { ->
+      val pending = pendingNotificationUrl
+      if (pending != null) {
+        pendingNotificationUrl = null
+        return@Function pending
+      }
       val activity = appContext.currentActivity ?: return@Function null
       val intent = activity.intent ?: return@Function null
-      val url = intent.getStringExtra("url")
-      if (url != null) {
-        intent.removeExtra("url")
-        return@Function url
-      }
-      val podcastId = intent.getStringExtra("podcastId")
-      if (podcastId != null) {
-        intent.removeExtra("podcastId")
-        return@Function "/modal/podcast-detail?podcastId=$podcastId"
-      }
-      val search = intent.getStringExtra("search")
-      if (search != null) {
-        intent.removeExtra("search")
-        val savedSearchId = intent.getStringExtra("savedSearchId")
-        if (savedSearchId != null) intent.removeExtra("savedSearchId")
-        val param = if (savedSearchId != null) "&savedSearchId=$savedSearchId" else ""
-        return@Function "/podcasts?search=${java.net.URLEncoder.encode(search, "UTF-8")}$param"
-      }
-      val dataUri = intent.dataString
-      if (dataUri != null && dataUri.startsWith("bbcradioplayer://")) {
-        intent.data = null
-        return@Function dataUri
-      }
-      null
+      extractUrlFromIntent(intent)
     }
 
     // ── Wear OS sync ────────────────────────────────────────────────────────
@@ -302,6 +293,52 @@ class NativeAndroidModule : Module() {
     Function("openDownloadsFolder") { ->
       val ctx = context ?: return@Function false
       PodcastDownloads.openFolder(ctx)
+    }
+  }
+
+  companion object {
+    @Volatile
+    private var instance: NativeAndroidModule? = null
+    @Volatile
+    private var pendingNotificationUrl: String? = null
+
+    fun onNewIntent(intent: Intent) {
+      val url = extractUrlFromIntent(intent) ?: return
+      pendingNotificationUrl = url
+      val mod = instance
+      if (mod != null) {
+        try {
+          mod.sendEvent("onNotificationOpen", mapOf("url" to url))
+        } catch (_: Exception) {
+        }
+      }
+    }
+
+    fun extractUrlFromIntent(intent: Intent): String? {
+      val url = intent.getStringExtra("url")
+      if (url != null) {
+        intent.removeExtra("url")
+        return url
+      }
+      val podcastId = intent.getStringExtra("podcastId")
+      if (podcastId != null) {
+        intent.removeExtra("podcastId")
+        return "/modal/podcast-detail?podcastId=$podcastId"
+      }
+      val search = intent.getStringExtra("search")
+      if (search != null) {
+        intent.removeExtra("search")
+        val savedSearchId = intent.getStringExtra("savedSearchId")
+        if (savedSearchId != null) intent.removeExtra("savedSearchId")
+        val param = if (savedSearchId != null) "&savedSearchId=$savedSearchId" else ""
+        return "/modal/podcast-search?search=${java.net.URLEncoder.encode(search, "UTF-8")}$param"
+      }
+      val dataUri = intent.dataString
+      if (dataUri != null && dataUri.startsWith("bbcradioplayer://")) {
+        intent.data = null
+        return dataUri
+      }
+      return null
     }
   }
 }

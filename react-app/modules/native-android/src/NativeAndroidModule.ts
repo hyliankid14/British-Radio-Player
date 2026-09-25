@@ -56,6 +56,21 @@ declare class NativeAndroidModule extends NativeModule<{}> {
   syncBackgroundSubscriptions(subscriptionsJson: string): void;
   /** Schedules (or cancels, when intervalMinutes is 0) the periodic new-episode check. */
   scheduleBackgroundSync(intervalMinutes: number, wifiOnly: boolean): void;
+  /** Notification open events emitted when a notification is tapped while the app is running. */
+  addListener(
+    eventName: "onNotificationOpen",
+    listener: (event: { url: string }) => void
+  ): { remove(): void };
+  /** Absolute path of the public Podcasts folder used for downloads. */
+  getDownloadsFolderPath(): string;
+  /** Copies a downloaded temp file into the public Podcasts folder; returns its URI. */
+  publishDownload(sourceUri: string, fileName: string, title: string): Promise<string | null>;
+  /** Deletes a published episode by URI. */
+  deleteDownload(uri: string): boolean;
+  /** Deletes every episode in the app's public Podcasts folder; returns the count. */
+  clearDownloads(): number;
+  /** Opens the public Podcasts downloads folder in the system file manager. */
+  openDownloadsFolder(): boolean;
 }
 
 export default requireNativeModule<NativeAndroidModule>('NativeAndroid');

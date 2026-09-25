@@ -78,20 +78,19 @@ class IndexRefreshWorker(context: Context, params: WorkerParameters) : Worker(co
 
   private fun notifyNewEpisode(context: Context, podcastId: String, podcastTitle: String, episodeTitle: String) {
     ensureChannel(context)
-    val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
+    val targetUri = Uri.parse("bbcradioplayer://modal/podcast-detail?podcastId=$podcastId")
+    val launchIntent = Intent(Intent.ACTION_VIEW, targetUri).apply {
+      setClassName(context.packageName, "com.hyliankid14.bbcradioplayer.MainActivity")
       flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-      data = Uri.parse("bbcradioplayer://modal/podcast-detail?podcastId=$podcastId")
       putExtra("url", "/modal/podcast-detail?podcastId=$podcastId")
       putExtra("podcastId", podcastId)
     }
-    val pendingIntent = launchIntent?.let {
-      PendingIntent.getActivity(
-        context,
-        kotlin.math.abs(podcastId.hashCode()),
-        it,
-        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-      )
-    }
+    val pendingIntent = PendingIntent.getActivity(
+      context,
+      kotlin.math.abs(podcastId.hashCode()),
+      launchIntent,
+      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
     val smallIconRes = try {
       val resId = context.resources.getIdentifier("ic_stat_notification", "drawable", context.packageName)
       if (resId != 0) resId else R.drawable.ic_stat_notification

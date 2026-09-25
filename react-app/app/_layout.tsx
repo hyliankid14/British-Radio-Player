@@ -90,21 +90,23 @@ export default function RootLayout() {
         return;
       }
 
-      try {
-        if (target.pathname.startsWith("/modal/")) {
-          router.push({
-            pathname: target.pathname as any,
-            params: target.params as any
-          });
-        } else {
-          router.navigate({
-            pathname: target.pathname as any,
-            params: target.params as any
-          });
+      setTimeout(() => {
+        try {
+          if (target.pathname.startsWith("/modal/")) {
+            router.push({
+              pathname: target.pathname as any,
+              params: target.params as any
+            });
+          } else {
+            router.navigate({
+              pathname: target.pathname as any,
+              params: target.params as any
+            });
+          }
+        } catch (e) {
+          console.warn("Failed to navigate to target:", targetUrl, e);
         }
-      } catch (e) {
-        console.warn("Failed to navigate to target:", targetUrl, e);
-      }
+      }, 50);
     },
     [router, rootNavigationState?.key]
   );
@@ -113,10 +115,10 @@ export default function RootLayout() {
   useEffect(() => {
     if (rootNavigationState?.key && pendingNavigationRef.current) {
       const url = pendingNavigationRef.current;
-      pendingNavigationRef.current = null;
       const timer = setTimeout(() => {
+        pendingNavigationRef.current = null;
         navigateToTarget(url);
-      }, 100);
+      }, 150);
       return () => clearTimeout(timer);
     }
   }, [rootNavigationState?.key, navigateToTarget]);
@@ -132,10 +134,17 @@ export default function RootLayout() {
     return () => sub.remove();
   }, [navigateToTarget]);
 
-  // Open the podcast or search result a tapped notification refers to
+  // Open the podcast or search result a tapped notification refers to (Expo Notifications)
   useEffect(() => {
     return initNotificationNavigation((url) => {
       navigateToTarget(url);
+    });
+  }, [navigateToTarget]);
+
+  // Listen for native Android notification taps while app is running/backgrounded
+  useEffect(() => {
+    return NativeAndroid.addNotificationOpenListener((url) => {
+      if (url) navigateToTarget(url);
     });
   }, [navigateToTarget]);
 
@@ -156,6 +165,10 @@ export default function RootLayout() {
     void registerBackgroundTask();
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") {
+        const notifUrl = NativeAndroid.consumeNotificationLaunch();
+        if (notifUrl) {
+          navigateToTarget(notifUrl);
+        }
         void runAutoDownload();
         void checkSubscriptionsForNewEpisodes();
         void checkForNewPodcasts();
@@ -163,7 +176,7 @@ export default function RootLayout() {
       }
     });
     return () => subscription.remove();
-  }, []);
+  }, [navigateToTarget]);
 
   useEffect(() => {
     async function start() {
