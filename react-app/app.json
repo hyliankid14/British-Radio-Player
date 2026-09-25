@@ -47,7 +47,7 @@
     },
     "android": {
       "package": "com.hyliankid14.bbcradioplayer",
-      "versionCode": 102,
+      "versionCode": 103,
       "adaptiveIcon": {
         "backgroundColor": "#1E1B2E",
         "foregroundImage": "./assets/android-icon-foreground.png",
