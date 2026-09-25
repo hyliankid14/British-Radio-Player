@@ -27,9 +27,9 @@ on:
           - react
           - kotlin
       architectures:
-        description: 'ABIs to package in the React APK. Add x86,x86_64 for emulator testing.'
+        description: 'ABIs to package in the React APK. Add armeabi-v7a for 32-bit device support.'
         required: false
-        default: 'arm64-v8a,armeabi-v7a'
+        default: 'arm64-v8a'
 
 permissions:
   contents: write
@@ -149,16 +149,20 @@ jobs:
           EXPO_PUBLIC_DISTRIBUTION_CHANNEL: github
           EXPO_PUBLIC_LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
           EXPO_PUBLIC_LASTFM_API_SECRET: ${{ secrets.LASTFM_API_SECRET }}
-          # Defaults to the 32/64-bit ARM ABIs every physical Android device uses.  A tag push
-          # has no inputs, so the fallback below keeps the build deterministic.
-          ARCHITECTURES: ${{ inputs.architectures || 'arm64-v8a,armeabi-v7a' }}
+          # arm64-v8a only by default: it covers every Android device in practical use and halves
+          # the download.  A tag push has no inputs, so the fallback keeps the build deterministic.
+          ARCHITECTURES: ${{ inputs.architectures || 'arm64-v8a' }}
         run: |
           set -euo pipefail
           echo "Packaging ABIs: ${ARCHITECTURES}"
+          # R8 + resource shrinking: the same treatment the Play bundle gets, and what the legacy
+          # Kotlin app shipped with.  Cuts the APK by roughly a third.
           ./gradlew :app:assembleGithubRelease \
             -PreactNativeArchitectures="$ARCHITECTURES" \
             -Pexpo.useLegacyPackaging=true \
-            -Pandroid.enableBundleCompression=true
+            -Pandroid.enableBundleCompression=true \
+            -Pandroid.enableMinifyInReleaseBuilds=true \
+            -Pandroid.enableShrinkResourcesInReleaseBuilds=true
 
       # ---------------------------------------------------------------------------------------------
       # Wear OS companion — still built from the Kotlin :wear module

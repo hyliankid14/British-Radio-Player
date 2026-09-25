@@ -66,6 +66,18 @@ Release signing (`RELEASE_STORE_FILE`, `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_AL
 `RELEASE_KEY_PASSWORD`) resolves from a `-P` gradle property, then the environment, then
 `~/.gradle/gradle.properties`.
 
+### Release APK size
+
+GitHub release APKs are minified with R8, have resources shrunk, and ship `arm64-v8a` only —
+roughly 22 MB instead of 42 MB for an unminified universal build. The `architectures` input on
+`build-release.yml`, or `REACT_RELEASE_ARCHITECTURES` locally, restores 32-bit support:
+
+```sh
+REACT_RELEASE_ARCHITECTURES=arm64-v8a,armeabi-v7a ./scripts/github-release.sh
+```
+
+Google Play is unaffected: Play delivers per-ABI itself, so the app bundle keeps all four.
+
 `EXPO_PUBLIC_LASTFM_API_KEY` and `EXPO_PUBLIC_LASTFM_API_SECRET` must be present in the
 environment at bundle time. Locally they come from `.env.local`; in CI they come from
 repository secrets. Do not put `EXPO_PUBLIC_DISTRIBUTION_CHANNEL` in `.env.local` — a dotenv
