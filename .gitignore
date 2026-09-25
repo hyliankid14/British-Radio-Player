@@ -83,3 +83,7 @@ scripts/test_email.py
 !/scripts/install-ios-debug.sh
 /api/
 /docker/
+scripts/install-react-debug.sh
+scripts/build-react-debug-apk.sh
+scripts/launch-ios-simulator.sh
+scripts/install-ios-debug.sh

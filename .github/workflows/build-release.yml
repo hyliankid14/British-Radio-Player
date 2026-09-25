@@ -130,6 +130,17 @@ jobs:
         working-directory: react-app
         run: npx expo prebuild --platform android --no-install --clean
 
+      - name: Point the generated project at the Android SDK
+        if: steps.version.outputs.build_target == 'react'
+        run: |
+          # prebuild --clean regenerates android/, so sdk.dir is written fresh for this run.
+          if [ -n "${ANDROID_HOME:-}" ]; then
+            echo "sdk.dir=${ANDROID_HOME}" > react-app/android/local.properties
+          else
+            echo "::error::ANDROID_HOME is not set on this runner." >&2
+            exit 1
+          fi
+
       - name: Build the React Native phone release APK
         if: steps.version.outputs.build_target == 'react'
         working-directory: react-app/android

@@ -82,6 +82,7 @@ echo "Building React Native Android app..."
 (
   cd "$APP_DIR"
   npx expo prebuild --platform android --no-install
+  "$ROOT_DIR/scripts/ensure-android-sdk.sh"
   (
     cd android
     EXPO_PUBLIC_DISTRIBUTION_CHANNEL=github \
