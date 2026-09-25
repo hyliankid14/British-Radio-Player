@@ -21,6 +21,7 @@ import { StationLogo } from "../../src/components/StationLogo";
 import { useAppTheme } from "../../src/theme/colors";
 import { Preferences } from "../../src/storage/preferences";
 import { OfflineBanner, VpnBanner } from "../../src/components/NetworkBanners";
+import { formatSongPlayedAt } from "../../src/utils/dateUtils";
 
 type SubCategoryTab = "National" | "Regions" | "Local" | "Songs";
 
@@ -290,37 +291,47 @@ export default function AllStationsScreen() {
           keyExtractor={(item, index) => `${item.playedAtMs}_${index}`}
           style={{ backgroundColor: theme.surface }}
           contentContainerStyle={[styles.listContent, { paddingBottom: 170 + insets.bottom }]}
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              style={[styles.stationRow, { backgroundColor: theme.surface }]}
-              onPress={() => openSongInMusicApp(item)}
-              activeOpacity={0.7}
-            >
-              {item.imageUrl ? (
-                <Image
-                  source={{ uri: item.imageUrl }}
-                  style={styles.songArtwork}
-                  resizeMode="cover"
+          renderItem={({ item }) => {
+            const playedAtStr = formatSongPlayedAt(item.playedAtMs);
+            return (
+              <TouchableOpacity
+                style={[styles.songRow, { backgroundColor: theme.surface }]}
+                onPress={() => openSongInMusicApp(item)}
+                activeOpacity={0.7}
+              >
+                {item.imageUrl ? (
+                  <Image
+                    source={{ uri: item.imageUrl }}
+                    style={styles.songArtwork}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <StationLogo stationId={item.stationId} size={56} borderRadius={12} />
+                )}
+                <View style={styles.songInfo}>
+                  <Text style={[styles.songTitle, { color: theme.onSurface }]} numberOfLines={1}>
+                    {item.track || "Unknown track"}
+                  </Text>
+                  {item.artist ? (
+                    <Text style={[styles.songArtist, { color: theme.onSurfaceVariant }]} numberOfLines={1}>
+                      {item.artist}
+                    </Text>
+                  ) : null}
+                  <Text style={[styles.songMeta, { color: theme.onSurfaceVariant }]} numberOfLines={1}>
+                    {item.stationName ? `${item.stationName}` : ""}
+                    {item.stationName && playedAtStr ? " • " : ""}
+                    {playedAtStr}
+                  </Text>
+                </View>
+                <MaterialIcons
+                  name="open-in-new"
+                  size={22}
+                  color={theme.onSurfaceVariant}
+                  accessibilityLabel="Listen in an external music application"
                 />
-              ) : (
-                <StationLogo stationId={item.stationId} size={56} borderRadius={12} />
-              )}
-              <View style={styles.stationInfo}>
-                <Text style={[styles.stationTitle, { color: theme.onSurface }]} numberOfLines={1}>
-                  {item.track || "Unknown track"}
-                </Text>
-                <Text style={[styles.stationSubtitle, { color: theme.onSurfaceVariant }]} numberOfLines={1}>
-                  {item.artist} • {item.stationName}
-                </Text>
-              </View>
-              <MaterialIcons
-                name="open-in-new"
-                size={22}
-                color={theme.onSurfaceVariant}
-                accessibilityLabel="Listen in an external music application"
-              />
-            </TouchableOpacity>
-          )}
+              </TouchableOpacity>
+            );
+          }}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Text style={[styles.emptyText, { color: theme.onSurfaceVariant }]}>
@@ -347,9 +358,18 @@ export default function AllStationsScreen() {
         <View style={styles.musicSheetBackdrop}>
           <View style={[styles.musicSheet, { backgroundColor: theme.surfaceContainer }]}>
             <View style={styles.musicSheetHeader}>
-              <Text style={[styles.musicSheetTitle, { color: theme.onSurface }]}>
-                Listen to: {selectedSong?.track || selectedSong?.artist}
-              </Text>
+              <View style={{ flex: 1, marginRight: 8 }}>
+                <Text style={[styles.musicSheetTitle, { color: theme.onSurface }]} numberOfLines={1}>
+                  Listen to: {selectedSong?.track || selectedSong?.artist}
+                </Text>
+                {selectedSong?.artist ? (
+                  <Text style={{ color: theme.onSurfaceVariant, fontSize: 13, marginTop: 2 }} numberOfLines={1}>
+                    {selectedSong.artist}
+                    {selectedSong.stationName ? ` • ${selectedSong.stationName}` : ""}
+                    {selectedSong.playedAtMs ? ` • ${formatSongPlayedAt(selectedSong.playedAtMs)}` : ""}
+                  </Text>
+                ) : null}
+              </View>
               <TouchableOpacity
                 onPress={() => setSelectedSong(null)}
                 style={styles.musicSheetClose}
@@ -440,6 +460,32 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 12
+  },
+  songRow: {
+    minHeight: 76,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 10
+  },
+  songInfo: {
+    flex: 1,
+    marginLeft: 16,
+    marginRight: 8,
+    justifyContent: "center"
+  },
+  songTitle: {
+    fontSize: 15,
+    fontWeight: "bold",
+    letterSpacing: 0.15
+  },
+  songArtist: {
+    fontSize: 13,
+    marginTop: 1
+  },
+  songMeta: {
+    fontSize: 11,
+    marginTop: 2
   },
   actionButton: {
     width: 40,

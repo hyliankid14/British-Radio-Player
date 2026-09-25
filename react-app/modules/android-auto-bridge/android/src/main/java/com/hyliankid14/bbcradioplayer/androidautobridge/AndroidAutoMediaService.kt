@@ -675,7 +675,7 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
 
   private fun findPodcast(podcastId: String): JSONObject? {
     if (podcastId.isEmpty()) return null
-    return AutoState.subscriptions(this).firstOrNull { it.optString("id") == podcastId }
+    return AutoState.findPodcast(this, podcastId)
   }
 
   private fun buildMediaMetadata(): MediaMetadata {
@@ -1591,7 +1591,7 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
           put("audioUrl", audioUrl)
           put("imageUrl", "")
           put("pubDate", pubDate)
-          put("pubDateEpochMs", 0L)
+          put("pubDateEpochMs", parsePubDateEpoch(pubDate))
           put("durationMins", 0L)
           put("podcastId", podcastId)
           put("podcastTitle", "")
@@ -1646,6 +1646,23 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
         append(podcastTitle)
       }
     }.trim()
+  }
+
+  private fun parsePubDateEpoch(raw: String): Long {
+    if (raw.isBlank()) return 0L
+    val formats = arrayOf(
+      "EEE, dd MMM yyyy HH:mm:ss Z",
+      "EEE, dd MMM yyyy HH:mm:ss z",
+      "yyyy-MM-dd'T'HH:mm:ssZ"
+    )
+    for (pattern in formats) {
+      try {
+        val format = SimpleDateFormat(pattern, Locale.US).apply { isLenient = true }
+        val parsed = format.parse(raw.trim().replace("UTC", "+0000"))
+        if (parsed != null) return parsed.time
+      } catch (_: Exception) {}
+    }
+    return 0L
   }
 
   private fun formatEpisodeDate(raw: String): String {
@@ -1721,16 +1738,105 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
     }
   }
 
+  private fun fetchOpmlCatalog(): List<JSONObject> {
+    val url = "https://www.bbc.co.uk/radio/opml/bbc_podcast_opml.xml"
+    val list = mutableListOf<JSONObject>()
+    try {
+      var redirectUrl = url
+      var redirects = 0
+      var xml = ""
+      while (redirects < 5) {
+        val conn = (URL(redirectUrl).openConnection() as HttpURLConnection).apply {
+          connectTimeout = 10000
+          readTimeout = 10000
+          instanceFollowRedirects = false
+          setRequestProperty("User-Agent", "BritishRadioPlayer/1.0 (Android)")
+        }
+        val code = conn.responseCode
+        if (code in 300..399) {
+          redirectUrl = conn.getHeaderField("Location") ?: break
+          redirects++
+          continue
+        }
+        if (code != HttpURLConnection.HTTP_OK) break
+        xml = conn.inputStream.bufferedReader().use { it.readText() }
+        break
+      }
+      if (xml.isNotEmpty()) {
+        val outlineRegex = Regex("<outline\\s+([^>]+?)/?>", RegexOption.IGNORE_CASE)
+        for (m in outlineRegex.findAll(xml)) {
+          val attrs = m.groupValues[1]
+          val title = Regex("""text="([^"]*)"""").find(attrs)?.groupValues?.get(1)
+            ?: Regex("""title="([^"]*)"""").find(attrs)?.groupValues?.get(1) ?: ""
+          val xmlUrl = Regex("""xmlUrl="([^"]*)"""").find(attrs)?.groupValues?.get(1) ?: ""
+          val imageHref = Regex("""imageHref="([^"]*)"""").find(attrs)?.groupValues?.get(1) ?: ""
+          val key = Regex("""key="([^"]*)"""").find(attrs)?.groupValues?.get(1)
+            ?: xmlUrl.substringAfterLast('/').removeSuffix(".rss")
+          if (title.isNotEmpty() && key.isNotEmpty()) {
+            list.add(JSONObject().apply {
+              put("id", key)
+              put("title", title)
+              put("rssUrl", xmlUrl.ifEmpty { "https://podcasts.files.bbci.co.uk/$key.rss" })
+              put("imageUrl", imageHref)
+            })
+          }
+        }
+      }
+    } catch (e: Exception) {
+      Log.w(TAG, "Failed to fetch OPML catalog: ${e.message}")
+    }
+    return list
+  }
+
   private fun playRandomPodcast() {
-    val subscriptions = AutoState.subscriptions(this)
-    if (subscriptions.isEmpty()) return
-    for (podcast in subscriptions.shuffled()) {
-      val podcastId = podcast.optString("id")
-      val unplayed = AutoState.episodes(this, podcastId)
-        .filterNot { AutoState.isPlayed(this, it.optString("id")) }
-      val episode = unplayed.firstOrNull() ?: continue
-      playEpisode(enrichEpisode(episode, podcastId))
-      return
+    io.execute {
+      try {
+        var pool = AutoState.catalog(this)
+        if (pool.isEmpty()) {
+          pool = fetchOpmlCatalog()
+        }
+        if (pool.isEmpty()) {
+          pool = AutoState.subscriptions(this)
+        }
+        if (pool.isEmpty()) return@execute
+
+        val candidates = pool.shuffled()
+        for (podcast in candidates.take(20)) {
+          val podcastId = podcast.optString("id")
+          if (podcastId.isEmpty()) continue
+          val podTitle = podcast.optString("title")
+          val podImage = podcast.optString("imageUrl")
+          val rssUrl = podcast.optString("rssUrl").ifEmpty {
+            "https://podcasts.files.bbci.co.uk/$podcastId.rss"
+          }
+
+          var episodes = AutoState.episodes(this, podcastId)
+          if (episodes.isEmpty()) {
+            episodes = fetchAndParseRssEpisodes(podcastId, rssUrl, 20)
+            if (episodes.isNotEmpty()) {
+              AutoState.saveEpisodes(this, podcastId, episodes)
+            }
+          }
+          if (episodes.isEmpty()) continue
+
+          // Pick the latest episode
+          val latest = episodes.maxByOrNull { it.optLong("pubDateEpochMs", 0L) }
+            ?: episodes.firstOrNull()
+            ?: continue
+
+          val enriched = enrichEpisode(latest, podcastId).apply {
+            if (optString("podcastTitle").isEmpty()) put("podcastTitle", podTitle)
+            if (optString("podcastImageUrl").isEmpty()) put("podcastImageUrl", podImage)
+          }
+
+          handler.post {
+            playEpisode(enriched)
+          }
+          return@execute
+        }
+      } catch (e: Exception) {
+        Log.e(TAG, "Error playing random podcast: ${e.message}", e)
+      }
     }
   }
 
@@ -1741,6 +1847,11 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
     }
     val terms = query.lowercase(Locale.US).trim().split(" ").filter { it.isNotBlank() }
     if (terms.isEmpty()) return
+
+    if (terms.contains("random")) {
+      playRandomPodcast()
+      return
+    }
 
     var bestStation: JSONObject? = null
     var bestScore = 0

@@ -5,6 +5,7 @@ export interface CurrentShow {
   episodeTitle?: string;
   artist?: string;
   track?: string;
+  durationSec?: number;
   description?: string;
   imageUrl?: string;
   startTime?: string;
@@ -52,6 +53,7 @@ export interface RmsTrackData {
   artist?: string;
   track?: string;
   imageUrl?: string;
+  durationSec?: number;
 }
 
 interface StationRmsDelayState {
@@ -102,13 +104,33 @@ export function resolveDelayedRmsTrack(
   rawArtist?: string,
   rawTrack?: string,
   rawImageUrl?: string,
-  now = Date.now()
+  durationOrNow?: number,
+  nowArg?: number
 ): RmsTrackData {
-  const rawKey = `${rawArtist || ""}__${rawTrack || ""}__${rawImageUrl || ""}`;
+  let rawDurationSec: number | undefined;
+  let now: number;
+
+  if (nowArg !== undefined) {
+    rawDurationSec = durationOrNow;
+    now = nowArg;
+  } else if (durationOrNow !== undefined && durationOrNow > 86400) {
+    rawDurationSec = undefined;
+    now = durationOrNow;
+  } else {
+    rawDurationSec = durationOrNow;
+    now = Date.now();
+  }
+
+  const rawKey = `${rawArtist || ""}__${rawTrack || ""}__${rawImageUrl || ""}__${rawDurationSec || 0}`;
   let state = stationRmsDelayMap.get(stationId);
 
   if (!state) {
-    const initial: RmsTrackData = { artist: rawArtist, track: rawTrack, imageUrl: rawImageUrl };
+    const initial: RmsTrackData = {
+      artist: rawArtist,
+      track: rawTrack,
+      imageUrl: rawImageUrl,
+      durationSec: rawDurationSec
+    };
     state = {
       applied: initial,
       lastRawKey: rawKey
@@ -134,7 +156,8 @@ export function resolveDelayedRmsTrack(
     const pendingData: RmsTrackData = {
       artist: rawArtist,
       track: rawTrack,
-      imageUrl: rawImageUrl
+      imageUrl: rawImageUrl,
+      durationSec: rawDurationSec
     };
     state.pending = pendingData;
     state.pendingApplyAtMs = now + RMS_DELAY_MS;
@@ -161,6 +184,7 @@ export async function fetchShowInfo(stationId: string): Promise<CurrentShow> {
   let rawArtist: string | undefined;
   let rawTrack: string | undefined;
   let rawRmsImageUrl: string | undefined;
+  let rawDurationSec: number | undefined;
 
   // 1. Fetch live song/segment from RMS API. Only a currently-playing music segment
   // supplies artist/song details; speech, news, or a finished song fall back to the
@@ -184,6 +208,12 @@ export async function fetchShowInfo(stationId: string): Promise<CurrentShow> {
       if (segment && isMusic && isNowPlaying) {
         rawArtist = segment.titles?.primary?.trim() || undefined;
         rawTrack = (segment.titles?.secondary || segment.titles?.tertiary)?.trim() || undefined;
+        if (typeof offset?.end === "number" && typeof offset?.start === "number" && offset.end > offset.start) {
+          rawDurationSec = offset.end - offset.start;
+        } else if (segment.duration) {
+          const parsed = Number(segment.duration);
+          if (!Number.isNaN(parsed) && parsed > 0) rawDurationSec = parsed;
+        }
         const imgTemplate = segment.image_url;
         if (
           imgTemplate &&
@@ -199,10 +229,11 @@ export async function fetchShowInfo(stationId: string): Promise<CurrentShow> {
   }
 
   // Delay RMS track/artist/artwork updates by 20 seconds to match the audio stream buffer latency
-  const delayedRms = resolveDelayedRmsTrack(stationId, rawArtist, rawTrack, rawRmsImageUrl);
+  const delayedRms = resolveDelayedRmsTrack(stationId, rawArtist, rawTrack, rawRmsImageUrl, rawDurationSec);
   const artist = delayedRms.artist;
   const track = delayedRms.track;
   const rmsImageUrl = delayedRms.imageUrl;
+  const durationSec = delayedRms.durationSec;
 
   // 2. Fetch live programme title from ESS Schedules API
   let showTitle = "BBC Radio";
@@ -311,6 +342,7 @@ export async function fetchShowInfo(stationId: string): Promise<CurrentShow> {
     episodeTitle,
     artist,
     track,
+    durationSec,
     imageUrl: rmsImageUrl || essImageUrl,
     startTime,
     endTime,

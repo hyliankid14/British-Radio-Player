@@ -29,12 +29,19 @@ declare class NativeAndroidModule extends NativeModule<{}> {
   ): void;
   /** Cancels any pending radio alarm. */
   cancelAlarm(): void;
+  /** Cancels the currently ringing alarm notification. */
+  cancelAlarmNotification(): void;
   /** True when the OS permits exact alarms (Android 12+). */
   canScheduleExactAlarms(): boolean;
   /** Requests the runtime POST_NOTIFICATIONS permission. */
   requestNotificationPermission(): boolean;
   /** Returns alarm launch details when launched from the alarm, else null. */
   consumeAlarmLaunch(): string | null;
+  /** Alarm launch events emitted when an alarm notification is tapped while the app is running. */
+  addListener(
+    eventName: "onAlarmLaunch",
+    listener: (event: { alarm: string }) => void
+  ): { remove(): void };
   /** Checks GitHub releases for a newer APK, returning a JSON string. */
   checkForUpdate(currentVersion: string): Promise<string>;
   /** Downloads the update APK and opens the system installer when complete. */
@@ -71,6 +78,8 @@ declare class NativeAndroidModule extends NativeModule<{}> {
   clearDownloads(): number;
   /** Opens the public Podcasts downloads folder in the system file manager. */
   openDownloadsFolder(): boolean;
+  /** Broadcasts track playback state to third-party Android scrobbler apps (SLS, Scrobble Droid, Last.fm). */
+  broadcastScrobble(state: number, artist: string, track: string, album: string, durationSec: number): void;
 }
 
 export default requireNativeModule<NativeAndroidModule>('NativeAndroid');

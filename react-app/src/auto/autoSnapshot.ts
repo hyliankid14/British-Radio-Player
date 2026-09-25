@@ -67,6 +67,7 @@ export interface AutoSnapshot {
   lastStationId: string;
   subscriptions: AutoPodcast[];
   subscribedIds: string[];
+  catalog: AutoPodcast[];
   podcastSort: string;
   podcastManualOrder: string[];
   podcastTags: Record<string, string[]>;
@@ -240,6 +241,17 @@ export async function buildAutoSnapshot(includePodcastData = true): Promise<Auto
     }
   }
 
+  const autoCatalog: AutoPodcast[] = catalog.map((podcast) => ({
+    id: podcast.id,
+    title: podcast.title,
+    description: podcast.description,
+    rssUrl: podcast.rssUrl || `https://podcasts.files.bbci.co.uk/${podcast.id}.rss`,
+    imageUrl: podcast.imageUrl,
+    genres: podcast.genres || [],
+    typicalDurationMins: podcast.typicalDurationMins || 0,
+    latestUpdateMs: 0
+  }));
+
   const playlistEntryMap = Preferences.getPlaylistEntryMap();
   const playlists: AutoPlaylist[] = Preferences.getPodcastPlaylists()
     .filter((playlist) => !playlist.isDefault)
@@ -290,6 +302,7 @@ export async function buildAutoSnapshot(includePodcastData = true): Promise<Auto
     lastStationId: Preferences.getLastStationId(),
     subscriptions,
     subscribedIds,
+    catalog: autoCatalog,
     podcastSort: Preferences.getSubscribedPodcastSort(),
     podcastManualOrder: Preferences.getSubscribedPodcastManualOrder(),
     podcastTags,

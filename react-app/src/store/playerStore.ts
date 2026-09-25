@@ -5,7 +5,7 @@ import { Preferences } from "../storage/preferences";
 import { CurrentShow, fetchShowInfo, onRmsDelayedUpdate, resetStationRmsDelay } from "../api/showInfo";
 import { useStationShowStore } from "./stationShowStore";
 import { Podcast, Episode, PodcastApi } from "../api/podcasts";
-import { LastFmApi } from "../api/lastfm";
+import { ScrobbleManager } from "../audio/scrobbleManager";
 import { notifyNativePhonePlaybackStarted } from "../auto/autoBridge";
 import { getDownloadedUri } from "../downloads/downloadStore";
 import { getNetworkStatus } from "./networkStore";
@@ -25,6 +25,7 @@ interface PlayerState {
   init: () => Promise<void>;
   playStation: (station: Station) => Promise<void>;
   playEpisode: (podcast: Podcast, episode: Episode) => Promise<void>;
+  playRandomPodcast: () => Promise<void>;
   pause: () => Promise<void>;
   resume: () => Promise<void>;
   stop: () => Promise<void>;
@@ -43,8 +44,6 @@ interface PlayerState {
 }
 
 let showInfoInterval: any = null;
-let scrobbleTimer: any = null;
-let activeScrobbleKey = "";
 
 function startShowInfoInterval() {
   if (showInfoInterval) clearInterval(showInfoInterval);
@@ -94,26 +93,6 @@ function resolvePodcastArtwork(podcast?: Podcast | null, episode?: Episode | nul
   return preference === "podcast" ? (podImg || epImg) : (epImg || podImg);
 }
 
-function beginScrobble(artist: string, track: string, durationSec = 0, isPodcast = false): void {
-  const settings = Preferences.getLastFm();
-  if (isPodcast && !settings.podcasts) return;
-  if (!settings.sessionKey || !settings.direct || !artist.trim() || !track.trim()) return;
-  const key = `${artist.trim().toLowerCase()}|${track.trim().toLowerCase()}`;
-  if (key === activeScrobbleKey) return;
-  activeScrobbleKey = key;
-  if (scrobbleTimer) clearTimeout(scrobbleTimer);
-  LastFmApi.updateNowPlaying(artist.trim(), track.trim(), durationSec || undefined).catch(() => {});
-  const threshold = durationSec > 0
-    ? Math.max(30000, Math.min(durationSec * 500, 240000))
-    : 60000;
-  scrobbleTimer = setTimeout(() => {
-    const current = Preferences.getLastFm();
-    if (current.sessionKey && current.direct) {
-      LastFmApi.scrobble(artist.trim(), track.trim(), Math.floor(Date.now() / 1000)).catch(() => {});
-    }
-  }, threshold);
-}
-
 export const usePlayerStore = create<PlayerState>((set, get) => ({
   currentStation: null,
   currentShow: null,
@@ -153,6 +132,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     Preferences.setLastStationId(station.id);
 
     try {
+      ScrobbleManager.onPlaybackStopped();
       await TrackPlayer.reset();
       await TrackPlayer.add({
         id: station.id,
@@ -182,7 +162,17 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
           imageUrl: show.imageUrl
         });
       }
-      beginScrobble(show.artist || "", show.track || "");
+      if (show.artist || show.track) {
+        ScrobbleManager.onTrackStarted(
+          show.artist || "",
+          show.track || "",
+          station.title,
+          show.durationSec || 0,
+          false
+        );
+      } else {
+        ScrobbleManager.onNoTrackPlaying();
+      }
       const songArtist = show.rawArtist || show.artist || "";
       const songTrack = show.rawTrack || show.track || "";
       if (songArtist || songTrack) {
@@ -273,6 +263,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     }
 
     try {
+      ScrobbleManager.onPlaybackStopped();
       await TrackPlayer.reset();
       await TrackPlayer.add({
         id: epId || episode.id,
@@ -287,6 +278,15 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       set({ isPlaying: true, isBuffering: false });
       notifyNativePhonePlaybackStarted();
       void trackEpisodePlay(podId, epId, epTitle, podTitle);
+
+      const durationSec = (episode.durationMins || 0) * 60;
+      ScrobbleManager.onTrackStarted(
+        podTitle || podcast?.title || "BBC Radio",
+        epTitle || episode.title,
+        podTitle || podcast?.title || "",
+        durationSec,
+        true
+      );
 
       // Resume where the listener left off (mirrors the Kotlin app's position restore).
       const resumeSeconds = Preferences.getEpisodeProgress(epId || episode.id);
@@ -304,9 +304,34 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     }
   },
 
+  playRandomPodcast: async () => {
+    try {
+      const catalog = await PodcastApi.fetchLiveCatalog();
+      if (!catalog || catalog.length === 0) return;
+      const shuffled = [...catalog].sort(() => Math.random() - 0.5);
+      for (const podcast of shuffled.slice(0, 15)) {
+        try {
+          const episodes = await PodcastApi.fetchEpisodes(podcast.rssUrl, podcast.id);
+          if (!episodes || episodes.length === 0) continue;
+          const latest = [...episodes].sort(
+            (a, b) => parsePodcastDateEpoch(b.pubDate) - parsePodcastDateEpoch(a.pubDate)
+          )[0];
+          if (!latest) continue;
+          await usePlayerStore.getState().playEpisode(podcast, latest);
+          return;
+        } catch {
+          // Try next podcast
+        }
+      }
+    } catch (err) {
+      console.warn("Failed to play random podcast:", err);
+    }
+  },
+
   pause: async () => {
     try {
       stopShowInfoInterval();
+      ScrobbleManager.onPlaybackPaused();
       await TrackPlayer.pause();
       set({ isPlaying: false });
     } catch (e) {
@@ -318,11 +343,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     try {
       resetStationRmsDelay();
       stopShowInfoInterval();
-      if (scrobbleTimer) {
-        clearTimeout(scrobbleTimer);
-        scrobbleTimer = null;
-      }
-      activeScrobbleKey = "";
+      ScrobbleManager.onPlaybackStopped();
       await TrackPlayer.reset();
       set({
         currentStation: null,
@@ -336,6 +357,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       });
     } catch (e) {
       console.warn("Stop error:", e);
+      ScrobbleManager.onPlaybackStopped();
       set({
         currentStation: null,
         currentShow: null,
@@ -355,6 +377,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       try {
         await TrackPlayer.play();
         set({ isPlaying: true });
+        ScrobbleManager.onPlaybackResumed();
         return;
       } catch (e) {
         const pod: Podcast = currentPodcast || {
@@ -384,6 +407,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       }
       await TrackPlayer.play();
       set({ isPlaying: true });
+      ScrobbleManager.onPlaybackResumed();
       startShowInfoInterval();
       void get().refreshShowInfo();
     } catch (e) {
@@ -467,6 +491,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   handleEpisodeEnded: async () => {
     const { currentPodcast, currentEpisode } = get();
     if (!currentEpisode) return;
+    ScrobbleManager.onPlaybackStopped();
     Preferences.markEpisodePlayed(
       currentEpisode.id,
       currentEpisode.podcastId,
@@ -525,7 +550,17 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
           imageUrl: show.imageUrl
         });
       }
-      beginScrobble(show.artist || "", show.track || "");
+      if (show.artist || show.track) {
+        ScrobbleManager.onTrackStarted(
+          show.artist || "",
+          show.track || "",
+          currentStation.title,
+          show.durationSec || 0,
+          false
+        );
+      } else {
+        ScrobbleManager.onNoTrackPlaying();
+      }
       const songArtist = show.rawArtist || show.artist || "";
       const songTrack = show.rawTrack || show.track || "";
       if (songArtist || songTrack) {

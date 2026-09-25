@@ -24,6 +24,15 @@ object AlarmScheduler {
   private const val REQUEST_CODE = 9001
   private const val SNOOZE_MINUTES = 10
 
+  private const val PREFS_NAME = "radio_alarm_prefs"
+  private const val KEY_HOUR = "alarm_hour"
+  private const val KEY_MINUTE = "alarm_minute"
+  private const val KEY_DAYS = "alarm_days_mask"
+  private const val KEY_STATION = "alarm_station_id"
+  private const val KEY_RAMP = "alarm_ramp"
+  private const val KEY_VOLUME = "alarm_volume"
+  private const val KEY_ENABLED = "alarm_enabled"
+
   fun schedule(
     context: Context,
     hour: Int,
@@ -33,6 +42,43 @@ object AlarmScheduler {
     ramp: Boolean,
     volume: Int
   ) {
+    // Persist settings for automatic rescheduling on recurring days
+    context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+      .putInt(KEY_HOUR, hour)
+      .putInt(KEY_MINUTE, minute)
+      .putInt(KEY_DAYS, daysMask)
+      .putString(KEY_STATION, stationId)
+      .putBoolean(KEY_RAMP, ramp)
+      .putInt(KEY_VOLUME, volume)
+      .putBoolean(KEY_ENABLED, true)
+      .apply()
+
+    val manager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+    val triggerAt = nextTriggerMillis(hour, minute, daysMask)
+    val pendingIntent = buildPendingIntent(context, stationId, ramp, volume, null)
+    try {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !manager.canScheduleExactAlarms()) {
+        manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+      } else {
+        manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+      }
+    } catch (_: SecurityException) {
+      manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+    }
+  }
+
+  /** Reschedules recurring alarm for the next matching day if enabled. */
+  fun rescheduleNext(context: Context) {
+    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    if (!prefs.getBoolean(KEY_ENABLED, false)) return
+    val daysMask = prefs.getInt(KEY_DAYS, 0)
+    if (daysMask == 0) return
+    val hour = prefs.getInt(KEY_HOUR, 7)
+    val minute = prefs.getInt(KEY_MINUTE, 0)
+    val stationId = prefs.getString(KEY_STATION, null)
+    val ramp = prefs.getBoolean(KEY_RAMP, true)
+    val volume = prefs.getInt(KEY_VOLUME, 5)
+
     val manager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
     val triggerAt = nextTriggerMillis(hour, minute, daysMask)
     val pendingIntent = buildPendingIntent(context, stationId, ramp, volume, null)
@@ -64,6 +110,10 @@ object AlarmScheduler {
   }
 
   fun cancel(context: Context) {
+    context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+      .putBoolean(KEY_ENABLED, false)
+      .apply()
+
     val manager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
     val pendingIntent = buildPendingIntent(context, null, true, 5, null)
     manager.cancel(pendingIntent)

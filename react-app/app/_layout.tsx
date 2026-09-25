@@ -28,7 +28,7 @@ import {
 } from "../src/notifications/notifications";
 import { resolveAppNavigation } from "../src/utils/navigationUtils";
 import { Preferences } from "../src/storage/preferences";
-import { NativeAndroid } from "../src/native/nativeAndroid";
+import { NativeAndroid, AlarmLaunch } from "../src/native/nativeAndroid";
 import { StationRepository } from "../src/data/stations";
 import { formatShowDisplayTitle } from "../src/api/showInfo";
 
@@ -142,11 +142,41 @@ export default function RootLayout() {
   }, [navigateToTarget]);
 
   // Listen for native Android notification taps while app is running/backgrounded
+  const handleAlarmPlayback = useCallback(async (alarm: AlarmLaunch | null) => {
+    if (!alarm?.stationId) return;
+    const station = StationRepository.getById(alarm.stationId);
+    if (!station) return;
+    try {
+      NativeAndroid.cancelAlarmNotification();
+      await usePlayerStore.getState().playStation(station);
+      if (alarm.ramp) {
+        const steps = 15;
+        const target = Math.min(1, Math.max(0.05, alarm.volume / 10));
+        for (let step = 1; step <= steps; step++) {
+          await TrackPlayer.setVolume((target * step) / steps);
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+        }
+      } else {
+        await TrackPlayer.setVolume(Math.min(1, Math.max(0.05, alarm.volume / 10)));
+      }
+    } catch (error) {
+      console.warn("Alarm playback failed:", error);
+    }
+  }, []);
+
+  // Listen for native Android notification taps while app is running/backgrounded
   useEffect(() => {
     return NativeAndroid.addNotificationOpenListener((url) => {
       if (url) navigateToTarget(url);
     });
   }, [navigateToTarget]);
+
+  // Listen for native Android alarm notification launches while app is running/backgrounded
+  useEffect(() => {
+    return NativeAndroid.addAlarmLaunchListener((alarm) => {
+      void handleAlarmPlayback(alarm);
+    });
+  }, [handleAlarmPlayback]);
 
   // Show the analytics opt-in dialog on first launch (after the UI has settled).
   useEffect(() => {
@@ -165,6 +195,10 @@ export default function RootLayout() {
     void registerBackgroundTask();
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") {
+        const alarm = NativeAndroid.consumeAlarmLaunch();
+        if (alarm) {
+          void handleAlarmPlayback(alarm);
+        }
         const notifUrl = NativeAndroid.consumeNotificationLaunch();
         if (notifUrl) {
           navigateToTarget(notifUrl);
@@ -176,7 +210,7 @@ export default function RootLayout() {
       }
     });
     return () => subscription.remove();
-  }, [navigateToTarget]);
+  }, [navigateToTarget, handleAlarmPlayback]);
 
   useEffect(() => {
     async function start() {
@@ -185,25 +219,8 @@ export default function RootLayout() {
 
       // If the app was launched by the radio alarm, start the chosen station and ramp up.
       const alarm = NativeAndroid.consumeAlarmLaunch();
-      if (alarm?.stationId) {
-        const station = StationRepository.getById(alarm.stationId);
-        if (station) {
-          try {
-            await usePlayerStore.getState().playStation(station);
-            if (alarm.ramp) {
-              const steps = 15;
-              const target = Math.min(1, Math.max(0.05, alarm.volume / 10));
-              for (let step = 1; step <= steps; step++) {
-                await TrackPlayer.setVolume((target * step) / steps);
-                await new Promise((resolve) => setTimeout(resolve, 2000));
-              }
-            } else {
-              await TrackPlayer.setVolume(Math.min(1, Math.max(0.05, alarm.volume / 10)));
-            }
-          } catch (error) {
-            console.warn("Alarm playback failed:", error);
-          }
-        }
+      if (alarm) {
+        void handleAlarmPlayback(alarm);
       }
 
       // If the app was launched by a tapped notification via native Intent:
@@ -213,7 +230,7 @@ export default function RootLayout() {
       }
     }
     start();
-  }, [initStore, navigateToTarget]);
+  }, [initStore, navigateToTarget, handleAlarmPlayback]);
 
   // Keep the home screen widget in sync with playback state.
   useEffect(() => {

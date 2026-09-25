@@ -22,7 +22,7 @@ class NativeAndroidModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("NativeAndroid")
 
-    Events("onShake", "onWearState", "onNotificationOpen")
+    Events("onShake", "onWearState", "onNotificationOpen", "onAlarmLaunch")
 
     OnCreate {
       instance = this@NativeAndroidModule
@@ -160,11 +160,24 @@ class NativeAndroidModule : Module() {
       false
     }
 
+    /** Cancels any active alarm notification and ringtone. */
+    Function("cancelAlarmNotification") { ->
+      val ctx = context ?: return@Function null
+      AlarmNotifier.cancel(ctx)
+      null
+    }
+
     /**
      * When the app was launched by the alarm notification, returns the requested station id;
      * otherwise null. Consumed once so playback only starts on the alarm launch.
      */
     Function("consumeAlarmLaunch") { ->
+      val pending = pendingAlarmLaunch
+      if (pending != null) {
+        pendingAlarmLaunch = null
+        context?.let { AlarmNotifier.cancel(it) }
+        return@Function pending
+      }
       val activity = appContext.currentActivity ?: return@Function null
       val intent = activity.intent ?: return@Function null
       val stationId = intent.getStringExtra(AlarmScheduler.EXTRA_STATION_ID)
@@ -174,6 +187,7 @@ class NativeAndroidModule : Module() {
       intent.removeExtra(AlarmScheduler.EXTRA_STATION_ID)
       intent.removeExtra(AlarmScheduler.EXTRA_RAMP)
       intent.removeExtra(AlarmScheduler.EXTRA_VOLUME)
+      context?.let { AlarmNotifier.cancel(it) }
       val result = org.json.JSONObject().apply {
         put("stationId", stationId ?: org.json.JSONObject.NULL)
         put("ramp", ramp)
@@ -294,6 +308,13 @@ class NativeAndroidModule : Module() {
       val ctx = context ?: return@Function false
       PodcastDownloads.openFolder(ctx)
     }
+
+    /** Broadcasts track playback state to third-party Android scrobbler apps (SLS, Scrobble Droid, Last.fm). */
+    Function("broadcastScrobble") { state: Int, artist: String, track: String, album: String, durationSec: Int ->
+      val ctx = context ?: return@Function null
+      ScrobbleBroadcast.broadcast(ctx, state, artist, track, album, durationSec)
+      null
+    }
   }
 
   companion object {
@@ -301,15 +322,45 @@ class NativeAndroidModule : Module() {
     private var instance: NativeAndroidModule? = null
     @Volatile
     private var pendingNotificationUrl: String? = null
+    @Volatile
+    private var pendingAlarmLaunch: String? = null
 
     fun onNewIntent(intent: Intent) {
-      val url = extractUrlFromIntent(intent) ?: return
-      pendingNotificationUrl = url
-      val mod = instance
-      if (mod != null) {
-        try {
-          mod.sendEvent("onNotificationOpen", mapOf("url" to url))
-        } catch (_: Exception) {
+      val url = extractUrlFromIntent(intent)
+      if (url != null) {
+        pendingNotificationUrl = url
+        val mod = instance
+        if (mod != null) {
+          try {
+            mod.sendEvent("onNotificationOpen", mapOf("url" to url))
+          } catch (_: Exception) {
+          }
+        }
+      }
+
+      val stationId = intent.getStringExtra(AlarmScheduler.EXTRA_STATION_ID)
+      if (stationId != null || intent.hasExtra(AlarmScheduler.EXTRA_RAMP)) {
+        val ramp = intent.getBooleanExtra(AlarmScheduler.EXTRA_RAMP, true)
+        val volume = intent.getIntExtra(AlarmScheduler.EXTRA_VOLUME, 5)
+        intent.removeExtra(AlarmScheduler.EXTRA_STATION_ID)
+        intent.removeExtra(AlarmScheduler.EXTRA_RAMP)
+        intent.removeExtra(AlarmScheduler.EXTRA_VOLUME)
+        val alarmJson = org.json.JSONObject().apply {
+          put("stationId", stationId ?: org.json.JSONObject.NULL)
+          put("ramp", ramp)
+          put("volume", volume)
+        }.toString()
+        pendingAlarmLaunch = alarmJson
+        val mod = instance
+        val ctx = mod?.context
+        if (ctx != null) {
+          AlarmNotifier.cancel(ctx)
+        }
+        if (mod != null) {
+          try {
+            mod.sendEvent("onAlarmLaunch", mapOf("alarm" to alarmJson))
+          } catch (_: Exception) {
+          }
         }
       }
     }

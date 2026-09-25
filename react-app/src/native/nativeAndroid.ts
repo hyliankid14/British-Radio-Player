@@ -20,9 +20,14 @@ interface NativeAndroidBridge {
     volume: number
   ): void;
   cancelAlarm(): void;
+  cancelAlarmNotification(): void;
   canScheduleExactAlarms(): boolean;
   requestNotificationPermission(): boolean;
   consumeAlarmLaunch(): string | null;
+  addListener(
+    eventName: "onAlarmLaunch",
+    listener: (event: { alarm: string }) => void
+  ): { remove(): void };
   checkForUpdate(currentVersion: string): Promise<string>;
   downloadAndInstallUpdate(apkUrl: string, apkName: string): void;
   updateWidgetState(stationTitle: string, showTitle: string, isPlaying: boolean): void;
@@ -44,6 +49,7 @@ interface NativeAndroidBridge {
   deleteDownload(uri: string): boolean;
   clearDownloads(): number;
   openDownloadsFolder(): boolean;
+  broadcastScrobble(state: number, artist: string, track: string, album: string, durationSec: number): void;
 }
 
 export interface UpdateInfo {
@@ -206,6 +212,15 @@ export const NativeAndroid = {
     }
   },
 
+  /** Cancels the currently ringing alarm notification. */
+  cancelAlarmNotification(): void {
+    try {
+      load()?.cancelAlarmNotification();
+    } catch {
+      // Ignore.
+    }
+  },
+
   /** True when exact alarms are permitted; defaults to true off-Android. */
   canScheduleExactAlarms(): boolean {
     try {
@@ -238,6 +253,32 @@ export const NativeAndroid = {
       };
     } catch {
       return null;
+    }
+  },
+
+  /** Subscribes to alarm launch events received while the app is active or backgrounded; returns cleanup function. */
+  addAlarmLaunchListener(listener: (alarm: AlarmLaunch) => void): () => void {
+    const bridge = load();
+    if (!bridge) return () => {};
+    try {
+      const subscription = bridge.addListener("onAlarmLaunch", (event) => {
+        try {
+          if (!event?.alarm) return;
+          const parsed = JSON.parse(event.alarm);
+          if (parsed && typeof parsed === "object") {
+            listener({
+              stationId: parsed.stationId ?? null,
+              ramp: !!parsed.ramp,
+              volume: typeof parsed.volume === "number" ? parsed.volume : 5
+            });
+          }
+        } catch {
+          // Ignore parse errors.
+        }
+      });
+      return () => subscription?.remove?.();
+    } catch {
+      return () => {};
     }
   },
 
@@ -386,6 +427,15 @@ export const NativeAndroid = {
       return load()?.openDownloadsFolder() ?? false;
     } catch {
       return false;
+    }
+  },
+
+  /** Broadcasts playback state to external Android scrobblers (SLS, Scrobble Droid, Last.fm). */
+  broadcastScrobble(state: number, artist: string, track: string, album = "", durationSec = 0): void {
+    try {
+      load()?.broadcastScrobble(state, artist, track, album, durationSec);
+    } catch {
+      // Degrades gracefully when native module is unavailable
     }
   }
 };

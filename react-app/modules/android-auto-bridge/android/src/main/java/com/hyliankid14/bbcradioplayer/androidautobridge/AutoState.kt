@@ -189,6 +189,17 @@ object AutoState {
   fun subscriptions(context: Context): List<JSONObject> =
     objectList(context, "subscriptions")
 
+  /** Complete podcast catalogue from the index, available even for unsubscribed podcasts. */
+  fun catalog(context: Context): List<JSONObject> =
+    objectList(context, "catalog")
+
+  /** Finds a podcast from either the user subscriptions or the full index catalogue. */
+  fun findPodcast(context: Context, podcastId: String): JSONObject? {
+    if (podcastId.isEmpty()) return null
+    return subscriptions(context).firstOrNull { it.optString("id") == podcastId }
+      ?: catalog(context).firstOrNull { it.optString("id") == podcastId }
+  }
+
   /** Subscribed podcast ids, preferring native overlay mutations over the snapshot. */
   fun effectiveSubscribedIds(context: Context): List<String> {
     val overlaid = overlay(context).optJSONArray("subscribedIds")

@@ -1,5 +1,6 @@
 import TrackPlayer, { Event, State, Capability } from "react-native-track-player";
 import { usePlayerStore } from "../store/playerStore";
+import { ScrobbleManager } from "./scrobbleManager";
 
 export async function playbackService(): Promise<void> {
   TrackPlayer.addEventListener(Event.RemotePlay, () => {
@@ -30,6 +31,7 @@ export async function playbackService(): Promise<void> {
   // the headless playback service so they keep working with the app backgrounded.
   TrackPlayer.addEventListener(Event.PlaybackProgressUpdated, (event) => {
     usePlayerStore.getState().handleEpisodeProgress(event.position, event.duration);
+    ScrobbleManager.onProgress(event.position, event.duration);
   });
 
   TrackPlayer.addEventListener(Event.PlaybackQueueEnded, () => {
