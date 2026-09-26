@@ -126,8 +126,10 @@ repository variable `EXPECTED_PLAY_UPLOAD_SHA1` to guard the Play upload key.
 The iOS build is produced locally with `xcodebuild`; there is no iOS CI workflow yet.
 
 ```sh
-./scripts/ios/build-ipa.sh            # regenerate, archive, export
+./scripts/ios/build-ipa.sh            # prompts for version & auto-incremented build number, archives, exports
 ./scripts/ios/build-ipa.sh --clean    # also wipe ios/ first (recreates it from scratch)
+# Non-interactive overrides:
+./scripts/ios/build-ipa.sh -v 2.0.0 -b 2
 ```
 
 The script writes `~/Downloads/british-radio-player-ios.ipa` (override with `DOWNLOADS_DIR`),
@@ -145,8 +147,10 @@ Identity and signing are all in `app.json`, so `prebuild --clean` cannot lose th
 ```
 
 `expo.version` sets `CFBundleShortVersionString`, so Transporter pulls the marketing version
-from there and **not** from `ios.buildNumber`. **Increment `ios.buildNumber` for every upload**
-to App Store Connect — re-uploading the same build number is rejected.
+from there and **not** from `ios.buildNumber`. `build-ipa.sh` automatically prompts for the
+version and suggests `current_build + 1` by default on each run, updating `react-app/app.json`
+before regenerating the native project. Re-uploading the same build number to App Store Connect
+is rejected.
 
 First-time account setup, which no script can do:
 
@@ -182,23 +186,13 @@ podcast browser, search and downloads, which work globally. Also expect a questi
 
 ### CarPlay
 
-CarPlay ships in v2.1.0, not with the first release. Apple grants
-`com.apple.developer.carplay-audio` **per app**, not per account, so the existing approval for
-any other app does not cover this bundle ID. Request it at
-<https://developer.apple.com/contact/carplay/> (category **Audio**, bundle ID
-`com.hyliankid14.bbcradioplayer`) from the Account Holder/Admin account, and accept the CarPlay
-Entitlement Addendum.
+CarPlay approval has been granted by Apple for `com.hyliankid14.bbcradioplayer` (`com.apple.developer.carplay-audio`).
 
-Until the grant lands, leave `ENABLE_CARPLAY = false` in `plugins/withIosNative.js`. Requesting
-a managed entitlement that the account does not hold makes the app un-signable, because no
-provisioning profile is permitted to carry it. `build-ipa.sh` fails the build if
-`com.apple.developer.carplay-audio` is present without `EXPECT_CARPLAY=1`.
-
-There is no usable CarPlay library for this stack: `react-native-track-player` ships Android
-Auto only and `birkir/react-native-carplay` does not support Expo SDK 57. CarPlay therefore
-needs a custom module under `modules/`, alongside a `CPTemplateApplicationScene` added to the
-scene manifest and a `CPTemplateApplicationSceneDelegate` — all of it through
-`plugins/withIosNative.js`, never by editing `ios/`.
+CarPlay support is enabled and built directly into the iOS target via `plugins/withIosNative.js` and `plugins/ios-native/`:
+- **Scene configuration**: `CPTemplateApplicationSceneSessionRoleApplication` registered in `Info.plist` with `CarPlaySceneDelegate`.
+- **Interface**: `CPTabBarTemplate` with Favourites (`CPListTemplate`), Stations categorized into National, Nations & Regions, and Local Radio (`CPListTemplate`), and Now Playing (`CPNowPlayingTemplate.shared`).
+- **Audio & Controls**: Direct live stream playback via `AVPlayer` with `AVAudioSession` `.playback`, integrated with `MPNowPlayingInfoCenter` (displaying station title, "BBC Radio", live stream indicator, and station logo artwork) and `MPRemoteCommandCenter` (steering wheel play, pause, toggle).
+- **Favourites sync**: Automatically syncs favourite station IDs with the main app via `UserDefaults.standard` (`favorite_station_ids`).
 
 ## Run on the iOS simulator
 

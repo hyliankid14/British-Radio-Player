@@ -9,12 +9,8 @@ const {
   withXcodeProject
 } = require("@expo/config-plugins");
 
-// SceneDelegate.swift is not part of the Expo bare template, so it is versioned here
-// and copied into the generated project on every prebuild. Without this, `expo
-// prebuild --clean` deletes it along with its Xcode file reference and the phone
-// scene declaration, silently dropping the deep-link cold-start handling.
-const SCENE_DELEGATE_FILENAME = "SceneDelegate.swift";
-const SCENE_DELEGATE_SOURCE = path.join(__dirname, "ios-native", SCENE_DELEGATE_FILENAME);
+// Native Swift files versioned in plugins/ios-native/ to be compiled into the app.
+const SWIFT_DIR = path.join(__dirname, "ios-native");
 
 // Diagnostic logging that used to be hand-added to the generated AppDelegate.swift.
 const TRACE_LOG_LINE = /^[ \t]*NSLog\("=== BRP_TRACE[^\n]*\n/gm;
@@ -27,11 +23,8 @@ const METRO_BUNDLE_CALL =
 const METRO_BUNDLE_FALLBACK =
   'URL(string: "http://localhost:8081/.expo/.virtual-metro-entry.bundle?platform=ios&dev=true&minify=false")';
 
-// CarPlay ships in v2.1.0, after Apple grants com.apple.developer.carplay-audio for
-// this bundle ID. That entitlement is a managed capability: requesting it before the
-// grant makes the app un-signable, because no provisioning profile on the account is
-// allowed to carry it. Keep this false until the grant lands.
-const ENABLE_CARPLAY = false;
+// CarPlay approval has been granted for com.hyliankid14.bbcradioplayer.
+const ENABLE_CARPLAY = true;
 
 // The generated pbxproj omits DEVELOPMENT_TEAM, and it is not derivable from the
 // template, so it is re-applied here from expo.ios.appleTeamId.
@@ -80,8 +73,8 @@ function withCarplayEntitlement(config) {
   });
 }
 
-// The source files themselves. Written to disk rather than modified through a
-// pbxproj mod because SceneDelegate.swift has no template equivalent.
+// The native Swift files. Written to disk rather than modified through a
+// pbxproj mod because custom delegates have no template equivalent.
 function withIosNativeSources(config) {
   return withDangerousMod(config, [
     "ios",
@@ -89,10 +82,16 @@ function withIosNativeSources(config) {
       const { platformProjectRoot, projectName } = configWithModRequest.modRequest;
       const sourceRoot = path.join(platformProjectRoot, projectName);
 
-      await fs.promises.copyFile(
-        SCENE_DELEGATE_SOURCE,
-        path.join(sourceRoot, SCENE_DELEGATE_FILENAME)
+      // Copy all versioned Swift files into the native app directory
+      const swiftFiles = (await fs.promises.readdir(SWIFT_DIR)).filter((f) =>
+        f.endsWith(".swift")
       );
+      for (const file of swiftFiles) {
+        await fs.promises.copyFile(
+          path.join(SWIFT_DIR, file),
+          path.join(sourceRoot, file)
+        );
+      }
 
       const appDelegatePath = path.join(sourceRoot, "AppDelegate.swift");
       let appDelegate = await fs.promises.readFile(appDelegatePath, "utf8");
@@ -119,25 +118,32 @@ function withIosNativeSources(config) {
   ]);
 }
 
-function withSceneDelegateInProject(config) {
+function withNativeSwiftInProject(config) {
   return withXcodeProject(config, (configWithProject) => {
     const project = configWithProject.modResults;
     const { projectName } = configWithProject.modRequest;
-    const relativePath = `${projectName}/${SCENE_DELEGATE_FILENAME}`;
-
-    if (project.hasFile(relativePath)) return configWithProject;
-
     const groupKey = project.findPBXGroupKey({ name: projectName });
     const target = project.getFirstTarget();
-    project.addSourceFile(relativePath, target ? { target: target.uuid } : {}, groupKey);
+
+    const swiftFiles = fs.readdirSync(SWIFT_DIR).filter((f) => f.endsWith(".swift"));
+    for (const file of swiftFiles) {
+      const relativePath = `${projectName}/${file}`;
+      if (!project.hasFile(relativePath)) {
+        project.addSourceFile(
+          relativePath,
+          target ? { target: target.uuid } : {},
+          groupKey
+        );
+      }
+    }
 
     return configWithProject;
   });
 }
 
-// The phone scene. The Expo template declares no UIApplicationSceneManifest at all,
-// so this was hand-edited in Info.plist and is otherwise lost on every `--clean`.
-function withPhoneSceneManifest(config) {
+// Scene manifests. Supports both the standard phone UIWindowScene and the CarPlay
+// CPTemplateApplicationScene concurrently.
+function withSceneManifests(config) {
   return withInfoPlist(config, (configWithInfoPlist) => {
     const existing = configWithInfoPlist.modResults.UIApplicationSceneManifest ?? {};
     const scenes = existing.UISceneConfigurations ?? {};
@@ -149,9 +155,19 @@ function withPhoneSceneManifest(config) {
       }
     ];
 
+    if (ENABLE_CARPLAY) {
+      scenes.CPTemplateApplicationSceneSessionRoleApplication = [
+        {
+          UISceneClassName: "CPTemplateApplicationScene",
+          UISceneConfigurationName: "CarPlay",
+          UISceneDelegateClassName: "$(PRODUCT_MODULE_NAME).CarPlaySceneDelegate"
+        }
+      ];
+    }
+
     configWithInfoPlist.modResults.UIApplicationSceneManifest = {
       ...existing,
-      UIApplicationSupportsMultipleScenes: existing.UIApplicationSupportsMultipleScenes ?? false,
+      UIApplicationSupportsMultipleScenes: ENABLE_CARPLAY ? true : (existing.UIApplicationSupportsMultipleScenes ?? false),
       UISceneConfigurations: scenes
     };
 
@@ -255,8 +271,8 @@ function withFixedBundlePhase(config) {
 
 module.exports = function withIosNative(config) {
   config = withIosNativeSources(config);
-  config = withSceneDelegateInProject(config);
-  config = withPhoneSceneManifest(config);
+  config = withNativeSwiftInProject(config);
+  config = withSceneManifests(config);
   config = withDevelopmentTeam(config);
   config = withFixedBundlePhase(config);
   config = withCarplayEntitlement(config);
