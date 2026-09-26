@@ -86,3 +86,4 @@ scripts/test_email.py
 !/scripts/ios/build-ipa.sh
 /api/
 /docker/
+metadata/app-store/review-notes.md
