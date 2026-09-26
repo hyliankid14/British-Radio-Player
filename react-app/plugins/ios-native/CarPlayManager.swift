@@ -8,7 +8,6 @@ final class CarPlayManager: NSObject {
     static let shared = CarPlayManager()
 
     private weak var interfaceController: CPInterfaceController?
-    private weak var window: CPWindow?
     private var player: AVPlayer?
     private var currentStation: CarPlayStation?
     private var logoCache: [String: UIImage] = [:]
@@ -19,9 +18,8 @@ final class CarPlayManager: NSObject {
         super.init()
     }
 
-    func connect(interfaceController: CPInterfaceController, window: CPWindow) {
+    func connect(interfaceController: CPInterfaceController) {
         self.interfaceController = interfaceController
-        self.window = window
 
         if !isObservingUserDefaults {
             NotificationCenter.default.addObserver(
@@ -34,12 +32,11 @@ final class CarPlayManager: NSObject {
         }
 
         setupRemoteCommands()
-        refreshTemplates()
+        buildAndSetRootTemplate(animated: false)
     }
 
     func disconnect() {
         interfaceController = nil
-        window = nil
     }
 
     @objc private func handleUserDefaultsChange() {
@@ -80,7 +77,7 @@ final class CarPlayManager: NSObject {
         }
     }
 
-    func refreshTemplates() {
+    private func buildAndSetRootTemplate(animated: Bool) {
         guard let interfaceController = interfaceController else { return }
 
         let favStationIDs = UserDefaults.standard.stringArray(forKey: "favorite_station_ids") ?? []
@@ -91,7 +88,7 @@ final class CarPlayManager: NSObject {
         if favStations.isEmpty {
             let emptyItem = CPListItem(
                 text: "No favourite stations yet",
-                detailText: "Add favourite stations in British Radio Player on your iPhone"
+                detailText: "Add favourites in British Radio Player on your iPhone"
             )
             emptyItem.isEnabled = false
             favItems = [emptyItem]
@@ -131,14 +128,14 @@ final class CarPlayManager: NSObject {
         stationsTemplate.tabTitle = "Stations"
         stationsTemplate.tabImage = UIImage(systemName: "dot.radiowaves.left.and.right")
 
-        // 3. Now Playing tab
-        let nowPlayingTemplate = CPNowPlayingTemplate.shared
-        nowPlayingTemplate.tabTitle = "Now Playing"
-        nowPlayingTemplate.tabImage = UIImage(systemName: "play.circle.fill")
         updateNowPlayingButtons()
 
-        let root = CPTabBarTemplate(templates: [favTemplate, stationsTemplate, nowPlayingTemplate])
-        interfaceController.setRootTemplate(root, animated: true) { _, _ in }
+        let root = CPTabBarTemplate(templates: [favTemplate, stationsTemplate])
+        interfaceController.setRootTemplate(root, animated: animated, completion: nil)
+    }
+
+    func refreshTemplates() {
+        buildAndSetRootTemplate(animated: true)
     }
 
     func play(station: CarPlayStation) {
@@ -169,9 +166,6 @@ final class CarPlayManager: NSObject {
         newPlayer.play()
         updateNowPlayingInfo(isPlaying: true)
         updateNowPlayingButtons()
-
-        // Push Now Playing template so user sees the station screen immediately
-        interfaceController?.pushTemplate(CPNowPlayingTemplate.shared, animated: true) { _, _ in }
 
         // Asynchronously load artwork
         loadArtwork(for: station)
