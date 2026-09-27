@@ -5,11 +5,14 @@ import { Preferences } from "../storage/preferences";
 import { usePlayerStore } from "../store/playerStore";
 import { AutoBridge, AutoNativeEvent } from "./autoBridge";
 import { buildAutoSnapshot } from "./autoSnapshot";
+import { CarPlayBridge } from "./carPlayBridge";
 
 const SYNC_DEBOUNCE_MS = 400;
 const PROGRESS_SYNC_MIN_INTERVAL_MS = 30_000;
 const EPISODE_PREFETCH_CONCURRENCY = 3;
 const MAX_PREFETCH_PODCASTS = 40;
+/** How often the car's mutation queue is checked while the app is in the foreground. */
+const CARPLAY_MUTATION_POLL_MS = 2_000;
 
 /** Keys written very frequently during playback; syncing on each write is wasteful. */
 const HIGH_FREQUENCY_KEYS = new Set(["pref_episode_progress"]);
@@ -19,14 +22,20 @@ let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let changeSubscription: { remove: () => void } | null = null;
 let eventSubscription: { remove: () => void } | null = null;
 let appStateSubscription: { remove: () => void } | null = null;
+let carPlayPollTimer: ReturnType<typeof setInterval> | null = null;
 let syncing = false;
 let syncQueued = false;
 let prefetchRunning = false;
 let lastProgressSyncAtMs = 0;
 
-/** Pushes the current React state to the native Android Auto service. */
+/** True when either in-car surface has a native counterpart attached. */
+function hasNativeTarget(): boolean {
+  return AutoBridge.isAvailable() || CarPlayBridge.isAvailable();
+}
+
+/** Pushes the current React state to the native Android Auto and CarPlay surfaces. */
 export async function syncAutoState(includePodcastData = true): Promise<void> {
-  if (!AutoBridge.isAvailable()) return;
+  if (!hasNativeTarget()) return;
   if (syncing) {
     syncQueued = true;
     return;
@@ -36,9 +45,11 @@ export async function syncAutoState(includePodcastData = true): Promise<void> {
     const snapshot = await buildAutoSnapshot(includePodcastData);
     // Lets the native service avoid auto-resuming while the phone is already playing.
     snapshot.phonePlaybackActive = usePlayerStore.getState().isPlaying;
-    AutoBridge.syncState(JSON.stringify(snapshot));
+    const json = JSON.stringify(snapshot);
+    if (AutoBridge.isAvailable()) AutoBridge.syncState(json);
+    if (CarPlayBridge.isAvailable()) CarPlayBridge.syncState(json);
   } catch (error) {
-    console.warn("Android Auto sync failed:", error);
+    console.warn("In-car sync failed:", error);
   } finally {
     syncing = false;
     if (syncQueued) {
@@ -49,7 +60,7 @@ export async function syncAutoState(includePodcastData = true): Promise<void> {
 }
 
 function scheduleSync(changedKey?: string): void {
-  if (!AutoBridge.isAvailable()) return;
+  if (!hasNativeTarget()) return;
   if (changedKey && HIGH_FREQUENCY_KEYS.has(changedKey)) {
     const now = Date.now();
     if (now - lastProgressSyncAtMs < PROGRESS_SYNC_MIN_INTERVAL_MS) return;
@@ -124,7 +135,8 @@ function handleNativeEvent(event: AutoNativeEvent): void {
       break;
     }
 
-    case "episodePlayed": {      const episodeId = String(payload.episodeId || "");
+    case "episodePlayed": {
+      const episodeId = String(payload.episodeId || "");
       if (!episodeId) break;
       Preferences.markEpisodePlayed(
         episodeId,
@@ -256,32 +268,40 @@ async function prefetchSubscribedEpisodes(): Promise<void> {
 
 /** Applies mutations performed natively from the car (drained on startup). */
 function drainNativeMutations(): void {
-  if (!AutoBridge.isAvailable()) return;
-  let mutations: AutoNativeEvent[] = [];
-  try {
-    const parsed = JSON.parse(AutoBridge.drainMutations() || "[]");
-    if (Array.isArray(parsed)) {
-      mutations = parsed.map((entry) => ({
-        type: String(entry?.type || ""),
-        payload: typeof entry?.payload === "string" ? entry.payload : JSON.stringify(entry?.payload || {})
-      }));
+  if (AutoBridge.isAvailable()) {
+    let mutations: AutoNativeEvent[] = [];
+    try {
+      const parsed = JSON.parse(AutoBridge.drainMutations() || "[]");
+      if (Array.isArray(parsed)) {
+        mutations = parsed.map((entry) => ({
+          type: String(entry?.type || ""),
+          payload:
+            typeof entry?.payload === "string" ? entry.payload : JSON.stringify(entry?.payload || {})
+        }));
+      }
+    } catch {
+      // Fall through to the CarPlay queue.
     }
-  } catch {
-    return;
+    for (const mutation of mutations) {
+      if (mutation.type) handleNativeEvent(mutation);
+    }
   }
-  for (const mutation of mutations) {
-    if (mutation.type) handleNativeEvent(mutation);
+
+  if (CarPlayBridge.isAvailable()) {
+    for (const mutation of CarPlayBridge.drainMutations()) {
+      handleNativeEvent(mutation);
+    }
   }
 }
 
 /**
- * Initialises two-way sync with the Android Auto media service. Safe to call more
- * than once; subsequent calls are ignored.
+ * Initialises two-way sync with the Android Auto media service and the CarPlay scene.
+ * Safe to call more than once; subsequent calls are ignored.
  */
 export function initAutoSync(): void {
   if (initialised) return;
   initialised = true;
-  if (!AutoBridge.isAvailable()) return;
+  if (!hasNativeTarget()) return;
 
   drainNativeMutations();
 
@@ -294,6 +314,11 @@ export function initAutoSync(): void {
       void prefetchSubscribedEpisodes();
     }
   });
+  // CarPlay has no event channel, so the mutation queue is polled while the app runs.
+  // This is what surfaces car-side favourites, saves and playback in the phone UI.
+  if (CarPlayBridge.isAvailable()) {
+    carPlayPollTimer = setInterval(drainNativeMutations, CARPLAY_MUTATION_POLL_MS);
+  }
 
   // Push a stations-only snapshot immediately so the head unit is browsable without
   // waiting for the podcast catalogue, then follow up with the full snapshot.
@@ -305,9 +330,11 @@ export function disposeAutoSync(): void {
   changeSubscription?.remove();
   eventSubscription?.remove();
   appStateSubscription?.remove();
+  if (carPlayPollTimer) clearInterval(carPlayPollTimer);
   changeSubscription = null;
   eventSubscription = null;
   appStateSubscription = null;
+  carPlayPollTimer = null;
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = null;
   initialised = false;

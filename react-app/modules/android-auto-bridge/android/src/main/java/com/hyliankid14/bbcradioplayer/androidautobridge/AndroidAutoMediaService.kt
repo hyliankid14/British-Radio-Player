@@ -470,10 +470,11 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
 
   private fun resolveAudioUri(episode: JSONObject): String {
     val localPath = episode.optString("localFilePath", "")
-    if (localPath.isNotEmpty()) {
-      val file = File(localPath)
-      if (file.exists() && file.canRead()) return file.toURI().toString()
-    }
+    if (localPath.isEmpty()) return episode.optString("audioUrl", "")
+    // Downloads are exposed either as a filesystem path or as a content:// URI.
+    if (localPath.startsWith("content://")) return localPath
+    val file = File(localPath)
+    if (file.exists() && file.canRead()) return file.toURI().toString()
     return episode.optString("audioUrl", "")
   }
 
@@ -829,6 +830,17 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
       )
 
     if (kind == Kind.EPISODE) {
+      val episodeId = episodeJson?.optString("id").orEmpty()
+      if (episodeId.isNotEmpty()) {
+        val saved = AutoState.isEpisodeSaved(this, episodeId)
+        builder.addCustomAction(
+          PlaybackStateCompat.CustomAction.Builder(
+            CUSTOM_ACTION_TOGGLE_SAVED,
+            if (saved) "Remove from saved" else "Save episode",
+            if (saved) R.drawable.ic_bookmark else R.drawable.ic_bookmark_outline
+          ).build()
+        )
+      }
       val podcastId = episodeJson?.optString("podcastId").orEmpty().ifEmpty {
         findEpisode(episodeJson?.optString("id").orEmpty())?.optString("podcastId").orEmpty()
       }

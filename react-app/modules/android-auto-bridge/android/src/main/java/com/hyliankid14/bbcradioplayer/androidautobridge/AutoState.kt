@@ -297,12 +297,23 @@ object AutoState {
   /** True when the episode is in the "Saved Episodes" playlist. */
   fun isEpisodeSaved(context: Context, episodeId: String): Boolean {
     if (episodeId.isEmpty()) return false
-    return playlistEntries(context, "saved").any { it.optString("id") == episodeId }
+    val overlaid = overlay(context).optJSONArray("savedEntries")
+    val entries = if (overlaid != null) objectList(context, "savedEntries") else playlistEntries(context, "saved")
+    return entries.any { it.optString("id") == episodeId }
   }
 
-  /** Queues a save/unsave mutation for the JS layer to apply to the Saved Episodes playlist. */
+  /**
+   * Saves or unsaves an episode. The overlay is updated as well as queuing the mutation
+   * so the Saved Episodes list changes as soon as the head unit asks for it.
+   */
   fun toggleEpisodeSaved(context: Context, episodeJson: JSONObject?, saved: Boolean) {
     val entry = episodeJson ?: return
+    val episodeId = entry.optString("id")
+    if (episodeId.isEmpty()) return
+    val current = playlistEntries(context, "saved").toMutableList()
+    current.removeAll { it.optString("id") == episodeId }
+    if (saved) current.add(0, entry)
+    updateOverlay(context) { it.put("savedEntries", JSONArray(current)) }
     addMutation(
       context,
       "savedToggled",

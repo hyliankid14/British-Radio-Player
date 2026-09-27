@@ -42,18 +42,30 @@ export function MiniPlayer() {
   const subtitle = currentStation
     ? (currentShow ? formatShowDisplayTitle(currentShow) : "Radio")
     : (currentPodcast?.title || "BBC Podcast");
+  const [imageError, setImageError] = React.useState(false);
   const isSongPlaying = !isPodcast && !!(currentShow?.artist || currentShow?.track);
   const isOfficialLogo =
     !!currentStation &&
     (currentShow?.imageUrl === currentStation.logoUrl ||
       currentShow?.imageUrl?.includes("/services/") ||
-      currentShow?.imageUrl?.includes("blocks-colour-black"));
+      currentShow?.imageUrl?.includes("blocks-colour-black") ||
+      currentShow?.songImageUrl === currentStation.logoUrl ||
+      currentShow?.songImageUrl?.includes("/services/") ||
+      currentShow?.songImageUrl?.includes("blocks-colour-black"));
+
+  const rawSongArtwork = currentShow?.songImageUrl || currentShow?.rawImageUrl;
+  const songArtworkUrl =
+    isSongPlaying && rawSongArtwork && !isOfficialLogo
+      ? rawSongArtwork
+      : undefined;
 
   const artworkUrl = currentStation
-    ? isSongPlaying && currentShow?.imageUrl && !isOfficialLogo
-      ? currentShow.imageUrl
-      : undefined
+    ? songArtworkUrl
     : currentEpisode?.imageUrl || currentPodcast?.imageUrl;
+
+  React.useEffect(() => {
+    setImageError(false);
+  }, [currentStation?.id, artworkUrl]);
   // Tapping the mini player always opens the unified Now Playing screen, matching the
   // legacy Kotlin behaviour for both live radio and podcast playback.
   const openNowPlaying = () => {
@@ -193,11 +205,12 @@ export function MiniPlayer() {
         onPress={openNowPlaying}
         style={[styles.artworkContainer, { marginRight: isTablet ? 20 : 16 }]}
       >
-        {artworkUrl ? (
+        {artworkUrl && !imageError ? (
           <Image
             source={{ uri: artworkUrl }}
             style={{ width: artworkSize, height: artworkSize, borderRadius: 10 }}
             resizeMode="cover"
+            onError={() => setImageError(true)}
           />
         ) : currentStation ? (
           <StationLogo stationId={currentStation.id} size={artworkSize} borderRadius={10} />

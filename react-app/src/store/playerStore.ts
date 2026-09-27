@@ -7,6 +7,7 @@ import { useStationShowStore } from "./stationShowStore";
 import { Podcast, Episode, PodcastApi } from "../api/podcasts";
 import { ScrobbleManager } from "../audio/scrobbleManager";
 import { notifyNativePhonePlaybackStarted } from "../auto/autoBridge";
+import { notifyCarPlayPhonePlaybackStopped } from "../auto/carPlayBridge";
 import { getDownloadedUri } from "../downloads/downloadStore";
 import { getNetworkStatus } from "./networkStore";
 import { trackEpisodePlay, trackStationPlay } from "../analytics/analytics";
@@ -179,7 +180,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         Preferences.addRecentSong({
           artist: songArtist,
           track: songTrack,
-          imageUrl: show.rawImageUrl || show.imageUrl || station.logoUrl,
+          imageUrl: show.songImageUrl || show.rawImageUrl || "",
           stationId: station.id,
           stationName: station.title
         });
@@ -197,11 +198,12 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
           ? `${showTitle} - ${show.episodeTitle}`
           : showTitle);
 
+      const songArtwork = hasSong ? (show.songImageUrl || show.rawImageUrl) : undefined;
       await TrackPlayer.updateMetadataForTrack(0, {
         title: station.title,
         artist: subtitleText,
         album: showTitle,
-        artwork: (hasSong && show.imageUrl) ? show.imageUrl : (show.imageUrl || station.logoUrl)
+        artwork: songArtwork || station.logoUrl
       });
 
       // Poll show info every 5s (delayed RMS promotion triggers immediate refresh)
@@ -344,6 +346,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       resetStationRmsDelay();
       stopShowInfoInterval();
       ScrobbleManager.onPlaybackStopped();
+      notifyCarPlayPhonePlaybackStopped();
       await TrackPlayer.reset();
       set({
         currentStation: null,
@@ -567,7 +570,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         Preferences.addRecentSong({
           artist: songArtist,
           track: songTrack,
-          imageUrl: show.rawImageUrl || show.imageUrl || currentStation.logoUrl,
+          imageUrl: show.songImageUrl || show.rawImageUrl || "",
           stationId: currentStation.id,
           stationName: currentStation.title
         });
@@ -584,11 +587,12 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
             ? `${showTitle} - ${show.episodeTitle}`
             : showTitle);
 
+        const songArtwork = hasSong ? (show.songImageUrl || show.rawImageUrl) : undefined;
         await TrackPlayer.updateMetadataForTrack(0, {
           title: currentStation.title,
           artist: subtitleText,
           album: showTitle,
-          artwork: (hasSong && show.imageUrl) ? show.imageUrl : (show.imageUrl || currentStation.logoUrl)
+          artwork: songArtwork || currentStation.logoUrl
         });
       }
     }

@@ -78,3 +78,98 @@ test("ShowInfo - formatShowDisplayTitle", () => {
   };
   assert.equal(formatShowDisplayTitle(basicShow), "News at Ten");
 });
+
+test("Now Playing Artwork - fallback to station ident when song has no artwork", () => {
+  const station = StationRepository.getById("radio1")!;
+  assert.ok(station);
+
+  const resolveRadioArtwork = (
+    currentShow: { artist?: string; track?: string; songImageUrl?: string; rawImageUrl?: string; imageUrl?: string } | null,
+    stationLogoUrl: string
+  ): string | undefined => {
+    const isSongPlaying = !!(currentShow?.artist || currentShow?.track);
+    const isOfficialLogo =
+      (currentShow?.imageUrl === stationLogoUrl ||
+        currentShow?.imageUrl?.includes("/services/") ||
+        currentShow?.imageUrl?.includes("blocks-colour-black") ||
+        currentShow?.songImageUrl === stationLogoUrl ||
+        currentShow?.songImageUrl?.includes("/services/") ||
+        currentShow?.songImageUrl?.includes("blocks-colour-black"));
+
+    const rawSongArtwork = currentShow?.songImageUrl || currentShow?.rawImageUrl;
+    const songArtworkUrl =
+      isSongPlaying && rawSongArtwork && !isOfficialLogo
+        ? rawSongArtwork
+        : undefined;
+
+    return songArtworkUrl;
+  };
+
+  // Case 1: Song is playing with artwork -> use song artwork
+  const songWithArt = {
+    title: "Breakfast Show",
+    artist: "Dua Lipa",
+    track: "Levitating",
+    songImageUrl: "https://ichef.bbci.co.uk/images/ic/320x320/song123.jpg",
+    imageUrl: "https://ichef.bbci.co.uk/images/ic/320x320/song123.jpg"
+  };
+  assert.equal(
+    resolveRadioArtwork(songWithArt, station.logoUrl),
+    "https://ichef.bbci.co.uk/images/ic/320x320/song123.jpg"
+  );
+
+  // Case 2: Song is playing WITHOUT artwork -> falls back to undefined (rendering StationLogo ident)
+  // Even if an ESS schedule show image exists on the show object
+  const songWithoutArt = {
+    title: "Breakfast Show",
+    artist: "The Beatles",
+    track: "Hey Jude",
+    songImageUrl: undefined,
+    rawImageUrl: undefined,
+    imageUrl: undefined // showInfo clears imageUrl when song is playing without RMS artwork
+  };
+  assert.equal(
+    resolveRadioArtwork(songWithoutArt, station.logoUrl),
+    undefined,
+    "Should return undefined so component falls back to StationLogo ident"
+  );
+
+  // Case 3: Song without artwork but with ESS show banner -> must NOT use show banner, must fall back to station ident
+  const songWithEssShowImageOnly = {
+    title: "Radio 1 Dance Anthems",
+    artist: "Calvin Harris",
+    track: "Miracle",
+    songImageUrl: undefined,
+    rawImageUrl: undefined,
+    imageUrl: "https://ichef.bbci.co.uk/images/ic/320x320/p0showbanner.jpg"
+  };
+  assert.equal(
+    resolveRadioArtwork(songWithEssShowImageOnly, station.logoUrl),
+    undefined,
+    "Must not fall back to schedule/presenter image when song has no artwork"
+  );
+
+  // Case 4: Song with official BBC station logo as its image -> must reject and fall back to ident
+  const songWithOfficialLogo = {
+    title: "Late Night Beats",
+    artist: "Fred Again",
+    track: "Adore U",
+    songImageUrl: station.logoUrl
+  };
+  assert.equal(
+    resolveRadioArtwork(songWithOfficialLogo, station.logoUrl),
+    undefined,
+    "Must not use official logo; falls back to station ident"
+  );
+
+  // Case 5: No song playing (speech/talk show) -> falls back to station ident
+  const talkShow = {
+    title: "Radio 1 Newsbeat",
+    imageUrl: "https://ichef.bbci.co.uk/images/ic/320x320/p0newsbeat.jpg"
+  };
+  assert.equal(
+    resolveRadioArtwork(talkShow, station.logoUrl),
+    undefined,
+    "Speech/talk show with no song should return undefined to show station ident"
+  );
+});

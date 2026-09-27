@@ -17,6 +17,7 @@ export interface CurrentShow {
   rawArtist?: string;
   rawTrack?: string;
   rawImageUrl?: string;
+  songImageUrl?: string;
 }
 
 export interface ScheduleEntry {
@@ -343,7 +344,8 @@ export async function fetchShowInfo(stationId: string): Promise<CurrentShow> {
     artist,
     track,
     durationSec,
-    imageUrl: rmsImageUrl || essImageUrl,
+    songImageUrl: rmsImageUrl,
+    imageUrl: (artist || track) ? rmsImageUrl : (rmsImageUrl || essImageUrl),
     startTime,
     endTime,
     startTimeMs,

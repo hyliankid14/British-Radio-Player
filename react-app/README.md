@@ -188,11 +188,27 @@ podcast browser, search and downloads, which work globally. Also expect a questi
 
 CarPlay approval has been granted by Apple for `com.hyliankid14.bbcradioplayer` (`com.apple.developer.carplay-audio`).
 
-CarPlay support is enabled and built directly into the iOS target via `plugins/withIosNative.js` and `plugins/ios-native/`:
+CarPlay is at feature parity with Android Auto. Both surfaces are driven by the same
+catalogue snapshot (`buildAutoSnapshot` in `src/auto/autoSnapshot.ts`), so stations,
+favourites, subscriptions, episodes, playlists, downloads, history and preferences are
+identical on both platforms. Android Auto reads it through the `android-auto-bridge` Expo
+module; CarPlay reads it from `Caches/carplay/snapshot.json`, written by
+`src/auto/carPlayBridge.ts` with a revision counter in `NSUserDefaults` so the scene
+notices changes without shipping the payload through the React Native `Settings` bridge.
+
+CarPlay support is built directly into the iOS target via `plugins/withIosNative.js` and `plugins/ios-native/`:
 - **Scene configuration**: `CPTemplateApplicationSceneSessionRoleApplication` registered in `Info.plist` with `CarPlaySceneDelegate`.
-- **Interface**: `CPTabBarTemplate` with Favourites (`CPListTemplate`), Stations categorized into National, Nations & Regions, and Local Radio (`CPListTemplate`), and Now Playing (`CPNowPlayingTemplate.shared`).
-- **Audio & Controls**: Direct live stream playback via `AVPlayer` with `AVAudioSession` `.playback`, integrated with `MPNowPlayingInfoCenter` (displaying station title, "BBC Radio", live stream indicator, and station logo artwork) and `MPRemoteCommandCenter` (steering wheel play, pause, toggle).
-- **Favourites sync**: Automatically syncs favourite station IDs with the main app via `UserDefaults.standard` (`favorite_station_ids`).
+- **Interface**: `CPTabBarTemplate` with Favourites, Stations (National / Nations & Regions / Local Radio sections), Podcasts and Search.
+- **Station idents**: every station row and the now-playing screen use the generated ident from `CarPlayArtwork.swift` (a port of `AutoArtwork.kt`) instead of the official BBC logos.
+- **Podcasts**: Subscribed Podcasts, Browse by Tag, Playlists (including the built-in *Saved Episodes*), History, Downloaded Episodes and Random Podcast Episode, all drill-down lists with the same played / in-progress / new and download glyphs Android Auto uses.
+- **Playback**: `AVPlayer` with the same stream-candidate fallback ladder as `StationRepository.getStreamCandidates`, auto-resume on connect, and full episode support (resume position, mark played, autoplay next, 10s/30s skip).
+- **Now playing buttons**: add/remove favourite, save/unsave episode, subscribe/unsubscribe and stop.
+- **Two-way sync**: car-side changes are queued in `Caches/carplay/mutations.json` and reconciled by `src/auto/autoSync.ts`; the phone player notifies the car so the two never play at once.
+
+Source files: `CarPlayState.swift` (snapshot store), `CarPlayManager.swift` (templates and
+playback), `CarPlayArtwork.swift`, `CarPlayShowInfo.swift` (BBC ESS/RMS programme and song
+info), `CarPlayRss.swift`, `CarPlayAnalytics.swift`, `CarPlayStation.swift` and
+`CarPlayStationRepository.swift`.
 
 ## Run on the iOS simulator
 

@@ -51,6 +51,14 @@ test("resolveAppNavigation handles Last.fm auth links", () => {
   assert.equal(target.params.token, "auth-tok-123");
 });
 
+test("resolveAppNavigation handles new podcast episode notification URL", () => {
+  const target = resolveAppNavigation("/modal/podcast-detail?podcastId=p086w16s&episodeId=p086w200");
+  assert.ok(target);
+  assert.equal(target.pathname, "/modal/podcast-detail");
+  assert.equal(target.params.podcastId, "p086w16s");
+  assert.equal(target.params.episodeId, "p086w200");
+});
+
 test("resolveAppNavigation handles empty or invalid URLs safely", () => {
   assert.equal(resolveAppNavigation(""), null);
   assert.equal(resolveAppNavigation("   "), null);

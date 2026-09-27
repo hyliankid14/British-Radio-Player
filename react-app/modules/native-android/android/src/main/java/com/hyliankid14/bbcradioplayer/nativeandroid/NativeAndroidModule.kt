@@ -28,6 +28,10 @@ class NativeAndroidModule : Module() {
       instance = this@NativeAndroidModule
     }
 
+    OnNewIntent { intent ->
+      onNewIntent(intent)
+    }
+
     OnDestroy {
       if (instance === this@NativeAndroidModule) instance = null
     }

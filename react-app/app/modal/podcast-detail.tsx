@@ -322,9 +322,17 @@ export default function PodcastDetailModal() {
   );
 
   useEffect(() => {
+    if (params.podcastId && podcast?.id !== params.podcastId) {
+      const cached = PodcastApi.getEpisodesFromCache(params.podcastId);
+      setEpisodes(cached || []);
+      setIsLoadingEpisodes(!cached || cached.length === 0);
+    }
+  }, [params.podcastId]);
+
+  useEffect(() => {
     let mounted = true;
     async function loadData() {
-      let currentPod = podcast;
+      let currentPod = podcast?.id === params.podcastId ? podcast : null;
       if (!currentPod && params.podcastId) {
         const catalog = await PodcastApi.fetchLiveCatalog();
         currentPod = catalog.find((p) => p.id === params.podcastId) || null;

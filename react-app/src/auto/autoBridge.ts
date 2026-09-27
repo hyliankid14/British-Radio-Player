@@ -1,5 +1,7 @@
 import { Platform } from "react-native";
 
+import { notifyCarPlayPhonePlaybackStarted } from "./carPlayBridge";
+
 export interface AutoNativeEvent {
   type: string;
   payload: string;
@@ -34,7 +36,6 @@ function load(): AutoNativeBridge | null {
   }
   return bridge;
 }
-
 const noopSubscription = { remove: () => {} };
 
 /**
@@ -78,12 +79,17 @@ export const AutoBridge = {
   }
 };
 
-/** Tells the native Auto player that phone playback has started so it can yield. */
+/**
+ * Tells the in-car players that phone playback has started so they yield. Reaches the
+ * Android Auto service directly and the CarPlay scene through the shared defaults flag.
+ */
 export function notifyNativePhonePlaybackStarted(): void {
-  if (!load()) return;
-  try {
-    AutoBridge.notifyPhonePlaybackStarted();
-  } catch {
-    // The native service is not running.
+  if (load()) {
+    try {
+      AutoBridge.notifyPhonePlaybackStarted();
+    } catch {
+      // The native service is not running.
+    }
   }
+  notifyCarPlayPhonePlaybackStarted();
 }

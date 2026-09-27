@@ -4,7 +4,7 @@ import * as Linking from "expo-linking";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import TrackPlayer from "react-native-track-player";
-import { Alert, AppState, LogBox, Platform, Settings } from "react-native";
+import { Alert, AppState, LogBox } from "react-native";
 import { setupPlayer, playbackService } from "../src/audio/trackPlayerService";
 import { usePlayerStore } from "../src/store/playerStore";
 import { initAutoSync } from "../src/auto/autoSync";
@@ -41,33 +41,18 @@ TrackPlayer.registerPlaybackService(() => playbackService);
 // Convert any data left behind by the legacy Kotlin build before anything reads preferences.
 runLegacyMigration();
 
-// Keep the native Android Auto service in sync with the app's catalogue and state.
+// Keep the native Android Auto service and CarPlay scene in sync with the app's
+// catalogue and state.
 initAutoSync();
 
 // Sync favourites, subscriptions and progress with the Wear OS companion.
 initWearSync();
-
-// Sync favourites with the iOS CarPlay scene.
-if (Platform.OS === "ios") {
-  try {
-    Settings.set({ favorite_station_ids: Preferences.getFavorites() });
-  } catch {
-    // Ignore
-  }
-}
 
 // Re-push to the watch whenever preferences change, and reconfigure background sync when
 // subscription or refresh settings change.
 let backgroundSyncTimer: ReturnType<typeof setTimeout> | null = null;
 Preferences.onChanged((key) => {
   pushWearState();
-  if (Platform.OS === "ios" && key.includes("favorite")) {
-    try {
-      Settings.set({ favorite_station_ids: Preferences.getFavorites() });
-    } catch {
-      // Ignore
-    }
-  }
   if (key.includes("subscrib") || key.includes("refresh") || key.includes("wifi") || key.includes("notif")) {
     if (backgroundSyncTimer) clearTimeout(backgroundSyncTimer);
     backgroundSyncTimer = setTimeout(() => void syncBackgroundSync(), 1500);

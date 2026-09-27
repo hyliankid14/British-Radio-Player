@@ -3160,19 +3160,57 @@ class MainActivity : AppCompatActivity() {
         val episode = intent?.getParcelableExtraCompat<Episode>("open_episode", Episode::class.java) ?: return
         intent.removeExtra("open_episode")
         try {
-            val podcastTitle = intent.getStringExtra("open_podcast_title") ?: ""
-            val podcastImage = intent.getStringExtra("open_podcast_image") ?: ""
-            val openIntent = Intent(this, NowPlayingActivity::class.java).apply {
-                putExtra("preview_episode", episode)
-                putExtra("preview_use_play_ui", true)
-                putExtra("preview_podcast_title", podcastTitle)
-                putExtra("preview_podcast_image", podcastImage)
-                putExtra("initial_podcast_title", podcastTitle)
-                putExtra("initial_podcast_image", podcastImage)
+            val podcastId = episode.podcastId.ifBlank { intent.getStringExtra("open_podcast_id") ?: "" }
+            if (podcastId.isNotBlank()) {
+                val podcastIntent = Intent().apply {
+                    putExtra("open_podcast_id", podcastId)
+                }
+                handleOpenPodcastIntent(podcastIntent)
             }
-            startActivity(openIntent)
         } catch (e: Exception) {
             android.util.Log.e("MainActivity", "Error handling open episode notification intent", e)
+        }
+    }
+
+    private fun showPodcastDetail(
+        podcast: Podcast,
+        fromSchedule: Boolean = false,
+        scheduleStationId: String? = null,
+        scheduleStationTitle: String? = null,
+        fromFavorites: Boolean = false
+    ) {
+        // Show app bar so podcast title and back button are visible
+        supportActionBar?.show()
+
+        fragmentContainer.visibility = View.VISIBLE
+        staticContentContainer.visibility = View.GONE
+        // Ensure the main navigation reflects the Podcasts context
+        currentMode = "podcasts"
+        // Disable swipe navigation when leaving All Stations
+        disableSwipeNavigation()
+        // Programmatic selection should not trigger the bottom-nav listener
+        suppressBottomNavSelection = true
+        try { bottomNavigation.selectedItemId = R.id.navigation_podcasts } catch (_: Exception) { }
+        suppressBottomNavSelection = false
+        updateActionBarTitle()
+        // Hide the favourites toggle when showing a fragment/detail view
+        updateFavoritesToggleVisibility()
+        val detailFragment = PodcastDetailFragment().apply {
+            arguments = android.os.Bundle().apply {
+                putParcelable("podcast", podcast)
+                if (fromSchedule) {
+                    putString("back_context", "schedule")
+                    putString("back_context_station_id", scheduleStationId ?: "")
+                    putString("back_context_station_title", scheduleStationTitle ?: "")
+                } else if (fromFavorites) {
+                    putString("back_context", "favorites")
+                }
+            }
+        }
+        supportFragmentManager.beginTransaction().apply {
+            replace(R.id.fragment_container, detailFragment)
+            addToBackStack(null)
+            commit()
         }
     }
 
@@ -3202,6 +3240,15 @@ class MainActivity : AppCompatActivity() {
         } else if (fromFavorites) {
             returnToFavoritesOnBack = true
         }
+
+        val directPodcast = intent.getParcelableExtraCompat<Podcast>("open_podcast", Podcast::class.java)
+        if (directPodcast != null && directPodcast.id == podcastId) {
+            runOnUiThread {
+                showPodcastDetail(directPodcast, fromSchedule, scheduleStationId, scheduleStationTitle, fromFavorites)
+            }
+            return
+        }
+
         // Fetch podcasts and open the matching podcast detail when available
         val repo = PodcastRepository(this)
         Thread {
@@ -3209,39 +3256,7 @@ class MainActivity : AppCompatActivity() {
             val match = all.find { it.id == podcastId }
             if (match != null) {
                 runOnUiThread {
-                    // Show app bar so podcast title and back button are visible
-                    supportActionBar?.show()
-
-                    fragmentContainer.visibility = View.VISIBLE
-                    staticContentContainer.visibility = View.GONE
-                    // Ensure the main navigation reflects the Podcasts context
-                    currentMode = "podcasts"
-                    // Disable swipe navigation when leaving All Stations
-                    disableSwipeNavigation()
-                    // Programmatic selection should not trigger the bottom-nav listener
-                    suppressBottomNavSelection = true
-                    try { bottomNavigation.selectedItemId = R.id.navigation_podcasts } catch (_: Exception) { }
-                    suppressBottomNavSelection = false
-                    updateActionBarTitle()
-                    // Hide the favourites toggle when showing a fragment/detail view
-                    updateFavoritesToggleVisibility()
-                    val detailFragment = PodcastDetailFragment().apply {
-                        arguments = android.os.Bundle().apply {
-                            putParcelable("podcast", match)
-                            if (fromSchedule) {
-                                putString("back_context", "schedule")
-                                putString("back_context_station_id", scheduleStationId ?: "")
-                                putString("back_context_station_title", scheduleStationTitle ?: "")
-                            } else if (fromFavorites) {
-                                putString("back_context", "favorites")
-                            }
-                        }
-                    }
-                    supportFragmentManager.beginTransaction().apply {
-                        replace(R.id.fragment_container, detailFragment)
-                        addToBackStack(null)
-                        commit()
-                    }
+                    showPodcastDetail(match, fromSchedule, scheduleStationId, scheduleStationTitle, fromFavorites)
                 }
             } else {
                 runOnUiThread {

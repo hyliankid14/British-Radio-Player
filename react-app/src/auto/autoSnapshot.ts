@@ -1,7 +1,12 @@
 import { isAnalyticsEnabled } from "../analytics/analytics";
 import { Episode, Podcast, PodcastApi } from "../api/podcasts";
 import { AudioQuality, StationRepository } from "../data/stations";
-import { PodcastHistoryEntry, Preferences, SavedEpisodeEntry } from "../storage/preferences";
+import {
+  DownloadedEpisodeRecord,
+  PodcastHistoryEntry,
+  Preferences,
+  SavedEpisodeEntry
+} from "../storage/preferences";
 
 /** Episode shape consumed by the native Android Auto service. */
 export interface AutoEpisode {
@@ -26,6 +31,7 @@ interface AutoStation {
   streamServiceIds: string[];
   directStreamUrls: string[];
   logoUrl: string;
+  category: string;
 }
 
 interface AutoPodcast {
@@ -99,11 +105,25 @@ function sortEpisodes(episodes: Episode[], podcastId: string): Episode[] {
   });
 }
 
+/**
+ * Normalises a downloaded episode's URI into something both native players can open:
+ * a `content://` URI is passed through for Android, a `file://` URI becomes a plain
+ * filesystem path, and anything else is treated as a path already.
+ */
+function downloadedPathFor(episodeId: string, downloads: Record<string, DownloadedEpisodeRecord>): string {
+  const localUri = downloads[episodeId]?.localUri;
+  if (!localUri) return "";
+  if (localUri.startsWith("content://")) return localUri;
+  if (localUri.startsWith("file://")) return decodeURIComponent(localUri.slice("file://".length));
+  return localUri;
+}
+
 function toAutoEpisode(
   episode: Episode,
   podcastId: string,
   podcastTitle: string,
-  podcastImageUrl: string
+  podcastImageUrl: string,
+  downloads: Record<string, DownloadedEpisodeRecord>
 ): AutoEpisode {
   return {
     id: episode.id,
@@ -116,11 +136,15 @@ function toAutoEpisode(
     durationMins: episode.durationMins,
     podcastId,
     podcastTitle,
-    podcastImageUrl
+    podcastImageUrl,
+    localFilePath: downloadedPathFor(episode.id, downloads)
   };
 }
 
-function historyToAutoEpisode(entry: PodcastHistoryEntry): AutoEpisode {
+function historyToAutoEpisode(
+  entry: PodcastHistoryEntry,
+  downloads: Record<string, DownloadedEpisodeRecord>
+): AutoEpisode {
   return {
     id: entry.id,
     title: entry.title,
@@ -132,11 +156,15 @@ function historyToAutoEpisode(entry: PodcastHistoryEntry): AutoEpisode {
     durationMins: entry.durationMins,
     podcastId: entry.podcastId,
     podcastTitle: entry.podcastTitle,
-    podcastImageUrl: entry.imageUrl
+    podcastImageUrl: entry.imageUrl,
+    localFilePath: downloadedPathFor(entry.id, downloads)
   };
 }
 
-function savedToAutoEpisode(entry: SavedEpisodeEntry): AutoEpisode {
+function savedToAutoEpisode(
+  entry: SavedEpisodeEntry,
+  downloads: Record<string, DownloadedEpisodeRecord>
+): AutoEpisode {
   return {
     id: entry.id,
     title: entry.title,
@@ -148,7 +176,8 @@ function savedToAutoEpisode(entry: SavedEpisodeEntry): AutoEpisode {
     durationMins: entry.durationMins,
     podcastId: entry.podcastId,
     podcastTitle: entry.podcastTitle,
-    podcastImageUrl: entry.imageUrl
+    podcastImageUrl: entry.imageUrl,
+    localFilePath: downloadedPathFor(entry.id, downloads)
   };
 }
 
@@ -184,6 +213,7 @@ export async function buildAutoSnapshot(includePodcastData = true): Promise<Auto
   const catalogById = new Map(catalog.map((podcast) => [podcast.id, podcast]));
 
   const subscribedIds = Preferences.getSubscribedPodcasts();
+  const downloads = Preferences.getDownloadedEntries();
   const episodes: Record<string, AutoEpisode[]> = {};
   const podcastTags: Record<string, string[]> = {};
   const subscriptions: AutoPodcast[] = [];
@@ -217,7 +247,9 @@ export async function buildAutoSnapshot(includePodcastData = true): Promise<Auto
         const image = podcast?.imageUrl || findFallbackImage(podcastId);
         // Cap to 50 episodes to prevent Android Binder TransactionTooLargeException
         const sorted = sortEpisodes(cached, podcastId).slice(0, 50);
-        episodes[podcastId] = sorted.map((episode) => toAutoEpisode(episode, podcastId, title, image));
+        episodes[podcastId] = sorted.map((episode) =>
+          toAutoEpisode(episode, podcastId, title, image, downloads)
+        );
       }
     }
 
@@ -259,14 +291,14 @@ export async function buildAutoSnapshot(includePodcastData = true): Promise<Auto
       id: playlist.id,
       name: playlist.name,
       isDefault: false,
-      entries: (playlistEntryMap[playlist.id] || []).map(savedToAutoEpisode)
+      entries: (playlistEntryMap[playlist.id] || []).map((entry) => savedToAutoEpisode(entry, downloads))
     }));
   const savedEntries = Preferences.getPodcastPlaylistEntries("saved");
   playlists.unshift({
     id: "saved",
     name: "Saved Episodes",
     isDefault: true,
-    entries: savedEntries.map(savedToAutoEpisode)
+    entries: savedEntries.map((entry) => savedToAutoEpisode(entry, downloads))
   });
 
   const progressSeconds = Preferences.getMap("pref_episode_progress");
@@ -284,7 +316,8 @@ export async function buildAutoSnapshot(includePodcastData = true): Promise<Auto
       serviceId: station.serviceId,
       streamServiceIds: station.streamServiceIds,
       directStreamUrls: station.directStreamUrls,
-      logoUrl: station.logoUrl
+      logoUrl: station.logoUrl,
+      category: station.category
     })),
     favorites: Preferences.getFavorites(),
     audioQuality: Preferences.getAudioQuality(),
@@ -308,8 +341,10 @@ export async function buildAutoSnapshot(includePodcastData = true): Promise<Auto
     podcastTags,
     episodes,
     playlists,
-    downloads: Preferences.getPodcastPlaylistEntries("downloaded").map(savedToAutoEpisode),
-    history: Preferences.getPodcastHistory().map(historyToAutoEpisode),
+    downloads: Preferences.getPodcastPlaylistEntries("downloaded").map((entry) =>
+      savedToAutoEpisode(entry, downloads)
+    ),
+    history: Preferences.getPodcastHistory().map((entry) => historyToAutoEpisode(entry, downloads)),
     playedIds: Preferences.getPlayedEpisodeIds(),
     progress: progressMs,
     lastPlayedEpoch: Preferences.getMap("pref_last_played_epoch"),

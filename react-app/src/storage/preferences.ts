@@ -1,5 +1,4 @@
 import { createMMKV } from "react-native-mmkv";
-import { Platform, Settings } from "react-native";
 import { NativeAndroid } from "../native/nativeAndroid";
 import { AudioQuality } from "../data/stations";
 
@@ -318,13 +317,9 @@ export const Preferences = {
   setFavorites(stationIds: string[]): void {
     const normalised = Array.from(new Set(stationIds.filter(Boolean)));
     storage.set(KEYS.FAVORITES, JSON.stringify(normalised));
-    if (Platform.OS === "ios") {
-      try {
-        Settings.set({ favorite_station_ids: normalised });
-      } catch {
-        // Ignore in environments where Settings is unavailable
-      }
-    }
+    // Android Auto and CarPlay both read favourites from the shared auto snapshot, which
+    // `autoSync` pushes on every preference change, so no platform-specific write is
+    // needed here.
   },
 
   saveFavoritesOrder(orderedIds: string[]): void {

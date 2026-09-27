@@ -1,40 +1,11 @@
 // British Radio Player - Interactive Support Website Script
 
 document.addEventListener('DOMContentLoaded', () => {
-  initShowcaseSwitcher();
   initFaqAccordion();
   initLightbox();
   initMobileNav();
   initScrollSpy();
 });
-
-// Interactive Screenshot Showcase Switcher
-function initShowcaseSwitcher() {
-  const showcaseItems = document.querySelectorAll('.showcase-nav-item');
-  const showcaseImg = document.getElementById('showcase-image');
-
-  if (!showcaseItems.length || !showcaseImg) return;
-
-  showcaseItems.forEach(item => {
-    item.addEventListener('click', () => {
-      // Remove active from all
-      showcaseItems.forEach(i => i.classList.remove('active'));
-      item.classList.add('active');
-
-      const newSrc = item.getAttribute('data-src');
-      const newAlt = item.getAttribute('data-title');
-
-      if (newSrc && showcaseImg.src !== newSrc) {
-        showcaseImg.style.opacity = '0.3';
-        setTimeout(() => {
-          showcaseImg.src = newSrc;
-          showcaseImg.alt = newAlt || 'App Screenshot';
-          showcaseImg.style.opacity = '1';
-        }, 150);
-      }
-    });
-  });
-}
 
 // FAQ Accordion
 function initFaqAccordion() {
@@ -78,7 +49,7 @@ function initLightbox() {
 
   if (!modal || !modalImg) return;
 
-  // Open modal from gallery cards or showcase phone
+  // Open modal from gallery cards
   const clickableImages = document.querySelectorAll('[data-lightbox="true"]');
 
   clickableImages.forEach(elem => {

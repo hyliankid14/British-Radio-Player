@@ -204,13 +204,18 @@ export default function NowPlayingModal() {
     !!currentStation &&
     (currentShow?.imageUrl === currentStation.logoUrl ||
       currentShow?.imageUrl?.includes("/services/") ||
-      currentShow?.imageUrl?.includes("blocks-colour-black"));
+      currentShow?.imageUrl?.includes("blocks-colour-black") ||
+      currentShow?.songImageUrl === currentStation.logoUrl ||
+      currentShow?.songImageUrl?.includes("/services/") ||
+      currentShow?.songImageUrl?.includes("blocks-colour-black"));
 
-  // Only song artwork from RMS (not official station logos) should be used as image artwork for radio.
+  // Only song artwork from RMS (not official station logos or show images) should be used as image artwork for radio.
   // Custom station idents are used rather than official station logos.
+  // If the now playing song doesn't have artwork, fall back to the station ident.
+  const rawSongArtwork = currentShow?.songImageUrl || currentShow?.rawImageUrl;
   const songArtworkUrl =
-    isSongPlaying && currentShow?.imageUrl && !isOfficialLogo
-      ? currentShow.imageUrl
+    isSongPlaying && rawSongArtwork && !isOfficialLogo
+      ? rawSongArtwork
       : undefined;
 
   const artworkUrl = isPodcast
@@ -278,7 +283,7 @@ export default function NowPlayingModal() {
     let cancelled = false;
     const isDark = theme.background === "#1C1B1F";
     async function resolvePalette() {
-      if (hasCustomArtwork && artworkUrl) {
+      if (hasCustomArtwork && artworkUrl && !imageError) {
         const extracted = await NativeAndroid.extractPalette(artworkUrl, isDark);
         if (cancelled) return;
         if (extracted) {
@@ -301,7 +306,7 @@ export default function NowPlayingModal() {
     return () => {
       cancelled = true;
     };
-  }, [artworkUrl, hasCustomArtwork, isPodcast, currentStation?.id, activePodcast?.id, theme.background]);
+  }, [artworkUrl, hasCustomArtwork, imageError, isPodcast, currentStation?.id, activePodcast?.id, theme.background]);
 
   // Match the live radio show against the podcast catalogue for the "Open Podcast" action.
   React.useEffect(() => {

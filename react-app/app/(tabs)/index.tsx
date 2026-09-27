@@ -98,7 +98,7 @@ export default function AllStationsScreen() {
     Preferences.addRecentSong({
       artist: songArtist,
       track: songTrack,
-      imageUrl: (currentShow as any).rawImageUrl || currentShow.imageUrl || currentStation.logoUrl,
+      imageUrl: currentShow.songImageUrl || (currentShow as any).rawImageUrl || "",
       stationId: currentStation.id,
       stationName: currentStation.title
     });
