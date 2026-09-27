@@ -100,13 +100,42 @@ export function resetStationRmsDelay(stationId?: string) {
   }
 }
 
+/**
+ * Returns true if an artwork URL is empty, a generic BBC placeholder, or a solid grey placeholder.
+ * BBC RMS commonly returns "p0bqcdzf" as a solid grey square when no song artwork exists.
+ */
+export function isPlaceholderArtwork(url?: string, stationLogoUrl?: string): boolean {
+  if (!url || typeof url !== "string") return true;
+  const trimmed = url.trim();
+  if (!trimmed || !trimmed.startsWith("http")) return true;
+  const lower = trimmed.toLowerCase();
+  if (
+    lower.includes("p0bqcdzf") ||
+    lower.includes("p01tqv8z") ||
+    lower.includes("default") ||
+    lower.includes("placeholder")
+  ) {
+    return true;
+  }
+  if (
+    stationLogoUrl &&
+    (trimmed === stationLogoUrl ||
+      lower.includes("blocks-colour-black") ||
+      lower.includes("/services/"))
+  ) {
+    return true;
+  }
+  return false;
+}
+
 export function resolveDelayedRmsTrack(
   stationId: string,
   rawArtist?: string,
   rawTrack?: string,
   rawImageUrl?: string,
   durationOrNow?: number,
-  nowArg?: number
+  nowArg?: number,
+  skipDelay: boolean = false
 ): RmsTrackData {
   let rawDurationSec: number | undefined;
   let now: number;
@@ -124,6 +153,21 @@ export function resolveDelayedRmsTrack(
 
   const rawKey = `${rawArtist || ""}__${rawTrack || ""}__${rawImageUrl || ""}__${rawDurationSec || 0}`;
   let state = stationRmsDelayMap.get(stationId);
+
+  if (skipDelay) {
+    if (state?.timer) clearTimeout(state.timer);
+    const immediate: RmsTrackData = {
+      artist: rawArtist,
+      track: rawTrack,
+      imageUrl: rawImageUrl,
+      durationSec: rawDurationSec
+    };
+    stationRmsDelayMap.set(stationId, {
+      applied: immediate,
+      lastRawKey: rawKey
+    });
+    return immediate;
+  }
 
   if (!state) {
     const initial: RmsTrackData = {
@@ -177,7 +221,7 @@ export function resolveDelayedRmsTrack(
   return state.applied;
 }
 
-export async function fetchShowInfo(stationId: string): Promise<CurrentShow> {
+export async function fetchShowInfo(stationId: string, skipDelay: boolean = false): Promise<CurrentShow> {
   const station = StationRepository.getById(stationId);
   if (!station) return { title: "BBC Radio" };
 
@@ -187,12 +231,17 @@ export async function fetchShowInfo(stationId: string): Promise<CurrentShow> {
   let rawRmsImageUrl: string | undefined;
   let rawDurationSec: number | undefined;
 
-  // 1. Fetch live song/segment from RMS API. Only a currently-playing music segment
-  // supplies artist/song details; speech, news, or a finished song fall back to the
-  // programme (show) details from the schedule below.
+  // 1. Fetch live song/segment from RMS API immediately with cache-busting headers.
+  // Only a currently-playing music segment supplies artist/song details; speech, news,
+  // or a finished song fall back to the programme (show) details from the schedule below.
   try {
     const rmsRes = await fetch(`https://rms.api.bbc.co.uk/v2/services/${serviceId}/segments/latest?t=${Date.now()}`, {
-      headers: { "User-Agent": "BritishRadioPlayer/1.0" }
+      headers: {
+        "User-Agent": "BritishRadioPlayer/1.0",
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache"
+      },
+      cache: "no-store"
     });
     if (rmsRes.ok) {
       const data = await rmsRes.json();
@@ -218,8 +267,7 @@ export async function fetchShowInfo(stationId: string): Promise<CurrentShow> {
         const imgTemplate = segment.image_url;
         if (
           imgTemplate &&
-          !imgTemplate.toLowerCase().includes("default") &&
-          !imgTemplate.toLowerCase().includes("p01tqv8z")
+          !isPlaceholderArtwork(imgTemplate, station.logoUrl)
         ) {
           rawRmsImageUrl = imgTemplate.replace("{recipe}", "320x320");
         }
@@ -229,8 +277,17 @@ export async function fetchShowInfo(stationId: string): Promise<CurrentShow> {
     // Non-critical, RMS segment might be absent or 404
   }
 
-  // Delay RMS track/artist/artwork updates by 20 seconds to match the audio stream buffer latency
-  const delayedRms = resolveDelayedRmsTrack(stationId, rawArtist, rawTrack, rawRmsImageUrl, rawDurationSec);
+  // Delay RMS track/artist/artwork updates by 20 seconds to match the audio stream buffer latency,
+  // or apply immediately when tuning in (skipDelay=true).
+  const delayedRms = resolveDelayedRmsTrack(
+    stationId,
+    rawArtist,
+    rawTrack,
+    rawRmsImageUrl,
+    rawDurationSec,
+    undefined,
+    skipDelay
+  );
   const artist = delayedRms.artist;
   const track = delayedRms.track;
   const rmsImageUrl = delayedRms.imageUrl;

@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Image } fr
 import { useRouter } from "expo-router";
 import { MaterialIcons } from "@expo/vector-icons";
 import { usePlayerStore } from "../store/playerStore";
-import { formatShowDisplayTitle } from "../api/showInfo";
+import { formatShowDisplayTitle, isPlaceholderArtwork } from "../api/showInfo";
 import { StationLogo } from "./StationLogo";
 import { useAppTheme } from "../theme/colors";
 import { Preferences } from "../storage/preferences";
@@ -55,7 +55,7 @@ export function MiniPlayer() {
 
   const rawSongArtwork = currentShow?.songImageUrl || currentShow?.rawImageUrl;
   const songArtworkUrl =
-    isSongPlaying && rawSongArtwork && !isOfficialLogo
+    isSongPlaying && rawSongArtwork && !isOfficialLogo && !isPlaceholderArtwork(rawSongArtwork, currentStation?.logoUrl)
       ? rawSongArtwork
       : undefined;
 

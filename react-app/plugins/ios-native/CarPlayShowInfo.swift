@@ -241,7 +241,8 @@ final class CarPlayShowInfo {
 
         let template = (segment["image_url"] as? String) ?? ""
         if !template.isEmpty, !template.lowercased().contains("default"),
-            !template.lowercased().contains("p01tqv8z") {
+            !template.lowercased().contains("p01tqv8z"),
+            !template.lowercased().contains("p0bqcdzf") {
             song.artworkUrl = template.replacingOccurrences(of: "{recipe}", with: "640x640")
         }
         return song

@@ -497,7 +497,8 @@ object ShowInfoFetcher {
                 if (unescapedUrl.isNotEmpty() && 
                     unescapedUrl.startsWith("http") && 
                     !unescapedUrl.contains("default", ignoreCase = true) &&
-                    !unescapedUrl.contains("p01tqv8z", ignoreCase = true)) {
+                    !unescapedUrl.contains("p01tqv8z", ignoreCase = true) &&
+                    !unescapedUrl.contains("p0bqcdzf", ignoreCase = true)) {
                     imageUrl = unescapedUrl
                 }
             }

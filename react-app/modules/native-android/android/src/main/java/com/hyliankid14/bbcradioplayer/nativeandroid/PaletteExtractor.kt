@@ -17,8 +17,14 @@ object PaletteExtractor {
   /** Downloads [imageUrl] and returns the derived colour set, or "{}" on failure. */
   fun extract(imageUrl: String, isDarkMode: Boolean): JSONObject {
     if (imageUrl.isBlank()) return JSONObject()
+    if (isPlaceholderUrl(imageUrl)) {
+      return JSONObject().apply { put("isPlaceholder", true) }
+    }
     val bitmap = downloadBitmap(imageUrl) ?: return JSONObject()
     return try {
+      if (isPlaceholderBitmap(bitmap)) {
+        return JSONObject().apply { put("isPlaceholder", true) }
+      }
       val palette = Palette.from(bitmap).generate()
       val dominant = if (isDarkMode) {
         palette.darkMutedSwatch?.rgb
@@ -35,6 +41,48 @@ object PaletteExtractor {
     } finally {
       bitmap.recycle()
     }
+  }
+
+  private fun isPlaceholderUrl(url: String): Boolean {
+    val lower = url.lowercase()
+    return lower.contains("p0bqcdzf") ||
+           lower.contains("p01tqv8z") ||
+           lower.contains("default") ||
+           lower.contains("placeholder")
+  }
+
+  private fun isPlaceholderBitmap(bitmap: Bitmap): Boolean {
+    val width = bitmap.width
+    val height = bitmap.height
+    if (width <= 0 || height <= 0) return true
+
+    val samplePoints = listOf(
+      Pair(width / 2, height / 2),
+      Pair(width / 4, height / 4),
+      Pair(3 * width / 4, height / 4),
+      Pair(width / 4, 3 * height / 4),
+      Pair(3 * width / 4, 3 * height / 4),
+      Pair(width / 2, height / 4),
+      Pair(width / 2, 3 * height / 4)
+    )
+
+    val firstPixel = bitmap.getPixel(samplePoints[0].first, samplePoints[0].second)
+    val firstR = Color.red(firstPixel)
+    val firstG = Color.green(firstPixel)
+    val firstB = Color.blue(firstPixel)
+
+    // Check if the sampled pixel is grey (R, G, B channels very close to each other)
+    val isGrey = Math.abs(firstR - firstG) <= 6 && Math.abs(firstR - firstB) <= 6
+
+    // Check if all samples are virtually identical to firstPixel
+    val isUniform = samplePoints.all { (x, y) ->
+      val p = bitmap.getPixel(x, y)
+      Math.abs(Color.red(p) - firstR) <= 6 &&
+      Math.abs(Color.green(p) - firstG) <= 6 &&
+      Math.abs(Color.blue(p) - firstB) <= 6
+    }
+
+    return isUniform && isGrey
   }
 
   private fun derive(dominantColor: Int, isDarkMode: Boolean): JSONObject {

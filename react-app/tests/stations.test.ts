@@ -7,7 +7,7 @@ import {
   getStreamCandidates,
   getStationUri
 } from "../src/data/stations.ts";
-import { formatShowDisplayTitle } from "../src/api/showInfo.ts";
+import { formatShowDisplayTitle, isPlaceholderArtwork } from "../src/api/showInfo.ts";
 
 test("StationRepository - catalogue integrity", () => {
   const stations = StationRepository.getAll();
@@ -88,17 +88,9 @@ test("Now Playing Artwork - fallback to station ident when song has no artwork",
     stationLogoUrl: string
   ): string | undefined => {
     const isSongPlaying = !!(currentShow?.artist || currentShow?.track);
-    const isOfficialLogo =
-      (currentShow?.imageUrl === stationLogoUrl ||
-        currentShow?.imageUrl?.includes("/services/") ||
-        currentShow?.imageUrl?.includes("blocks-colour-black") ||
-        currentShow?.songImageUrl === stationLogoUrl ||
-        currentShow?.songImageUrl?.includes("/services/") ||
-        currentShow?.songImageUrl?.includes("blocks-colour-black"));
-
     const rawSongArtwork = currentShow?.songImageUrl || currentShow?.rawImageUrl;
     const songArtworkUrl =
-      isSongPlaying && rawSongArtwork && !isOfficialLogo
+      isSongPlaying && rawSongArtwork && !isPlaceholderArtwork(rawSongArtwork, stationLogoUrl)
         ? rawSongArtwork
         : undefined;
 
@@ -172,4 +164,45 @@ test("Now Playing Artwork - fallback to station ident when song has no artwork",
     undefined,
     "Speech/talk show with no song should return undefined to show station ident"
   );
+
+  // Case 6: Song with solid grey placeholder image PID p0bqcdzf -> must fall back to station ident
+  const songWithGreyPlaceholder = {
+    title: "The Official Chart",
+    artist: "Charli XCX",
+    track: "Apple",
+    songImageUrl: "https://ichef.bbci.co.uk/images/ic/320x320/p0bqcdzf.jpg"
+  };
+  assert.equal(
+    resolveRadioArtwork(songWithGreyPlaceholder, station.logoUrl),
+    undefined,
+    "Solid grey placeholder p0bqcdzf must be rejected so station ident is used"
+  );
+});
+
+test("isPlaceholderArtwork - correctly filters placeholder and logo URLs", () => {
+  const stationLogo = "https://sounds.files.bbci.co.uk/3.6.4/networks/bbc_radio_one/colour_default.svg";
+
+  // Solid grey placeholder image PID returned by BBC RMS
+  assert.equal(isPlaceholderArtwork("https://ichef.bbci.co.uk/images/ic/320x320/p0bqcdzf.jpg"), true);
+  assert.equal(isPlaceholderArtwork("https://ichef.bbci.co.uk/images/ic/640x640/p0bqcdzf.jpg"), true);
+
+  // Generic BBC placeholders
+  assert.equal(isPlaceholderArtwork("https://ichef.bbci.co.uk/images/ic/320x320/p01tqv8z.jpg"), true);
+  assert.equal(isPlaceholderArtwork("https://ichef.bbci.co.uk/images/ic/320x320/default.jpg"), true);
+  assert.equal(isPlaceholderArtwork("https://ichef.bbci.co.uk/images/ic/placeholder.png"), true);
+
+  // Empty / invalid
+  assert.equal(isPlaceholderArtwork(undefined), true);
+  assert.equal(isPlaceholderArtwork(""), true);
+  assert.equal(isPlaceholderArtwork("   "), true);
+  assert.equal(isPlaceholderArtwork("not-a-url"), true);
+
+  // Station logos
+  assert.equal(isPlaceholderArtwork(stationLogo, stationLogo), true);
+  assert.equal(isPlaceholderArtwork("https://ichef.bbci.co.uk/images/ic/320x320/blocks-colour-black.png", stationLogo), true);
+  assert.equal(isPlaceholderArtwork("https://ichef.bbci.co.uk/services/radio1/logo.png", stationLogo), true);
+
+  // Valid album artwork
+  assert.equal(isPlaceholderArtwork("https://ichef.bbci.co.uk/images/ic/320x320/p0customalbum123.jpg", stationLogo), false);
+  assert.equal(isPlaceholderArtwork("https://lastfm.freetls.fastly.net/i/u/300x300/abc12345.jpg", stationLogo), false);
 });

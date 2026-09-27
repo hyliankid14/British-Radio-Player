@@ -15,7 +15,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import TrackPlayer from "react-native-track-player";
 import { MaterialIcons } from "@expo/vector-icons";
 import { usePlayerStore } from "../../src/store/playerStore";
-import { formatShowDisplayTitle } from "../../src/api/showInfo";
+import { formatShowDisplayTitle, isPlaceholderArtwork } from "../../src/api/showInfo";
 import { StationRepository } from "../../src/data/stations";
 import { Podcast, Episode, PodcastApi, decodeXmlEntities } from "../../src/api/podcasts";
 import { useAppTheme } from "../../src/theme/colors";
@@ -214,7 +214,7 @@ export default function NowPlayingModal() {
   // If the now playing song doesn't have artwork, fall back to the station ident.
   const rawSongArtwork = currentShow?.songImageUrl || currentShow?.rawImageUrl;
   const songArtworkUrl =
-    isSongPlaying && rawSongArtwork && !isOfficialLogo
+    isSongPlaying && rawSongArtwork && !isOfficialLogo && !isPlaceholderArtwork(rawSongArtwork, currentStation?.logoUrl)
       ? rawSongArtwork
       : undefined;
 
@@ -286,7 +286,11 @@ export default function NowPlayingModal() {
       if (hasCustomArtwork && artworkUrl && !imageError) {
         const extracted = await NativeAndroid.extractPalette(artworkUrl, isDark);
         if (cancelled) return;
-        if (extracted) {
+        if (extracted && "isPlaceholder" in extracted && extracted.isPlaceholder) {
+          setImageError(true);
+          return;
+        }
+        if (extracted && "subtle" in extracted) {
           setPalette({
             subtle: extracted.subtle,
             buttonOutline: extracted.buttonOutline,
@@ -307,6 +311,13 @@ export default function NowPlayingModal() {
       cancelled = true;
     };
   }, [artworkUrl, hasCustomArtwork, imageError, isPodcast, currentStation?.id, activePodcast?.id, theme.background]);
+
+  // Query RMS immediately on mount or station switch to ensure fresh song details without stale cache
+  React.useEffect(() => {
+    if (currentStation) {
+      void usePlayerStore.getState().refreshShowInfo(true);
+    }
+  }, [currentStation?.id]);
 
   // Match the live radio show against the podcast catalogue for the "Open Podcast" action.
   React.useEffect(() => {

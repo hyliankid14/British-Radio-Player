@@ -2,7 +2,7 @@ import { create } from "zustand";
 import TrackPlayer, { State, TrackType } from "react-native-track-player";
 import { Station, StationRepository, AudioQuality, getStreamCandidates } from "../data/stations";
 import { Preferences } from "../storage/preferences";
-import { CurrentShow, fetchShowInfo, onRmsDelayedUpdate, resetStationRmsDelay } from "../api/showInfo";
+import { CurrentShow, fetchShowInfo, onRmsDelayedUpdate, resetStationRmsDelay, isPlaceholderArtwork } from "../api/showInfo";
 import { useStationShowStore } from "./stationShowStore";
 import { Podcast, Episode, PodcastApi } from "../api/podcasts";
 import { ScrobbleManager } from "../audio/scrobbleManager";
@@ -37,7 +37,7 @@ interface PlayerState {
   setAudioQuality: (quality: AudioQuality) => Promise<void>;
   toggleFavorite: (stationId: string) => void;
   setFavoritesOrder: (orderedIds: string[]) => void;
-  refreshShowInfo: () => Promise<void>;
+  refreshShowInfo: (skipDelay?: boolean) => Promise<void>;
   playNext: () => Promise<void>;
   playPrevious: () => Promise<void>;
   handleEpisodeProgress: (positionSeconds: number, durationSeconds: number) => void;
@@ -132,6 +132,53 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     });
     Preferences.setLastStationId(station.id);
 
+    // Query RMS immediately on station launch without waiting for audio stream setup
+    const initialShowPromise = fetchShowInfo(station.id, true)
+      .then((show) => {
+        if (usePlayerStore.getState().currentStation?.id === station.id) {
+          set({ currentShow: show });
+          if (show.title && show.title !== "BBC Radio") {
+            useStationShowStore.getState().updateShow(station.id, {
+              title: show.title,
+              episodeTitle: show.episodeTitle,
+              startTimeMs: show.startTimeMs,
+              endTimeMs: show.endTimeMs,
+              nextShowTitle: show.nextShowTitle,
+              imageUrl: show.imageUrl
+            });
+          }
+          if (show.artist || show.track) {
+            ScrobbleManager.onTrackStarted(
+              show.artist || "",
+              show.track || "",
+              station.title,
+              show.durationSec || 0,
+              false
+            );
+          } else {
+            ScrobbleManager.onNoTrackPlaying();
+          }
+          const songArtist = show.rawArtist || show.artist || "";
+          const songTrack = show.rawTrack || show.track || "";
+          if (songArtist || songTrack) {
+            const rawArt = show.songImageUrl || show.rawImageUrl;
+            const songArt = rawArt && !isPlaceholderArtwork(rawArt, station.logoUrl) ? rawArt : "";
+            Preferences.addRecentSong({
+              artist: songArtist,
+              track: songTrack,
+              imageUrl: songArt,
+              stationId: station.id,
+              stationName: station.title
+            });
+          }
+        }
+        return show;
+      })
+      .catch((err) => {
+        console.warn("Immediate show info fetch failed:", err);
+        return null;
+      });
+
     try {
       ScrobbleManager.onPlaybackStopped();
       await TrackPlayer.reset();
@@ -149,9 +196,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       notifyNativePhonePlaybackStarted();
       void trackStationPlay(station.id, station.title);
 
-      // Fetch show info immediately (reset delay state so tune-in displays immediately)
-      resetStationRmsDelay(station.id);
-      const show = await fetchShowInfo(station.id);
+      // Await immediate show fetch or fetch fresh
+      const show = (await initialShowPromise) || (await fetchShowInfo(station.id, true));
       set({ currentShow: show });
       if (show.title && show.title !== "BBC Radio") {
         useStationShowStore.getState().updateShow(station.id, {
@@ -177,10 +223,12 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       const songArtist = show.rawArtist || show.artist || "";
       const songTrack = show.rawTrack || show.track || "";
       if (songArtist || songTrack) {
+        const rawArt = show.songImageUrl || show.rawImageUrl;
+        const songArt = rawArt && !isPlaceholderArtwork(rawArt, station.logoUrl) ? rawArt : "";
         Preferences.addRecentSong({
           artist: songArtist,
           track: songTrack,
-          imageUrl: show.songImageUrl || show.rawImageUrl || "",
+          imageUrl: songArt,
           stationId: station.id,
           stationName: station.title
         });
@@ -198,7 +246,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
           ? `${showTitle} - ${show.episodeTitle}`
           : showTitle);
 
-      const songArtwork = hasSong ? (show.songImageUrl || show.rawImageUrl) : undefined;
+      const rawArt = show.songImageUrl || show.rawImageUrl;
+      const songArtwork = hasSong && rawArt && !isPlaceholderArtwork(rawArt, station.logoUrl)
+        ? rawArt
+        : undefined;
+
       await TrackPlayer.updateMetadataForTrack(0, {
         title: station.title,
         artist: subtitleText,
@@ -538,10 +590,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     if (next) await get().playEpisode(currentPodcast, next);
   },
 
-  refreshShowInfo: async () => {
+  refreshShowInfo: async (skipDelay: boolean = false) => {
     const { currentStation, isPlaying } = get();
     if (currentStation) {
-      const show = await fetchShowInfo(currentStation.id);
+      const show = await fetchShowInfo(currentStation.id, skipDelay);
       set({ currentShow: show });
       if (show.title && show.title !== "BBC Radio") {
         useStationShowStore.getState().updateShow(currentStation.id, {
@@ -567,10 +619,12 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       const songArtist = show.rawArtist || show.artist || "";
       const songTrack = show.rawTrack || show.track || "";
       if (songArtist || songTrack) {
+        const rawArt = show.songImageUrl || show.rawImageUrl;
+        const songArt = rawArt && !isPlaceholderArtwork(rawArt, currentStation.logoUrl) ? rawArt : "";
         Preferences.addRecentSong({
           artist: songArtist,
           track: songTrack,
-          imageUrl: show.songImageUrl || show.rawImageUrl || "",
+          imageUrl: songArt,
           stationId: currentStation.id,
           stationName: currentStation.title
         });
@@ -587,7 +641,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
             ? `${showTitle} - ${show.episodeTitle}`
             : showTitle);
 
-        const songArtwork = hasSong ? (show.songImageUrl || show.rawImageUrl) : undefined;
+        const rawArt = show.songImageUrl || show.rawImageUrl;
+        const songArtwork = hasSong && rawArt && !isPlaceholderArtwork(rawArt, currentStation.logoUrl)
+          ? rawArt
+          : undefined;
+
         await TrackPlayer.updateMetadataForTrack(0, {
           title: currentStation.title,
           artist: subtitleText,

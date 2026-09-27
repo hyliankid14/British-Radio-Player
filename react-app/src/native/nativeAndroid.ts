@@ -77,6 +77,9 @@ export interface ArtworkPalette {
   isLight: boolean;
 }
 
+export type ExtractPaletteResult = ArtworkPalette | { isPlaceholder: true };
+
+
 let bridge: NativeAndroidBridge | null = null;
 let loaded = false;
 
@@ -147,14 +150,16 @@ export const NativeAndroid = {
   },
 
   /** Extracts the adaptive palette from artwork; resolves to null when unavailable. */
-  async extractPalette(imageUrl: string, isDarkMode: boolean): Promise<ArtworkPalette | null> {
+  async extractPalette(imageUrl: string, isDarkMode: boolean): Promise<ExtractPaletteResult | null> {
     if (!imageUrl) return null;
     try {
       const bridge = load();
       if (!bridge) return null;
       const raw = await bridge.extractPalette(imageUrl, isDarkMode);
       const parsed = JSON.parse(raw || "{}");
-      if (!parsed || typeof parsed !== "object" || !parsed.subtle) return null;
+      if (!parsed || typeof parsed !== "object") return null;
+      if (parsed.isPlaceholder) return { isPlaceholder: true };
+      if (!parsed.subtle) return null;
       return parsed as ArtworkPalette;
     } catch {
       return null;

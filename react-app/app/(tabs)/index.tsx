@@ -23,6 +23,7 @@ import { Preferences } from "../../src/storage/preferences";
 import { OfflineBanner, VpnBanner } from "../../src/components/NetworkBanners";
 import { formatSongPlayedAt } from "../../src/utils/dateUtils";
 import { useNow } from "../../src/hooks/useNow";
+import { isPlaceholderArtwork } from "../../src/api/showInfo";
 
 type SubCategoryTab = "National" | "Regions" | "Local" | "Songs";
 
@@ -95,10 +96,12 @@ export default function AllStationsScreen() {
     const songArtist = (currentShow as any).rawArtist || currentShow.artist || "";
     const songTrack = (currentShow as any).rawTrack || currentShow.track || "";
     if (!songArtist && !songTrack) return;
+    const rawArt = currentShow.songImageUrl || (currentShow as any).rawImageUrl;
+    const songArt = rawArt && !isPlaceholderArtwork(rawArt, currentStation.logoUrl) ? rawArt : "";
     Preferences.addRecentSong({
       artist: songArtist,
       track: songTrack,
-      imageUrl: currentShow.songImageUrl || (currentShow as any).rawImageUrl || "",
+      imageUrl: songArt,
       stationId: currentStation.id,
       stationName: currentStation.title
     });
