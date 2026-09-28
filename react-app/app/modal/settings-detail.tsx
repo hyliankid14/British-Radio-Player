@@ -29,7 +29,14 @@ import { NativeAndroid } from "../../src/native/nativeAndroid";
 import { LastFmApi } from "../../src/api/lastfm";
 import { useDownloadStore } from "../../src/downloads/downloadStore";
 import { pruneDownloads } from "../../src/downloads/downloadCleanup";
-import { MAX_DOWNLOADS_OPTIONS, MAX_DOWNLOADS_PREF_KEY, normaliseMaxDownloads } from "../../src/downloads/downloadLimits";
+import {
+  AUTO_DOWNLOAD_LIMIT_OPTIONS,
+  AUTO_DOWNLOAD_LIMIT_PREF_KEY,
+  MAX_DOWNLOADS_OPTIONS,
+  MAX_DOWNLOADS_PREF_KEY,
+  normaliseAutoDownloadLimit,
+  normaliseMaxDownloads
+} from "../../src/downloads/downloadLimits";
 import { openDownloadsFolder } from "../../src/downloads/openDownloads";
 import { fetchIndexStatus, IndexStatus } from "../../src/podcasts/indexStatus";
 import {
@@ -121,7 +128,7 @@ const REFRESH_OPTIONS: DropdownOption<number>[] = [0, 15, 30, 60, 120, 360, 720,
   })
 );
 
-const DOWNLOAD_LIMIT_OPTIONS: DropdownOption<number>[] = [1, 2, 3, 5, 10].map((value) => ({
+const DOWNLOAD_LIMIT_OPTIONS: DropdownOption<number>[] = AUTO_DOWNLOAD_LIMIT_OPTIONS.map((value) => ({
   value,
   label: value === 1 ? "Latest episode" : `${value} episodes`
 }));
@@ -1108,7 +1115,7 @@ function SubscriptionsPage() {
   const [settings, setSettings] = useState({
     refresh: Preferences.getSetting("pref_subscription_refresh", 60),
     auto: Preferences.getSetting("pref_auto_download", false),
-    limit: Preferences.getSetting("pref_auto_download_limit", 1),
+    limit: normaliseAutoDownloadLimit(Preferences.getSetting(AUTO_DOWNLOAD_LIMIT_PREF_KEY, 1)),
     saved: Preferences.getSetting("pref_auto_download_saved", false),
     wifi: Preferences.getSetting("pref_download_wifi", true),
     deletePlayed: Preferences.getSetting("pref_delete_played", false),
@@ -1121,7 +1128,7 @@ function SubscriptionsPage() {
         {
           refresh: "pref_subscription_refresh",
           auto: "pref_auto_download",
-          limit: "pref_auto_download_limit",
+          limit: AUTO_DOWNLOAD_LIMIT_PREF_KEY,
           saved: "pref_auto_download_saved",
           wifi: "pref_download_wifi",
           deletePlayed: "pref_delete_played",
@@ -1131,8 +1138,8 @@ function SubscriptionsPage() {
       value
     );
     setSettings((current) => ({ ...current, [key]: value }));
-    // Lowering the cap should take effect straight away rather than on next launch.
-    if (key === "maxDownloads") {
+    // Lowering a cap should take effect straight away rather than on next launch.
+    if (key === "maxDownloads" || key === "limit") {
       const removed = pruneDownloads();
       if (removed > 0) {
         Alert.alert(
@@ -1181,7 +1188,7 @@ function SubscriptionsPage() {
           value={settings.auto}
           onChange={(value) => update("auto", value)}
         />
-        {settings.auto ? (
+        {settings.auto || settings.saved ? (
           <>
             <ItemSeparator />
             <Text style={[styles.inputLabel, { color: useAppTheme().onSurfaceVariant }]}>Download limit per podcast</Text>
@@ -1190,6 +1197,9 @@ function SubscriptionsPage() {
               options={DOWNLOAD_LIMIT_OPTIONS}
               onChange={(value) => update("limit", value)}
             />
+            <Text style={[styles.cardSubtitle, { color: useAppTheme().onSurfaceVariant, marginTop: 8 }]}>
+              The most episodes kept per podcast. Episodes you download yourself are never removed.
+            </Text>
           </>
         ) : null}
         <ItemSeparator />

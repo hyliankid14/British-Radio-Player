@@ -4,7 +4,13 @@ import { Directory, File, Paths } from "expo-file-system";
 import { Podcast, Episode } from "../api/podcasts";
 import { Preferences, SavedEpisodeEntry } from "../storage/preferences";
 import { NativeAndroid } from "../native/nativeAndroid";
-import { MAX_DOWNLOADS_PREF_KEY, normaliseMaxDownloads, pickDownloadsToRemove } from "./downloadLimits";
+import {
+  AUTO_DOWNLOAD_LIMIT_PREF_KEY,
+  MAX_DOWNLOADS_PREF_KEY,
+  normaliseMaxDownloads,
+  pickDownloadsToRemove,
+  pickPerPodcastDownloadsToRemove
+} from "./downloadLimits";
 
 export type DownloadStatus = "downloading" | "downloaded" | "error";
 
@@ -16,9 +22,14 @@ export interface DownloadEntryState {
   error?: string;
 }
 
+export interface DownloadOptions {
+  /** Set by the auto-download run; these are the only files the per-podcast cap prunes. */
+  auto?: boolean;
+}
+
 interface DownloadStoreState {
   downloads: Record<string, DownloadEntryState>;
-  download: (entry: SavedEpisodeEntry) => Promise<void>;
+  download: (entry: SavedEpisodeEntry, options?: DownloadOptions) => Promise<void>;
   remove: (episodeId: string) => void;
   removeAll: () => number;
   refresh: () => void;
@@ -106,16 +117,35 @@ export function toSavedEpisodeEntry(podcast: Podcast, episode: Episode): SavedEp
 
 /**
  * Deletes the oldest downloads until the global "Maximum downloaded episodes"
- * setting is satisfied. The episode currently streaming is never touched, so the
- * library can sit one over the cap until playback finishes and the next prune runs.
+ * setting is satisfied. The episode currently streaming is never touched; the
+ * next-oldest episode is taken in its place so the cap is still met.
  * Returns the number of downloads removed.
  */
 export function enforceMaxDownloads(remove: (episodeId: string) => void): number {
   const max = normaliseMaxDownloads(Preferences.getSetting(MAX_DOWNLOADS_PREF_KEY, 0));
   if (max === 0) return 0;
-  const victims = pickDownloadsToRemove(Preferences.getDownloadedEntries(), max).filter(
-    (id) => id !== inUseEpisodeId
-  );
+  const protectedIds = inUseEpisodeId ? [inUseEpisodeId] : [];
+  const victims = pickDownloadsToRemove(Preferences.getDownloadedEntries(), max, protectedIds);
+  for (const id of victims) remove(id);
+  return victims.length;
+}
+
+/**
+ * Enforces the per-podcast "Download limit per podcast" setting by deleting the
+ * oldest automatic downloads of any podcast that has drifted over its cap.
+ * Manually requested downloads are never removed. Returns the number deleted.
+ *
+ * Skipped entirely while automatic downloading is switched off, so a user who has
+ * turned it off does not silently lose files to a setting they can no longer see.
+ */
+export function enforcePerPodcastDownloadLimit(remove: (episodeId: string) => void): number {
+  const autoSubscribed = Boolean(Preferences.getSetting("pref_auto_download", false));
+  const autoSaved = Boolean(Preferences.getSetting("pref_auto_download_saved", false));
+  if (!autoSubscribed && !autoSaved) return 0;
+
+  const limit = Preferences.getSetting(AUTO_DOWNLOAD_LIMIT_PREF_KEY, 1);
+  const protectedIds = inUseEpisodeId ? [inUseEpisodeId] : [];
+  const victims = pickPerPodcastDownloadsToRemove(Preferences.getDownloadedEntries(), limit, protectedIds);
   for (const id of victims) remove(id);
   return victims.length;
 }
@@ -125,7 +155,7 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
 
   refresh: () => set({ downloads: storedDownloads() }),
 
-  download: async (entry) => {
+  download: async (entry, options) => {
     if (!entry?.id || !entry.audioUrl) return;
     if (get().downloads[entry.id]?.status === "downloading") return;
 
@@ -183,6 +213,7 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
       Preferences.setDownloadedEntry(entry.id, {
         localUri,
         downloadedAtMs: Date.now(),
+        isAutoDownloaded: options?.auto === true,
         entry
       });
       // Mirror the episode into the built-in "Downloaded Files" playlist so counts match.
@@ -195,9 +226,11 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
         }
       }));
 
-      // Make room straight away so the cap is honoured even before the next
+      // Make room straight away so the caps are honoured even before the next
       // app start; the newest downloads are the ones kept.
-      enforceMaxDownloads((id) => get().remove(id));
+      const removeOne = (id: string) => get().remove(id);
+      enforcePerPodcastDownloadLimit(removeOne);
+      enforceMaxDownloads(removeOne);
     } catch (error) {
       set((state) => ({
         downloads: {

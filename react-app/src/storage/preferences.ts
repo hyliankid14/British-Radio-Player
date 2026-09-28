@@ -19,6 +19,12 @@ export interface DownloadedEpisodeRecord {
   localUri: string;
   sizeBytes?: number;
   downloadedAtMs: number;
+  /**
+   * True when the app fetched this file automatically. The per-podcast download
+   * limit only governs these, so manually requested downloads are never deleted.
+   * Records written before this flag existed read as automatic.
+   */
+  isAutoDownloaded?: boolean;
   entry: SavedEpisodeEntry;
 }
 
@@ -1152,7 +1158,7 @@ export const Preferences = {
       },
       download_prefs: {
         auto_download_enabled: this.getSetting("pref_auto_download", false),
-        auto_download_limit: this.getSetting("pref_auto_download_limit", 5),
+        auto_download_limit: this.getSetting("pref_auto_download_limit", 1),
         download_on_wifi_only: this.getSetting("pref_download_wifi", true),
         delete_on_played: this.getSetting("pref_delete_played", false),
         max_downloaded_episodes: this.getSetting("pref_max_downloads", 0)

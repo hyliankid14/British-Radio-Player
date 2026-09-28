@@ -1,6 +1,7 @@
 import { Preferences } from "../storage/preferences";
 import {
   enforceMaxDownloads,
+  enforcePerPodcastDownloadLimit,
   getDownloadInUseEpisode,
   setDownloadInUseEpisode,
   useDownloadStore
@@ -20,9 +21,13 @@ export function isDeleteWhenPlayed(): boolean {
   return Boolean(Preferences.getSetting(DELETE_PLAYED_PREF_KEY, false));
 }
 
-/** Deletes the oldest downloads until the cap is met. Returns the number removed. */
+/**
+ * Brings the library back inside the configured limits: the per-podcast automatic
+ * download cap first, then the global maximum. Returns the number removed.
+ */
 export function pruneDownloads(): number {
-  return enforceMaxDownloads((id) => useDownloadStore.getState().remove(id));
+  const remove = (id: string) => useDownloadStore.getState().remove(id);
+  return enforcePerPodcastDownloadLimit(remove) + enforceMaxDownloads(remove);
 }
 
 /** Removes a single download when "Delete when completed" is switched on. */
@@ -61,7 +66,7 @@ function schedulePlayedCleanup(episodeId: string): void {
 
 /**
  * Keeps downloads tidy: removes a download as soon as its episode is marked
- * played, and trims the library back to the configured maximum.
+ * played, and trims the library back to the configured limits.
  */
 export function initDownloadCleanup(): () => void {
   if (registered) return () => {};

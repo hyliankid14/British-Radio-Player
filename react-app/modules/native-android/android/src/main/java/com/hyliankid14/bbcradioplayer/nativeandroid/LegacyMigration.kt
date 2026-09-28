@@ -348,6 +348,9 @@ object LegacyMigration {
             put("localUri", if (localPath.isBlank()) "" else "file://$localPath")
             put("sizeBytes", entry.optLong("fileSizeBytes", 0L))
             put("downloadedAtMs", entry.optLong("downloadedAtMs", 0L))
+            // The per-podcast download limit only governs automatic downloads, so the
+            // legacy flag has to survive the migration.
+            put("isAutoDownloaded", entry.optBoolean("isAutoDownloaded", false))
             put("entry", convertSavedEntry(entry))
           })
         } catch (_: Exception) {

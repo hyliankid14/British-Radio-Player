@@ -3,8 +3,13 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_DIR="$ROOT_DIR/react-app"
-APK_PATH="$APP_DIR/android/app/build/outputs/apk/github/release/app-github-release.apk"
-APPLICATION_ID="com.hyliankid14.bbcradioplayer"
+# The debug build type carries a ".debug" applicationIdSuffix, so it installs
+# alongside the release build. Only this one is kept on the device.
+APPLICATION_ID="com.hyliankid14.bbcradioplayer.debug"
+# The release build the script used to install. Left on the phone it is a second
+# copy of the app with its own empty sandbox, which is confusing to test against.
+STALE_APPLICATION_ID="com.hyliankid14.bbcradioplayer"
+ANDROID_ARCHITECTURES="${REACT_NATIVE_ARCHITECTURES:-arm64-v8a}"
 
 if ! command -v adb >/dev/null 2>&1; then
   echo "adb is not installed or not on PATH"
@@ -78,7 +83,7 @@ else
   fi
 fi
 
-echo "Building React Native Android app..."
+echo "Building React Native Android debug app..."
 (
   cd "$APP_DIR"
   npx expo prebuild --platform android --no-install
@@ -86,12 +91,17 @@ echo "Building React Native Android app..."
   (
     cd android
     EXPO_PUBLIC_DISTRIBUTION_CHANNEL=github \
-    ./gradlew --no-daemon :app:assembleGithubRelease
+    ./gradlew --no-daemon :app:assembleGithubDebug \
+      -PreactNativeDebuggableVariants= \
+      -PreactNativeArchitectures="$ANDROID_ARCHITECTURES" \
+      -Pexpo.useLegacyPackaging=true \
+      -Pandroid.enableMinifyInDebugBuilds=true
   )
 )
 
-if [[ ! -f "$APK_PATH" ]]; then
-  echo "React release APK not found at: $APK_PATH"
+APK_PATH="$(find "$APP_DIR/android/app/build/outputs/apk/github/debug" -maxdepth 1 -type f -name '*.apk' -print -quit)"
+if [[ -z "$APK_PATH" || ! -f "$APK_PATH" ]]; then
+  echo "React debug APK not found in $APP_DIR/android/app/build/outputs/apk/github/debug"
   exit 1
 fi
 
@@ -100,6 +110,13 @@ if ! adb -s "$TARGET_DEVICE" install -r -d "$APK_PATH"; then
   echo "Update in place failed; removing the previous app and retrying..."
   adb -s "$TARGET_DEVICE" uninstall "$APPLICATION_ID" >/dev/null 2>&1 || true
   adb -s "$TARGET_DEVICE" install "$APK_PATH"
+fi
+
+# Only ever leave one copy of the app on the device. Done last so a failed build
+# or install above cannot leave the phone with no build at all.
+if adb -s "$TARGET_DEVICE" shell pm list packages "$STALE_APPLICATION_ID" 2>/dev/null | grep -q "^package:$STALE_APPLICATION_ID$"; then
+  echo "Removing the release build so only the debug build remains..."
+  adb -s "$TARGET_DEVICE" uninstall "$STALE_APPLICATION_ID" >/dev/null 2>&1 || true
 fi
 
 echo "React app installed successfully on $TARGET_DEVICE"

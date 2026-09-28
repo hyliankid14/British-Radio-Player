@@ -1,17 +1,23 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  AUTO_DOWNLOAD_LIMIT_OPTIONS,
+  AUTO_DOWNLOAD_LIMIT_PREF_KEY,
   DELETE_PLAYED_PREF_KEY,
   MAX_DOWNLOADS_PREF_KEY,
   MAX_DOWNLOADS_OPTIONS,
   UNLIMITED_DOWNLOADS,
+  isAutomaticDownload,
+  normaliseAutoDownloadLimit,
   normaliseMaxDownloads,
-  pickDownloadsToRemove
+  pickDownloadsToRemove,
+  pickPerPodcastDownloadsToRemove
 } from "../src/downloads/downloadLimits.ts";
 
 test("download preference keys stay stable for backup compatibility", () => {
   assert.equal(MAX_DOWNLOADS_PREF_KEY, "pref_max_downloads");
   assert.equal(DELETE_PLAYED_PREF_KEY, "pref_delete_played");
+  assert.equal(AUTO_DOWNLOAD_LIMIT_PREF_KEY, "pref_auto_download_limit");
 });
 
 test("normaliseMaxDownloads treats zero and invalid values as unlimited", () => {
@@ -80,4 +86,82 @@ test("pickDownloadsToRemove ignores empty records and handles an empty library",
   assert.deepEqual(pickDownloadsToRemove({}, 5), []);
   const records = { a: { downloadedAtMs: 1 }, stale: undefined };
   assert.deepEqual(pickDownloadsToRemove(records, 1), []);
+});
+
+test("pickDownloadsToRemove backs past a protected download to still meet the cap", () => {
+  const records = { oldest: { downloadedAtMs: 100 }, middle: { downloadedAtMs: 200 } };
+  assert.deepEqual(pickDownloadsToRemove(records, 1, ["oldest"]), ["middle"]);
+  assert.deepEqual(pickDownloadsToRemove(records, 1, ["oldest", "middle"]), []);
+});
+
+test("normaliseAutoDownloadLimit never falls back to unlimited", () => {
+  assert.equal(normaliseAutoDownloadLimit(undefined), 1);
+  assert.equal(normaliseAutoDownloadLimit(null), 1);
+  assert.equal(normaliseAutoDownloadLimit(0), 1);
+  assert.equal(normaliseAutoDownloadLimit(-5), 1);
+  assert.equal(normaliseAutoDownloadLimit(NaN), 1);
+  assert.equal(normaliseAutoDownloadLimit("nonsense"), 1);
+});
+
+test("normaliseAutoDownloadLimit keeps whole positive values", () => {
+  assert.equal(normaliseAutoDownloadLimit(1), 1);
+  assert.equal(normaliseAutoDownloadLimit(2), 2);
+  assert.equal(normaliseAutoDownloadLimit("10"), 10);
+  assert.equal(normaliseAutoDownloadLimit(7.9), 7);
+});
+
+test("the per-podcast limit is always a real positive cap", () => {
+  assert.ok(AUTO_DOWNLOAD_LIMIT_OPTIONS.length > 0);
+  assert.ok(AUTO_DOWNLOAD_LIMIT_OPTIONS.every((value) => value >= 1));
+});
+
+test("records written before the flag existed count as automatic", () => {
+  assert.equal(isAutomaticDownload(undefined), false);
+  assert.equal(isAutomaticDownload({}), true);
+  assert.equal(isAutomaticDownload({ isAutoDownloaded: true }), true);
+  assert.equal(isAutomaticDownload({ isAutoDownloaded: false }), false);
+});
+
+test("pickPerPodcastDownloadsToRemove trims each podcast over its own cap", () => {
+  const records = {
+    p1old: { downloadedAtMs: 100, isAutoDownloaded: true, entry: { podcastId: "p1" } },
+    p1mid: { downloadedAtMs: 200, isAutoDownloaded: true, entry: { podcastId: "p1" } },
+    p1new: { downloadedAtMs: 300, isAutoDownloaded: true, entry: { podcastId: "p1" } },
+    p2only: { downloadedAtMs: 400, isAutoDownloaded: true, entry: { podcastId: "p2" } }
+  };
+  assert.deepEqual(pickPerPodcastDownloadsToRemove(records, 2), ["p1old"]);
+  assert.deepEqual(pickPerPodcastDownloadsToRemove(records, 1), ["p1old", "p1mid"]);
+  assert.deepEqual(pickPerPodcastDownloadsToRemove(records, 3), []);
+});
+
+test("pickPerPodcastDownloadsToRemove never deletes a manual download", () => {
+  const records = {
+    manual: { downloadedAtMs: 100, isAutoDownloaded: false, entry: { podcastId: "p1" } },
+    oldestAuto: { downloadedAtMs: 200, isAutoDownloaded: true, entry: { podcastId: "p1" } },
+    newestAuto: { downloadedAtMs: 300, isAutoDownloaded: true, entry: { podcastId: "p1" } }
+  };
+  assert.deepEqual(pickPerPodcastDownloadsToRemove(records, 1), ["oldestAuto"]);
+  assert.deepEqual(pickPerPodcastDownloadsToRemove(records, 2), []);
+});
+
+test("pickPerPodcastDownloadsToRemove leaves unattributed records alone", () => {
+  const records = {
+    orphan: { downloadedAtMs: 100, isAutoDownloaded: true },
+    another: { downloadedAtMs: 200, isAutoDownloaded: true }
+  };
+  assert.deepEqual(pickPerPodcastDownloadsToRemove(records, 1), []);
+  assert.deepEqual(pickPerPodcastDownloadsToRemove({}, 1), []);
+});
+
+test("pickPerPodcastDownloadsToRemove protects the streaming episode", () => {
+  const records = {
+    oldest: { downloadedAtMs: 100, isAutoDownloaded: true, entry: { podcastId: "p1" } },
+    middle: { downloadedAtMs: 200, isAutoDownloaded: true, entry: { podcastId: "p1" } },
+    newest: { downloadedAtMs: 300, isAutoDownloaded: true, entry: { podcastId: "p1" } }
+  };
+  // The streaming episode still occupies a slot, so the other two go instead of
+  // leaving the podcast permanently one over its cap.
+  assert.deepEqual(pickPerPodcastDownloadsToRemove(records, 1, ["oldest"]), ["middle", "newest"]);
+  assert.deepEqual(pickPerPodcastDownloadsToRemove(records, 3, ["oldest"]), []);
+  assert.deepEqual(pickPerPodcastDownloadsToRemove(records, 1, ["oldest", "middle", "newest"]), []);
 });
