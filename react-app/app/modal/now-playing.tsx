@@ -26,6 +26,7 @@ import { toSavedEpisodeEntry, useDownloadStore } from "../../src/downloads/downl
 import { NativeAndroid, ArtworkPalette } from "../../src/native/nativeAndroid";
 import { OfflineBanner, VpnBanner } from "../../src/components/NetworkBanners";
 import { useResponsiveLayout } from "../../src/theme/responsive";
+import { shareEpisode } from "../../src/utils/share";
 
 interface DerivedColours {
   subtle: string;
@@ -420,9 +421,7 @@ export default function NowPlayingModal() {
   const handleShare = async () => {
     try {
       if (isPodcast && activeEpisode) {
-        await Share.share({
-          message: `${activeEpisode.title} — ${activePodcast?.title}\n${activeEpisode.audioUrl}`
-        });
+        await shareEpisode(activeEpisode, activePodcast?.title);
       } else {
         await Share.share({
           message: `Listening to ${currentStation?.title} - ${showTitle} on British Radio Player`,

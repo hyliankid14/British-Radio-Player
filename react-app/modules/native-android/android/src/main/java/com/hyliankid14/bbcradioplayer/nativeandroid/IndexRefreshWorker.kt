@@ -32,7 +32,7 @@ class IndexRefreshWorker(context: Context, params: WorkerParameters) : Worker(co
         val latest = parseLatestEpisode(feed) ?: continue
         if (latest.id.isBlank() || BackgroundSync.isNotified(context, latest.id)) continue
         BackgroundSync.markNotified(context, latest.id)
-        notifyNewEpisode(context, subscription.id, subscription.title, latest.title)
+        notifyNewEpisode(context, subscription.id, subscription.title, latest.title, latest.id)
         anyNew = true
       } catch (_: Exception) {
         // Skip feeds that fail to load.
@@ -65,8 +65,23 @@ class IndexRefreshWorker(context: Context, params: WorkerParameters) : Worker(co
       .find(item)?.groupValues?.get(1)?.trim()
     val enclosure = Regex("<enclosure[^>]*url=\"([^\"]+)\"", RegexOption.IGNORE_CASE)
       .find(item)?.groupValues?.get(1)
-    val id = guid?.takeIf { it.isNotBlank() } ?: enclosure ?: title
-    return LatestEpisode(id, title)
+    val rawId = guid?.takeIf { it.isNotBlank() } ?: enclosure ?: title
+    return LatestEpisode(normaliseEpisodeId(rawId, enclosure), title)
+  }
+
+  /**
+   * Mirrors the JS episode-id rule (see `fetchEpisodes` in src/api/podcasts.ts): use the
+   * trailing alphanumeric segment of the guid so the notification targets the same
+   * episode id the app resolves when the feed is parsed in-app.
+   */
+  private fun normaliseEpisodeId(rawId: String, enclosure: String?): String {
+    if (rawId == enclosure) return rawId
+    val delimiter = maxOf(rawId.lastIndexOf('/'), rawId.lastIndexOf(':'))
+    if (delimiter != -1 && delimiter < rawId.length - 1) {
+      val candidate = rawId.substring(delimiter + 1).trim()
+      if (candidate.matches(Regex("^[a-z0-9]+$", RegexOption.IGNORE_CASE))) return candidate
+    }
+    return rawId
   }
 
   private fun decode(value: String): String =
@@ -76,14 +91,24 @@ class IndexRefreshWorker(context: Context, params: WorkerParameters) : Worker(co
       .replace("&quot;", "\"")
       .replace("&#39;", "'")
 
-  private fun notifyNewEpisode(context: Context, podcastId: String, podcastTitle: String, episodeTitle: String) {
+  private fun notifyNewEpisode(
+    context: Context,
+    podcastId: String,
+    podcastTitle: String,
+    episodeTitle: String,
+    episodeId: String
+  ) {
     ensureChannel(context)
-    val targetUri = Uri.parse("bbcradioplayer://modal/podcast-detail?podcastId=$podcastId")
+    val encodedPodcastId = java.net.URLEncoder.encode(podcastId, "UTF-8")
+    val encodedEpisodeId = java.net.URLEncoder.encode(episodeId, "UTF-8")
+    val detailUrl = "/modal/podcast-detail?podcastId=$encodedPodcastId&episodeId=$encodedEpisodeId"
+    val targetUri = Uri.parse("bbcradioplayer://modal/podcast-detail?podcastId=$encodedPodcastId&episodeId=$encodedEpisodeId")
     val launchIntent = Intent(Intent.ACTION_VIEW, targetUri).apply {
       setClassName(context.packageName, "com.hyliankid14.bbcradioplayer.MainActivity")
       flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-      putExtra("url", "/modal/podcast-detail?podcastId=$podcastId")
+      putExtra("url", detailUrl)
       putExtra("podcastId", podcastId)
+      putExtra("episodeId", episodeId)
     }
     val pendingIntent = PendingIntent.getActivity(
       context,

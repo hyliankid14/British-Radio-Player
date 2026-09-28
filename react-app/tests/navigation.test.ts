@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { resolveAppNavigation } from "../src/utils/navigationUtils.ts";
+import {
+  resolveAppNavigation,
+  buildPodcastDetailUrl,
+  buildPodcastSearchUrl
+} from "../src/utils/navigationUtils.ts";
 
 test("resolveAppNavigation handles custom scheme podcast detail deep links", () => {
   const target = resolveAppNavigation("bbcradioplayer://modal/podcast-detail?podcastId=p086w16s");
@@ -64,4 +68,55 @@ test("resolveAppNavigation handles empty or invalid URLs safely", () => {
   assert.equal(resolveAppNavigation("   "), null);
   // @ts-expect-error test non-string
   assert.equal(resolveAppNavigation(null), null);
+});
+
+test("buildPodcastDetailUrl targets a podcast and optionally the notified episode", () => {
+  assert.equal(
+    buildPodcastDetailUrl("p086w16s"),
+    "/modal/podcast-detail?podcastId=p086w16s"
+  );
+
+  const withEpisode = buildPodcastDetailUrl("p086w16s", "p086w200");
+  const target = resolveAppNavigation(withEpisode);
+  assert.ok(target);
+  assert.equal(target.pathname, "/modal/podcast-detail");
+  assert.equal(target.params.podcastId, "p086w16s");
+  assert.equal(target.params.episodeId, "p086w200");
+});
+
+test("buildPodcastDetailUrl encodes ids that contain URL-significant characters", () => {
+  const target = resolveAppNavigation(buildPodcastDetailUrl("pod cast&1", "ep/2?3"));
+  assert.ok(target);
+  assert.equal(target.params.podcastId, "pod cast&1");
+  assert.equal(target.params.episodeId, "ep/2?3");
+});
+
+test("buildPodcastSearchUrl targets a saved search result", () => {
+  const target = resolveAppNavigation(
+    buildPodcastSearchUrl("The Archers & Friends", "saved search/1")
+  );
+  assert.ok(target);
+  assert.equal(target.pathname, "/modal/podcast-search");
+  assert.equal(target.params.search, "The Archers & Friends");
+  assert.equal(target.params.savedSearchId, "saved search/1");
+
+  const withoutSavedId = resolveAppNavigation(buildPodcastSearchUrl("comedy"));
+  assert.ok(withoutSavedId);
+  assert.equal(withoutSavedId.params.search, "comedy");
+  assert.equal(withoutSavedId.params.savedSearchId, undefined);
+});
+
+test("saved search notification URL keeps the episode and podcast that triggered it", () => {
+  const target = resolveAppNavigation(
+    buildPodcastSearchUrl("news", "search-1", {
+      episodeId: "p01xyz",
+      podcastId: "p02abc"
+    })
+  );
+  assert.ok(target);
+  assert.equal(target.pathname, "/modal/podcast-search");
+  assert.equal(target.params.search, "news");
+  assert.equal(target.params.savedSearchId, "search-1");
+  assert.equal(target.params.episodeId, "p01xyz");
+  assert.equal(target.params.podcastId, "p02abc");
 });

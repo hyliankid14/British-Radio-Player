@@ -20,6 +20,7 @@ import { initWearSync, pushWearState } from "../src/wear/wearSync";
 import { syncBackgroundSync } from "../src/background/backgroundSync";
 import { registerBackgroundTask } from "../src/background/backgroundTask";
 import { runAutoDownload } from "../src/downloads/autoDownload";
+import { initDownloadCleanup, pruneDownloads } from "../src/downloads/downloadCleanup";
 import {
   checkForNewPodcasts,
   checkSubscriptionsForNewEpisodes,
@@ -35,11 +36,18 @@ import { RadioAlarm } from "../src/audio/radioAlarm";
 
 LogBox.ignoreAllLogs();
 
+// Window in which a repeated request for the same destination is treated as a
+// duplicate launch rather than a fresh navigation.
+const NAVIGATION_DEDUPE_MS = 2000;
+
 // Register playback service
 TrackPlayer.registerPlaybackService(() => playbackService);
 
 // Convert any data left behind by the legacy Kotlin build before anything reads preferences.
 runLegacyMigration();
+
+// Trim downloads back to the configured maximum and start honouring "Delete when completed".
+initDownloadCleanup();
 
 // Keep the native Android Auto service and CarPlay scene in sync with the app's
 // catalogue and state.
@@ -62,6 +70,7 @@ Preferences.onChanged((key) => {
   }
   if (key.includes("subscrib") || key.includes("download") || key.includes("notif") || key.includes("search")) {
     void runAutoDownload();
+    void pruneDownloads();
     void checkSubscriptionsForNewEpisodes();
     void checkForNewPodcasts();
     void checkSavedSearchesForNewEpisodes();
@@ -79,12 +88,25 @@ export default function RootLayout() {
   const initStore = usePlayerStore((state) => state.init);
   const [showAnalyticsConsent, setShowAnalyticsConsent] = useState(false);
   const pendingNavigationRef = useRef<string | null>(null);
+  const lastNavigationRef = useRef<{ target: string; at: number } | null>(null);
 
   const navigateToTarget = useCallback(
     (targetUrl: string) => {
       if (!targetUrl) return;
       const target = resolveAppNavigation(targetUrl);
       if (!target) return;
+
+      // A single notification tap can surface through several launch paths at once
+      // (expo-linking initial URL, the stored expo-notifications response, and the
+      // native Android intent). Ignore repeats of the same destination so the user
+      // gets one screen instead of a stack of duplicates.
+      const targetKey = `${target.pathname}?${JSON.stringify(target.params)}`;
+      const now = Date.now();
+      const previous = lastNavigationRef.current;
+      if (previous && previous.target === targetKey && now - previous.at < NAVIGATION_DEDUPE_MS) {
+        return;
+      }
+      lastNavigationRef.current = { target: targetKey, at: now };
 
       // If root navigation is not mounted yet, queue for mount
       if (!rootNavigationState?.key) {
@@ -213,6 +235,7 @@ export default function RootLayout() {
           navigateToTarget(notifUrl);
         }
         void runAutoDownload();
+        void pruneDownloads();
         void checkSubscriptionsForNewEpisodes();
         void checkForNewPodcasts();
         void checkSavedSearchesForNewEpisodes();

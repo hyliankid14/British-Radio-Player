@@ -35,6 +35,7 @@
   "scripts": {
     "start": "expo start",
     "android": "expo run:android",
+    "postinstall": "node scripts/apply-node-patches.js",
     "prebuild": "expo prebuild --platform android --no-install",
     "build:android:debug": "../scripts/build-react-debug-apk.sh",
     "build:android:release": "../scripts/github-release.sh",

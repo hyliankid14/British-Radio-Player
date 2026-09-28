@@ -2,6 +2,7 @@ import { Platform } from "react-native";
 import type * as ExpoNotifications from "expo-notifications";
 import { Preferences } from "../storage/preferences";
 import { PodcastApi, matchesBooleanSearch } from "../api/podcasts";
+import { buildPodcastDetailUrl, buildPodcastSearchUrl } from "../utils/navigationUtils";
 
 type NotificationsModule = typeof ExpoNotifications;
 
@@ -207,7 +208,7 @@ export async function checkSubscriptionsForNewEpisodes(force = false): Promise<v
           Notifications,
           podcast.title,
           episode.title,
-          `/modal/podcast-detail?podcastId=${podcast.id}`,
+          buildPodcastDetailUrl(podcast.id, episode.id),
           { podcastId: podcast.id, episodeId: episode.id }
         );
       }
@@ -285,22 +286,30 @@ export async function checkSavedSearchesForNewEpisodes(force = false): Promise<v
 
         const fresh = sorted.filter((ep) => ep.epoch > lastNotified);
         if (fresh.length > 0) {
+          const newest = fresh[fresh.length - 1];
           const title = search.name.trim() || `Saved Search: ${search.query}`;
           const body =
             fresh.length === 1
               ? `New episode match: ${fresh[0].title}`
               : `${fresh.length} new episodes match "${search.query}"`;
-          const targetUrl = `/modal/podcast-search?search=${encodeURIComponent(search.query)}&savedSearchId=${encodeURIComponent(search.id)}`;
+          // Point at the newest match so the tap lands on the result that triggered
+          // the alert rather than an undifferentiated results list.
+          const targetUrl = buildPodcastSearchUrl(search.query, search.id, {
+            episodeId: newest.episodeId,
+            podcastId: newest.podcastId
+          });
 
           await present(Notifications, title, body, targetUrl, {
             search: search.query,
-            savedSearchId: search.id
+            savedSearchId: search.id,
+            episodeId: newest.episodeId,
+            podcastId: newest.podcastId
           });
 
           const maxEpoch = fresh.reduce((max, ep) => Math.max(max, ep.epoch), lastNotified);
           Preferences.setSetting(lastSearchNotifiedKey(search.id), maxEpoch);
 
-          const newestPubDate = fresh[fresh.length - 1].pubDate;
+          const newestPubDate = newest.pubDate;
           if (newestPubDate) {
             Preferences.updatePodcastSearchLatestResult(search.id, newestPubDate);
           }
@@ -356,7 +365,7 @@ export async function checkForNewPodcasts(force = false): Promise<void> {
         Notifications,
         "New podcast on BBC Sounds",
         entry.title,
-        `/modal/podcast-detail?podcastId=${entry.id}`,
+        buildPodcastDetailUrl(entry.id),
         { podcastId: entry.id }
       );
     }
@@ -367,6 +376,14 @@ export async function checkForNewPodcasts(force = false): Promise<void> {
   }
 }
 
+/**
+ * Identifiers of notification responses already routed. Kept at module scope so a
+ * re-initialised listener (the root layout re-registers whenever navigation state
+ * changes) cannot replay the last response and stack a duplicate screen.
+ */
+const handledResponseIds = new Set<string>();
+const MAX_HANDLED_RESPONSE_IDS = 50;
+
 /** Opens the deep link carried by a tapped notification or handles alarm playback. */
 export function initNotificationNavigation(
   onOpenUrl: (url: string) => void,
@@ -375,14 +392,16 @@ export function initNotificationNavigation(
   const Notifications = getNotifications();
   if (!Notifications) return () => {};
 
-  const handledResponseIds = new Set<string>();
-
   const handleResponse = (response: ExpoNotifications.NotificationResponse | null | undefined) => {
     if (!response) return;
     const identifier = response.notification?.request?.identifier;
     if (identifier) {
       if (handledResponseIds.has(identifier)) return;
       handledResponseIds.add(identifier);
+      if (handledResponseIds.size > MAX_HANDLED_RESPONSE_IDS) {
+        const oldest = handledResponseIds.values().next().value;
+        if (oldest !== undefined) handledResponseIds.delete(oldest);
+      }
     }
 
     let data = response.notification?.request?.content?.data as Record<string, any> | string | undefined;
@@ -402,31 +421,49 @@ export function initNotificationNavigation(
       return;
     }
 
+    // A saved-search payload also carries the matched episode's podcastId, so the
+    // search branch has to win. Structured payloads take priority over the stored
+    // `url` so an alert always resolves to the item that triggered it.
+    if (typeof data.search === "string" && data.search) {
+      onOpenUrl(
+        buildPodcastSearchUrl(
+          data.search,
+          typeof data.savedSearchId === "string" ? data.savedSearchId : undefined,
+          {
+            episodeId: typeof data.episodeId === "string" ? data.episodeId : undefined,
+            podcastId: typeof data.podcastId === "string" ? data.podcastId : undefined
+          }
+        )
+      );
+      return;
+    }
+    if (typeof data.podcastId === "string" && data.podcastId) {
+      const episodeId = typeof data.episodeId === "string" ? data.episodeId : undefined;
+      onOpenUrl(buildPodcastDetailUrl(data.podcastId, episodeId));
+      return;
+    }
     if (typeof data.url === "string" && data.url) {
       onOpenUrl(data.url);
       return;
     }
-    if (typeof data.podcastId === "string" && data.podcastId) {
-      onOpenUrl(`/modal/podcast-detail?podcastId=${encodeURIComponent(data.podcastId)}`);
-      return;
-    }
-    if (typeof data.search === "string" && data.search) {
-      const savedSearchParam = data.savedSearchId ? `&savedSearchId=${encodeURIComponent(data.savedSearchId)}` : "";
-      onOpenUrl(`/modal/podcast-search?search=${encodeURIComponent(data.search)}${savedSearchParam}`);
-      return;
-    }
+  };
+
+  const consumeLastResponse = (last: ExpoNotifications.NotificationResponse | null | undefined) => {
+    if (!last) return;
+    handleResponse(last);
+    // Clearing keeps a later re-initialisation from re-routing the same tap.
+    try {
+      Promise.resolve(Notifications.clearLastNotificationResponseAsync?.()).catch(() => {});
+    } catch {}
   };
 
   try {
-    const last = Notifications.getLastNotificationResponse();
-    if (last) handleResponse(last);
+    consumeLastResponse(Notifications.getLastNotificationResponse());
   } catch {}
 
   if (typeof Notifications.getLastNotificationResponseAsync === "function") {
     Notifications.getLastNotificationResponseAsync()
-      .then((res) => {
-        if (res) handleResponse(res);
-      })
+      .then(consumeLastResponse)
       .catch(() => {});
   }
 

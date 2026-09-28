@@ -128,6 +128,7 @@ const KEYS = {
   ,AUTO_DOWNLOAD_SAVED: "pref_auto_download_saved"
   ,DOWNLOAD_WIFI: "pref_download_wifi"
   ,DELETE_PLAYED: "pref_delete_played"
+  ,MAX_DOWNLOADS: "pref_max_downloads"
   ,INDEX_NOTIFICATIONS: "pref_index_notifications"
   ,EXCLUDE_NON_ENGLISH: "pref_exclude_non_english"
   ,ANALYTICS: "pref_analytics"
@@ -148,6 +149,9 @@ const KEYS = {
   ,ANONYMOUS_INSTALL_ID: "pref_anon_install_id"
   ,PODCAST_RATINGS_CACHE: "cache_podcast_ratings_data"
 };
+
+/** Callbacks fired whenever an episode is marked as played. See `onEpisodePlayed`. */
+const playedListeners = new Set<(episodeId: string) => void>();
 
 export const Preferences = {
   getLastFm(): { sessionKey: string; username: string; direct: boolean; broadcast: boolean; podcasts: boolean } {
@@ -693,6 +697,18 @@ export const Preferences = {
     return storage.addOnValueChangedListener(listener);
   },
 
+  /**
+   * Registers a callback fired whenever an episode is marked as played, so
+   * download housekeeping can react without Preferences importing the store
+   * (which would create a cycle).
+   */
+  onEpisodePlayed(listener: (episodeId: string) => void): () => void {
+    playedListeners.add(listener);
+    return () => {
+      playedListeners.delete(listener);
+    };
+  },
+
   // ── Episode state (played / progress / history) ─────────────────────────────
 
   getPlayedEpisodeIds(): string[] {
@@ -710,7 +726,12 @@ export const Preferences = {
     return this.getPlayedEpisodeIds().includes(episodeId);
   },
 
-  markEpisodePlayed(episodeId: string, podcastId?: string, pubDateEpochMs?: number): void {
+  markEpisodePlayed(
+    episodeId: string,
+    podcastId?: string,
+    pubDateEpochMs?: number,
+    options?: { keepDownload?: boolean }
+  ): void {
     if (!episodeId) return;
     const played = this.getPlayedEpisodeIds();
     if (!played.includes(episodeId)) {
@@ -723,6 +744,17 @@ export const Preferences = {
         const map = this.getMap(KEYS.LAST_PLAYED_EPOCH);
         map[podcastId] = pubDateEpochMs;
         storage.set(KEYS.LAST_PLAYED_EPOCH, JSON.stringify(map));
+      }
+    }
+    // `keepDownload` marks the episode played while it is still playing, so the
+    // "Delete when completed" cleanup must leave the file alone until the end.
+    if (!options?.keepDownload) {
+      for (const listener of playedListeners) {
+        try {
+          listener(episodeId);
+        } catch {
+          // A listener must never block marking the episode as played.
+        }
       }
     }
   },
@@ -1122,7 +1154,8 @@ export const Preferences = {
         auto_download_enabled: this.getSetting("pref_auto_download", false),
         auto_download_limit: this.getSetting("pref_auto_download_limit", 5),
         download_on_wifi_only: this.getSetting("pref_download_wifi", true),
-        delete_on_played: this.getSetting("pref_delete_played", false)
+        delete_on_played: this.getSetting("pref_delete_played", false),
+        max_downloaded_episodes: this.getSetting("pref_max_downloads", 0)
       }
     };
 
@@ -1273,7 +1306,8 @@ export const Preferences = {
         ["auto_download_enabled", "pref_auto_download"],
         ["auto_download_limit", "pref_auto_download_limit"],
         ["download_on_wifi_only", "pref_download_wifi"],
-        ["delete_on_played", "pref_delete_played"]
+        ["delete_on_played", "pref_delete_played"],
+        ["max_downloaded_episodes", "pref_max_downloads"]
       ].forEach(([source, target]) => setIfPresent(target, downloads[source]));
 
       // Played episodes, progress and history.

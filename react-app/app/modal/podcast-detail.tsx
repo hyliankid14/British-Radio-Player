@@ -7,7 +7,6 @@ import {
   Image,
   StyleSheet,
   ActivityIndicator,
-  Share,
   Modal,
   ScrollView,
   TextInput
@@ -23,6 +22,7 @@ import { toSavedEpisodeEntry, useDownloadStore } from "../../src/downloads/downl
 import { MiniPlayer } from "../../src/components/MiniPlayer";
 import { AppNavigation } from "../../src/components/AppNavigation";
 import { useNetworkStatus } from "../../src/store/networkStore";
+import { sharePodcast } from "../../src/utils/share";
 import {
   checkSubscriptionsForNewEpisodes,
   ensureNotificationPermissions
@@ -34,11 +34,33 @@ function parseEpisodeEpoch(pubDate?: string): number {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
+/**
+ * Builds a usable podcast from just its id. New-podcast notifications can point at
+ * a show that is not in the OPML catalogue the app just fetched, and without this the
+ * detail screen would spin forever instead of opening the podcast.
+ */
+function fallbackPodcast(podcastId: string): Podcast {
+  const meta = Preferences.getPodcastMetadata(podcastId);
+  return {
+    id: podcastId,
+    title: meta?.title || "BBC Podcast",
+    description: "",
+    rssUrl: `https://podcasts.files.bbci.co.uk/${podcastId}.rss`,
+    htmlUrl: `https://www.bbc.co.uk/programmes/${podcastId}`,
+    imageUrl: meta?.imageUrl || "",
+    genres: [],
+    typicalDurationMins: 0
+  };
+}
+
 export default function PodcastDetailModal() {
   const router = useRouter();
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
-  const params = useLocalSearchParams<{ podcastId: string; podcastData?: string }>();
+  const params = useLocalSearchParams<{ podcastId: string; podcastData?: string; episodeId?: string }>();
+  const requestedEpisodeId =
+    typeof params.episodeId === "string" ? params.episodeId : "";
+  const openedEpisodeRef = useRef<string | null>(null);
 
   const [podcast, setPodcast] = useState<Podcast | null>(() => {
     if (params.podcastData) {
@@ -336,6 +358,11 @@ export default function PodcastDetailModal() {
       if (!currentPod && params.podcastId) {
         const catalog = await PodcastApi.fetchLiveCatalog();
         currentPod = catalog.find((p) => p.id === params.podcastId) || null;
+        if (!currentPod) {
+          // New-podcast alerts can reference a show the OPML catalogue does not list
+          // (yet). Fall back to the canonical BBC feed so the tap still lands somewhere useful.
+          currentPod = fallbackPodcast(params.podcastId);
+        }
         if (currentPod && mounted) setPodcast(currentPod);
       }
 
@@ -363,6 +390,34 @@ export default function PodcastDetailModal() {
           setEpisodes(eps);
           setVisibleEpisodeCount(20);
           setIsLoadingEpisodes(false);
+
+          // fetchEpisodes records the channel title/artwork, so a synthesised podcast
+          // can be upgraded now that the real name is known.
+          const meta = Preferences.getPodcastMetadata(currentPod.id);
+          const resolvedTitle = meta?.title;
+          if (resolvedTitle && resolvedTitle !== currentPod.title) {
+            setPodcast((prev) =>
+              prev
+                ? { ...prev, title: resolvedTitle, imageUrl: prev.imageUrl || meta?.imageUrl || "" }
+                : prev
+            );
+          }
+        }
+
+        // A new-episode alert carries the episode it is about; open it instead of
+        // making the user hunt for it in the list.
+        if (requestedEpisodeId && openedEpisodeRef.current !== requestedEpisodeId) {
+          const target = eps.find((ep) => ep.id === requestedEpisodeId);
+          if (target) {
+            openedEpisodeRef.current = requestedEpisodeId;
+            router.push({
+              pathname: "/modal/now-playing",
+              params: {
+                podcastData: JSON.stringify(currentPod),
+                episodeData: JSON.stringify(target)
+              }
+            });
+          }
         }
       }
     }
@@ -370,7 +425,7 @@ export default function PodcastDetailModal() {
     return () => {
       mounted = false;
     };
-  }, [params.podcastId]);
+  }, [params.podcastId, requestedEpisodeId]);
 
   useEffect(() => {
     const pid = podcast?.id || params.podcastId;
@@ -444,10 +499,7 @@ export default function PodcastDetailModal() {
   const handleShare = async () => {
     if (!podcast) return;
     try {
-      await Share.share({
-        title: podcast.title,
-        message: `Listen to ${podcast.title} on BBC Radio Player: ${podcast.htmlUrl || podcast.rssUrl}`
-      });
+      await sharePodcast(podcast);
     } catch {}
   };
 

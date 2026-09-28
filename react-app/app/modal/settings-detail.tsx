@@ -28,6 +28,8 @@ import { useAppTheme, useThemeMode, setAppTheme, ThemeMode, useIsDarkTheme } fro
 import { NativeAndroid } from "../../src/native/nativeAndroid";
 import { LastFmApi } from "../../src/api/lastfm";
 import { useDownloadStore } from "../../src/downloads/downloadStore";
+import { pruneDownloads } from "../../src/downloads/downloadCleanup";
+import { MAX_DOWNLOADS_OPTIONS, MAX_DOWNLOADS_PREF_KEY, normaliseMaxDownloads } from "../../src/downloads/downloadLimits";
 import { openDownloadsFolder } from "../../src/downloads/openDownloads";
 import { fetchIndexStatus, IndexStatus } from "../../src/podcasts/indexStatus";
 import {
@@ -122,6 +124,11 @@ const REFRESH_OPTIONS: DropdownOption<number>[] = [0, 15, 30, 60, 120, 360, 720,
 const DOWNLOAD_LIMIT_OPTIONS: DropdownOption<number>[] = [1, 2, 3, 5, 10].map((value) => ({
   value,
   label: value === 1 ? "Latest episode" : `${value} episodes`
+}));
+
+const MAX_DOWNLOAD_OPTIONS: DropdownOption<number>[] = MAX_DOWNLOADS_OPTIONS.map((value) => ({
+  value,
+  label: value === 0 ? "Unlimited" : `${value} episodes`
 }));
 
 export default function SettingsDetail() {
@@ -1104,7 +1111,8 @@ function SubscriptionsPage() {
     limit: Preferences.getSetting("pref_auto_download_limit", 1),
     saved: Preferences.getSetting("pref_auto_download_saved", false),
     wifi: Preferences.getSetting("pref_download_wifi", true),
-    deletePlayed: Preferences.getSetting("pref_delete_played", false)
+    deletePlayed: Preferences.getSetting("pref_delete_played", false),
+    maxDownloads: normaliseMaxDownloads(Preferences.getSetting(MAX_DOWNLOADS_PREF_KEY, 0))
   });
 
   const update = (key: keyof typeof settings, value: string | number | boolean) => {
@@ -1116,12 +1124,23 @@ function SubscriptionsPage() {
           limit: "pref_auto_download_limit",
           saved: "pref_auto_download_saved",
           wifi: "pref_download_wifi",
-          deletePlayed: "pref_delete_played"
+          deletePlayed: "pref_delete_played",
+          maxDownloads: MAX_DOWNLOADS_PREF_KEY
         } as const
       )[key],
       value
     );
     setSettings((current) => ({ ...current, [key]: value }));
+    // Lowering the cap should take effect straight away rather than on next launch.
+    if (key === "maxDownloads") {
+      const removed = pruneDownloads();
+      if (removed > 0) {
+        Alert.alert(
+          "Downloads removed",
+          `${removed} older download${removed === 1 ? " was" : "s were"} deleted to stay within your limit.`
+        );
+      }
+    }
   };
 
   const deleteAllDownloads = () => {
@@ -1201,6 +1220,18 @@ function SubscriptionsPage() {
 
       <SettingsSectionHeader label="DOWNLOAD MANAGEMENT" />
       <SettingsCard>
+        <Text style={[styles.inputLabel, { color: useAppTheme().onSurfaceVariant }]}>
+          Maximum downloaded episodes
+        </Text>
+        <Dropdown
+          value={settings.maxDownloads}
+          options={MAX_DOWNLOAD_OPTIONS}
+          onChange={(value) => update("maxDownloads", value)}
+        />
+        <Text style={[styles.cardSubtitle, { color: useAppTheme().onSurfaceVariant, marginTop: 8 }]}>
+          When this limit is reached, the oldest downloads are removed automatically
+        </Text>
+        <ItemSeparator />
         <View style={styles.buttonGroup}>
           <SecondaryButton
             icon="folder-open"

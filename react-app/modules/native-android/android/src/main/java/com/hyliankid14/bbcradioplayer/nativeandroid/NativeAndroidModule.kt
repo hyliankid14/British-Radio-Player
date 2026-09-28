@@ -381,18 +381,28 @@ class NativeAndroidModule : Module() {
         intent.removeExtra("url")
         return url
       }
-      val podcastId = intent.getStringExtra("podcastId")
-      if (podcastId != null) {
-        intent.removeExtra("podcastId")
-        return "/modal/podcast-detail?podcastId=$podcastId"
-      }
+      // Checked before podcastId because a saved-search payload carries the matched
+      // episode's podcastId alongside its query; the search screen is the real target.
       val search = intent.getStringExtra("search")
       if (search != null) {
         intent.removeExtra("search")
         val savedSearchId = intent.getStringExtra("savedSearchId")
         if (savedSearchId != null) intent.removeExtra("savedSearchId")
-        val param = if (savedSearchId != null) "&savedSearchId=$savedSearchId" else ""
+        val param =
+          if (savedSearchId.isNullOrEmpty()) ""
+          else "&savedSearchId=" + java.net.URLEncoder.encode(savedSearchId, "UTF-8")
         return "/modal/podcast-search?search=${java.net.URLEncoder.encode(search, "UTF-8")}$param"
+      }
+      val podcastId = intent.getStringExtra("podcastId")
+      if (podcastId != null) {
+        intent.removeExtra("podcastId")
+        val episodeId = intent.getStringExtra("episodeId")
+        if (episodeId != null) intent.removeExtra("episodeId")
+        val episodeParam =
+          if (episodeId.isNullOrEmpty()) ""
+          else "&episodeId=" + java.net.URLEncoder.encode(episodeId, "UTF-8")
+        return "/modal/podcast-detail?podcastId=" +
+          java.net.URLEncoder.encode(podcastId, "UTF-8") + episodeParam
       }
       val dataUri = intent.dataString
       if (dataUri != null && dataUri.startsWith("bbcradioplayer://")) {

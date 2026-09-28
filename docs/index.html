@@ -2590,10 +2590,12 @@
                 console.log('Loading content:', { type, id, options, params: Object.fromEntries(params) });
 
                 if (type === 'p') {
-                    const title = decodeURIComponent(params.get('title')) || 'Shared Podcast';
-                    const desc = decodeURIComponent(params.get('desc')) || '';
-                    const img = decodeURIComponent(params.get('img')) || null;
-                    const rssUrl = decodeURIComponent(params.get('rss')) || this.rssUrlFromPodcastId(id);
+                    // URLSearchParams already percent-decodes, so these must not be
+                    // decoded again: a title such as "100% Pure" would throw.
+                    const title = params.get('title') || 'Shared Podcast';
+                    const desc = params.get('desc') || '';
+                    const img = params.get('img') || null;
+                    const rssUrl = params.get('rss') || this.rssUrlFromPodcastId(id);
 
                     this.currentContent = {
                         type: 'podcast',
@@ -2627,16 +2629,17 @@
                     const content = {
                         type: 'episode',
                         id: id,
-                        title: decodeURIComponent(params.get('title')) || 'Shared Episode',
-                        description: decodeURIComponent(params.get('desc')) || '',
-                        podcastTitle: decodeURIComponent(params.get('podcast')) || 'British Radio Player',
+                        title: params.get('title') || 'Shared Episode',
+                        description: params.get('desc') || '',
+                        podcastTitle: params.get('podcast') || 'British Radio Player',
                         podcastId: podcastId,
-                        imageUrl: decodeURIComponent(params.get('img')) || null,
-                        audioUrl: decodeURIComponent(params.get('audio')) || null,
-                        pubDate: decodeURIComponent(params.get('date')) || '',
-                        durationMins: parseInt(decodeURIComponent(params.get('duration')) || '0')
+                        imageUrl: params.get('img') || null,
+                        audioUrl: params.get('audio') || null,
+                        pubDate: params.get('date') || '',
+                        durationMins: parseInt(params.get('duration') || '0')
                     };
                     this.currentContent = content;
+                    this._episodeAudioRetryAttempted = false;
 
                     this.trackEvent('web_player_episode_view', {
                         episode_id: id,
@@ -2894,15 +2897,14 @@
                 // without tearing down the whole player.
                 const audio = document.getElementById('episode-audio-player');
                 if (audio && updated.audioUrl) {
-                    const normalizedUrl = updated.audioUrl
-                        .trim()
-                        .replace(/^http:\/\//i, 'https://')
-                        .replace(/\/proto\/http\//i, '/proto/https/');
+                    const normalizedUrl = this.normalizeAudioUrl(updated.audioUrl);
                     const currentSrc = audio.currentSrc || audio.src || '';
                     if (currentSrc !== normalizedUrl) {
                         audio.src = normalizedUrl;
                         audio.load();
                         this.setupHlsAudioIfNeeded(audio);
+                        const staleError = document.getElementById('episode-audio-error');
+                        if (staleError) staleError.remove();
                     }
                 }
             }
@@ -2955,13 +2957,22 @@
                 this.attachAudioListeners();
             }
 
-            renderAudioPlayer(audioUrl, playerId = '') {
-                if (!audioUrl) return '';
-                const normalizedUrl = String(audioUrl)
+            // BBC feeds occasionally hand out media-selector paths such as
+            // "/mediaselector/b6/redir/", which 404; only "/6/" resolves. Old
+            // shared links already in the wild still carry the broken form, so
+            // repair it on playback rather than only when building new links.
+            normalizeAudioUrl(audioUrl) {
+                return String(audioUrl || '')
                     .trim()
                     .replace(/^http:\/\//i, 'https://')
-                    .replace(/\/proto\/http\//i, '/proto/https/');
-                const idAttr = playerId ? `id="${this.escapeHtml(playerId)}"` : '';
+                    .replace(/\/proto\/http\//i, '/proto/https/')
+                    .replace(/\/mediaselector\/b\d+\//i, '/mediaselector/6/');
+            }
+
+            renderAudioPlayer(audioUrl, playerId = '') {
+                if (!audioUrl) return '';
+                const normalizedUrl = this.normalizeAudioUrl(audioUrl);
+                const idAttr = playerId ? `id="${this.escapeHtml(playerId)}"` : '';;
                 return `
                     <audio ${idAttr} controls class="audio-player" preload="metadata" src="${this.escapeHtml(normalizedUrl)}">
                         Your browser does not support the audio element.
@@ -2992,41 +3003,62 @@
                 }
             }
 
+            showEpisodeAudioError(audio, src) {
+                if (!audio || !audio.parentElement) return;
+
+                let errorContainer = document.getElementById('episode-audio-error');
+                if (!errorContainer) {
+                    errorContainer = document.createElement('div');
+                    errorContainer.id = 'episode-audio-error';
+                    errorContainer.style.cssText = 'margin-top: 10px; padding: 12px; background: #fff3f3; border: 1px solid #ffcdd2; border-radius: 8px; color: #c62828; font-size: 13px; line-height: 1.6;';
+                    audio.parentElement.appendChild(errorContainer);
+                }
+
+                const isBBC = src.includes('bbc.co.uk') || src.includes('bbci.co.uk');
+                if (isBBC) {
+                    errorContainer.innerHTML = `
+                        <strong>⚠️ Browser playback not available</strong><br>
+                        Due to BBC's audio hosting restrictions, browser playback is not supported for BBC podcasts.
+                        Please use one of these alternatives:
+                        <ul style="margin: 8px 0 0 0; padding-left: 20px;">
+                            <li>Open in the British Radio Player app</li>
+                            <li>Subscribe to the podcast RSS feed</li>
+                            <li>Download the episode directly</li>
+                        </ul>
+                    `;
+                } else {
+                    errorContainer.innerHTML = `
+                        <strong>⚠️ Playback error</strong><br>
+                        This browser could not play the audio link.
+                        Please try opening the episode in the British Radio Player app or subscribe via the RSS feed.
+                    `;
+                }
+            }
+
             attachAudioErrorHandling(audio) {
                 if (!audio) return;
                 
                 audio.addEventListener('error', (e) => {
                     const src = audio.currentSrc || audio.src || '';
                     console.warn('Audio playback error for source:', src, 'Error:', e);
-                    
-                    let errorContainer = document.getElementById('episode-audio-error');
-                    if (!errorContainer) {
-                        errorContainer = document.createElement('div');
-                        errorContainer.id = 'episode-audio-error';
-                        errorContainer.style.cssText = 'margin-top: 10px; padding: 12px; background: #fff3f3; border: 1px solid #ffcdd2; border-radius: 8px; color: #c62828; font-size: 13px; line-height: 1.6;';
-                        audio.parentElement.appendChild(errorContainer);
+
+                    // Media-selector links carry short-lived CDN tokens, so a link
+                    // that worked when shared can fail later. Re-read the feed once
+                    // for a fresh URL before telling the listener it will not play.
+                    const podcastId = this.currentContent && this.currentContent.podcastId;
+                    if (!this._episodeAudioRetryAttempted && podcastId) {
+                        this._episodeAudioRetryAttempted = true;
+                        this.enrichEpisodeFromRss(podcastId, this.currentContent.id)
+                            .catch(() => {})
+                            .then(() => {
+                                const refreshed = audio.currentSrc || audio.src || '';
+                                if (refreshed && refreshed !== src) return;
+                                this.showEpisodeAudioError(audio, refreshed || src);
+                            });
+                        return;
                     }
-                    
-                    // Check if this is likely a CORS issue
-                    const isBBC = src.includes('bbc.co.uk') || src.includes('bbci.co.uk');
-                    if (isBBC) {
-                        errorContainer.innerHTML = `
-                            <strong>⚠️ Browser playback not available</strong><br>
-                            Due to BBC's audio hosting restrictions, browser playback is not supported for BBC podcasts. 
-                            Please use one of these alternatives:
-                            <ul style="margin: 8px 0 0 0; padding-left: 20px;">
-                                <li>Open in the British Radio Player app</li>
-                                <li>Subscribe to the podcast RSS feed</li>
-                                <li>Download the episode directly</li>
-                            </ul>
-                        `;
-                    } else {
-                        errorContainer.innerHTML = `
-                            <strong>⚠️ Playback error</strong><br>
-                            This browser could not play the audio link. 
-                            Please try opening the episode in the British Radio Player app or subscribe via the RSS feed.
-                        `;
-                    }
+
+                    this.showEpisodeAudioError(audio, src);
                 });
                 
                 // Also handle stalled loading (often indicates CORS issue)

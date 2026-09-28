@@ -9,6 +9,7 @@ import { ScrobbleManager } from "../audio/scrobbleManager";
 import { notifyNativePhonePlaybackStarted } from "../auto/autoBridge";
 import { notifyCarPlayPhonePlaybackStopped } from "../auto/carPlayBridge";
 import { getDownloadedUri } from "../downloads/downloadStore";
+import { deleteDownloadWhenPlayed, pruneDownloads, setDownloadInUseEpisode } from "../downloads/downloadCleanup";
 import { getNetworkStatus } from "./networkStore";
 import { trackEpisodePlay, trackStationPlay } from "../analytics/analytics";
 
@@ -298,6 +299,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       positionSeconds: 0,
       durationSeconds: (episode?.durationMins || 0) * 60
     });
+    // Protect this episode's download from "Delete when completed" while it streams.
+    setDownloadInUseEpisode(episode?.id || null);
 
     // Record to listening history immediately (mirrors Kotlin RadioService.kt)
     try {
@@ -394,6 +397,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   stop: async () => {
+    setDownloadInUseEpisode(null);
     try {
       resetStationRmsDelay();
       stopShowInfoInterval();
@@ -512,7 +516,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       Preferences.markEpisodePlayed(
         currentEpisode.id,
         currentEpisode.podcastId,
-        parsePodcastDateEpoch(currentEpisode.pubDate)
+        parsePodcastDateEpoch(currentEpisode.pubDate),
+        // Still playing, so a "Delete when completed" download must be kept.
+        { keepDownload: true }
       );
     }
   },
@@ -539,7 +545,13 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       Preferences.markEpisodeUnplayed(episodeId);
       return false;
     }
-    Preferences.markEpisodePlayed(episodeId, podcastId, pubDateEpochMs);
+    const { currentEpisode, isPlaying } = get();
+    Preferences.markEpisodePlayed(
+      episodeId,
+      podcastId,
+      pubDateEpochMs,
+      { keepDownload: currentEpisode?.id === episodeId && isPlaying }
+    );
     return true;
   },
 
@@ -547,6 +559,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const { currentPodcast, currentEpisode } = get();
     if (!currentEpisode) return;
     ScrobbleManager.onPlaybackStopped();
+    // Playback is over, so the file is free to go once the episode counts as played.
+    setDownloadInUseEpisode(null);
     Preferences.markEpisodePlayed(
       currentEpisode.id,
       currentEpisode.podcastId,
@@ -555,16 +569,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     set({ positionSeconds: 0 });
 
     // Auto-delete the download once the episode finishes, mirroring the Kotlin app.
-    if (Preferences.getSetting("pref_delete_played", false)) {
-      try {
-        const { useDownloadStore } = require("../downloads/downloadStore");
-        if (useDownloadStore.getState().downloads[currentEpisode.id]) {
-          useDownloadStore.getState().remove(currentEpisode.id);
-        }
-      } catch {
-        // Downloads are optional; ignore failures.
-      }
-    }
+    deleteDownloadWhenPlayed(currentEpisode.id);
+    // The finished file was exempt from earlier pruning, so trim again now.
+    pruneDownloads();
 
     const autoplayNext = Preferences.getSetting("pref_autoplay_next", "none");
     if (autoplayNext === "none" || !currentPodcast) return;

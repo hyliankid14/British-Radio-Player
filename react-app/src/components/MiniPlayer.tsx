@@ -34,8 +34,6 @@ export function MiniPlayer() {
   } = usePlayerStore();
 
   const isPodcast = !currentStation && !!currentEpisode && !!currentPodcast;
-  if (!currentStation && !isPodcast) return null;
-
   const isFav = currentStation ? favorites.includes(currentStation.id) : false;
   const isSubscribed = currentPodcast ? Preferences.getSubscribedPodcasts().includes(currentPodcast.id) : false;
   const title = currentStation ? currentStation.title : (currentEpisode?.title || "Podcast Episode");
@@ -66,6 +64,12 @@ export function MiniPlayer() {
   React.useEffect(() => {
     setImageError(false);
   }, [currentStation?.id, artworkUrl]);
+
+  // Every hook above runs unconditionally; bailing out any earlier changes the hook
+  // count between renders and throws "Rendered more hooks than during the previous render"
+  // the moment playback starts.
+  if (!currentStation && !isPodcast) return null;
+
   // Tapping the mini player always opens the unified Now Playing screen, matching the
   // legacy Kotlin behaviour for both live radio and podcast playback.
   const openNowPlaying = () => {

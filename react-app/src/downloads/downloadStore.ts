@@ -4,6 +4,7 @@ import { Directory, File, Paths } from "expo-file-system";
 import { Podcast, Episode } from "../api/podcasts";
 import { Preferences, SavedEpisodeEntry } from "../storage/preferences";
 import { NativeAndroid } from "../native/nativeAndroid";
+import { MAX_DOWNLOADS_PREF_KEY, normaliseMaxDownloads, pickDownloadsToRemove } from "./downloadLimits";
 
 export type DownloadStatus = "downloading" | "downloaded" | "error";
 
@@ -24,6 +25,22 @@ interface DownloadStoreState {
 }
 
 const DOWNLOAD_DIRECTORY = "podcast-downloads";
+
+/**
+ * The episode whose local file is currently streaming. Housekeeping must never
+ * remove it, otherwise playback would stop mid-stream.
+ */
+let inUseEpisodeId: string | null = null;
+
+/** Declares which episode's download is currently being played, or null when idle. */
+export function setDownloadInUseEpisode(episodeId: string | null): void {
+  inUseEpisodeId = episodeId || null;
+}
+
+/** The episode currently streaming from a local file, if any. */
+export function getDownloadInUseEpisode(): string | null {
+  return inUseEpisodeId;
+}
 
 /** Temp directory used while a file is being fetched (both platforms). */
 function cacheDirectory(): Directory {
@@ -85,6 +102,22 @@ export function toSavedEpisodeEntry(podcast: Podcast, episode: Episode): SavedEp
     podcastId: podcast.id,
     podcastTitle: podcast.title
   };
+}
+
+/**
+ * Deletes the oldest downloads until the global "Maximum downloaded episodes"
+ * setting is satisfied. The episode currently streaming is never touched, so the
+ * library can sit one over the cap until playback finishes and the next prune runs.
+ * Returns the number of downloads removed.
+ */
+export function enforceMaxDownloads(remove: (episodeId: string) => void): number {
+  const max = normaliseMaxDownloads(Preferences.getSetting(MAX_DOWNLOADS_PREF_KEY, 0));
+  if (max === 0) return 0;
+  const victims = pickDownloadsToRemove(Preferences.getDownloadedEntries(), max).filter(
+    (id) => id !== inUseEpisodeId
+  );
+  for (const id of victims) remove(id);
+  return victims.length;
 }
 
 export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
@@ -161,6 +194,10 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
           [entry.id]: { status: "downloaded", entry, localUri, progress: 1 }
         }
       }));
+
+      // Make room straight away so the cap is honoured even before the next
+      // app start; the newest downloads are the ones kept.
+      enforceMaxDownloads((id) => get().remove(id));
     } catch (error) {
       set((state) => ({
         downloads: {

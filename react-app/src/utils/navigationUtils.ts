@@ -4,6 +4,29 @@ export interface AppNavigationTarget {
 }
 
 /**
+ * Builds the in-app URL a podcast notification should open. Passing `episodeId`
+ * deep-links past the episode list straight to the notified episode.
+ */
+export function buildPodcastDetailUrl(podcastId: string, episodeId?: string): string {
+  const base = `/modal/podcast-detail?podcastId=${encodeURIComponent(podcastId)}`;
+  if (!episodeId) return base;
+  return `${base}&episodeId=${encodeURIComponent(episodeId)}`;
+}
+
+/** Builds the in-app URL a saved-search notification should open. */
+export function buildPodcastSearchUrl(
+  query: string,
+  savedSearchId?: string,
+  result?: { episodeId?: string; podcastId?: string }
+): string {
+  let url = `/modal/podcast-search?search=${encodeURIComponent(query)}`;
+  if (savedSearchId) url += `&savedSearchId=${encodeURIComponent(savedSearchId)}`;
+  if (result?.episodeId) url += `&episodeId=${encodeURIComponent(result.episodeId)}`;
+  if (result?.podcastId) url += `&podcastId=${encodeURIComponent(result.podcastId)}`;
+  return url;
+}
+
+/**
  * Parses deep links (e.g. bbcradioplayer://modal/podcast-detail?podcastId=123,
  * bbcradioplayer://podcasts?search=comedy&savedSearchId=abc), relative URLs (/modal/podcast-detail...),
  * and external deep links (such as /lastfm-auth), correctly preserving hostname and path segments.
