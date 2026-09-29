@@ -294,14 +294,16 @@ export default function RootLayout() {
           options={{
             presentation: "modal",
             headerShown: false,
-            gestureEnabled: true
+            gestureEnabled: true,
+            animation: "none"
           }}
         />
         <Stack.Screen
           name="modal/episode-detail"
           options={{
             presentation: "modal",
-            headerShown: false
+            headerShown: false,
+            animation: "none"
           }}
         />
         <Stack.Screen
@@ -309,7 +311,8 @@ export default function RootLayout() {
           options={{
             presentation: "modal",
             headerShown: false,
-            gestureEnabled: true
+            gestureEnabled: true,
+            animation: "none"
           }}
         />
         <Stack.Screen

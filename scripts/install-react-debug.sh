@@ -91,6 +91,7 @@ echo "Building React Native Android debug app..."
   (
     cd android
     EXPO_PUBLIC_DISTRIBUTION_CHANNEL=github \
+    EXPO_PUBLIC_BUILD_VARIANT=debug \
     ./gradlew --no-daemon :app:assembleGithubDebug \
       -PreactNativeDebuggableVariants= \
       -PreactNativeArchitectures="$ANDROID_ARCHITECTURES" \

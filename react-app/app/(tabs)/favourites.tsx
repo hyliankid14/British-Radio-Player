@@ -1275,7 +1275,7 @@ export default function FavouritesScreen() {
           renderItem={renderStationItem}
           scrollEnabled={!draggingStationId}
           removeClippedSubviews={false}
-          style={{ backgroundColor: theme.surface, overflow: "visible" }}
+          style={{ backgroundColor: theme.surface }}
           contentContainerStyle={[styles.listContent, { paddingBottom: 170 + insets.bottom }]}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
@@ -1337,7 +1337,7 @@ export default function FavouritesScreen() {
           scrollEnabled={!draggingPodcastId}
           removeClippedSubviews={false}
           contentContainerStyle={[styles.listContent, { paddingBottom: 170 + insets.bottom }]}
-          style={{ backgroundColor: theme.surface, overflow: "visible" }}
+          style={{ backgroundColor: theme.surface }}
           ListHeaderComponent={
             selectedTag ? (
               <TouchableOpacity

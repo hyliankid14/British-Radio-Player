@@ -1,6 +1,7 @@
 import { createMMKV } from "react-native-mmkv";
 import { NativeAndroid } from "../native/nativeAndroid";
 import { AudioQuality } from "../data/stations";
+import { mergeEpisodeProgress } from "./episodeProgress";
 
 export interface SavedEpisodeEntry {
   id: string;
@@ -761,6 +762,14 @@ export const Preferences = {
     return this.getPlayedEpisodeIds().includes(episodeId);
   },
 
+  /**
+   * Played episode ids as a Set, so callers rendering a list can do O(1)
+   * membership checks with a single MMKV read instead of one parse per row.
+   */
+  getPlayedEpisodeIdSet(): Set<string> {
+    return new Set(this.getPlayedEpisodeIds());
+  },
+
   markEpisodePlayed(
     episodeId: string,
     podcastId?: string,
@@ -801,6 +810,18 @@ export const Preferences = {
 
   getEpisodeProgress(episodeId: string): number {
     return this.getMap(KEYS.EPISODE_PROGRESS)[episodeId] || this.getPodcastPosition(episodeId) || 0;
+  },
+
+  /**
+   * Every episode's progress in one MMKV read, including the legacy
+   * last-podcast-position fallback that `getEpisodeProgress` applies. Use this
+   * when rendering a whole list instead of calling `getEpisodeProgress` per row.
+   */
+  getEpisodeProgressMap(): Record<string, number> {
+    return mergeEpisodeProgress(
+      this.getMap(KEYS.EPISODE_PROGRESS),
+      this.getMap(KEYS.LAST_PODCAST_POSITIONS)
+    );
   },
 
   setEpisodeProgress(episodeId: string, positionSeconds: number): void {

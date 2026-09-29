@@ -1,7 +1,7 @@
-import Constants from "expo-constants";
 import { Platform } from "react-native";
 import { NativeAndroid } from "../native/nativeAndroid";
 import { Preferences } from "../storage/preferences";
+import { appVersionTag } from "../config/buildInfo";
 
 const ANALYTICS_BASE_URL = "https://bbc-radio.shai.website";
 const ANALYTICS_EVENT_URL = `${ANALYTICS_BASE_URL}/event`;
@@ -48,12 +48,6 @@ export function markAnalyticsPromptShown(): void {
   Preferences.setSetting(PROMPTED_KEY, true);
 }
 
-function appVersion(): string {
-  const version = Constants.expoConfig?.version ?? "2.0.0";
-  if (__DEV__ && !version.endsWith("-debug")) return `${version}-debug`;
-  return version;
-}
-
 function utcTimestamp(): string {
   return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
 }
@@ -64,7 +58,7 @@ async function sendEvent(payload: Record<string, unknown>): Promise<void> {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "User-Agent": `British-Radio-Player/${appVersion()}`
+        "User-Agent": `British-Radio-Player/${appVersionTag()}`
       },
       body: JSON.stringify(payload)
     });
@@ -85,7 +79,7 @@ export async function trackStationPlay(stationId: string, stationName?: string):
     station_id: cleanId,
     ...(stationName?.trim() ? { station_name: stationName.trim() } : {}),
     date: utcTimestamp(),
-    app_version: appVersion(),
+    app_version: appVersionTag(),
     platform: Platform.OS === "ios" ? "ios" : "android"
   });
 }
@@ -112,7 +106,7 @@ export async function trackEpisodePlay(
     ...(podcastTitle?.trim() ? { podcast_title: podcastTitle.trim() } : {}),
     ...(episodeTitle?.trim() ? { episode_title: episodeTitle.trim() } : {}),
     date: utcTimestamp(),
-    app_version: appVersion(),
+    app_version: appVersionTag(),
     platform: Platform.OS === "ios" ? "ios" : "android"
   });
 }

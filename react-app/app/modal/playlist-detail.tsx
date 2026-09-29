@@ -19,7 +19,7 @@ import { Episode, Podcast, decodeXmlEntities } from "../../src/api/podcasts";
 import { Preferences, SavedEpisodeEntry } from "../../src/storage/preferences";
 import { useDownloadStore, toSavedEpisodeEntry } from "../../src/downloads/downloadStore";
 import { usePlayerStore } from "../../src/store/playerStore";
-import { useAppTheme } from "../../src/theme/colors";
+import { useAppTheme, ThemeColors } from "../../src/theme/colors";
 import { MiniPlayer } from "../../src/components/MiniPlayer";
 import { AppNavigation } from "../../src/components/AppNavigation";
 import { useNetworkStatus } from "../../src/store/networkStore";
@@ -35,19 +35,257 @@ const PLAYLIST_SORT_OPTIONS: Array<[string, PlaylistSort]> = [
   ["Sort: Manual", "manual"]
 ];
 
+const EPISODE_DATE_FORMATTER = new Intl.DateTimeFormat("en-GB", {
+  weekday: "short",
+  day: "2-digit",
+  month: "short",
+  year: "numeric"
+});
+
 function formatEpisodeDate(raw?: string): string {
   if (!raw) return "";
   const parsed = new Date(raw);
   if (!Number.isNaN(parsed.getTime())) {
-    return new Intl.DateTimeFormat("en-GB", {
-      weekday: "short",
-      day: "2-digit",
-      month: "short",
-      year: "numeric"
-    }).format(parsed);
+    return EPISODE_DATE_FORMATTER.format(parsed);
   }
   return raw.includes(":") ? raw.split(":")[0].trim() : raw.trim();
 }
+
+type EpisodeDisplayMeta = {
+  dateLabel: string;
+  title: string;
+  podcastTitle: string;
+};
+
+const EMPTY_EPISODE_META: EpisodeDisplayMeta = {
+  dateLabel: "",
+  title: "",
+  podcastTitle: ""
+};
+
+type EpisodePanResponder = ReturnType<typeof PanResponder.create>;
+
+interface EpisodeRowProps {
+  item: SavedEpisodeEntry;
+  meta: EpisodeDisplayMeta;
+  progressSeconds: number;
+  isPlayed: boolean;
+  theme: ThemeColors;
+  isCurrent: boolean;
+  isPlaying: boolean;
+  selectionMode: boolean;
+  isSelected: boolean;
+  isDraggingThis: boolean;
+  isDragInProgress: boolean;
+  isDownloadedPlaylist: boolean;
+  panResponder?: EpisodePanResponder;
+  dragTranslateY: Animated.Value;
+  dragScale: Animated.Value;
+  getTranslation: (id: string) => Animated.Value;
+  onToggleSelect: (episodeId: string) => void;
+  onLongPress: (entry: SavedEpisodeEntry) => void;
+  onOpen: (entry: SavedEpisodeEntry) => void;
+  onPlay: (entry: SavedEpisodeEntry) => void;
+  onRequestRemove: (entry: SavedEpisodeEntry) => void;
+}
+
+/**
+ * Memoised so scrolling and unrelated parent re-renders (playback ticks,
+ * selection changes) do not rebuild every row or re-run per-row storage reads.
+ */
+const EpisodeRow = React.memo(function EpisodeRow({
+  item,
+  meta,
+  progressSeconds,
+  isPlayed,
+  theme,
+  isCurrent,
+  isPlaying,
+  selectionMode,
+  isSelected,
+  isDraggingThis,
+  isDragInProgress,
+  isDownloadedPlaylist,
+  panResponder,
+  dragTranslateY,
+  dragScale,
+  getTranslation,
+  onToggleSelect,
+  onLongPress,
+  onOpen,
+  onPlay,
+  onRequestRemove
+}: EpisodeRowProps) {
+  const artworkSource = useMemo(() => ({ uri: item.imageUrl }), [item.imageUrl]);
+
+  const durationSeconds = (item.durationMins || 0) * 60;
+  const progressPercent =
+    !isPlayed && durationSeconds > 0 && progressSeconds > 0
+      ? Math.min(100, Math.round((progressSeconds / durationSeconds) * 100))
+      : 0;
+
+  // Only attach an animated transform while a drag is in progress. Giving every
+  // idle row an Animated.View + transform makes the whole scroll surface run
+  // through the animated-node path, which is very costly with many rows.
+  const isDragActive = isDraggingThis || isDragInProgress;
+  const transform = isDraggingThis
+    ? [{ translateY: dragTranslateY }, { scale: dragScale }]
+    : isDragActive
+      ? [{ translateY: getTranslation(item.id) }]
+      : undefined;
+
+  return (
+    <View
+      style={[
+        styles.row,
+        {
+          backgroundColor: isDraggingThis ? theme.surfaceContainer : theme.surface,
+          borderBottomColor: theme.outlineVariant,
+          transform,
+          zIndex: isDraggingThis ? 999 : 1,
+          elevation: isDraggingThis ? 8 : 0,
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: isDraggingThis ? 6 : 0 },
+          shadowOpacity: isDraggingThis ? 0.25 : 0,
+          shadowRadius: isDraggingThis ? 8 : 0
+        }
+      ]}
+    >
+      <TouchableOpacity
+        style={styles.rowMain}
+        activeOpacity={0.7}
+        onPress={() => {
+          if (selectionMode) onToggleSelect(item.id);
+          else onOpen(item);
+        }}
+        onLongPress={() => {
+          if (!selectionMode) onLongPress(item);
+        }}
+      >
+        {selectionMode ? (
+          <MaterialIcons
+            name={isSelected ? "check-circle" : "radio-button-unchecked"}
+            size={24}
+            color={isSelected ? theme.primary : theme.onSurfaceVariant}
+            style={{ marginRight: 12 }}
+          />
+        ) : null}
+
+        {item.imageUrl ? (
+          <Image source={artworkSource} style={styles.artwork} />
+        ) : (
+          <View
+            style={[
+              styles.artworkFallback,
+              { backgroundColor: theme.primaryContainer }
+            ]}
+          >
+            <MaterialIcons name="podcasts" size={26} color={theme.primary} />
+          </View>
+        )}
+
+        <View style={styles.info}>
+          <Text style={[styles.title, { color: theme.onSurface }]} numberOfLines={2}>
+            {meta.title}
+          </Text>
+          {meta.podcastTitle ? (
+            <Text
+              style={[styles.podcastTitle, { color: theme.onSurfaceVariant }]}
+              numberOfLines={1}
+            >
+              {meta.podcastTitle}
+            </Text>
+          ) : null}
+
+          {progressPercent > 0 ? (
+            <View
+              style={[
+                styles.progressBarTrack,
+                { backgroundColor: theme.surfaceVariant }
+              ]}
+            >
+              <View
+                style={[
+                  styles.progressBarFill,
+                  { width: `${progressPercent}%`, backgroundColor: theme.primary }
+                ]}
+              />
+            </View>
+          ) : null}
+
+          <View style={styles.metaRow}>
+            <Text style={[styles.metaText, { color: theme.onSurfaceVariant }]}>
+              {meta.dateLabel}
+            </Text>
+            {item.durationMins > 0 ? (
+              <Text style={[styles.metaText, { color: theme.onSurfaceVariant }]}>
+                {item.durationMins} min
+              </Text>
+            ) : null}
+            {isPlayed ? (
+              <View style={styles.playedBadge}>
+                <MaterialIcons name="check-circle" size={13} color="#4CAF50" />
+                <Text style={styles.playedBadgeText}>Played</Text>
+              </View>
+            ) : progressSeconds > 0 ? (
+              <Text style={styles.inProgressBadgeText}>~ In progress</Text>
+            ) : null}
+          </View>
+        </View>
+      </TouchableOpacity>
+
+      {!selectionMode ? (
+        <View style={styles.rowTrailingActions}>
+          <TouchableOpacity
+            style={[
+              styles.playButton,
+              {
+                backgroundColor:
+                  isCurrent && isPlaying ? theme.primary : theme.primaryContainer
+              }
+            ]}
+            onPress={() => onPlay(item)}
+            accessibilityLabel={isCurrent && isPlaying ? "Pause episode" : "Play episode"}
+          >
+            <MaterialIcons
+              name={isCurrent && isPlaying ? "pause" : "play-arrow"}
+              size={20}
+              color={isCurrent && isPlaying ? "#FFFFFF" : theme.primary}
+            />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.removeButton}
+            onPress={() => onRequestRemove(item)}
+            accessibilityLabel={
+              isDownloadedPlaylist ? "Delete download" : "Remove from playlist"
+            }
+          >
+            <MaterialIcons
+              name={isDownloadedPlaylist ? "delete-outline" : "remove-circle-outline"}
+              size={22}
+              color={theme.onSurfaceVariant}
+            />
+          </TouchableOpacity>
+
+          {panResponder ? (
+            <View
+              {...panResponder.panHandlers}
+              style={styles.dragHandleContainer}
+              hitSlop={{ top: 16, bottom: 16, left: 12, right: 12 }}
+            >
+              <MaterialIcons
+                name="drag-indicator"
+                size={24}
+                color={isDraggingThis ? theme.primary : theme.onSurfaceVariant}
+              />
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+    </View>
+  );
+});
 
 export default function PlaylistDetailModal() {
   const router = useRouter();
@@ -58,7 +296,11 @@ export default function PlaylistDetailModal() {
   const playlistName = params.playlistName || "Playlist";
 
   const downloads = useDownloadStore((state) => state.downloads);
-  const { playEpisode, currentEpisode, isPlaying, togglePlayPause } = usePlayerStore();
+  const playEpisode = usePlayerStore((state) => state.playEpisode);
+  const currentEpisode = usePlayerStore((state) => state.currentEpisode);
+  const isPlaying = usePlayerStore((state) => state.isPlaying);
+  const togglePlayPause = usePlayerStore((state) => state.togglePlayPause);
+  const positionSeconds = usePlayerStore((state) => state.positionSeconds);
   const { isOnline } = useNetworkStatus();
 
   const [rawEntries, setRawEntries] = useState<SavedEpisodeEntry[]>([]);
@@ -105,11 +347,28 @@ export default function PlaylistDetailModal() {
     loadEntries();
   }, [downloads, loadEntries]);
 
+  // Warm the native image cache so rows mounting during a scroll decode from
+  // memory instead of kicking off a network request per row mid-gesture.
+  useEffect(() => {
+    let cancelled = false;
+    const uris = Array.from(
+      new Set(rawEntries.map((e) => e.imageUrl).filter((uri): uri is string => !!uri))
+    );
+    for (const uri of uris) {
+      if (cancelled) break;
+      void Image.prefetch(uri).catch(() => undefined);
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [rawEntries]);
+
   // Sort and filter entries
   const displayEntries = useMemo(() => {
     let list = [...rawEntries];
     if (hidePlayed) {
-      list = list.filter((e) => !Preferences.isEpisodePlayed(e.id));
+      const played = Preferences.getPlayedEpisodeIdSet();
+      list = list.filter((e) => !played.has(e.id));
     }
 
     if (playlistSort === "newest_first") {
@@ -144,6 +403,35 @@ export default function PlaylistDetailModal() {
 
     return list;
   }, [rawEntries, hidePlayed, playlistSort, manualOrder]);
+
+  // Static per-row display data, recomputed only when the list itself changes.
+  const episodeMeta = useMemo(() => {
+    const map: Record<string, EpisodeDisplayMeta> = {};
+    for (const entry of displayEntries) {
+      map[entry.id] = {
+        dateLabel: formatEpisodeDate(entry.pubDate),
+        title: decodeXmlEntities(entry.title),
+        podcastTitle: entry.podcastTitle ? decodeXmlEntities(entry.podcastTitle) : ""
+      };
+    }
+    return map;
+  }, [displayEntries]);
+
+  // Playback state changes often while an episode is playing. Computing it into
+  // a side map of plain values lets only the affected row re-render rather than
+  // rebuilding every row on each progress tick.
+  const episodePlayback = useMemo(() => {
+    const progressMap = Preferences.getEpisodeProgressMap();
+    const played = Preferences.getPlayedEpisodeIdSet();
+    const map: Record<string, { progressSeconds: number; isPlayed: boolean }> = {};
+    for (const entry of displayEntries) {
+      map[entry.id] = {
+        progressSeconds: progressMap[entry.id] || 0,
+        isPlayed: played.has(entry.id)
+      };
+    }
+    return map;
+  }, [displayEntries, positionSeconds]);
 
   const [draggingEpisodeId, setDraggingEpisodeId] = useState<string | null>(null);
   const episodePanY = useRef(new Animated.Value(0)).current;
@@ -282,6 +570,22 @@ export default function PlaylistDetailModal() {
       }),
     [getEpisodeTranslation, episodePanY, episodeScaleAnim, playlistId]
   );
+
+  // PanResponders are only needed when reordering manually. Creating one per row
+  // for every render (as before) is the most expensive part of rendering the list.
+  const episodePanResponders = useMemo(() => {
+    if (playlistSort !== "manual") return {} as Record<string, EpisodePanResponder>;
+    const responders: Record<string, EpisodePanResponder> = {};
+    displayEntries.forEach((entry, index) => {
+      responders[entry.id] = createEpisodePanResponder(index, entry);
+    });
+    return responders;
+  }, [playlistSort, displayEntries, createEpisodePanResponder]);
+
+  const beginSelection = useCallback((entry: SavedEpisodeEntry) => {
+    setSelectionMode(true);
+    setSelected(new Set([entry.id]));
+  }, []);
 
   const toggleSelection = useCallback((episodeId: string) => {
     setSelected((current) => {
@@ -422,9 +726,12 @@ export default function PlaylistDetailModal() {
     [playlistId, loadEntries]
   );
 
-  const areAllDownloaded =
-    rawEntries.length > 0 &&
-    rawEntries.every((e) => downloads[e.id]?.status === "downloaded");
+  const areAllDownloaded = useMemo(
+    () =>
+      rawEntries.length > 0 &&
+      rawEntries.every((e) => downloads[e.id]?.status === "downloaded"),
+    [rawEntries, downloads]
+  );
 
   const handleBulkDownload = () => {
     setOptionsModalVisible(false);
@@ -533,184 +840,41 @@ export default function PlaylistDetailModal() {
         data={displayEntries}
         keyExtractor={(item) => item.id}
         scrollEnabled={!draggingEpisodeId}
-        removeClippedSubviews={false}
+        removeClippedSubviews={playlistSort !== "manual"}
+        initialNumToRender={6}
+        maxToRenderPerBatch={6}
+        updateCellsBatchingPeriod={80}
+        windowSize={5}
         contentContainerStyle={[styles.listContent, { paddingBottom: 170 + insets.bottom }]}
-        style={{ backgroundColor: theme.surface, overflow: "visible" }}
-        renderItem={({ item, index }) => {
-          const isCurrent = currentEpisode?.id === item.id;
-          const isDraggingThis = draggingEpisodeId === item.id;
-          const episodePanResponder = createEpisodePanResponder(index, item);
-          const transform = isDraggingThis
-            ? [{ translateY: episodePanY }, { scale: episodeScaleAnim }]
-            : [{ translateY: getEpisodeTranslation(item.id) }];
-
-          const progressSeconds = Preferences.getEpisodeProgress(item.id);
-          const durationSeconds = (item.durationMins || 0) * 60;
-          const isPlayed = Preferences.isEpisodePlayed(item.id);
-          const progressPercent =
-            !isPlayed && durationSeconds > 0 && progressSeconds > 0
-              ? Math.min(100, Math.round((progressSeconds / durationSeconds) * 100))
-              : 0;
-
-          return (
-            <Animated.View
-              style={[
-                styles.row,
-                {
-                  backgroundColor: isDraggingThis ? theme.surfaceContainer : theme.surface,
-                  borderBottomColor: theme.outlineVariant,
-                  transform,
-                  zIndex: isDraggingThis ? 999 : 1,
-                  elevation: isDraggingThis ? 8 : 0,
-                  shadowColor: "#000",
-                  shadowOffset: { width: 0, height: isDraggingThis ? 6 : 0 },
-                  shadowOpacity: isDraggingThis ? 0.25 : 0,
-                  shadowRadius: isDraggingThis ? 8 : 0
-                }
-              ]}
-            >
-              <TouchableOpacity
-                style={styles.rowMain}
-                activeOpacity={0.7}
-                onPress={() => {
-                  if (selectionMode) toggleSelection(item.id);
-                  else openEntryInNowPlaying(item);
-                }}
-                onLongPress={() => {
-                  if (!selectionMode) {
-                    setSelectionMode(true);
-                    setSelected(new Set([item.id]));
-                  }
-                }}
-              >
-                {selectionMode ? (
-                  <MaterialIcons
-                    name={selected.has(item.id) ? "check-circle" : "radio-button-unchecked"}
-                    size={24}
-                    color={selected.has(item.id) ? theme.primary : theme.onSurfaceVariant}
-                    style={{ marginRight: 12 }}
-                  />
-                ) : null}
-
-                {item.imageUrl ? (
-                  <Image source={{ uri: item.imageUrl }} style={styles.artwork} />
-                ) : (
-                  <View
-                    style={[
-                      styles.artworkFallback,
-                      { backgroundColor: theme.primaryContainer }
-                    ]}
-                  >
-                    <MaterialIcons name="podcasts" size={26} color={theme.primary} />
-                  </View>
-                )}
-
-                <View style={styles.info}>
-                  <Text style={[styles.title, { color: theme.onSurface }]} numberOfLines={2}>
-                    {decodeXmlEntities(item.title)}
-                  </Text>
-                  {item.podcastTitle ? (
-                    <Text
-                      style={[styles.podcastTitle, { color: theme.onSurfaceVariant }]}
-                      numberOfLines={1}
-                    >
-                      {decodeXmlEntities(item.podcastTitle)}
-                    </Text>
-                  ) : null}
-
-                  {progressPercent > 0 ? (
-                    <View
-                      style={[
-                        styles.progressBarTrack,
-                        { backgroundColor: theme.surfaceVariant }
-                      ]}
-                    >
-                      <View
-                        style={[
-                          styles.progressBarFill,
-                          { width: `${progressPercent}%`, backgroundColor: theme.primary }
-                        ]}
-                      />
-                    </View>
-                  ) : null}
-
-                  <View style={styles.metaRow}>
-                    <Text style={[styles.metaText, { color: theme.onSurfaceVariant }]}>
-                      {formatEpisodeDate(item.pubDate)}
-                    </Text>
-                    {item.durationMins > 0 ? (
-                      <Text style={[styles.metaText, { color: theme.onSurfaceVariant }]}>
-                        {item.durationMins} min
-                      </Text>
-                    ) : null}
-                    {isPlayed ? (
-                      <View style={styles.playedBadge}>
-                        <MaterialIcons name="check-circle" size={13} color="#4CAF50" />
-                        <Text style={styles.playedBadgeText}>Played</Text>
-                      </View>
-                    ) : progressSeconds > 0 ? (
-                      <Text style={styles.inProgressBadgeText}>~ In progress</Text>
-                    ) : null}
-                  </View>
-                </View>
-              </TouchableOpacity>
-
-              {!selectionMode ? (
-                <View style={styles.rowTrailingActions}>
-                  <TouchableOpacity
-                    style={[
-                      styles.playButton,
-                      {
-                        backgroundColor:
-                          isCurrent && isPlaying ? theme.primary : theme.primaryContainer
-                      }
-                    ]}
-                    onPress={() => playEntry(item)}
-                    accessibilityLabel={isCurrent && isPlaying ? "Pause episode" : "Play episode"}
-                  >
-                    <MaterialIcons
-                      name={isCurrent && isPlaying ? "pause" : "play-arrow"}
-                      size={20}
-                      color={isCurrent && isPlaying ? "#FFFFFF" : theme.primary}
-                    />
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.removeButton}
-                    onPress={() => setRemoveTarget(item)}
-                    accessibilityLabel={
-                      playlistId === "downloaded" ? "Delete download" : "Remove from playlist"
-                    }
-                  >
-                    <MaterialIcons
-                      name={
-                        playlistId === "downloaded"
-                          ? "delete-outline"
-                          : "remove-circle-outline"
-                      }
-                      size={22}
-                      color={theme.onSurfaceVariant}
-                    />
-                  </TouchableOpacity>
-
-                  {playlistSort === "manual" ? (
-                    <View
-                      {...episodePanResponder.panHandlers}
-                      style={styles.dragHandleContainer}
-                      hitSlop={{ top: 16, bottom: 16, left: 12, right: 12 }}
-                    >
-                      <MaterialIcons
-                        name="drag-indicator"
-                        size={24}
-                        color={isDraggingThis ? theme.primary : theme.onSurfaceVariant}
-                      />
-                    </View>
-                  ) : null}
-                </View>
-              ) : null}
-            </Animated.View>
-          );
+        style={{
+          backgroundColor: theme.surface,
+          overflow: playlistSort === "manual" ? "visible" : "hidden"
         }}
+        renderItem={({ item }) => (
+          <EpisodeRow
+            item={item}
+            meta={episodeMeta[item.id] ?? EMPTY_EPISODE_META}
+            progressSeconds={episodePlayback[item.id]?.progressSeconds ?? 0}
+            isPlayed={episodePlayback[item.id]?.isPlayed ?? false}
+            theme={theme}
+            isCurrent={currentEpisode?.id === item.id}
+            isPlaying={isPlaying}
+            selectionMode={selectionMode}
+            isSelected={selected.has(item.id)}
+            isDraggingThis={draggingEpisodeId === item.id}
+            isDragInProgress={draggingEpisodeId !== null}
+            isDownloadedPlaylist={playlistId === "downloaded"}
+            panResponder={episodePanResponders[item.id]}
+            dragTranslateY={episodePanY}
+            dragScale={episodeScaleAnim}
+            getTranslation={getEpisodeTranslation}
+            onToggleSelect={toggleSelection}
+            onLongPress={beginSelection}
+            onOpen={openEntryInNowPlaying}
+            onPlay={playEntry}
+            onRequestRemove={setRemoveTarget}
+          />
+        )}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <MaterialIcons name="bookmark-border" size={48} color={theme.onSurfaceVariant} />

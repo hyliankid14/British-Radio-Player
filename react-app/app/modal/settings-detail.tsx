@@ -11,7 +11,6 @@ import {
   View
 } from "react-native";
 import * as Linking from "expo-linking";
-import Constants from "expo-constants";
 import { File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -44,6 +43,7 @@ import {
   SHOW_GITHUB_LINK,
   SHOW_UPDATE_BUTTON
 } from "../../src/config/distribution";
+import { IS_DEBUG_BUILD, appVersion } from "../../src/config/buildInfo";
 import {
   checkForNewPodcasts,
   ensureNotificationPermissions,
@@ -1437,7 +1437,7 @@ function PrivacyPage() {
 function AboutPage() {
   const theme = useAppTheme();
   const [checking, setChecking] = useState(false);
-  const currentVersion = Constants.expoConfig?.version ?? "2.0.0";
+  const currentVersion = appVersion();
 
   const checkForUpdates = async () => {
     setChecking(true);
@@ -1475,7 +1475,7 @@ function AboutPage() {
           <Text style={[styles.aboutAppTitle, { color: theme.onSurface }]}>British Radio Player</Text>
           <View style={[styles.aboutBadge, { backgroundColor: theme.surfaceVariant }]}>
             <Text style={[styles.aboutBadgeText, { color: theme.onSurfaceVariant }]}>
-              v{currentVersion} • {distributionLabel()}
+              {`v${currentVersion} • ${distributionLabel()}${IS_DEBUG_BUILD ? " • Debug" : ""}`}
             </Text>
           </View>
         </View>

@@ -48,6 +48,7 @@ echo "Building the self-contained debug APK..."
 (
   cd "$APP_DIR/android"
   EXPO_PUBLIC_DISTRIBUTION_CHANNEL=github \
+  EXPO_PUBLIC_BUILD_VARIANT=debug \
   ./gradlew --no-daemon :app:assembleGithubDebug \
     -PreactNativeDebuggableVariants= \
     -PreactNativeArchitectures="$ANDROID_ARCHITECTURES" \

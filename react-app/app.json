@@ -102,6 +102,7 @@
       "expo-notifications",
       "./plugins/withAndroidCleartextTraffic",
       "./plugins/withAndroidReleaseChannels",
+      "./plugins/withAndroidDebugVersion",
       "expo-background-task",
       "expo-sharing"
     ]
