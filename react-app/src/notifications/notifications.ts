@@ -204,6 +204,14 @@ export async function checkSubscriptionsForNewEpisodes(force = false): Promise<v
         .sort((a, b) => episodeEpoch(a.pubDate) - episodeEpoch(b.pubDate));
 
       for (const episode of fresh.slice(-MAX_NOTIFICATIONS_PER_PODCAST)) {
+        Preferences.setNotifiedEpisode(episode.id, {
+          title: episode.title,
+          audioUrl: episode.audioUrl,
+          imageUrl: episode.imageUrl,
+          pubDate: episode.pubDate,
+          durationMins: episode.durationMins,
+          podcastId: podcast.id
+        });
         await present(
           Notifications,
           podcast.title,

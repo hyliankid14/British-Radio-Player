@@ -407,7 +407,15 @@ export default function PodcastDetailModal() {
         // A new-episode alert carries the episode it is about; open it instead of
         // making the user hunt for it in the list.
         if (requestedEpisodeId && openedEpisodeRef.current !== requestedEpisodeId) {
-          const target = eps.find((ep) => ep.id === requestedEpisodeId);
+          let target = eps.find((ep) => ep.id === requestedEpisodeId);
+          // If the episode is no longer in the live feed (BBC feeds are typically
+          // capped at ~20 episodes), try the snapshot saved when the notification fired.
+          if (!target) {
+            const snapshot = Preferences.getNotifiedEpisode(requestedEpisodeId);
+            if (snapshot) {
+              target = { id: requestedEpisodeId, ...snapshot };
+            }
+          }
           if (target) {
             openedEpisodeRef.current = requestedEpisodeId;
             router.push({

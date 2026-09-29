@@ -444,6 +444,35 @@ export const Preferences = {
     storage.set(`pref_podcast_meta_${podcastId}`, JSON.stringify(updated));
   },
 
+  /** Persists a minimal episode snapshot so the detail screen can open it even if it
+   *  has since rotated off the RSS feed. Entries expire after 7 days. */
+  setNotifiedEpisode(
+    episodeId: string,
+    data: { title: string; audioUrl: string; imageUrl: string; pubDate: string; durationMins: number; podcastId: string }
+  ): void {
+    if (!episodeId) return;
+    storage.set(`pref_notified_ep_${episodeId}`, JSON.stringify({ ...data, storedAt: Date.now() }));
+  },
+
+  getNotifiedEpisode(
+    episodeId: string
+  ): { title: string; audioUrl: string; imageUrl: string; pubDate: string; durationMins: number; podcastId: string } | null {
+    if (!episodeId) return null;
+    try {
+      const raw = storage.getString(`pref_notified_ep_${episodeId}`);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as { title: string; audioUrl: string; imageUrl: string; pubDate: string; durationMins: number; podcastId: string; storedAt: number };
+      const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
+      if (Date.now() - (parsed.storedAt || 0) > SEVEN_DAYS) {
+        storage.delete(`pref_notified_ep_${episodeId}`);
+        return null;
+      }
+      return { title: parsed.title, audioUrl: parsed.audioUrl, imageUrl: parsed.imageUrl, pubDate: parsed.pubDate, durationMins: parsed.durationMins, podcastId: parsed.podcastId };
+    } catch {
+      return null;
+    }
+  },
+
   isPodcastNotificationsEnabled(podcastId: string): boolean {
     if (!this.getSubscribedPodcasts().includes(podcastId)) return false;
     return storage.getBoolean(`pref_podcast_notifications_${podcastId}`) ?? false;

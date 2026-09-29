@@ -461,7 +461,7 @@ export default function PodcastsScreen() {
       {/* Floating Action Button: Scroll To Top */}
       {showScrollTop && (
         <TouchableOpacity
-          style={[styles.fab, { backgroundColor: theme.primary }]}
+          style={[styles.fab, { backgroundColor: theme.primary, bottom: 74 + insets.bottom }]}
           onPress={scrollToTop}
           activeOpacity={0.85}
         >
@@ -789,7 +789,6 @@ const styles = StyleSheet.create({
   fab: {
     position: "absolute",
     right: 16,
-    bottom: 96,
     width: 52,
     height: 52,
     borderRadius: 26,
