@@ -59,6 +59,7 @@ final class CarPlayManager: NSObject {
     // MARK: - Scene lifecycle
 
     func connect(interfaceController: CPInterfaceController) {
+        if isConnected && self.interfaceController === interfaceController { return }
         self.interfaceController = interfaceController
         isConnected = true
 
@@ -218,14 +219,32 @@ final class CarPlayManager: NSObject {
 
     private func buildAndSetRootTemplate(animated: Bool) {
         guard let interfaceController = interfaceController else { return }
-        updateNowPlayingButtons()
+        let favourites = makeFavouritesTemplate()
+        let stations = makeStationsTemplate()
+        let podcasts = makePodcastsRootTemplate()
+
         let root = CPTabBarTemplate(templates: [
-            makeFavouritesTemplate(),
-            makeStationsTemplate(),
-            makePodcastsRootTemplate(),
-            makeSearchTemplate()
+            favourites,
+            stations,
+            podcasts
         ])
-        interfaceController.setRootTemplate(root, animated: animated, completion: nil)
+
+        if #available(iOS 17.0, *) {
+            let startup = CarPlayState.shared.snapshot.startupPage
+            if startup == "all_stations" {
+                root.selectTemplate(at: 1)
+            } else if startup == "podcasts" {
+                root.selectTemplate(at: 2)
+            } else {
+                root.selectTemplate(at: 0)
+            }
+        }
+
+        interfaceController.setRootTemplate(root, animated: animated) { [weak self] _, _ in
+            Task { @MainActor in
+                self?.updateNowPlayingButtons()
+            }
+        }
     }
 
     /// Rebuilds the tab bar so new data is picked up. Skipped while a drill-down list is
@@ -237,6 +256,15 @@ final class CarPlayManager: NSObject {
 
     private func push(_ template: CPTemplate) {
         interfaceController?.pushTemplate(template, animated: true, completion: nil)
+    }
+
+    private func makeSearchButton() -> CPBarButton {
+        CPBarButton(image: UIImage(systemName: "magnifyingglass") ?? UIImage()) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.push(self.makeSearchTemplate())
+            }
+        }
     }
 
     // MARK: Favourites
@@ -264,7 +292,8 @@ final class CarPlayManager: NSObject {
                 )
                 item.handler = { [weak self] _, completion in
                     Task { @MainActor in
-                        self?.play(station: station)
+                        guard let self else { completion(); return }
+                        self.play(station: station)
                         completion()
                     }
                 }
@@ -276,6 +305,7 @@ final class CarPlayManager: NSObject {
             title: "Favourites", sections: [CPListSection(items: items)])
         template.tabTitle = "Favourites"
         template.tabImage = UIImage(systemName: "star.fill")
+        template.trailingNavigationBarButtons = [makeSearchButton()]
         return template
     }
 
@@ -296,7 +326,8 @@ final class CarPlayManager: NSObject {
                     )
                     item.handler = { [weak self] _, completion in
                         Task { @MainActor in
-                            self?.play(station: station)
+                            guard let self else { completion(); return }
+                            self.play(station: station)
                             completion()
                         }
                     }
@@ -306,9 +337,22 @@ final class CarPlayManager: NSObject {
                     items: items, header: category.rawValue, sectionIndexTitle: nil)
             }
 
-        let template = CPListTemplate(title: "Stations", sections: sections)
-        template.tabTitle = "Stations"
+        let sectionsToUse: [CPListSection]
+        if sections.isEmpty {
+            let empty = CPListItem(
+                text: "No stations available",
+                detailText: "Open British Radio Player on your iPhone to load stations"
+            )
+            empty.isEnabled = false
+            sectionsToUse = [CPListSection(items: [empty])]
+        } else {
+            sectionsToUse = sections
+        }
+
+        let template = CPListTemplate(title: "All Stations", sections: sectionsToUse)
+        template.tabTitle = "All Stations"
         template.tabImage = UIImage(systemName: "dot.radiowaves.left.and.right")
+        template.trailingNavigationBarButtons = [makeSearchButton()]
         return template
     }
 
@@ -324,7 +368,7 @@ final class CarPlayManager: NSObject {
             item.accessoryType = .disclosureIndicator
             item.handler = { [weak self] _, completion in
                 Task { @MainActor in
-                    guard let self else { return }
+                    guard let self else { completion(); return }
                     self.push(makeTemplate())
                     completion()
                 }
@@ -351,7 +395,8 @@ final class CarPlayManager: NSObject {
         let random = CPListItem(text: "Random Podcast Episode", detailText: nil)
         random.handler = { [weak self] _, completion in
             Task { @MainActor in
-                self?.playRandomPodcast()
+                guard let self else { completion(); return }
+                self.playRandomPodcast()
                 completion()
             }
         }
@@ -360,11 +405,23 @@ final class CarPlayManager: NSObject {
         let template = CPListTemplate(title: "Podcasts", sections: [CPListSection(items: items)])
         template.tabTitle = "Podcasts"
         template.tabImage = UIImage(systemName: "dot.radiowaves.up.forward")
+        template.trailingNavigationBarButtons = [makeSearchButton()]
         return template
     }
 
     private func makeSubscribedTemplate() -> CPListTemplate {
-        let items = sortedSubscriptions(subscribedPodcasts()).map { podcastItem($0) }
+        let subscriptions = sortedSubscriptions(subscribedPodcasts())
+        let items: [CPListItem]
+        if subscriptions.isEmpty {
+            let empty = CPListItem(
+                text: "No subscribed podcasts",
+                detailText: "Subscribe to podcasts on your iPhone"
+            )
+            empty.isEnabled = false
+            items = [empty]
+        } else {
+            items = subscriptions.map { podcastItem($0) }
+        }
         return CPListTemplate(title: "Subscribed", sections: [CPListSection(items: items)])
     }
 
@@ -375,40 +432,61 @@ final class CarPlayManager: NSObject {
         let tags =
             Set(subscriptions.flatMap { tagMap[$0.id] ?? [] }.filter { !$0.isEmpty }).sorted()
 
-        let items = tags.map { tag -> CPListItem in
-            let tagged = sortedSubscriptions(
-                subscriptions.filter { tagMap[$0.id]?.contains(tag) == true })
-            let item = CPListItem(
-                text: tag, detailText: tagged.prefix(3).map { $0.title }.joined(separator: ", "))
-            item.accessoryType = .disclosureIndicator
-            item.handler = { [weak self] _, completion in
-                Task { @MainActor in
-                    guard let self else { return }
-                    let items = tagged.map { self.podcastItem($0) }
-                    self.push(CPListTemplate(title: tag, sections: [CPListSection(items: items)]))
-                    completion()
+        let items: [CPListItem]
+        if tags.isEmpty {
+            let empty = CPListItem(
+                text: "No tagged podcasts",
+                detailText: "Add tags to podcasts on your iPhone"
+            )
+            empty.isEnabled = false
+            items = [empty]
+        } else {
+            items = tags.map { tag -> CPListItem in
+                let tagged = sortedSubscriptions(
+                    subscriptions.filter { tagMap[$0.id]?.contains(tag) == true })
+                let item = CPListItem(
+                    text: tag, detailText: tagged.prefix(3).map { $0.title }.joined(separator: ", "))
+                item.accessoryType = .disclosureIndicator
+                item.handler = { [weak self] _, completion in
+                    Task { @MainActor in
+                        guard let self else { completion(); return }
+                        let items = tagged.map { self.podcastItem($0) }
+                        self.push(CPListTemplate(title: tag, sections: [CPListSection(items: items)]))
+                        completion()
+                    }
                 }
+                return item
             }
-            return item
         }
 
         return CPListTemplate(title: "Browse by Tag", sections: [CPListSection(items: items)])
     }
 
     private func makePlaylistsTemplate() -> CPListTemplate {
-        let items = CarPlayState.shared.playlists.map { playlist -> CPListItem in
-            let count = playlist.entries.count
-            let item = CPListItem(
-                text: playlist.name, detailText: count == 1 ? "1 episode" : "\(count) episodes")
-            item.accessoryType = .disclosureIndicator
-            item.handler = { [weak self] _, completion in
-                Task { @MainActor in
-                    guard let self else { return }
-                    self.push(self.makePlaylistEntriesTemplate(playlist: playlist))
-                    completion()
+        let playlists = CarPlayState.shared.playlists
+        let items: [CPListItem]
+        if playlists.isEmpty {
+            let empty = CPListItem(
+                text: "No playlists yet",
+                detailText: "Create playlists on your iPhone"
+            )
+            empty.isEnabled = false
+            items = [empty]
+        } else {
+            items = playlists.map { playlist -> CPListItem in
+                let count = playlist.entries.count
+                let item = CPListItem(
+                    text: playlist.name, detailText: count == 1 ? "1 episode" : "\(count) episodes")
+                item.accessoryType = .disclosureIndicator
+                item.handler = { [weak self] _, completion in
+                    Task { @MainActor in
+                        guard let self else { completion(); return }
+                        self.push(self.makePlaylistEntriesTemplate(playlist: playlist))
+                        completion()
+                    }
                 }
+                return item
             }
-            return item
         }
         return CPListTemplate(title: "Playlists", sections: [CPListSection(items: items)])
     }
@@ -420,23 +498,55 @@ final class CarPlayManager: NSObject {
             entries.removeAll { state.isPlayed(episodeId: $0.id) }
         }
         let downloads = Set(state.downloads.map { $0.id })
-        let items = entries.map {
-            episodeItem($0, playlistId: playlist.id, downloaded: downloads.contains($0.id))
+        let items: [CPListItem]
+        if entries.isEmpty {
+            let empty = CPListItem(
+                text: "Playlist is empty",
+                detailText: "Add episodes to this playlist on your iPhone"
+            )
+            empty.isEnabled = false
+            items = [empty]
+        } else {
+            items = entries.map {
+                episodeItem($0, playlistId: playlist.id, downloaded: downloads.contains($0.id))
+            }
         }
         return CPListTemplate(title: playlist.name, sections: [CPListSection(items: items)])
     }
 
     private func makeHistoryTemplate() -> CPListTemplate {
         let downloads = Set(CarPlayState.shared.downloads.map { $0.id })
-        let items = CarPlayState.shared.history.map {
-            episodeItem($0, playlistId: nil, downloaded: downloads.contains($0.id))
+        let history = CarPlayState.shared.history
+        let items: [CPListItem]
+        if history.isEmpty {
+            let empty = CPListItem(
+                text: "No history yet",
+                detailText: "Episodes you play will appear here"
+            )
+            empty.isEnabled = false
+            items = [empty]
+        } else {
+            items = history.map {
+                episodeItem($0, playlistId: nil, downloaded: downloads.contains($0.id))
+            }
         }
         return CPListTemplate(title: "History", sections: [CPListSection(items: items)])
     }
 
     private func makeDownloadedTemplate() -> CPListTemplate {
-        let items = CarPlayState.shared.downloads.map {
-            episodeItem($0, playlistId: nil, downloaded: true)
+        let downloads = CarPlayState.shared.downloads
+        let items: [CPListItem]
+        if downloads.isEmpty {
+            let empty = CPListItem(
+                text: "No downloaded episodes",
+                detailText: "Download episodes on your iPhone for offline listening"
+            )
+            empty.isEnabled = false
+            items = [empty]
+        } else {
+            items = downloads.map {
+                episodeItem($0, playlistId: nil, downloaded: true)
+            }
         }
         return CPListTemplate(title: "Downloaded", sections: [CPListSection(items: items)])
     }
@@ -452,8 +562,18 @@ final class CarPlayManager: NSObject {
             fetchEpisodesInBackground(podcastId: podcastId)
         }
         let downloads = Set(state.downloads.map { $0.id })
-        let items = episodes.map {
-            episodeItem($0, playlistId: nil, downloaded: downloads.contains($0.id))
+        let items: [CPListItem]
+        if episodes.isEmpty {
+            let empty = CPListItem(
+                text: "Loading episodes...",
+                detailText: "Episodes will appear shortly"
+            )
+            empty.isEnabled = false
+            items = [empty]
+        } else {
+            items = episodes.map {
+                episodeItem($0, playlistId: nil, downloaded: downloads.contains($0.id))
+            }
         }
         return CPListTemplate(title: title, sections: [CPListSection(items: items)])
     }
@@ -464,7 +584,7 @@ final class CarPlayManager: NSObject {
         item.accessoryType = .disclosureIndicator
         item.handler = { [weak self] _, completion in
             Task { @MainActor in
-                guard let self else { return }
+                guard let self else { completion(); return }
                 self.push(self.makePodcastEpisodesTemplate(podcastId: podcast.id))
                 completion()
             }
@@ -481,7 +601,8 @@ final class CarPlayManager: NSObject {
         )
         item.handler = { [weak self] _, completion in
             Task { @MainActor in
-                self?.play(episode: episode, playlistId: playlistId)
+                guard let self else { completion(); return }
+                self.play(episode: episode, playlistId: playlistId)
                 completion()
             }
         }
@@ -510,8 +631,6 @@ final class CarPlayManager: NSObject {
 
     private func makeSearchTemplate() -> CPSearchTemplate {
         let template = CPSearchTemplate()
-        template.tabTitle = "Search"
-        template.tabImage = UIImage(systemName: "magnifyingglass")
         template.delegate = self
         return template
     }
@@ -535,7 +654,8 @@ final class CarPlayManager: NSObject {
                 )
                 item.handler = { [weak self] _, completion in
                     Task { @MainActor in
-                        self?.play(station: entry.station)
+                        guard let self else { completion(); return }
+                        self.play(station: entry.station)
                         completion()
                     }
                 }
@@ -947,7 +1067,17 @@ final class CarPlayManager: NSObject {
         guard CarPlayState.shared.settingBool("carplayAutoResume", fallback: true) else { return }
         guard isIdle else { return }
         guard !CarPlayState.shared.settingBool("phonePlaybackActive") else { return }
-        resumeLastSession()
+        let state = CarPlayState.shared
+        let last = state.settingString("lastStationId")
+        if !last.isEmpty, let station = CarPlayStationRepository.station(id: last) {
+            play(station: station)
+            return
+        }
+        let configured = state.settingString("carplayStation")
+        if !configured.isEmpty, let station = CarPlayStationRepository.station(id: configured) {
+            play(station: station)
+            return
+        }
     }
 
     // MARK: Progress
@@ -1194,7 +1324,7 @@ final class CarPlayManager: NSObject {
             break
         }
 
-        if let image = UIImage(systemName: "stop.fill") {
+        if !isIdle, let image = UIImage(systemName: "stop.fill") {
             buttons.append(
                 CPNowPlayingImageButton(image: image) { [weak self] _ in
                     Task { @MainActor in self?.stopPlayback() }

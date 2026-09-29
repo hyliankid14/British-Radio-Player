@@ -465,7 +465,7 @@ export const Preferences = {
       const parsed = JSON.parse(raw) as { title: string; audioUrl: string; imageUrl: string; pubDate: string; durationMins: number; podcastId: string; storedAt: number };
       const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
       if (Date.now() - (parsed.storedAt || 0) > SEVEN_DAYS) {
-        storage.delete(`pref_notified_ep_${episodeId}`);
+        storage.remove(`pref_notified_ep_${episodeId}`);
         return null;
       }
       return { title: parsed.title, audioUrl: parsed.audioUrl, imageUrl: parsed.imageUrl, pubDate: parsed.pubDate, durationMins: parsed.durationMins, podcastId: parsed.podcastId };

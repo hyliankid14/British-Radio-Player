@@ -413,7 +413,7 @@ export default function PodcastDetailModal() {
           if (!target) {
             const snapshot = Preferences.getNotifiedEpisode(requestedEpisodeId);
             if (snapshot) {
-              target = { id: requestedEpisodeId, ...snapshot };
+              target = { id: requestedEpisodeId, description: "", ...snapshot };
             }
           }
           if (target) {
