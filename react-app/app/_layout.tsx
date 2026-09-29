@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useCallback } from "react";
+import React, { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { Stack, useRouter, useRootNavigationState } from "expo-router";
 import * as Linking from "expo-linking";
 import { StatusBar } from "expo-status-bar";
@@ -27,7 +27,12 @@ import {
   checkSavedSearchesForNewEpisodes,
   initNotificationNavigation
 } from "../src/notifications/notifications";
-import { resolveAppNavigation } from "../src/utils/navigationUtils";
+import {
+  createLaunchNavigation,
+  isFocusedTarget,
+  isTargetInState,
+  LAUNCH_INTENT_DEDUPE_MS
+} from "../src/navigation/launchNavigation";
 import { Preferences } from "../src/storage/preferences";
 import { NativeAndroid, AlarmLaunch } from "../src/native/nativeAndroid";
 import { StationRepository } from "../src/data/stations";
@@ -35,10 +40,6 @@ import { formatShowDisplayTitle } from "../src/api/showInfo";
 import { RadioAlarm } from "../src/audio/radioAlarm";
 
 LogBox.ignoreAllLogs();
-
-// Window in which a repeated request for the same destination is treated as a
-// duplicate launch rather than a fresh navigation.
-const NAVIGATION_DEDUPE_MS = 2000;
 
 // Register playback service
 TrackPlayer.registerPlaybackService(() => playbackService);
@@ -87,65 +88,43 @@ export default function RootLayout() {
   const isDark = useIsDarkTheme();
   const initStore = usePlayerStore((state) => state.init);
   const [showAnalyticsConsent, setShowAnalyticsConsent] = useState(false);
-  const pendingNavigationRef = useRef<string | null>(null);
-  const lastNavigationRef = useRef<{ target: string; at: number } | null>(null);
 
-  const navigateToTarget = useCallback(
-    (targetUrl: string) => {
-      if (!targetUrl) return;
-      const target = resolveAppNavigation(targetUrl);
-      if (!target) return;
+  // A single notification tap surfaces through several launch paths at once (the
+  // expo-linking initial URL, the stored expo-notifications response, and the native
+  // Android intent). The coordinator collapses them to one screen and keeps re-issuing
+  // the push until it lands, because expo-router silently discards a push issued before
+  // the root navigator is mounted — which is exactly the cold-start case.
+  const rootStateRef = useRef(rootNavigationState);
+  rootStateRef.current = rootNavigationState;
 
-      // A single notification tap can surface through several launch paths at once
-      // (expo-linking initial URL, the stored expo-notifications response, and the
-      // native Android intent). Ignore repeats of the same destination so the user
-      // gets one screen instead of a stack of duplicates.
-      const targetKey = `${target.pathname}?${JSON.stringify(target.params)}`;
-      const now = Date.now();
-      const previous = lastNavigationRef.current;
-      if (previous && previous.target === targetKey && now - previous.at < NAVIGATION_DEDUPE_MS) {
-        return;
-      }
-      lastNavigationRef.current = { target: targetKey, at: now };
-
-      // If root navigation is not mounted yet, queue for mount
-      if (!rootNavigationState?.key) {
-        pendingNavigationRef.current = targetUrl;
-        return;
-      }
-
-      setTimeout(() => {
-        try {
-          if (target.pathname.startsWith("/modal/")) {
-            router.push({
-              pathname: target.pathname as any,
-              params: target.params as any
-            });
-          } else {
-            router.navigate({
-              pathname: target.pathname as any,
-              params: target.params as any
-            });
+  const launchNavigation = useMemo(
+    () =>
+      createLaunchNavigation({
+        apply: (target) => {
+          try {
+            if (target.pathname.startsWith("/modal/")) {
+              router.push({ pathname: target.pathname as any, params: target.params as any });
+            } else {
+              router.navigate({ pathname: target.pathname as any, params: target.params as any });
+            }
+          } catch (e) {
+            console.warn("Failed to navigate to target:", target, e);
           }
-        } catch (e) {
-          console.warn("Failed to navigate to target:", targetUrl, e);
-        }
-      }, 50);
-    },
-    [router, rootNavigationState?.key]
+        },
+        isApplied: (target) => isTargetInState(rootStateRef.current, target),
+        isFocused: (target) => isFocusedTarget(rootStateRef.current, target)
+      }),
+    [router]
   );
 
-  // Drain pending navigation when root navigator is mounted
-  useEffect(() => {
-    if (rootNavigationState?.key && pendingNavigationRef.current) {
-      const url = pendingNavigationRef.current;
-      const timer = setTimeout(() => {
-        pendingNavigationRef.current = null;
-        navigateToTarget(url);
-      }, 150);
-      return () => clearTimeout(timer);
-    }
-  }, [rootNavigationState?.key, navigateToTarget]);
+  useEffect(() => () => launchNavigation.dispose(), [launchNavigation]);
+
+  const navigateToTarget = useCallback(
+    (targetUrl: string, dedupeWindowMs?: number) => {
+      launchNavigation.request(targetUrl, dedupeWindowMs);
+    },
+    [launchNavigation]
+  );
 
   // Deep linking (e.g. bbcradioplayer://...)
   useEffect(() => {
@@ -261,7 +240,10 @@ export default function RootLayout() {
       // If the app was launched by a tapped notification via native Intent:
       const notifUrl = NativeAndroid.consumeNotificationLaunch();
       if (notifUrl) {
-        navigateToTarget(notifUrl);
+        // Player and store setup delay this until well past the normal dedupe window,
+        // so widen it: this is the same tap the deep-link and response listeners have
+        // already routed, and navigating again would stack a duplicate screen.
+        navigateToTarget(notifUrl, LAUNCH_INTENT_DEDUPE_MS);
       }
     }
     start();

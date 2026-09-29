@@ -803,6 +803,7 @@ function LastFmPage() {
 // ─── ANDROID AUTO PAGE ──────────────────────────────────────────────────────
 
 function AndroidAutoPage() {
+  const theme = useAppTheme();
   const stations = StationRepository.getAll();
   const stationOptions: DropdownOption<string>[] = [
     { value: "", label: "No station selected" },
@@ -827,15 +828,18 @@ function AndroidAutoPage() {
   return (
     <>
       <SettingsSectionHeader label="DEFAULT STATION" />
-      <SettingsCard>
-        <Text style={[styles.cardTitle, { color: useAppTheme().onSurface }]}>Startup station</Text>
-        <Text style={[styles.cardSubtitle, { color: useAppTheme().onSurfaceVariant, marginBottom: 12 }]}>
-          Station selected automatically when {AUTO_NAME} opens
+      <SettingsCard style={settings.autoResume ? { opacity: 0.45 } : undefined}>
+        <Text style={[styles.cardTitle, { color: theme.onSurface }]}>Startup station</Text>
+        <Text style={[styles.cardSubtitle, { color: theme.onSurfaceVariant, marginBottom: 12 }]}>
+          {settings.autoResume
+            ? `Overridden by "Automatically resume playback"`
+            : `Station selected automatically when ${AUTO_NAME} opens`}
         </Text>
         <Dropdown
           value={settings.station}
           options={stationOptions}
           placeholder="Select a station"
+          disabled={settings.autoResume}
           onChange={(value) => update("station", value)}
           renderLeading={(option) => <StationLeading stationId={option.value} />}
         />
@@ -1512,7 +1516,7 @@ function SettingsSectionHeader({ label }: { label: string }) {
   );
 }
 
-function SettingsCard({ children }: { children: React.ReactNode }) {
+function SettingsCard({ children, style }: { children: React.ReactNode; style?: object }) {
   const theme = useAppTheme();
   return (
     <View
@@ -1521,7 +1525,8 @@ function SettingsCard({ children }: { children: React.ReactNode }) {
         {
           backgroundColor: theme.surfaceContainer,
           borderColor: theme.outlineVariant + "25"
-        }
+        },
+        style
       ]}
     >
       {children}
