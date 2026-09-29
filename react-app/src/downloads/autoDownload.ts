@@ -1,7 +1,7 @@
 import { Preferences, SavedEpisodeEntry } from "../storage/preferences";
 import { PodcastApi } from "../api/podcasts";
 import { getNetworkStatus } from "../store/networkStore";
-import { toSavedEpisodeEntry, useDownloadStore } from "./downloadStore";
+import { toSavedEpisodeEntry, useDownloadStore, getDownloadInUseEpisode } from "./downloadStore";
 import { AUTO_DOWNLOAD_LIMIT_PREF_KEY, isAutomaticDownload, normaliseAutoDownloadLimit } from "./downloadLimits";
 
 let running = false;
@@ -99,7 +99,31 @@ export async function runAutoDownload(): Promise<void> {
           // Already-downloaded episodes are filtered out before the slice, otherwise the
           // limit would be spent on files that are already on the device.
           const pending = episodes.filter((episode) => !isDownloaded(episode.id));
-          for (const episode of newestFirst(pending).slice(0, limit)) {
+          const toDownload = newestFirst(pending).slice(0, limit);
+          if (toDownload.length === 0) continue;
+
+          // If this podcast is at or above its cap, evict the oldest automatic downloads
+          // to make room for the incoming episodes — giving the user a rolling window of
+          // the most-recent <limit> episodes rather than keeping stale files forever.
+          const currentCount = reserved.get(id) ?? 0;
+          const headroom = limit - currentCount;
+          if (headroom < toDownload.length) {
+            const overflow = toDownload.length - headroom;
+            // Find the oldest automatic downloads for this podcast and remove them.
+            const allRecords = Preferences.getDownloadedEntries();
+            const inUse = getDownloadInUseEpisode();
+            const autoForPodcast = Object.entries(allRecords)
+              .filter(([, rec]) => rec?.entry?.podcastId === id && isAutomaticDownload(rec) && rec?.entry?.id !== inUse)
+              .sort(([, a], [, b]) => (a?.downloadedAtMs ?? 0) - (b?.downloadedAtMs ?? 0))
+              .slice(0, overflow)
+              .map(([episodeId]) => episodeId);
+            for (const episodeId of autoForPodcast) {
+              store.remove(episodeId);
+              reserved.set(id, Math.max(0, (reserved.get(id) ?? 0) - 1));
+            }
+          }
+
+          for (const episode of toDownload) {
             enqueue(toSavedEpisodeEntry(podcast, episode), podcast);
           }
         }
