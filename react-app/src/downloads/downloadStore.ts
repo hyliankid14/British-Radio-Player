@@ -4,6 +4,7 @@ import { Directory, File, Paths } from "expo-file-system";
 import { Podcast, Episode } from "../api/podcasts";
 import { Preferences, SavedEpisodeEntry } from "../storage/preferences";
 import { NativeAndroid } from "../native/nativeAndroid";
+import { notifyDownloadFinished, notifyDownloadStarted } from "../notifications/downloadNotifications";
 import {
   AUTO_DOWNLOAD_LIMIT_PREF_KEY,
   MAX_DOWNLOADS_PREF_KEY,
@@ -159,6 +160,8 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
     if (!entry?.id || !entry.audioUrl) return;
     if (get().downloads[entry.id]?.status === "downloading") return;
 
+    notifyDownloadStarted(options?.auto === true);
+
     set((state) => ({
       downloads: {
         ...state.downloads,
@@ -231,6 +234,7 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
       const removeOne = (id: string) => get().remove(id);
       enforcePerPodcastDownloadLimit(removeOne);
       enforceMaxDownloads(removeOne);
+      notifyDownloadFinished(true);
     } catch (error) {
       set((state) => ({
         downloads: {
@@ -242,6 +246,7 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
           }
         }
       }));
+      notifyDownloadFinished(false);
     }
   },
 

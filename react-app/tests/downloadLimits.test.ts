@@ -8,10 +8,13 @@ import {
   MAX_DOWNLOADS_OPTIONS,
   UNLIMITED_DOWNLOADS,
   isAutomaticDownload,
+  newestEpisodeIds,
   normaliseAutoDownloadLimit,
   normaliseMaxDownloads,
   pickDownloadsToRemove,
-  pickPerPodcastDownloadsToRemove
+  pickPerPodcastDownloadsToRemove,
+  pickStaleAutomaticDownloads,
+  sortEpisodesNewestFirst
 } from "../src/downloads/downloadLimits.ts";
 
 test("download preference keys stay stable for backup compatibility", () => {
@@ -164,4 +167,71 @@ test("pickPerPodcastDownloadsToRemove protects the streaming episode", () => {
   assert.deepEqual(pickPerPodcastDownloadsToRemove(records, 1, ["oldest"]), ["middle", "newest"]);
   assert.deepEqual(pickPerPodcastDownloadsToRemove(records, 3, ["oldest"]), []);
   assert.deepEqual(pickPerPodcastDownloadsToRemove(records, 1, ["oldest", "middle", "newest"]), []);
+});
+
+test("sortEpisodesNewestFirst orders newest first without mutating the input", () => {
+  const episodes = [
+    { id: "old", pubDate: "2026-01-01T00:00:00Z" },
+    { id: "new", pubDate: "2026-03-01T00:00:00Z" },
+    { id: "mid", pubDate: "2026-02-01T00:00:00Z" }
+  ];
+  assert.deepEqual(
+    sortEpisodesNewestFirst(episodes).map((episode) => episode.id),
+    ["new", "mid", "old"]
+  );
+  assert.deepEqual(episodes.map((episode) => episode.id), ["old", "new", "mid"]);
+});
+
+test("sortEpisodesNewestFirst puts undated episodes last", () => {
+  const episodes = [
+    { id: "undated" },
+    { id: "dated", pubDate: "2026-02-01T00:00:00Z" }
+  ];
+  assert.deepEqual(
+    sortEpisodesNewestFirst(episodes).map((episode) => episode.id),
+    ["dated", "undated"]
+  );
+});
+
+test("newestEpisodeIds selects the rolling window over every episode, not just missing ones", () => {
+  // The bug this guards against: with a limit of 3, a podcast holding the three
+  // newest episodes (e10, e9, e8) receives e11. Selecting from the missing episodes
+  // alone would return [e11, e7, e6] and evict e10, e9 and e8. The window must be
+  // the newest three of the whole feed — e11, e10, e9 — so old back-catalogue
+  // episodes are never downloaded to replace newer downloads.
+  const episodes = Array.from({ length: 11 }, (_, index) => ({
+    id: `e${index + 1}`,
+    pubDate: `2026-01-${String(index + 1).padStart(2, "0")}T00:00:00Z`
+  }));
+  assert.deepEqual(newestEpisodeIds(episodes, 3), ["e11", "e10", "e9"]);
+});
+
+test("newestEpisodeIds caps the window at the available episode count", () => {
+  const episodes = [
+    { id: "a", pubDate: "2026-01-01T00:00:00Z" },
+    { id: "b", pubDate: "2026-01-02T00:00:00Z" }
+  ];
+  assert.deepEqual(newestEpisodeIds(episodes, 5), ["b", "a"]);
+  assert.deepEqual(newestEpisodeIds([], 3), []);
+});
+
+test("pickStaleAutomaticDownloads reports automatic downloads outside the window", () => {
+  const records = {
+    e8: { downloadedAtMs: 100, isAutoDownloaded: true, entry: { podcastId: "p1" } },
+    e9: { downloadedAtMs: 200, isAutoDownloaded: true, entry: { podcastId: "p1" } },
+    e10: { downloadedAtMs: 300, isAutoDownloaded: true, entry: { podcastId: "p1" } }
+  };
+  assert.deepEqual(pickStaleAutomaticDownloads(records, "p1", ["e11", "e10", "e9"]), ["e8"]);
+  assert.deepEqual(pickStaleAutomaticDownloads(records, "p1", ["e10", "e9", "e8"]), []);
+});
+
+test("pickStaleAutomaticDownloads never removes manual, other-podcast or protected downloads", () => {
+  const records = {
+    manual: { downloadedAtMs: 100, isAutoDownloaded: false, entry: { podcastId: "p1" } },
+    otherPodcast: { downloadedAtMs: 100, isAutoDownloaded: true, entry: { podcastId: "p2" } },
+    orphan: { downloadedAtMs: 100, isAutoDownloaded: true },
+    playing: { downloadedAtMs: 100, isAutoDownloaded: true, entry: { podcastId: "p1" } },
+    stale: { downloadedAtMs: 100, isAutoDownloaded: true, entry: { podcastId: "p1" } }
+  };
+  assert.deepEqual(pickStaleAutomaticDownloads(records, "p1", [], ["playing"]), ["stale"]);
 });

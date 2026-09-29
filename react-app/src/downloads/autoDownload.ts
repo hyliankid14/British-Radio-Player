@@ -2,28 +2,27 @@ import { Preferences, SavedEpisodeEntry } from "../storage/preferences";
 import { PodcastApi } from "../api/podcasts";
 import { getNetworkStatus } from "../store/networkStore";
 import { toSavedEpisodeEntry, useDownloadStore, getDownloadInUseEpisode } from "./downloadStore";
-import { AUTO_DOWNLOAD_LIMIT_PREF_KEY, isAutomaticDownload, normaliseAutoDownloadLimit } from "./downloadLimits";
+import {
+  AUTO_DOWNLOAD_LIMIT_PREF_KEY,
+  isAutomaticDownload,
+  newestEpisodeIds,
+  normaliseAutoDownloadLimit,
+  pickStaleAutomaticDownloads,
+  sortEpisodesNewestFirst
+} from "./downloadLimits";
 
 let running = false;
-
-function episodeEpoch(pubDate?: string): number {
-  if (!pubDate) return 0;
-  const parsed = Date.parse(pubDate);
-  return Number.isNaN(parsed) ? 0 : parsed;
-}
-
-function newestFirst<T extends { pubDate?: string }>(entries: T[]): T[] {
-  return [...entries].sort((a, b) => episodeEpoch(b.pubDate) - episodeEpoch(a.pubDate));
-}
 
 /**
  * Downloads the latest episodes of subscribed podcasts (and saved episodes) according to
  * the auto-download settings. Runs only while the app is open; the native worker handles
  * background downloads on Android.
  *
- * The per-podcast limit is a hard cap: automatic downloads already stored for a podcast
- * are counted up-front so this run only claims the headroom that is left, which is what
- * stops a podcast from accumulating more than the configured number of episodes.
+ * The per-podcast limit is a rolling window: the newest `limit` episodes are kept, and
+ * automatic downloads that fall out of that window are removed. The window is chosen
+ * from every episode of the podcast, including the ones already on the device, so an
+ * episode that is already downloaded still occupies its slot rather than being skipped
+ * in favour of an older back-catalogue episode.
  */
 export async function runAutoDownload(): Promise<void> {
   if (running) return;
@@ -96,34 +95,30 @@ export async function runAutoDownload(): Promise<void> {
               continue;
             }
           }
-          // Already-downloaded episodes are filtered out before the slice, otherwise the
-          // limit would be spent on files that are already on the device.
-          const pending = episodes.filter((episode) => !isDownloaded(episode.id));
-          const toDownload = newestFirst(pending).slice(0, limit);
-          if (toDownload.length === 0) continue;
+          if (episodes.length === 0) continue;
 
-          // If this podcast is at or above its cap, evict the oldest automatic downloads
-          // to make room for the incoming episodes — giving the user a rolling window of
-          // the most-recent <limit> episodes rather than keeping stale files forever.
-          const currentCount = reserved.get(id) ?? 0;
-          const headroom = limit - currentCount;
-          if (headroom < toDownload.length) {
-            const overflow = toDownload.length - headroom;
-            // Find the oldest automatic downloads for this podcast and remove them.
-            const allRecords = Preferences.getDownloadedEntries();
-            const inUse = getDownloadInUseEpisode();
-            const autoForPodcast = Object.entries(allRecords)
-              .filter(([, rec]) => rec?.entry?.podcastId === id && isAutomaticDownload(rec) && rec?.entry?.id !== inUse)
-              .sort(([, a], [, b]) => (a?.downloadedAtMs ?? 0) - (b?.downloadedAtMs ?? 0))
-              .slice(0, overflow)
-              .map(([episodeId]) => episodeId);
-            for (const episodeId of autoForPodcast) {
-              store.remove(episodeId);
-              reserved.set(id, Math.max(0, (reserved.get(id) ?? 0) - 1));
-            }
+          // The rolling window is the newest `limit` episodes, selected over the whole
+          // list so an episode already on the device still holds its slot. Filtering the
+          // downloaded episodes out first and then slicing would instead pick
+          // back-catalogue episodes and evict newer downloads of an existing podcast.
+          const windowIds = newestEpisodeIds(episodes, limit);
+          const byId = new Map(episodes.map((episode) => [episode.id, episode]));
+
+          // Automatic downloads that have fallen out of the window are no longer part of
+          // the rolling window, so remove them (never manual downloads, and never the
+          // episode currently streaming).
+          const allRecords = Preferences.getDownloadedEntries();
+          const inUse = getDownloadInUseEpisode();
+          const stale = pickStaleAutomaticDownloads(allRecords, id, windowIds, inUse ? [inUse] : []);
+          for (const episodeId of stale) {
+            store.remove(episodeId);
+            reserved.set(id, Math.max(0, (reserved.get(id) ?? 0) - 1));
           }
 
-          for (const episode of toDownload) {
+          for (const episodeId of windowIds) {
+            if (isDownloaded(episodeId)) continue;
+            const episode = byId.get(episodeId);
+            if (!episode) continue;
             enqueue(toSavedEpisodeEntry(podcast, episode), podcast);
           }
         }
@@ -141,7 +136,7 @@ export async function runAutoDownload(): Promise<void> {
         else byPodcast.set(entry.podcastId, [entry]);
       }
       for (const group of byPodcast.values()) {
-        for (const entry of newestFirst(group).slice(0, limit)) {
+        for (const entry of sortEpisodesNewestFirst(group).slice(0, limit)) {
           enqueue(entry);
         }
       }

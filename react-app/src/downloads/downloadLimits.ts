@@ -81,6 +81,35 @@ export function pickDownloadsToRemove(
     .slice(0, excess);
 }
 
+export interface DatedEpisodeLike {
+  id: string;
+  pubDate?: string;
+}
+
+function episodeEpoch(pubDate?: string): number {
+  if (!pubDate) return 0;
+  const parsed = Date.parse(pubDate);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+/** A newest-first copy of the episodes; entries without a usable date sort last. */
+export function sortEpisodesNewestFirst<T extends { pubDate?: string }>(episodes: T[]): T[] {
+  return [...episodes].sort((a, b) => episodeEpoch(b.pubDate) - episodeEpoch(a.pubDate));
+}
+
+/**
+ * Ids of the newest `limit` episodes — the rolling window automatic downloading
+ * keeps on the device. The window is taken over every episode rather than only the
+ * ones missing from the device, so an episode that is already downloaded still
+ * holds its slot and the run cannot reach into the back catalogue to replace it.
+ */
+export function newestEpisodeIds(episodes: DatedEpisodeLike[], limit: unknown): string[] {
+  const max = normaliseAutoDownloadLimit(limit);
+  return sortEpisodesNewestFirst(episodes)
+    .slice(0, max)
+    .map((episode) => episode.id);
+}
+
 export interface PerPodcastRecordLike extends DownloadedRecordLike {
   /**
    * Whether the app fetched this file on the user's behalf. Absent on records
@@ -137,4 +166,29 @@ export function pickPerPodcastDownloadsToRemove(
       .forEach((id) => victims.push(id));
   }
   return victims;
+}
+
+/**
+ * Ids of the automatic downloads belonging to `podcastId` that are no longer in
+ * the current window — the files the rolling window has superseded. Manually
+ * requested downloads and ids listed in `protectedIds` (the episode streaming
+ * now) are never returned.
+ */
+export function pickStaleAutomaticDownloads(
+  records: Record<string, PerPodcastRecordLike | undefined>,
+  podcastId: string,
+  windowIds: Iterable<string>,
+  protectedIds: Iterable<string> = []
+): string[] {
+  const window = new Set(windowIds);
+  const keep = new Set(protectedIds);
+  const stale: string[] = [];
+
+  for (const [id, record] of Object.entries(records)) {
+    if (!isAutomaticDownload(record)) continue;
+    if (record?.entry?.podcastId !== podcastId) continue;
+    if (window.has(id) || keep.has(id)) continue;
+    stale.push(id);
+  }
+  return stale;
 }
