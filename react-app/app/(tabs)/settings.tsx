@@ -11,6 +11,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { MaterialIcons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useAppTheme } from "../../src/theme/colors";
+import { IS_DEBUG_BUILD, appVersion } from "../../src/config/buildInfo";
 import { OfflineBanner, VpnBanner } from "../../src/components/NetworkBanners";
 
 export default function SettingsScreen() {
@@ -137,7 +138,7 @@ export default function SettingsScreen() {
           theme={theme}
           icon="info"
           title="About"
-          subtitle="Version 2.0.0"
+          subtitle={`Version ${appVersion()}${IS_DEBUG_BUILD ? " • Debug" : ""}`}
           onPress={() => open("about")}
         />
       </ScrollView>

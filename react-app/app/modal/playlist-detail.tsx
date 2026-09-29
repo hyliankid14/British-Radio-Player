@@ -77,7 +77,6 @@ interface EpisodeRowProps {
   isSelected: boolean;
   isDraggingThis: boolean;
   isDragInProgress: boolean;
-  isDownloadedPlaylist: boolean;
   panResponder?: EpisodePanResponder;
   dragTranslateY: Animated.Value;
   dragScale: Animated.Value;
@@ -86,7 +85,6 @@ interface EpisodeRowProps {
   onLongPress: (entry: SavedEpisodeEntry) => void;
   onOpen: (entry: SavedEpisodeEntry) => void;
   onPlay: (entry: SavedEpisodeEntry) => void;
-  onRequestRemove: (entry: SavedEpisodeEntry) => void;
 }
 
 /**
@@ -105,7 +103,6 @@ const EpisodeRow = React.memo(function EpisodeRow({
   isSelected,
   isDraggingThis,
   isDragInProgress,
-  isDownloadedPlaylist,
   panResponder,
   dragTranslateY,
   dragScale,
@@ -113,8 +110,7 @@ const EpisodeRow = React.memo(function EpisodeRow({
   onToggleSelect,
   onLongPress,
   onOpen,
-  onPlay,
-  onRequestRemove
+  onPlay
 }: EpisodeRowProps) {
   const artworkSource = useMemo(() => ({ uri: item.imageUrl }), [item.imageUrl]);
 
@@ -254,20 +250,6 @@ const EpisodeRow = React.memo(function EpisodeRow({
             />
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={styles.removeButton}
-            onPress={() => onRequestRemove(item)}
-            accessibilityLabel={
-              isDownloadedPlaylist ? "Delete download" : "Remove from playlist"
-            }
-          >
-            <MaterialIcons
-              name={isDownloadedPlaylist ? "delete-outline" : "remove-circle-outline"}
-              size={22}
-              color={theme.onSurfaceVariant}
-            />
-          </TouchableOpacity>
-
           {panResponder ? (
             <View
               {...panResponder.panHandlers}
@@ -322,7 +304,6 @@ export default function PlaylistDetailModal() {
 
   const [sortModalVisible, setSortModalVisible] = useState(false);
   const [optionsModalVisible, setOptionsModalVisible] = useState(false);
-  const [removeTarget, setRemoveTarget] = useState<SavedEpisodeEntry | null>(null);
 
   const loadEntries = useCallback(() => {
     if (playlistId === "downloaded") {
@@ -601,6 +582,24 @@ export default function PlaylistDetailModal() {
     setSelected(new Set());
   }, []);
 
+  // True when every currently visible entry is selected, so the toggle can
+  // switch to "clear" instead of "select all".
+  const allSelected =
+    displayEntries.length > 0 && displayEntries.every((e) => selected.has(e.id));
+
+  const toggleSelectAll = useCallback(() => {
+    setSelected((current) => {
+      const next = new Set(current);
+      const everySelected = displayEntries.length > 0 && displayEntries.every((e) => next.has(e.id));
+      if (everySelected) {
+        displayEntries.forEach((e) => next.delete(e.id));
+      } else {
+        displayEntries.forEach((e) => next.add(e.id));
+      }
+      return next;
+    });
+  }, [displayEntries]);
+
   const removeSelected = useCallback(() => {
     selected.forEach((episodeId) => {
       if (playlistId === "downloaded") useDownloadStore.getState().remove(episodeId);
@@ -609,36 +608,6 @@ export default function PlaylistDetailModal() {
     exitSelection();
     loadEntries();
   }, [selected, playlistId, exitSelection, loadEntries]);
-
-  const downloadSelected = useCallback(() => {
-    const store = useDownloadStore.getState();
-    rawEntries
-      .filter((entry) => selected.has(entry.id) && !store.downloads[entry.id])
-      .forEach((entry) => {
-        const podcast: Podcast = {
-          id: entry.podcastId,
-          title: entry.podcastTitle,
-          description: "",
-          rssUrl: "",
-          htmlUrl: "",
-          imageUrl: entry.imageUrl,
-          genres: [],
-          typicalDurationMins: entry.durationMins
-        };
-        const episode: Episode = {
-          id: entry.id,
-          title: entry.title,
-          description: entry.description,
-          audioUrl: entry.audioUrl,
-          imageUrl: entry.imageUrl,
-          pubDate: entry.pubDate,
-          durationMins: entry.durationMins,
-          podcastId: entry.podcastId
-        };
-        void store.download(toSavedEpisodeEntry(podcast, episode));
-      });
-    exitSelection();
-  }, [rawEntries, selected, exitSelection]);
 
   // Opens Now Playing without autoplaying
   const openEntryInNowPlaying = useCallback(
@@ -713,19 +682,6 @@ export default function PlaylistDetailModal() {
     [currentEpisode?.id, playEpisode, togglePlayPause, router]
   );
 
-  const removeEntry = useCallback(
-    (entry: SavedEpisodeEntry) => {
-      if (playlistId === "downloaded") {
-        useDownloadStore.getState().remove(entry.id);
-      } else {
-        Preferences.removePodcastPlaylistEntry(playlistId, entry.id);
-      }
-      setRemoveTarget(null);
-      loadEntries();
-    },
-    [playlistId, loadEntries]
-  );
-
   const areAllDownloaded = useMemo(
     () =>
       rawEntries.length > 0 &&
@@ -796,11 +752,15 @@ export default function PlaylistDetailModal() {
         {selectionMode ? (
           <View style={styles.selectionActions}>
             <TouchableOpacity
-              onPress={downloadSelected}
+              onPress={toggleSelectAll}
               style={styles.headerIconButton}
-              accessibilityLabel="Download selected"
+              accessibilityLabel={allSelected ? "Clear selection" : "Select all"}
             >
-              <MaterialIcons name="download" size={22} color={theme.onSurface} />
+              <MaterialIcons
+                name={allSelected ? "playlist-remove" : "playlist-add-check"}
+                size={22}
+                color={theme.onSurface}
+              />
             </TouchableOpacity>
             <TouchableOpacity
               onPress={removeSelected}
@@ -863,7 +823,6 @@ export default function PlaylistDetailModal() {
             isSelected={selected.has(item.id)}
             isDraggingThis={draggingEpisodeId === item.id}
             isDragInProgress={draggingEpisodeId !== null}
-            isDownloadedPlaylist={playlistId === "downloaded"}
             panResponder={episodePanResponders[item.id]}
             dragTranslateY={episodePanY}
             dragScale={episodeScaleAnim}
@@ -872,7 +831,6 @@ export default function PlaylistDetailModal() {
             onLongPress={beginSelection}
             onOpen={openEntryInNowPlaying}
             onPlay={playEntry}
-            onRequestRemove={setRemoveTarget}
           />
         )}
         ListEmptyComponent={
@@ -1023,64 +981,6 @@ export default function PlaylistDetailModal() {
         </TouchableOpacity>
       </Modal>
 
-      {/* Remove Episode Confirmation Modal */}
-      <Modal
-        visible={removeTarget !== null}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setRemoveTarget(null)}
-      >
-        <TouchableOpacity
-          style={styles.dialogBackdrop}
-          activeOpacity={1}
-          onPress={() => setRemoveTarget(null)}
-        >
-          <View
-            style={[styles.dialogCard, { backgroundColor: theme.surfaceContainer }]}
-            onStartShouldSetResponder={() => true}
-          >
-            <View style={styles.dialogHeaderRow}>
-              <MaterialIcons name="delete-outline" size={26} color="#BA1A1A" />
-              <Text
-                style={[
-                  styles.dialogTitle,
-                  { color: theme.onSurface, marginBottom: 0, marginLeft: 12 }
-                ]}
-              >
-                {playlistId === "downloaded" ? "Delete Download" : "Remove Episode"}
-              </Text>
-            </View>
-            <Text
-              style={[
-                styles.dialogBodyText,
-                { color: theme.onSurfaceVariant, marginVertical: 16 }
-              ]}
-              numberOfLines={2}
-            >
-              {playlistId === "downloaded"
-                ? `Delete "${removeTarget?.title}" from downloaded files?`
-                : `Remove "${removeTarget?.title}" from ${playlistName}?`}
-            </Text>
-            <View style={styles.dialogActions}>
-              <TouchableOpacity
-                onPress={() => setRemoveTarget(null)}
-                style={styles.dialogButton}
-              >
-                <Text style={{ color: theme.primary, fontWeight: "600" }}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => {
-                  if (removeTarget) removeEntry(removeTarget);
-                }}
-                style={[styles.dialogButton, { backgroundColor: "#BA1A1A" }]}
-              >
-                <Text style={{ color: "#FFFFFF", fontWeight: "700" }}>Remove</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </TouchableOpacity>
-      </Modal>
-
       <View style={[styles.miniPlayerWrapper, { bottom: insets.bottom + 80 }]}>
         <MiniPlayer />
       </View>
@@ -1164,7 +1064,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginRight: 4
   },
-  removeButton: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
   dragHandleContainer: {
     width: 36,
     height: 40,
@@ -1198,14 +1097,6 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: "700",
     marginBottom: 12
-  },
-  dialogHeaderRow: {
-    flexDirection: "row",
-    alignItems: "center"
-  },
-  dialogBodyText: {
-    fontSize: 14,
-    lineHeight: 20
   },
   dialogSwitchRow: {
     flexDirection: "row",

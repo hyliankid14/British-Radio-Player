@@ -25,8 +25,12 @@ export function AppNavigation() {
         {
           backgroundColor: theme.surfaceContainer,
           borderTopColor: theme.divider,
-          paddingBottom: insets.bottom,
-          height: 80 + insets.bottom
+          // These mirror the real tab bar in app/(tabs)/_layout.tsx exactly, so the bar
+          // does not jump when a drill-down replaces the tabs. Any change here must be
+          // made there too.
+          height: 80 + insets.bottom,
+          paddingBottom: 8 + insets.bottom,
+          paddingHorizontal: Math.max(insets.left, insets.right)
         }
       ]}
     >
@@ -44,12 +48,14 @@ export function AppNavigation() {
             accessibilityRole="tab"
             accessibilityState={{ selected: active }}
           >
-            <View style={[styles.iconIndicator, active && { backgroundColor: theme.navIndicator }]}>
-              <MaterialIcons
-                name={active && tab.icon === "star-border" ? "star" : tab.icon}
-                size={24}
-                color={active ? theme.navIndicatorIcon : theme.navInactiveIcon}
-              />
+            <View style={styles.iconSlot}>
+              <View style={[styles.iconIndicator, active && { backgroundColor: theme.navIndicator }]}>
+                <MaterialIcons
+                  name={active && tab.icon === "star-border" ? "star" : tab.icon}
+                  size={24}
+                  color={active ? theme.navIndicatorIcon : theme.navInactiveIcon}
+                />
+              </View>
             </View>
             <Text style={[styles.label, { color: active ? theme.onSurface : theme.navInactiveIcon }]}>
               {tab.label}
@@ -65,14 +71,27 @@ const styles = StyleSheet.create({
   container: {
     height: 80,
     flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-around",
+    justifyContent: "flex-start",
     paddingTop: 8,
+    elevation: 4,
     borderTopWidth: StyleSheet.hairlineWidth
   },
+  // Matches the item column BottomTabBar builds: the outer item carries paddingTop 4 and
+  // the button inside it padding 5, so the content column starts 9 down and is
+  // top-aligned. Centring it instead pushed the labels a few dp too low.
   tab: {
     flex: 1,
-    alignItems: "center"
+    alignItems: "center",
+    justifyContent: "flex-start",
+    paddingTop: 9,
+    paddingHorizontal: 5
+  },
+  // The real bar sizes the icon wrapper to 28 (ICON_SIZE_TALL in TabBarIcon) and centres
+  // the pill inside it, so the label always sits 28 + 4 below the top of the slot.
+  iconSlot: {
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center"
   },
   iconIndicator: {
     width: 64,
@@ -84,6 +103,7 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 12,
     fontWeight: "600",
+    textAlign: "center",
     marginTop: 4
   }
 });
