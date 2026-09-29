@@ -13,6 +13,38 @@ const path = require("node:path");
 
 const PATCHES = [
   {
+    package: "expo-constants",
+    file: "ios/EXConstants.podspec",
+    reason:
+      "The script phase interpolates $PODS_TARGET_SRCROOT into a `bash -l -c` argument " +
+      "without inner quoting, so the inner shell re-splits the path on whitespace. This " +
+      "repo's checkout path contains a space, which made the phase exit 127 with " +
+      "'No such file or directory' and failed every iOS build",
+    replacements: [
+      {
+        from:
+          ':script => "bash -l -c \\"#{env_vars}$PODS_TARGET_SRCROOT/../scripts/get-app-config-ios.sh\\"",',
+        to:
+          ":script => \"bash -l -c \\\"#{env_vars}'$PODS_TARGET_SRCROOT/../scripts/get-app-config-ios.sh'\\\"\","
+      }
+    ]
+  },
+  {
+    package: "expo-constants",
+    file: "scripts/get-app-config-ios.sh",
+    reason:
+      "The `basename $PROJECT_DIR` guard is unquoted, so on a path containing a space it " +
+      "returns several lines, the guard fails to match 'Pods', and the script exits 0 " +
+      "without ever writing app.config into EXConstants.bundle -- leaving " +
+      "Constants.expoConfig null at runtime with no build-time error",
+    replacements: [
+      {
+        from: "PROJECT_DIR_BASENAME=$(basename $PROJECT_DIR)",
+        to: 'PROJECT_DIR_BASENAME=$(basename "$PROJECT_DIR")'
+      }
+    ]
+  },
+  {
     package: "react-native-track-player",
     file: "android/src/main/java/com/doublesymmetry/trackplayer/module/MusicModule.kt",
     reason:
