@@ -27,6 +27,8 @@ import { Preferences } from "../../src/storage/preferences";
 import { applyLanguageFilter } from "../../src/podcasts/languageFilter";
 import { OfflineBanner, VpnBanner } from "../../src/components/NetworkBanners";
 import { NativeAndroid } from "../../src/native/nativeAndroid";
+import { usePlayerStore } from "../../src/store/playerStore";
+import { useResponsiveLayout } from "../../src/theme/responsive";
 
 const TABS = [
   { id: "popular", label: "Popular" },
@@ -131,6 +133,16 @@ export default function PodcastsScreen() {
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
   const flatListRef = useRef<FlatList>(null);
+
+  // The tab navigator already lays this screen out above the bottom navigation, so the
+  // FAB only has to clear the mini player, which is overlaid on top of the screen area.
+  const responsive = useResponsiveLayout();
+  const miniPlayerVisible = usePlayerStore(
+    (state) => !!(state.currentStation || (state.currentPodcast && state.currentEpisode))
+  );
+  const miniPlayerHeight =
+    responsive.miniPlayerArtworkSize + (responsive.isTablet ? 24 : 16);
+  const fabBottom = (miniPlayerVisible ? miniPlayerHeight : 0) + 16;
 
   // Data state
   const [catalog, setCatalog] = useState<Podcast[]>([]);
@@ -420,6 +432,7 @@ export default function PodcastsScreen() {
       ) : activeTab === "genre" && !selectedGenre ? (
         /* Genre List matching item_genre.xml */
         <FlatList
+          key="podcast-genres"
           ref={flatListRef}
           data={allGenres}
           keyExtractor={(item) => item.name}
@@ -445,6 +458,7 @@ export default function PodcastsScreen() {
       ) : (
         /* Regular Podcast List matching item_podcast.xml */
         <FlatList
+          key="podcast-list"
           ref={flatListRef}
           data={displayedPodcasts}
           keyExtractor={(item) => item.id}
@@ -461,7 +475,7 @@ export default function PodcastsScreen() {
       {/* Floating Action Button: Scroll To Top */}
       {showScrollTop && (
         <TouchableOpacity
-          style={[styles.fab, { backgroundColor: theme.primary, bottom: 74 + insets.bottom }]}
+          style={[styles.fab, { backgroundColor: theme.primary, bottom: fabBottom }]}
           onPress={scrollToTop}
           activeOpacity={0.85}
         >

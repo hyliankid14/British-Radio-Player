@@ -5,8 +5,10 @@ native Android Auto, alarm, widget and Wear OS sync bridges. The Android Auto
 media browser exposes the BBC stations through the car launcher and the bridge
 starts playback independently of the React activity.
 
-The legacy Kotlin app (`../app`) is kept in the repository but is no longer the
-default build target; the Wear OS companion (`../wear`) is still built from Kotlin.
+The legacy Kotlin phone app is archived under `../archive/android-native-legacy`
+and the unfinished native Swift iOS port under `../archive/ios-native-legacy`.
+Neither is built, and product changes belong here in `react-app/` only. The Wear OS
+companion (`../wear`) is still built from Kotlin and does take changes.
 
 ## Project layout
 

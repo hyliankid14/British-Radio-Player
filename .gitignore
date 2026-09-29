@@ -1,10 +1,10 @@
 # Build and generated artefacts
 /.gradle/
 /build/
-/app/build/
 /wear/build/
-/app/bin/
 /wear/bin/
+/archive/android-native-legacy/build/
+/archive/android-native-legacy/bin/
 /captures/
 /.externalNativeBuild/
 /.cxx/
@@ -68,7 +68,7 @@ GITLAB_SUBMISSION_STEPS.md
 .github/agents/Ask.agent.md
 .github/agents/Explore.agent.md
 .github/agents/Plan.agent.md
-app/src/main/assets/adi-registration.properties
+archive/android-native-legacy/src/main/assets/adi-registration.properties
 .kilo/
 scripts/test_email.py
 /deploy/

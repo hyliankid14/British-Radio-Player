@@ -19,7 +19,7 @@ This directory hosts the GitHub Pages web UI for sharing podcasts and episodes f
 Update the web base URL in your app:
 
 ```kotlin
-// File: app/src/main/java/com/hyliankid14/bbcradioplayer/ShareUtil.kt
+// File: archive/android-native-legacy/src/main/java/com/hyliankid14/bbcradioplayer/ShareUtil.kt
 // Replace this line:
 private const val WEB_BASE_URL = "https://bbcradioplayer.app"
 

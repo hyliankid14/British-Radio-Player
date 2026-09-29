@@ -132,12 +132,17 @@ Issues and pull requests are welcome.
 
 | Path | Purpose |
 |---|---|
-| `react-app/` | **The app.** React Native / Expo, shared by Android and iOS |
+| `react-app/` | **The app.** React Native / Expo, shared by Android and iOS — the only place to make phone-app changes |
 | `wear/` | Wear OS companion (Kotlin) — still built and released alongside the phone app |
-| `app/` | Legacy Kotlin phone app, kept for reference; no longer the default build target |
 | `docs/` | Podcast index, web player and store assets |
-| `archive/ios-native-legacy/` | Archived, partial native Swift iOS port |
+| `archive/android-native-legacy/` | Archived legacy Kotlin phone app — reference only, not built |
+| `archive/ios-native-legacy/` | Archived, partial native Swift iOS port — reference only, not built |
 | `metadata/` | Google Play listing copy and screenshots |
+
+`archive/` holds the two superseded native apps (Kotlin for Android, an unfinished Swift port
+for iOS). They are kept for reference and history only: they are not Gradle modules, not built
+by CI, and **no product changes should be made there** — port the change to `react-app/`
+instead.
 
 See [`react-app/README.md`](react-app/README.md) for the build and release process.
 

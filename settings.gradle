@@ -1,3 +1,5 @@
 rootProject.name = 'British Radio Player'
-include ':app'
+// The phone app lives in react-app/ (React Native) and is not a Gradle module here.
+// The legacy Kotlin phone app is archived under archive/android-native-legacy and is
+// no longer part of the build.
 include ':wear'

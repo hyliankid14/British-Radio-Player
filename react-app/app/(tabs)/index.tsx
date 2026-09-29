@@ -294,6 +294,7 @@ export default function AllStationsScreen() {
 
       {activeSubTab === "Songs" ? (
         <FlatList
+          key="recent-songs"
           data={recentSongs}
           keyExtractor={(item, index) => `${item.playedAtMs}_${index}`}
           style={{ backgroundColor: theme.surface }}
@@ -349,6 +350,7 @@ export default function AllStationsScreen() {
         />
       ) : (
         <FlatList
+          key="stations"
           data={filteredStations}
           keyExtractor={(item) => item.id}
           renderItem={renderStationItem}

@@ -25,7 +25,7 @@ import { Preferences } from "../../src/storage/preferences";
 import { toSavedEpisodeEntry, useDownloadStore } from "../../src/downloads/downloadStore";
 import { NativeAndroid, ArtworkPalette } from "../../src/native/nativeAndroid";
 import { OfflineBanner, VpnBanner } from "../../src/components/NetworkBanners";
-import { useResponsiveLayout } from "../../src/theme/responsive";
+import { fitNowPlayingArtworkSize, useResponsiveLayout } from "../../src/theme/responsive";
 import { shareEpisode } from "../../src/utils/share";
 
 interface DerivedColours {
@@ -122,7 +122,22 @@ export default function NowPlayingModal() {
   }>();
   const theme = useAppTheme();
   const responsive = useResponsiveLayout();
-  const artworkSize = responsive.nowPlayingArtworkSize;
+  const [artworkViewportHeight, setArtworkViewportHeight] = React.useState(0);
+  const [detailsBlockHeight, setDetailsBlockHeight] = React.useState(0);
+
+  // The dimen-derived size is the artwork's ceiling. Shrink it further when the viewport is too
+  // short to hold that artwork plus the title, date and description, so the details stay on screen
+  // without scrolling. Measuring the rendered details beats a hard-coded estimate here: it already
+  // accounts for the safe area, banners, font scaling and how many lines the text actually wraps to.
+  const artworkSize = React.useMemo(
+    () =>
+      fitNowPlayingArtworkSize(
+        responsive.nowPlayingArtworkSize,
+        artworkViewportHeight,
+        detailsBlockHeight
+      ),
+    [responsive.nowPlayingArtworkSize, artworkViewportHeight, detailsBlockHeight]
+  );
   const {
     currentStation,
     currentShow,
@@ -527,7 +542,11 @@ export default function NowPlayingModal() {
       <OfflineBanner />
       <VpnBanner />
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        onLayout={(e) => setArtworkViewportHeight(e.nativeEvent.layout.height)}
+      >
         <View style={styles.artworkContainer}>
           {hasCustomArtwork && !imageError ? (
             <Image
@@ -549,91 +568,96 @@ export default function NowPlayingModal() {
           )}
         </View>
 
-        <Text style={[styles.showName, { color: screenTextColor }]} numberOfLines={2}>
-          {isPodcast ? decodeXmlEntities(activeEpisode?.title || "") : (currentStation?.title || radioShowName)}
-        </Text>
+        <View
+          style={styles.detailsBlock}
+          onLayout={(e) => setDetailsBlockHeight(e.nativeEvent.layout.height)}
+        >
+          <Text style={[styles.showName, { color: screenTextColor }]} numberOfLines={2}>
+            {isPodcast ? decodeXmlEntities(activeEpisode?.title || "") : (currentStation?.title || radioShowName)}
+          </Text>
 
-        {isPodcast ? (
-          activeEpisode?.pubDate ? (
-            <Text style={[styles.releaseDate, { color: screenSecondaryTextColor }]}>
-              {formatEpisodeDate(activeEpisode.pubDate)}
-            </Text>
-          ) : null
-        ) : (
-          <>
-            {currentShow?.nextShowTitle ? (
-              <Text style={[styles.nextShow, { color: screenSecondaryTextColor }]} numberOfLines={2}>
-                Up next: {currentShow.nextShowTitle}
+          {isPodcast ? (
+            activeEpisode?.pubDate ? (
+              <Text style={[styles.releaseDate, { color: screenSecondaryTextColor }]}>
+                {formatEpisodeDate(activeEpisode.pubDate)}
               </Text>
-            ) : null}
+            ) : null
+          ) : (
+            <>
+              {currentShow?.nextShowTitle ? (
+                <Text style={[styles.nextShow, { color: screenSecondaryTextColor }]} numberOfLines={2}>
+                  Up next: {currentShow.nextShowTitle}
+                </Text>
+              ) : null}
 
-            {radioSubtitle ? (
-              <Text style={[styles.episodeTitle, { color: screenTextColor }]} numberOfLines={2}>
-                {radioSubtitle}
-              </Text>
-            ) : null}
-          </>
-        )}
+              {radioSubtitle ? (
+                <Text style={[styles.episodeTitle, { color: screenTextColor }]} numberOfLines={2}>
+                  {radioSubtitle}
+                </Text>
+              ) : null}
+            </>
+          )}
 
-        {isPodcast && cleanDescription ? (
-          <View style={styles.descriptionContainer}>
-            <TouchableOpacity
-              style={styles.descriptionTouchable}
-              activeOpacity={0.7}
-              onPress={() => setDescriptionVisible(true)}
-            >
-              <Text
-                style={[styles.description, { color: screenSecondaryTextColor }]}
-                numberOfLines={4}
-                onTextLayout={(e) => {
-                  if (e.nativeEvent.lines.length >= 4) {
-                    setIsDescriptionTruncated(true);
-                  }
-                }}
-              >
-                {cleanDescription}
-              </Text>
-            </TouchableOpacity>
-
-            {isDescriptionTruncated || cleanDescription.length > 140 ? (
+          {isPodcast && cleanDescription ? (
+            <View style={styles.descriptionContainer}>
               <TouchableOpacity
-                onPress={() => setDescriptionVisible(true)}
-                hitSlop={{ top: 8, bottom: 8, left: 16, right: 16 }}
+                style={styles.descriptionTouchable}
                 activeOpacity={0.7}
-                style={styles.showMoreButton}
+                onPress={() => setDescriptionVisible(true)}
               >
                 <Text
-                  style={[
-                    styles.showMore,
-                    { color: isScreenLight ? theme.primary : playPauseColour }
-                  ]}
+                  style={[styles.description, { color: screenSecondaryTextColor }]}
+                  numberOfLines={4}
+                  onTextLayout={(e) => {
+                    if (e.nativeEvent.lines.length >= 4) {
+                      setIsDescriptionTruncated(true);
+                    }
+                  }}
                 >
-                  Show More
+                  {cleanDescription}
                 </Text>
               </TouchableOpacity>
-            ) : null}
-          </View>
-        ) : null}
 
-        {!isPodcast && matchedPodcast ? (
-          <TouchableOpacity
-            style={[
-              styles.openPodcastButton,
-              { backgroundColor: outlineColour }
-            ]}
-            onPress={() =>
-              router.push({
-                pathname: "/modal/podcast-detail",
-                params: {
-                  podcastId: matchedPodcast.id,
-                  podcastData: JSON.stringify(matchedPodcast)
-                }
-              })
-            }
-          >
-            <Text style={[styles.openPodcastText, { color: buttonIconColor }]}>Open Podcast</Text>
-          </TouchableOpacity>
-        ) : null}
+              {isDescriptionTruncated || cleanDescription.length > 140 ? (
+                <TouchableOpacity
+                  onPress={() => setDescriptionVisible(true)}
+                  hitSlop={{ top: 8, bottom: 8, left: 16, right: 16 }}
+                  activeOpacity={0.7}
+                  style={styles.showMoreButton}
+                >
+                  <Text
+                    style={[
+                      styles.showMore,
+                      { color: isScreenLight ? theme.primary : playPauseColour }
+                    ]}
+                  >
+                    Show More
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          ) : null}
+
+          {!isPodcast && matchedPodcast ? (
+            <TouchableOpacity
+              style={[
+                styles.openPodcastButton,
+                { backgroundColor: outlineColour }
+              ]}
+              onPress={() =>
+                router.push({
+                  pathname: "/modal/podcast-detail",
+                  params: {
+                    podcastId: matchedPodcast.id,
+                    podcastData: JSON.stringify(matchedPodcast)
+                  }
+                })
+              }
+            >
+              <Text style={[styles.openPodcastText, { color: buttonIconColor }]}>Open Podcast</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
       </ScrollView>
 
       {isPodcast ? (
@@ -951,6 +975,10 @@ const styles = StyleSheet.create({
   },
   artworkImage: {
     borderRadius: 16
+  },
+  detailsBlock: {
+    width: "100%",
+    alignItems: "center"
   },
   artworkFallback: {
     borderRadius: 16,

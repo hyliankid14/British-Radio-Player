@@ -1,12 +1,13 @@
 import React from "react";
 import { View, StyleSheet, Text, ToastAndroid, Platform, Alert } from "react-native";
-import { Tabs, useRouter } from "expo-router";
+import { Tabs, useRouter, useSegments } from "expo-router";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MiniPlayer } from "../../src/components/MiniPlayer";
 import { useAppTheme } from "../../src/theme/colors";
 import { useNetworkStatus } from "../../src/store/networkStore";
 import { Preferences } from "../../src/storage/preferences";
+import { isTopLevelTabRoute } from "../../src/navigation/tabBarVisibility";
 
 function notifyOffline(message: string) {
   if (Platform.OS === "android") {
@@ -20,9 +21,15 @@ export default function TabLayout() {
   const theme = useAppTheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const segments = useSegments();
   const { isOnline } = useNetworkStatus();
   const navHeight = 80 + insets.bottom;
   const startupApplied = React.useRef(false);
+
+  // Drill-downs (episode lists, podcast/playlist search, schedule, now playing) are
+  // presented as root-level modals, so the focused route leaves the (tabs) group. The
+  // main navigation belongs to the four top-level tabs and must not appear on them.
+  const isTabRoute = isTopLevelTabRoute(segments);
 
   // Honour the user's "Startup page" preference on first mount, mirroring the Kotlin app.
   React.useEffect(() => {
@@ -62,7 +69,8 @@ export default function TabLayout() {
               borderTopColor: theme.divider,
               height: navHeight,
               paddingBottom: 8 + insets.bottom
-            }
+            },
+            !isTabRoute && styles.tabBarHidden
           ],
           tabBarActiveTintColor: theme.onSurface,
           tabBarInactiveTintColor: theme.navInactiveIcon,
@@ -177,8 +185,10 @@ export default function TabLayout() {
         />
       </Tabs>
 
-      {/* Mini player anchored directly above bottom navigation */}
-      <View style={[styles.miniPlayerWrapper, { bottom: navHeight }]}>
+      {/* Mini player anchored directly above the bottom navigation. It drops to the
+          screen edge on drill-downs, where the tab bar is collapsed. Screens with their
+          own player (episode and podcast detail, playlist detail) render their own. */}
+      <View style={[styles.miniPlayerWrapper, { bottom: isTabRoute ? navHeight : insets.bottom }]}>
         <MiniPlayer />
       </View>
     </View>
@@ -200,6 +210,14 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 10,
     elevation: 4
+  },
+  tabBarHidden: {
+    height: 0,
+    paddingTop: 0,
+    paddingBottom: 0,
+    borderTopWidth: 0,
+    elevation: 0,
+    overflow: "hidden"
   },
   tabBarItem: {
     alignItems: "center",

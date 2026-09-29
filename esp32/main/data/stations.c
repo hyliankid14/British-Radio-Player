@@ -1,5 +1,5 @@
 /*
- * Ported from app/src/main/java/com/hyliankid14/bbcradioplayer/StationRepository.kt
+ * Ported from archive/android-native-legacy/src/main/java/com/hyliankid14/bbcradioplayer/StationRepository.kt
  * National stations plus one non-BBC internet test station.
  *
  * Stream URL pattern : http://as-hls-ww-live.akamaized.net/pool_{pool_id}/live/ww/{service_id}/{service_id}.isml/{service_id}-audio%3d128000.norewind.m3u8

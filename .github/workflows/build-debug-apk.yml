@@ -14,15 +14,6 @@ name: Build Debug APK
 
 on:
   workflow_dispatch:       # allow manual trigger from the Actions tab
-    inputs:
-      build_target:
-        description: 'react = React Native app (default). kotlin = legacy Kotlin app, opt-in only.'
-        required: false
-        type: choice
-        default: react
-        options:
-          - react
-          - kotlin
   # Automatic builds on push disabled:
   # push:
   #   branches:
@@ -89,17 +80,14 @@ jobs:
           echo "version_code=${VERSION_CODE}" >> "$GITHUB_OUTPUT"
 
       - name: Install React app dependencies
-        if: inputs.build_target != 'kotlin'
         working-directory: react-app
         run: npm ci
 
       - name: Generate the React Native Android project
-        if: inputs.build_target != 'kotlin'
         working-directory: react-app
         run: npx expo prebuild --platform android --no-install --clean
 
       - name: Point the generated project at the Android SDK
-        if: inputs.build_target != 'kotlin'
         run: |
           # prebuild --clean regenerates android/, so sdk.dir is written fresh for this run.
           if [ -n "${ANDROID_HOME:-}" ]; then
@@ -110,7 +98,6 @@ jobs:
           fi
 
       - name: Build the React debug APK
-        if: inputs.build_target != 'kotlin'
         working-directory: react-app/android
         env:
           EXPO_PUBLIC_DISTRIBUTION_CHANNEL: github
@@ -124,33 +111,17 @@ jobs:
             -Pandroid.enableMinifyInDebugBuilds=true \
             -Pexpo.useLegacyPackaging=true
 
-      - name: Build the legacy Kotlin debug APK
-        if: inputs.build_target == 'kotlin'
-        run: |
-          set -euo pipefail
-          ./gradlew assembleGithubDebug \
-            -PAPP_VERSION_NAME="${{ steps.version.outputs.version_name }}" \
-            -PAPP_VERSION_CODE="${{ steps.version.outputs.version_code }}" \
-            -PPODCAST_API_BASE_URL="https://bbc-radio.shai.website" \
-            -PLASTFM_API_KEY="${{ secrets.LASTFM_API_KEY }}" \
-            -PLASTFM_API_SECRET="${{ secrets.LASTFM_API_SECRET }}"
-
       - name: Publish debug APK as rolling pre-release
         env:
           GH_TOKEN: ${{ github.token }}
-          BUILD_TARGET: ${{ inputs.build_target }}
         run: |
           set -euo pipefail
           TAG="debug-apk-latest"
 
-          if [ "$BUILD_TARGET" = "kotlin" ]; then
-            APK=$(find app/build/outputs/apk/github/debug -name '*.apk' | sort | head -1)
-          else
-            APK=$(find react-app/android/app/build/outputs/apk/github/debug -maxdepth 1 -name '*.apk' | sort | head -1)
-          fi
+          APK=$(find react-app/android/app/build/outputs/apk/github/debug -maxdepth 1 -name '*.apk' | sort | head -1)
 
           if [ -z "$APK" ]; then
-            echo "::error::No debug APK was produced for the '${BUILD_TARGET}' build." >&2
+            echo "::error::No debug APK was produced." >&2
             exit 1
           fi
 
@@ -184,14 +155,9 @@ jobs:
             echo "Tap the link above to download the APK directly (no zip, no login required)."
             echo "This build is signed with the shared debug keystore — it will install"
             echo "over an existing debug build without needing to uninstall first."
-            if [ "$BUILD_TARGET" = "kotlin" ]; then
-              echo ""
-              echo "Legacy Kotlin build (opt-in)."
-            else
-              echo ""
-              echo "React Native build — application id \`com.hyliankid14.bbcradioplayer.debug\`,"
-              echo "so it installs alongside the release app."
-            fi
+            echo ""
+            echo "React Native build — application id \`com.hyliankid14.bbcradioplayer.debug\`,"
+            echo "so it installs alongside the release app."
             echo ""
             echo "Branch: \`${{ github.ref_name }}\`  |  Commit: \`${{ github.sha }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
