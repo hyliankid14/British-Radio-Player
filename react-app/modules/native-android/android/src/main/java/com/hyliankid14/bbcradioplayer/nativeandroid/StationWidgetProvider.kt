@@ -81,6 +81,7 @@ class StationWidgetProvider : AppWidgetProvider() {
     // Recorded before the app starts, so the action survives both a cold start and a tap
     // that only warms a process already running in the background.
     WidgetStore.recordAction(context, action, stationId)
+    NativeAndroidModule.dispatchWidgetAction(action, stationId)
     launchApp(context)
   }
 

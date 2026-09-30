@@ -1,6 +1,9 @@
 package com.hyliankid14.bbcradioplayer.androidautobridge
 
 import android.content.Context
+import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
+import android.os.Build
 import android.util.Log
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -25,9 +28,34 @@ object AutoAnalytics {
     return fmt.format(Date())
   }
 
+  private fun getAppVersion(context: Context): String {
+    return try {
+      val packageInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        context.packageManager.getPackageInfo(
+          context.packageName,
+          PackageManager.PackageInfoFlags.of(0)
+        )
+      } else {
+        @Suppress("DEPRECATION")
+        context.packageManager.getPackageInfo(context.packageName, 0)
+      }
+      val versionName = packageInfo.versionName ?: "2.0.0"
+      val isDebug = (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        || context.packageName.endsWith(".debug")
+      if (isDebug && !versionName.endsWith("-debug")) {
+        "$versionName-debug"
+      } else {
+        versionName
+      }
+    } catch (e: Exception) {
+      "2.0.0"
+    }
+  }
+
   fun trackStationPlay(context: Context, stationId: String, stationName: String?) {
     val cleanId = stationId.trim()
     if (!AutoState.isAnalyticsEnabled(context) || cleanId.isBlank()) return
+    val version = getAppVersion(context)
     val payload = JSONObject().apply {
       put("event", "station_play")
       put("station_id", cleanId)
@@ -35,10 +63,10 @@ object AutoAnalytics {
         put("station_name", stationName.trim())
       }
       put("date", utcTimestamp())
-      put("app_version", "2.0.0")
+      put("app_version", version)
       put("platform", "android")
     }
-    sendEvent(payload)
+    sendEvent(payload, version)
   }
 
   fun trackEpisodePlay(
@@ -51,6 +79,7 @@ object AutoAnalytics {
     val cleanPodId = podcastId.trim()
     val cleanEpId = episodeId.trim()
     if (!AutoState.isAnalyticsEnabled(context) || cleanPodId.isBlank() || cleanEpId.isBlank()) return
+    val version = getAppVersion(context)
     val payload = JSONObject().apply {
       put("event", "episode_play")
       put("podcast_id", cleanPodId)
@@ -62,13 +91,13 @@ object AutoAnalytics {
         put("episode_title", episodeTitle.trim())
       }
       put("date", utcTimestamp())
-      put("app_version", "2.0.0")
+      put("app_version", version)
       put("platform", "android")
     }
-    sendEvent(payload)
+    sendEvent(payload, version)
   }
 
-  private fun sendEvent(payload: JSONObject) {
+  private fun sendEvent(payload: JSONObject, appVersion: String) {
     try {
       val conn = (URL(ANALYTICS_EVENT_URL).openConnection() as HttpURLConnection).apply {
         requestMethod = "POST"
@@ -76,7 +105,7 @@ object AutoAnalytics {
         connectTimeout = 5000
         readTimeout = 5000
         setRequestProperty("Content-Type", "application/json")
-        setRequestProperty("User-Agent", "British-Radio-Player/2.0.0")
+        setRequestProperty("User-Agent", "British-Radio-Player/$appVersion")
       }
       conn.outputStream.use { os ->
         os.write(payload.toString().toByteArray(Charsets.UTF_8))

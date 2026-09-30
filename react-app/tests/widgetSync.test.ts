@@ -110,6 +110,10 @@ test("Queued widget taps parse only into known actions", () => {
     action: "stop",
     stationId: null
   });
+  assert.deepEqual(parseWidgetAction('{"action":"play"}'), {
+    action: "play",
+    stationId: null
+  });
   assert.equal(parseWidgetAction('{"action":"skip"}'), null);
   assert.equal(parseWidgetAction("not json"), null);
   assert.equal(parseWidgetAction(""), null);
@@ -124,6 +128,10 @@ test("iOS widget links become actions, and other deep links are left alone", () 
   assert.deepEqual(parseWidgetActionUrl("bbcradioplayer://widget/stop?station=radio6"), {
     action: "stop",
     stationId: "radio6"
+  });
+  assert.deepEqual(parseWidgetActionUrl("bbcradioplayer://widget/play"), {
+    action: "play",
+    stationId: null
   });
   assert.equal(parseWidgetActionUrl("bbcradioplayer://modal/podcast-detail"), null);
   assert.equal(parseWidgetActionUrl("https://example.com/widget/play"), null);

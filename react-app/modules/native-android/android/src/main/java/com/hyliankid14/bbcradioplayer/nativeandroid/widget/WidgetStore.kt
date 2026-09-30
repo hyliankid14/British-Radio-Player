@@ -161,7 +161,7 @@ object WidgetStore {
   fun recordAction(context: Context, action: String, stationId: String?) {
     val editor = prefs(context).edit().putString(KEY_PENDING_ACTION, action)
     if (stationId.isNullOrEmpty()) editor.remove(KEY_PENDING_STATION_ID) else editor.putString(KEY_PENDING_STATION_ID, stationId)
-    editor.apply()
+    editor.commit()
   }
 
   /** Returns the queued action as JSON and clears it, so one tap is never handled twice. */
@@ -169,7 +169,7 @@ object WidgetStore {
     val prefs = prefs(context)
     val action = prefs.getString(KEY_PENDING_ACTION, null)?.takeIf { it.isNotEmpty() } ?: return null
     val stationId = prefs.getString(KEY_PENDING_STATION_ID, null)
-    prefs.edit().remove(KEY_PENDING_ACTION).remove(KEY_PENDING_STATION_ID).apply()
+    prefs.edit().remove(KEY_PENDING_ACTION).remove(KEY_PENDING_STATION_ID).commit()
     return JSONObject()
       .put("action", action)
       .put("stationId", stationId ?: JSONObject.NULL)

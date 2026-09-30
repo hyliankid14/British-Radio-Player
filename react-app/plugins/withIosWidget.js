@@ -96,16 +96,21 @@ function withWidgetSources(config) {
  * Reads the app target's marketing version and build number so the extension matches them.
  * An appex whose version differs from its host app is rejected at submission.
  */
-function resolveVersions(project, appTarget) {
+function resolveVersions(project, appTarget, config) {
+  const versions = {
+    marketing: config?.version || "1.0",
+    build: config?.ios?.buildNumber || config?.version || "1"
+  };
   const configurations = project.pbxXCBuildConfigurationSection();
   const list = project.pbxXCConfigurationList()[appTarget.buildConfigurationList];
-  const versions = {};
   for (const entry of list?.buildConfigurations ?? []) {
     const settings = configurations[entry.value]?.buildSettings;
     if (!settings) continue;
     if (settings.MARKETING_VERSION) versions.marketing = settings.MARKETING_VERSION;
     if (settings.CURRENT_PROJECT_VERSION) versions.build = settings.CURRENT_PROJECT_VERSION;
   }
+  if (config?.version) versions.marketing = config.version;
+  if (config?.ios?.buildNumber) versions.build = config.ios.buildNumber;
   return versions;
 }
 
@@ -121,9 +126,6 @@ function withWidgetTarget(config) {
     const project = configWithProject.modResults;
     const { projectName } = configWithProject.modRequest;
 
-    // A prebuild that has already run this plugin leaves the target in place.
-    if (project.pbxTargetByName(TARGET_NAME)) return configWithProject;
-
     const appTargetEntry = project.getFirstTarget();
     const appTarget = appTargetEntry?.firstTarget;
     if (!appTarget) {
@@ -131,7 +133,51 @@ function withWidgetTarget(config) {
       return configWithProject;
     }
 
-    const versions = resolveVersions(project, appTarget);
+    const versions = resolveVersions(project, appTarget, config);
+
+    if (!project.hash.project.objects["PBXTargetDependency"]) {
+      project.hash.project.objects["PBXTargetDependency"] = {};
+    }
+    if (!project.hash.project.objects["PBXContainerItemProxy"]) {
+      project.hash.project.objects["PBXContainerItemProxy"] = {};
+    }
+
+    // A prebuild that has already run this plugin leaves the target in place.
+    const existingTarget = project.pbxTargetByName(TARGET_NAME);
+    if (existingTarget) {
+      const widgetList = project.pbxXCConfigurationList()[existingTarget.buildConfigurationList];
+      const widgetConfigurations = new Set((widgetList?.buildConfigurations ?? []).map((c) => c.value));
+      const allConfigurations = project.pbxXCBuildConfigurationSection();
+      for (const [uuid, configuration] of Object.entries(allConfigurations)) {
+        if (uuid.endsWith("_comment") || !widgetConfigurations.has(uuid)) continue;
+        configuration.buildSettings.MARKETING_VERSION = versions.marketing;
+        configuration.buildSettings.CURRENT_PROJECT_VERSION = versions.build;
+        if (config?.ios?.appleTeamId) {
+          configuration.buildSettings.DEVELOPMENT_TEAM = config.ios.appleTeamId;
+        }
+      }
+
+      const appTargetNative = project.pbxNativeTargetSection()[appTargetEntry.uuid];
+      const targets = project.pbxNativeTargetSection();
+      let widgetUuid = null;
+      for (const [k, v] of Object.entries(targets)) {
+        if (k.endsWith("_comment")) continue;
+        if (v.name === TARGET_NAME || v.name === `"${TARGET_NAME}"`) {
+          widgetUuid = k;
+          break;
+        }
+      }
+      if (widgetUuid && appTargetNative) {
+        const hasDep = (appTargetNative.dependencies || []).some((d) => {
+          const dep = project.hash.project.objects["PBXTargetDependency"]?.[d.value];
+          return dep && dep.target === widgetUuid;
+        });
+        if (!hasDep) {
+          project.addTargetDependency(appTargetEntry.uuid, [widgetUuid]);
+        }
+      }
+      return configWithProject;
+    }
 
     const widgetTarget = project.addTarget(
       TARGET_NAME,
@@ -139,6 +185,8 @@ function withWidgetTarget(config) {
       TARGET_SUBFOLDER,
       TARGET_BUNDLE_ID
     );
+
+    project.addTargetDependency(appTargetEntry.uuid, [widgetTarget.uuid]);
 
     // `addTarget` creates the target but none of the build phases a target needs, and the
     // pbxproj helpers fall back to the first phase of the same kind anywhere in the project.
@@ -167,7 +215,8 @@ function withWidgetTarget(config) {
       PRODUCT_NAME: '"$(TARGET_NAME)"',
       SKIP_INSTALL: "YES",
       SWIFT_VERSION,
-      TARGETED_DEVICE_FAMILY: '"1,2"'
+      TARGETED_DEVICE_FAMILY: '"1,2"',
+      ...(config?.ios?.appleTeamId ? { DEVELOPMENT_TEAM: config.ios.appleTeamId } : {})
     };
 
     const widgetList = project.pbxXCConfigurationList()[widgetTarget.pbxNativeTarget.buildConfigurationList];

@@ -180,8 +180,10 @@ export default function RootLayout() {
       await usePlayerStore.getState().stop();
       return;
     }
-    if (!action.stationId) return;
-    const station = StationRepository.getById(action.stationId);
+    const stationId = action.stationId;
+    const station = stationId
+      ? StationRepository.getById(stationId)
+      : (usePlayerStore.getState().currentStation ?? StationRepository.getAll()[0]);
     if (!station) return;
     try {
       await usePlayerStore.getState().playStation(station);
@@ -265,6 +267,13 @@ export default function RootLayout() {
     });
   }, [navigateToTarget]);
 
+  // Listen for native Android widget taps while app is running/backgrounded
+  useEffect(() => {
+    return NativeAndroid.addWidgetActionListener((action) => {
+      void handleWidgetAction(action);
+    });
+  }, [handleWidgetAction]);
+
   // Listen for native Android alarm notification launches while app is running/backgrounded
   useEffect(() => {
     return NativeAndroid.addAlarmLaunchListener((alarm) => {
@@ -289,6 +298,10 @@ export default function RootLayout() {
     void registerBackgroundTask();
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") {
+        const widgetAction = NativeAndroid.consumeWidgetAction();
+        if (widgetAction) {
+          void handleWidgetAction(widgetAction);
+        }
         const alarm = NativeAndroid.consumeAlarmLaunch();
         if (alarm) {
           void handleAlarmPlayback(alarm);
@@ -305,7 +318,7 @@ export default function RootLayout() {
       }
     });
     return () => subscription.remove();
-  }, [navigateToTarget, handleAlarmPlayback]);
+  }, [navigateToTarget, handleAlarmPlayback, handleWidgetAction]);
 
   useEffect(() => {
     async function start() {

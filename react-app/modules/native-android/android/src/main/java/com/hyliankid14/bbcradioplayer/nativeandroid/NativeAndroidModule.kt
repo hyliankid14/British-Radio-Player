@@ -23,7 +23,7 @@ class NativeAndroidModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("NativeAndroid")
 
-    Events("onShake", "onWearState", "onNotificationOpen", "onAlarmLaunch")
+    Events("onShake", "onWearState", "onNotificationOpen", "onAlarmLaunch", "onWidgetAction")
 
     OnCreate {
       instance = this@NativeAndroidModule
@@ -347,6 +347,18 @@ class NativeAndroidModule : Module() {
     private var pendingNotificationUrl: String? = null
     @Volatile
     private var pendingAlarmLaunch: String? = null
+
+    fun dispatchWidgetAction(action: String, stationId: String?) {
+      val mod = instance ?: return
+      val actionJson = org.json.JSONObject().apply {
+        put("action", action)
+        put("stationId", stationId ?: org.json.JSONObject.NULL)
+      }.toString()
+      try {
+        mod.sendEvent("onWidgetAction", mapOf("action" to actionJson))
+      } catch (_: Exception) {
+      }
+    }
 
     fun onNewIntent(intent: Intent) {
       val url = extractUrlFromIntent(intent)

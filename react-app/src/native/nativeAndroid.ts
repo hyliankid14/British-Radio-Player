@@ -43,6 +43,10 @@ interface NativeAndroidBridge {
   ): void;
   setWidgetCatalogue(stationsJson: string): void;
   consumeWidgetAction(): string;
+  addListener(
+    eventName: "onWidgetAction",
+    listener: (event: { action: string }) => void
+  ): { remove(): void };
   consumeNotificationLaunch(): string | null;
   pushWearState(payloadJson: string): void;
   addListener(
@@ -363,6 +367,26 @@ export const NativeAndroid = {
       return raw ? parseWidgetAction(raw) : null;
     } catch {
       return null;
+    }
+  },
+
+  /** Subscribes to widget tap events received while the app is active or backgrounded; returns cleanup function. */
+  addWidgetActionListener(listener: (action: WidgetAction) => void): () => void {
+    const bridge = load();
+    if (!bridge) return () => {};
+    try {
+      const subscription = bridge.addListener("onWidgetAction", (event) => {
+        try {
+          if (!event?.action) return;
+          const parsed = parseWidgetAction(event.action);
+          if (parsed) listener(parsed);
+        } catch {
+          // Ignore parse errors.
+        }
+      });
+      return () => subscription?.remove?.();
+    } catch {
+      return () => {};
     }
   },
 

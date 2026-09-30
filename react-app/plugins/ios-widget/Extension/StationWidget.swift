@@ -147,6 +147,9 @@ struct StationWidget: Widget {
         ) { entry in
             StationWidgetView(entry: entry)
         }
+        .configurationDisplayName("British Radio")
+        .description("Listen to BBC radio stations.")
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
 }
 

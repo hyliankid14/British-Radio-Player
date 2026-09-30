@@ -58,6 +58,11 @@ declare class NativeAndroidModule extends NativeModule<{}> {
   setWidgetCatalogue(stationsJson: string): void;
   /** Returns the queued widget tap as `{"action","stationId"}`, or "" when there was none. */
   consumeWidgetAction(): string;
+  /** Widget tap events emitted while the app is running in background or foreground. */
+  addListener(
+    eventName: "onWidgetAction",
+    listener: (event: { action: string }) => void
+  ): { remove(): void };
   /** Returns the deep link or target URL when launched from a notification intent, else null. */
   consumeNotificationLaunch(): string | null;
   /** Pushes phone state to the Wear OS companion. */
