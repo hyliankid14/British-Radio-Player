@@ -160,7 +160,7 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
     if (!entry?.id || !entry.audioUrl) return;
     if (get().downloads[entry.id]?.status === "downloading") return;
 
-    notifyDownloadStarted(options?.auto === true);
+    notifyDownloadStarted(options?.auto === true, entry.title);
 
     set((state) => ({
       downloads: {
@@ -234,7 +234,7 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
       const removeOne = (id: string) => get().remove(id);
       enforcePerPodcastDownloadLimit(removeOne);
       enforceMaxDownloads(removeOne);
-      notifyDownloadFinished(true);
+      notifyDownloadFinished(true, entry.title);
     } catch (error) {
       set((state) => ({
         downloads: {
@@ -246,7 +246,7 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
           }
         }
       }));
-      notifyDownloadFinished(false);
+      notifyDownloadFinished(false, entry.title);
     }
   },
 
