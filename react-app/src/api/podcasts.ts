@@ -107,10 +107,17 @@ function parseDurationSeconds(durationStr: string): number {
 const SEARCH_REQUEST_TIMEOUT_MS = 15000;
 const SEARCH_REQUEST_ATTEMPTS = 2;
 
-async function fetchJsonArrayWithRetry(url: string): Promise<unknown[]> {
+function isAbortError(err: unknown): boolean {
+  return err instanceof Error && err.name === "AbortError";
+}
+
+async function fetchJsonArrayWithRetry(url: string, signal?: AbortSignal): Promise<unknown[]> {
   let lastError: unknown;
   for (let attempt = 0; attempt < SEARCH_REQUEST_ATTEMPTS; attempt++) {
+    if (signal?.aborted) return [];
     const controller = new AbortController();
+    const onCallerAbort = () => controller.abort();
+    signal?.addEventListener("abort", onCallerAbort);
     const timeout = setTimeout(() => controller.abort(), SEARCH_REQUEST_TIMEOUT_MS);
     try {
       const res = await fetch(url, {
@@ -121,12 +128,16 @@ async function fetchJsonArrayWithRetry(url: string): Promise<unknown[]> {
       const data = await res.json();
       return Array.isArray(data) ? data : [];
     } catch (err) {
-      lastError = err;
+      // Caller-driven cancellation is terminal: never retry it, and never let it
+      // reach the retry backoff.
+      if (signal?.aborted || isAbortError(err)) return [];
+      lastError = controller.signal.aborted ? new Error("Request timed out") : err;
       if (attempt < SEARCH_REQUEST_ATTEMPTS - 1) {
         await new Promise((resolve) => setTimeout(resolve, 350));
       }
     } finally {
       clearTimeout(timeout);
+      signal?.removeEventListener("abort", onCallerAbort);
     }
   }
   throw lastError instanceof Error ? lastError : new Error("Request failed");
@@ -219,7 +230,11 @@ export const PodcastApi = {
   /**
    * Search podcasts on Raspberry Pi database via /search/podcasts
    */
-  async searchPodcastsOnPi(query: string, limit: number = 100): Promise<SearchPodcastResult[]> {
+  async searchPodcastsOnPi(
+    query: string,
+    limit: number = 100,
+    signal?: AbortSignal
+  ): Promise<SearchPodcastResult[]> {
     if (!query.trim()) return [];
     try {
       // The index endpoint tokenises terms but does not understand phrase
@@ -227,7 +242,7 @@ export const PodcastApi = {
       // evaluator after the broad result set has been returned.
       const backendQuery = query.trim().replace(/[“”"]/g, "");
       const url = `${PI_BASE_URL}/search/podcasts?q=${encodeURIComponent(backendQuery)}&limit=${limit}`;
-      return (await fetchJsonArrayWithRetry(url)) as SearchPodcastResult[];
+      return (await fetchJsonArrayWithRetry(url, signal)) as SearchPodcastResult[];
     } catch (err) {
       console.warn("Failed to search podcasts on Raspberry Pi:", err);
       return [];
@@ -235,15 +250,22 @@ export const PodcastApi = {
   },
 
   /**
-   * Search episodes on Raspberry Pi database via /search/episodes
+   * Search episodes on Raspberry Pi database via /search/episodes.
+   * Paged: callers fetch a bounded page at a time and append, rather than
+   * pulling every match for a broad query in one go.
    */
-  async searchEpisodesOnPi(query: string, limit: number = 50, offset: number = 0): Promise<SearchEpisodeResult[]> {
+  async searchEpisodesOnPi(
+    query: string,
+    limit: number = 50,
+    offset: number = 0,
+    signal?: AbortSignal
+  ): Promise<SearchEpisodeResult[]> {
     if (!query.trim()) return [];
     try {
       const backendQuery = query.trim().replace(/[“”"]/g, "");
       const search = async (value: string, resultLimit: number) => {
         const url = `${PI_BASE_URL}/search/episodes?q=${encodeURIComponent(value)}&limit=${resultLimit}&offset=${offset}`;
-        return (await fetchJsonArrayWithRetry(url)) as SearchEpisodeResult[];
+        return (await fetchJsonArrayWithRetry(url, signal)) as SearchEpisodeResult[];
       };
 
       const results = await search(backendQuery, limit);

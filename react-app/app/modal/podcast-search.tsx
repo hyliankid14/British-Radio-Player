@@ -4,7 +4,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  ScrollView,
+  FlatList,
   Image,
   StyleSheet,
   ActivityIndicator,
@@ -24,19 +24,41 @@ import {
   PodcastApi,
   decodeXmlEntities,
   matchesBooleanSearch,
-  isAdvancedBooleanQuery,
   extractPositiveQuery,
   episodeMatchesQuery
 } from "../../src/api/podcasts";
 import { Preferences } from "../../src/storage/preferences";
 import { applyLanguageFilter } from "../../src/podcasts/languageFilter";
+import {
+  appendEpisodePage,
+  emptyEpisodePageState,
+  type EpisodePageState
+} from "../../src/podcasts/episodeSearchPaging";
 import { usePlayerStore } from "../../src/store/playerStore";
 import { OfflineBanner, VpnBanner } from "../../src/components/NetworkBanners";
 import { ensureNotificationPermissions } from "../../src/notifications/notifications";
 
 const SEARCH_DEBOUNCE_MS = 250;
-const EPISODE_SEARCH_PAGE_SIZE = 500;
-const MAX_EPISODE_SEARCH_PAGES = 50;
+
+// Episodes are searched lazily. Broad queries such as "More or Less" or
+// "Newscast" match thousands of episodes; fetching every page up front blocked
+// the screen for minutes and pushed thousands of rows into memory. Instead we
+// show podcast names from a single bounded request, then pull one small page of
+// episodes and fetch further pages only when the user asks for them.
+const EPISODE_SEARCH_PAGE_SIZE = 50;
+const EPISODE_SEARCH_MAX_EPISODES = 1000;
+
+// Rows actually mounted. Growing on scroll keeps long result sets cheap to
+// render regardless of how many matches have been loaded.
+const PODCAST_REVEAL_STEP = 20;
+const EPISODE_REVEAL_STEP = 30;
+
+type SearchResultItem =
+  | { key: string; type: "podcast"; podcast: Podcast }
+  | { key: string; type: "episodesHeading" }
+  | { key: string; type: "episode"; episode: SearchEpisodeResult }
+  | { key: string; type: "loadMore" }
+  | { key: string; type: "revealMore" };
 
 export default function PodcastSearchScreen() {
   const router = useRouter();
@@ -57,7 +79,12 @@ export default function PodcastSearchScreen() {
     typeof params.search === "string" ? params.search : ""
   );
   const [isSearchFocused, setIsSearchFocused] = useState(false);
-  const [isSearching, setIsSearching] = useState(false);
+  const [isSearchingPodcasts, setIsSearchingPodcasts] = useState(false);
+  const [isSearchingEpisodes, setIsSearchingEpisodes] = useState(false);
+  const [isLoadingMoreEpisodes, setIsLoadingMoreEpisodes] = useState(false);
+  const [hasMoreEpisodes, setHasMoreEpisodes] = useState(false);
+  const [visiblePodcastCount, setVisiblePodcastCount] = useState(PODCAST_REVEAL_STEP);
+  const [visibleEpisodeCount, setVisibleEpisodeCount] = useState(EPISODE_REVEAL_STEP);
   const [searchPodcastMatches, setSearchPodcastMatches] = useState<Podcast[]>([]);
   const [searchEpisodeMatches, setSearchEpisodeMatches] = useState<SearchEpisodeResult[]>(() => {
     if (notifiedEpisodeId) {
@@ -91,6 +118,13 @@ export default function PodcastSearchScreen() {
   const piPodcastResultsRef = useRef<SearchPodcastResult[]>([]);
   const piEpisodeResultsRef = useRef<SearchEpisodeResult[]>([]);
   const resultsQueryRef = useRef("");
+
+  // Podcast and episode searches are separate, independently cancellable
+  // requests so the podcast names render as soon as that request lands, and a
+  // superseded query does not keep its episode paging running to completion.
+  const podcastAbortRef = useRef<AbortController | null>(null);
+  const episodeAbortRef = useRef<AbortController | null>(null);
+  const episodePageRef = useRef<EpisodePageState>(emptyEpisodePageState());
 
   const [savedSearches, setSavedSearches] = useState(() => Preferences.getSavedPodcastSearches());
   const [saveSearchModalVisible, setSaveSearchModalVisible] = useState(false);
@@ -148,9 +182,10 @@ export default function PodcastSearchScreen() {
     setSaveSearchModalVisible(true);
   }, [searchQuery, currentSavedSearch]);
 
-  // Apply client-side filtering to server results and update state.
+  // Filter the podcast payload and publish it. This runs as soon as the single
+  // podcast request resolves, well before any episode page has been fetched.
   // Mirrors the Kotlin episodeMatchesQuery / textMatchesNormalized logic.
-  const applySearchResults = useCallback(() => {
+  const applyPodcastResults = useCallback(() => {
     const q = lastQueryRef.current;
     if (!q) return;
 
@@ -176,14 +211,22 @@ export default function PodcastSearchScreen() {
     } else {
       setSearchPodcastMatches(enriched);
     }
+  }, []);
+
+  // Filter the accumulated episode payload and publish it. Runs once per
+  // loaded page, so the cost is bounded by how much the user has asked for.
+  const applyEpisodeResults = useCallback(() => {
+    const q = lastQueryRef.current;
+    if (!q) return;
+
+    const podcastNames = new Map<string, string>();
+    for (const p of catalogRef.current) podcastNames.set(p.id, p.title);
 
     // Episodes: use the Kotlin-style matcher that checks title OR description
     // with normalised word-boundary matching, and enforces NOT terms.
-    const matchingEpisodes = piEpisodeResultsRef.current.filter((ep) => {
-      const podcast = catalog.find((p) => p.id === ep.podcastId);
-      const podcastName = podcast ? podcast.title : "";
-      return episodeMatchesQuery(ep.title, ep.description, podcastName, q);
-    });
+    const matchingEpisodes = piEpisodeResultsRef.current.filter((ep) =>
+      episodeMatchesQuery(ep.title, ep.description, podcastNames.get(ep.podcastId) || "", q)
+    );
 
     if (notifiedEpisodeId) {
       const targetIndex = matchingEpisodes.findIndex(
@@ -225,16 +268,90 @@ export default function PodcastSearchScreen() {
     }
   }, [params.savedSearchId, notifiedEpisodeId]);
 
+  // Fetch one page of episode candidates and merge it into the accumulated set.
+  // The first page runs automatically right after the podcast search starts;
+  // every later page is user-initiated.
+  const loadEpisodePage = useCallback(
+    async (seq: number, query: string, offset: number, isFirstPage: boolean) => {
+      if (seq !== searchSeqRef.current || episodePageRef.current.exhausted) return;
+
+      if (isFirstPage) {
+        episodeAbortRef.current?.abort();
+        episodeAbortRef.current = new AbortController();
+        setIsSearchingEpisodes(true);
+      } else {
+        setIsLoadingMoreEpisodes(true);
+      }
+
+      const signal = episodeAbortRef.current?.signal;
+      try {
+        // Strip NOT terms before sending to the server, mirroring the Kotlin
+        // extractPositiveQuery. The server does not understand -term exclusion.
+        const qFts = extractPositiveQuery(query);
+        const batch = await PodcastApi.searchEpisodesOnPi(
+          qFts,
+          EPISODE_SEARCH_PAGE_SIZE,
+          offset,
+          signal
+        );
+        if (seq !== searchSeqRef.current) return;
+
+        const page = appendEpisodePage(
+          episodePageRef.current,
+          batch,
+          EPISODE_SEARCH_PAGE_SIZE,
+          EPISODE_SEARCH_MAX_EPISODES
+        );
+        episodePageRef.current = page;
+        piEpisodeResultsRef.current = page.episodes;
+        setHasMoreEpisodes(!page.exhausted);
+
+        resultsQueryRef.current = query;
+        applyEpisodeResults();
+      } catch (err) {
+        console.warn("Episode search failed:", err);
+        if (seq === searchSeqRef.current) {
+          episodePageRef.current = { ...episodePageRef.current, exhausted: true };
+        }
+      } finally {
+        if (seq === searchSeqRef.current) {
+          setIsSearchingEpisodes(false);
+          setIsLoadingMoreEpisodes(false);
+        }
+      }
+    },
+    [applyEpisodeResults]
+  );
+
+  const handleLoadMoreEpisodes = useCallback(() => {
+    const q = lastQueryRef.current;
+    const page = episodePageRef.current;
+    if (!q || page.exhausted) return;
+    void loadEpisodePage(searchSeqRef.current, q, page.nextOffset, false);
+  }, [loadEpisodePage]);
+
   const executeSearch = useCallback(
     (text: string) => {
       const q = text.trim();
       const seq = ++searchSeqRef.current;
       lastQueryRef.current = q;
 
+      // Cancel anything still in flight for the previous query rather than
+      // letting it finish against a result set nobody is looking at.
+      podcastAbortRef.current?.abort();
+      podcastAbortRef.current = null;
+      episodeAbortRef.current?.abort();
+      episodeAbortRef.current = null;
+
       if (searchDebounceTimer.current) {
         clearTimeout(searchDebounceTimer.current);
         searchDebounceTimer.current = null;
       }
+
+      episodePageRef.current = emptyEpisodePageState();
+      setHasMoreEpisodes(false);
+      setVisiblePodcastCount(PODCAST_REVEAL_STEP);
+      setVisibleEpisodeCount(EPISODE_REVEAL_STEP);
 
       if (!q) {
         piPodcastResultsRef.current = [];
@@ -242,55 +359,41 @@ export default function PodcastSearchScreen() {
         resultsQueryRef.current = "";
         setSearchPodcastMatches([]);
         setSearchEpisodeMatches([]);
-        setIsSearching(false);
+        setIsSearchingPodcasts(false);
+        setIsSearchingEpisodes(false);
+        setIsLoadingMoreEpisodes(false);
         return;
       }
 
-      setIsSearching(true);
+      setIsSearchingPodcasts(true);
+      setIsSearchingEpisodes(true);
 
-      searchDebounceTimer.current = setTimeout(async () => {
-        try {
-          // Strip NOT terms before sending to the server, mirroring the Kotlin
-          // extractPositiveQuery. The server does not understand -term exclusion.
-          const qFts = extractPositiveQuery(q);
+      searchDebounceTimer.current = setTimeout(() => {
+        const qFts = extractPositiveQuery(q);
 
-          // Fetch podcast results (single call, limited).
-          const piPodcasts = await PodcastApi.searchPodcastsOnPi(qFts, 100);
-
-          // Fetch ALL matching episodes in pages, mirroring the Kotlin full
-          // background load (page size 500, up to 50 pages). This avoids the
-          // previous 30-result cap.
-          const allEpisodes: SearchEpisodeResult[] = [];
-          for (let page = 0; page < MAX_EPISODE_SEARCH_PAGES; page++) {
+        // Phase 1 — podcasts. One bounded request, published as soon as it
+        // lands so the user sees podcast names immediately.
+        const podcastAbort = new AbortController();
+        podcastAbortRef.current = podcastAbort;
+        void (async () => {
+          try {
+            const piPodcasts = await PodcastApi.searchPodcastsOnPi(qFts, 100, podcastAbort.signal);
             if (seq !== searchSeqRef.current) return;
-            const offset = page * EPISODE_SEARCH_PAGE_SIZE;
-            const batch = await PodcastApi.searchEpisodesOnPi(qFts, EPISODE_SEARCH_PAGE_SIZE, offset);
-            if (batch.length === 0) break;
-            // Deduplicate by episodeId
-            const existingIds = new Set(allEpisodes.map((e) => e.episodeId));
-            for (const ep of batch) {
-              if (!existingIds.has(ep.episodeId)) {
-                allEpisodes.push(ep);
-                existingIds.add(ep.episodeId);
-              }
-            }
-            if (batch.length < EPISODE_SEARCH_PAGE_SIZE) break;
+            piPodcastResultsRef.current = piPodcasts;
+            resultsQueryRef.current = q;
+            applyPodcastResults();
+          } catch (err) {
+            console.warn("Podcast search failed:", err);
+          } finally {
+            if (seq === searchSeqRef.current) setIsSearchingPodcasts(false);
           }
+        })();
 
-          if (seq !== searchSeqRef.current) return;
-
-          piPodcastResultsRef.current = piPodcasts;
-          piEpisodeResultsRef.current = allEpisodes;
-          resultsQueryRef.current = q;
-          applySearchResults();
-        } catch (err) {
-          console.warn("Search failed:", err);
-        } finally {
-          if (seq === searchSeqRef.current) setIsSearching(false);
-        }
+        // Phase 2 — episodes. One page only; more pages are fetched on demand.
+        void loadEpisodePage(seq, q, 0, true);
       }, SEARCH_DEBOUNCE_MS);
     },
-    [applySearchResults]
+    [applyPodcastResults, loadEpisodePage]
   );
 
   const handleSearchChange = (text: string) => {
@@ -312,9 +415,10 @@ export default function PodcastSearchScreen() {
   useEffect(() => {
     catalogRef.current = catalog;
     if (lastQueryRef.current && resultsQueryRef.current === lastQueryRef.current) {
-      applySearchResults();
+      applyPodcastResults();
+      applyEpisodeResults();
     }
-  }, [catalog, applySearchResults]);
+  }, [catalog, applyPodcastResults, applyEpisodeResults]);
 
   // Live suggestions when typing
   useEffect(() => {
@@ -425,12 +529,12 @@ export default function PodcastSearchScreen() {
   // notifiedEpisodeRef is used to ensure we only act once per notification tap.
   useEffect(() => {
     if (!notifiedEpisodeId || notifiedEpisodeRef.current === notifiedEpisodeId) return;
-    if (isSearching || searchEpisodeMatches.length === 0) return;
+    if (isSearchingEpisodes || searchEpisodeMatches.length === 0) return;
     const match = searchEpisodeMatches.find((ep) => ep.episodeId === notifiedEpisodeId);
     if (!match) return;
     notifiedEpisodeRef.current = notifiedEpisodeId;
     // Episode is already visible in the list; no further action needed.
-  }, [notifiedEpisodeId, isSearching, searchEpisodeMatches]);
+  }, [notifiedEpisodeId, isSearchingEpisodes, searchEpisodeMatches]);
 
   const handlePlaySearchEpisode = useCallback(
     async (ep: SearchEpisodeResult) => {
@@ -484,6 +588,250 @@ export default function PodcastSearchScreen() {
   );
 
   const isSearchActive = searchQuery.trim().length > 0;
+
+  const visiblePodcasts = useMemo(
+    () => searchPodcastMatches.slice(0, visiblePodcastCount),
+    [searchPodcastMatches, visiblePodcastCount]
+  );
+  const visibleEpisodes = useMemo(
+    () => searchEpisodeMatches.slice(0, visibleEpisodeCount),
+    [searchEpisodeMatches, visibleEpisodeCount]
+  );
+  const hiddenResultCount =
+    searchPodcastMatches.length - visiblePodcasts.length +
+    (searchEpisodeMatches.length - visibleEpisodes.length);
+
+  const showEpisodesSection =
+    visibleEpisodes.length > 0 || isSearchingEpisodes || isLoadingMoreEpisodes || hasMoreEpisodes;
+
+  // Podcast rows first, then the episodes section. Keeping both in one
+  // virtualized list means a long result set never mounts thousands of views
+  // inside a single ScrollView.
+  const resultItems = useMemo<SearchResultItem[]>(() => {
+    const items: SearchResultItem[] = visiblePodcasts.map((podcast) => ({
+      key: `podcast:${podcast.id}`,
+      type: "podcast",
+      podcast
+    }));
+    if (showEpisodesSection) {
+      items.push({ key: "episodes-heading", type: "episodesHeading" });
+      for (const episode of visibleEpisodes) {
+        items.push({ key: `episode:${episode.episodeId}`, type: "episode", episode });
+      }
+    }
+    if (hasMoreEpisodes) {
+      items.push({ key: "load-more", type: "loadMore" });
+    }
+    if (hiddenResultCount > 0) {
+      items.push({ key: "reveal-more", type: "revealMore" });
+    }
+    return items;
+  }, [visiblePodcasts, showEpisodesSection, visibleEpisodes, hasMoreEpisodes, hiddenResultCount]);
+
+  const handleRevealMore = useCallback(() => {
+    setVisiblePodcastCount((count) => count + PODCAST_REVEAL_STEP);
+    setVisibleEpisodeCount((count) => count + EPISODE_REVEAL_STEP);
+  }, []);
+
+  const handleEndReached = useCallback(() => {
+    if (hiddenResultCount > 0) handleRevealMore();
+  }, [hiddenResultCount, handleRevealMore]);
+
+  const renderPodcastRow = (pod: Podcast) => {
+    const isSub = subscribedIds.includes(pod.id);
+    const ratingSummary = podcastRatings[pod.id];
+    const displayGenres = pod.genres
+      .filter((g) => !/^podcasts?$/i.test(g.trim()))
+      .slice(0, 2);
+
+    return (
+      <TouchableOpacity
+        style={[styles.podcastCard, { backgroundColor: theme.surface, borderBottomColor: theme.outlineVariant }]}
+        onPress={() => handleOpenPodcast(pod)}
+        activeOpacity={0.7}
+      >
+        {pod.imageUrl ? (
+          <Image source={{ uri: pod.imageUrl }} style={styles.artwork} resizeMode="cover" />
+        ) : (
+          <View style={[styles.artworkFallback, { backgroundColor: theme.primaryContainer }]}>
+            <MaterialIcons name="podcasts" size={36} color={theme.primary} />
+          </View>
+        )}
+
+        <View style={styles.cardContent}>
+          <Text style={[styles.podcastTitle, { color: theme.onSurface }]} numberOfLines={2}>
+            {decodeXmlEntities(pod.title)}
+          </Text>
+          <Text style={[styles.podcastDesc, { color: theme.onSurfaceVariant }]} numberOfLines={3}>
+            {decodeXmlEntities(pod.description)}
+          </Text>
+
+          <View style={styles.cardBottomRow}>
+            {ratingSummary && ratingSummary.count > 0 && ratingSummary.average > 0 ? (
+              <Text style={[styles.ratingBadge, { color: theme.onSurfaceVariant }]}>
+                {`★ ${ratingSummary.average.toFixed(1)}`}
+              </Text>
+            ) : null}
+
+            {displayGenres.length > 0 ? (
+              <Text style={[styles.genresText, { color: theme.onSurfaceVariant }]} numberOfLines={1}>
+                {decodeXmlEntities(displayGenres.join(", "))}
+              </Text>
+            ) : null}
+          </View>
+        </View>
+
+        {isSub ? (
+          <View style={styles.cardActionIcon}>
+            <MaterialIcons name="star" size={24} color={theme.onSurface} />
+          </View>
+        ) : null}
+      </TouchableOpacity>
+    );
+  };
+
+  const renderEpisodeRow = (ep: SearchEpisodeResult) => {
+    const isResolving = resolvingEpisodeId === ep.episodeId;
+    const isNotified = Boolean(
+      notifiedEpisodeId &&
+        (ep.episodeId === notifiedEpisodeId ||
+          ep.episodeId.includes(notifiedEpisodeId) ||
+          notifiedEpisodeId.includes(ep.episodeId))
+    );
+    return (
+      <View
+        style={[
+          styles.episodeResultCard,
+          {
+            backgroundColor: isNotified ? theme.surfaceContainer : theme.surface,
+            borderColor: isNotified ? theme.primary : theme.outlineVariant,
+            borderLeftWidth: isNotified ? 4 : 1,
+            borderLeftColor: isNotified ? theme.primary : theme.outlineVariant
+          }
+        ]}
+      >
+        <TouchableOpacity
+          style={styles.episodeResultText}
+          activeOpacity={0.7}
+          onPress={() => openSearchEpisode(ep)}
+        >
+          <View style={styles.episodeTitleRow}>
+            {isNotified ? (
+              <View style={[styles.newBadge, { backgroundColor: theme.primary }]}>
+                <Text style={[styles.newBadgeText, { color: theme.onPrimary }]}>New match</Text>
+              </View>
+            ) : null}
+            <Text style={[styles.episodeResultTitle, { color: theme.onSurface, flex: 1 }]} numberOfLines={2}>
+              {decodeXmlEntities(ep.title)}
+            </Text>
+          </View>
+          {ep.pubDate ? (
+            <Text style={[styles.episodeResultDate, { color: theme.onSurfaceVariant }]}>
+              {ep.pubDate.split(" ").slice(0, 4).join(" ")}
+            </Text>
+          ) : null}
+          {ep.description ? (
+            <Text style={[styles.episodeResultDesc, { color: theme.onSurfaceVariant }]} numberOfLines={2}>
+              {decodeXmlEntities(ep.description)}
+            </Text>
+          ) : null}
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.episodePlayBtn, { backgroundColor: theme.primary }]}
+          onPress={() => handlePlaySearchEpisode(ep)}
+          disabled={isResolving}
+        >
+          {isResolving ? (
+            <ActivityIndicator size="small" color={theme.onPrimary} />
+          ) : (
+            <MaterialIcons name="play-arrow" size={24} color={theme.onPrimary} />
+          )}
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  // Not memoized: FlatList holds onto renderItem, and a cached closure would
+  // keep stale per-row state (resolving spinners, subscriptions, theme).
+  // listExtraData is the memoized signal that makes mounted rows re-render.
+  const renderResultItem = ({ item }: { item: SearchResultItem }) => {
+      switch (item.type) {
+        case "podcast":
+          return renderPodcastRow(item.podcast);
+        case "episodesHeading":
+          return (
+            <View>
+              <Text style={[styles.sectionHeading, { color: theme.onSurface, marginTop: 24 }]}>
+                Episodes{searchEpisodeMatches.length > 0 ? ` (${searchEpisodeMatches.length})` : ""}
+              </Text>
+              {visibleEpisodes.length === 0 && isSearchingEpisodes ? (
+                <View style={styles.inlineLoadingRow}>
+                  <ActivityIndicator size="small" color={theme.primary} />
+                  <Text style={[styles.inlineLoadingText, { color: theme.onSurfaceVariant }]}>
+                    Loading episodes...
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          );
+        case "episode":
+          return renderEpisodeRow(item.episode);
+        case "loadMore":
+          return (
+            <TouchableOpacity
+              style={[styles.moreButton, { backgroundColor: theme.surface, borderColor: theme.outlineVariant }]}
+              onPress={handleLoadMoreEpisodes}
+              disabled={isLoadingMoreEpisodes}
+              accessibilityRole="button"
+              accessibilityLabel="Load more episodes"
+            >
+              {isLoadingMoreEpisodes ? (
+                <ActivityIndicator size="small" color={theme.primary} />
+              ) : (
+                <MaterialIcons name="expand-more" size={20} color={theme.primary} />
+              )}
+              <Text style={[styles.moreButtonText, { color: theme.primary }]}>Load more episodes</Text>
+            </TouchableOpacity>
+          );
+        case "revealMore":
+          return (
+            <TouchableOpacity
+              style={[styles.moreButton, { backgroundColor: theme.surface, borderColor: theme.outlineVariant }]}
+              onPress={handleRevealMore}
+              accessibilityRole="button"
+              accessibilityLabel="Show more results"
+            >
+              <MaterialIcons name="expand-more" size={20} color={theme.primary} />
+              <Text style={[styles.moreButtonText, { color: theme.primary }]}>Show more results</Text>
+            </TouchableOpacity>
+          );
+        default:
+          return null;
+      }
+  };
+
+  const listExtraData = useMemo(
+    () => ({
+      theme,
+      subscribedIds,
+      podcastRatings,
+      resolvingEpisodeId,
+      isSearchingEpisodes,
+      isLoadingMoreEpisodes,
+      visibleEpisodeCount: visibleEpisodes.length,
+      episodeCount: searchEpisodeMatches.length
+    }),
+    [
+      theme,
+      subscribedIds,
+      podcastRatings,
+      resolvingEpisodeId,
+      isSearchingEpisodes,
+      isLoadingMoreEpisodes,
+      visibleEpisodes.length,
+      searchEpisodeMatches.length
+    ]
+  );
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.surfaceContainer }]} edges={["top"]}>
@@ -557,213 +905,96 @@ export default function PodcastSearchScreen() {
       <VpnBanner />
 
       {/* Main Content Area */}
-      <ScrollView
+      <FlatList
+        data={resultItems}
+        renderItem={renderResultItem}
+        keyExtractor={(item) => item.key}
+        extraData={listExtraData}
+        ListHeaderComponent={
+          <View>
+            {/* Recent searches dropdown when search is empty */}
+            {!isSearchActive && recentSearches.length > 0 ? (
+              <View style={[styles.recentSection, { backgroundColor: theme.surface }]}>
+                <View style={styles.recentHeader}>
+                  <Text style={[styles.recentTitle, { color: theme.onSurfaceVariant }]}>Recent searches</Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      Preferences.setSetting("pref_recent_podcast_searches", "[]");
+                      setRecentSearches([]);
+                    }}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Text style={[styles.clearRecentText, { color: theme.primary }]}>Clear</Text>
+                  </TouchableOpacity>
+                </View>
+                {recentSearches.map((search) => (
+                  <TouchableOpacity
+                    key={search}
+                    style={[styles.recentRow, { borderBottomColor: theme.outlineVariant }]}
+                    onPress={() => handleSelectQuery(search)}
+                  >
+                    <MaterialIcons name="history" size={20} color={theme.onSurfaceVariant} style={styles.recentIcon} />
+                    <Text style={[styles.recentText, { color: theme.onSurface }]}>{search}</Text>
+                    <MaterialIcons name="north-west" size={18} color={theme.outline} />
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : null}
+
+            {/* Live suggestions when typing */}
+            {isSearchFocused && isSearchActive && suggestions.length > 0 ? (
+              <View style={[styles.suggestionsBox, { backgroundColor: theme.surface, borderColor: theme.outlineVariant }]}>
+                {suggestions.map((suggestion) => (
+                  <TouchableOpacity
+                    key={suggestion.podcastId}
+                    style={[styles.suggestionRow, { borderBottomColor: theme.outlineVariant }]}
+                    onPress={() => handleSelectQuery(suggestion.title)}
+                  >
+                    <MaterialIcons name="search" size={20} color={theme.onSurfaceVariant} style={styles.recentIcon} />
+                    <Text style={[styles.suggestionText, { color: theme.onSurface }]}>{suggestion.title}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : null}
+
+            {/* Only shown while podcast names are still being resolved. Episode
+                loading has its own indicator inside the Episodes section. */}
+            {isSearchingPodcasts && (
+              <View style={styles.searchLoadingBanner}>
+                <ActivityIndicator size="small" color={theme.primary} />
+                <Text style={[styles.searchLoadingText, { color: theme.onSurfaceVariant }]}>
+                  Searching BBC podcasts...
+                </Text>
+              </View>
+            )}
+
+            {isSearchActive ? (
+              <>
+                <Text style={[styles.sectionHeading, { color: theme.onSurface }]}>
+                  Podcasts {searchPodcastMatches.length > 0 ? `(${searchPodcastMatches.length})` : ""}
+                </Text>
+
+                {searchPodcastMatches.length === 0 && !isSearchingPodcasts ? (
+                  <Text style={[styles.emptySectionText, { color: theme.onSurfaceVariant }]}>
+                    No matching podcasts found.
+                  </Text>
+                ) : null}
+              </>
+            ) : null}
+          </View>
+        }
+        ListEmptyComponent={null}
         contentContainerStyle={[styles.listContent, { paddingBottom: 120 + insets.bottom }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
-      >
-        {/* Recent searches dropdown when search is empty */}
-        {!isSearchActive && recentSearches.length > 0 ? (
-          <View style={[styles.recentSection, { backgroundColor: theme.surface }]}>
-            <View style={styles.recentHeader}>
-              <Text style={[styles.recentTitle, { color: theme.onSurfaceVariant }]}>Recent searches</Text>
-              <TouchableOpacity
-                onPress={() => {
-                  Preferences.setSetting("pref_recent_podcast_searches", "[]");
-                  setRecentSearches([]);
-                }}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <Text style={[styles.clearRecentText, { color: theme.primary }]}>Clear</Text>
-              </TouchableOpacity>
-            </View>
-            {recentSearches.map((search) => (
-              <TouchableOpacity
-                key={search}
-                style={[styles.recentRow, { borderBottomColor: theme.outlineVariant }]}
-                onPress={() => handleSelectQuery(search)}
-              >
-                <MaterialIcons name="history" size={20} color={theme.onSurfaceVariant} style={styles.recentIcon} />
-                <Text style={[styles.recentText, { color: theme.onSurface }]}>{search}</Text>
-                <MaterialIcons name="north-west" size={18} color={theme.outline} />
-              </TouchableOpacity>
-            ))}
-          </View>
-        ) : null}
-
-        {/* Live suggestions when typing */}
-        {isSearchFocused && isSearchActive && suggestions.length > 0 ? (
-          <View style={[styles.suggestionsBox, { backgroundColor: theme.surface, borderColor: theme.outlineVariant }]}>
-            {suggestions.map((suggestion) => (
-              <TouchableOpacity
-                key={suggestion.podcastId}
-                style={[styles.suggestionRow, { borderBottomColor: theme.outlineVariant }]}
-                onPress={() => handleSelectQuery(suggestion.title)}
-              >
-                <MaterialIcons name="search" size={20} color={theme.onSurfaceVariant} style={styles.recentIcon} />
-                <Text style={[styles.suggestionText, { color: theme.onSurface }]}>{suggestion.title}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        ) : null}
-
-        {/* Loading Indicator */}
-        {isSearching && (
-          <View style={styles.searchLoadingBanner}>
-            <ActivityIndicator size="small" color={theme.primary} />
-            <Text style={[styles.searchLoadingText, { color: theme.onSurfaceVariant }]}>
-              Searching BBC podcasts...
-            </Text>
-          </View>
-        )}
-
-        {/* Active Search Results */}
-        {isSearchActive && (
-          <>
-            {/* Podcasts Section */}
-            <Text style={[styles.sectionHeading, { color: theme.onSurface }]}>
-              Podcasts {searchPodcastMatches.length > 0 ? `(${searchPodcastMatches.length})` : ""}
-            </Text>
-
-            {searchPodcastMatches.length === 0 && !isSearching ? (
-              <Text style={[styles.emptySectionText, { color: theme.onSurfaceVariant }]}>
-                No matching podcasts found.
-              </Text>
-            ) : (
-              searchPodcastMatches.map((pod) => {
-                const isSub = subscribedIds.includes(pod.id);
-                const ratingSummary = podcastRatings[pod.id];
-                const displayGenres = pod.genres
-                  .filter((g) => !/^podcasts?$/i.test(g.trim()))
-                  .slice(0, 2);
-
-                return (
-                  <TouchableOpacity
-                    key={pod.id}
-                    style={[
-                      styles.podcastCard,
-                      { backgroundColor: theme.surface, borderBottomColor: theme.outlineVariant }
-                    ]}
-                    onPress={() => handleOpenPodcast(pod)}
-                    activeOpacity={0.7}
-                  >
-                    {pod.imageUrl ? (
-                      <Image source={{ uri: pod.imageUrl }} style={styles.artwork} resizeMode="cover" />
-                    ) : (
-                      <View style={[styles.artworkFallback, { backgroundColor: theme.primaryContainer }]}>
-                        <MaterialIcons name="podcasts" size={36} color={theme.primary} />
-                      </View>
-                    )}
-
-                    <View style={styles.cardContent}>
-                      <Text style={[styles.podcastTitle, { color: theme.onSurface }]} numberOfLines={2}>
-                        {decodeXmlEntities(pod.title)}
-                      </Text>
-                      <Text style={[styles.podcastDesc, { color: theme.onSurfaceVariant }]} numberOfLines={3}>
-                        {decodeXmlEntities(pod.description)}
-                      </Text>
-
-                      <View style={styles.cardBottomRow}>
-                        {ratingSummary && ratingSummary.count > 0 && ratingSummary.average > 0 ? (
-                          <Text style={[styles.ratingBadge, { color: theme.onSurfaceVariant }]}>
-                            {`★ ${ratingSummary.average.toFixed(1)}`}
-                          </Text>
-                        ) : null}
-
-                        {displayGenres.length > 0 ? (
-                          <Text style={[styles.genresText, { color: theme.onSurfaceVariant }]} numberOfLines={1}>
-                            {decodeXmlEntities(displayGenres.join(", "))}
-                          </Text>
-                        ) : null}
-                      </View>
-                    </View>
-
-                    {isSub ? (
-                      <View style={styles.cardActionIcon}>
-                        <MaterialIcons name="star" size={24} color={theme.onSurface} />
-                      </View>
-                    ) : null}
-                  </TouchableOpacity>
-                );
-              })
-            )}
-
-            {/* Episodes Section */}
-            {searchEpisodeMatches.length > 0 && (
-              <>
-                <Text style={[styles.sectionHeading, { color: theme.onSurface, marginTop: 24 }]}>
-                  Episodes ({searchEpisodeMatches.length})
-                </Text>
-                {searchEpisodeMatches.map((ep) => {
-                  const isResolving = resolvingEpisodeId === ep.episodeId;
-                  const isNotified = Boolean(
-                    notifiedEpisodeId &&
-                      (ep.episodeId === notifiedEpisodeId ||
-                        ep.episodeId.includes(notifiedEpisodeId) ||
-                        notifiedEpisodeId.includes(ep.episodeId))
-                  );
-                  return (
-                    <View
-                      key={ep.episodeId}
-                      style={[
-                        styles.episodeResultCard,
-                        {
-                          backgroundColor: isNotified ? theme.surfaceContainer : theme.surface,
-                          borderColor: isNotified ? theme.primary : theme.outlineVariant,
-                          borderLeftWidth: isNotified ? 4 : 1,
-                          borderLeftColor: isNotified ? theme.primary : theme.outlineVariant
-                        }
-                      ]}
-                    >
-                      <TouchableOpacity
-                        style={styles.episodeResultText}
-                        activeOpacity={0.7}
-                        onPress={() => openSearchEpisode(ep)}
-                      >
-                        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 2, flexWrap: "wrap", gap: 6 }}>
-                          {isNotified ? (
-                            <View style={[styles.newBadge, { backgroundColor: theme.primary }]}>
-                              <Text style={[styles.newBadgeText, { color: theme.onPrimary }]}>New match</Text>
-                            </View>
-                          ) : null}
-                          <Text style={[styles.episodeResultTitle, { color: theme.onSurface, flex: 1, marginBottom: 0 }]} numberOfLines={2}>
-                            {decodeXmlEntities(ep.title)}
-                          </Text>
-                        </View>
-                        {ep.pubDate ? (
-                          <Text style={[styles.episodeResultDate, { color: theme.onSurfaceVariant }]}>
-                            {ep.pubDate.split(" ").slice(0, 4).join(" ")}
-                          </Text>
-                        ) : null}
-                        {ep.description ? (
-                          <Text
-                            style={[styles.episodeResultDesc, { color: theme.onSurfaceVariant }]}
-                            numberOfLines={2}
-                          >
-                            {decodeXmlEntities(ep.description)}
-                          </Text>
-                        ) : null}
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[styles.episodePlayBtn, { backgroundColor: theme.primary }]}
-                        onPress={() => handlePlaySearchEpisode(ep)}
-                        disabled={isResolving}
-                      >
-                        {isResolving ? (
-                          <ActivityIndicator size="small" color={theme.onPrimary} />
-                        ) : (
-                          <MaterialIcons name="play-arrow" size={24} color={theme.onPrimary} />
-                        )}
-                      </TouchableOpacity>
-                    </View>
-                  );
-                })}
-              </>
-            )}
-          </>
-        )}
-      </ScrollView>
+        initialNumToRender={12}
+        maxToRenderPerBatch={12}
+        windowSize={7}
+        removeClippedSubviews={false}
+        onEndReached={handleEndReached}
+        onEndReachedThreshold={0.6}
+      />
 
       {/* Save Search Modal */}
       <Modal
@@ -984,6 +1215,39 @@ const styles = StyleSheet.create({
   },
   searchLoadingText: {
     fontSize: 13
+  },
+  inlineLoadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 8
+  },
+  inlineLoadingText: {
+    fontSize: 13
+  },
+  moreButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginHorizontal: 12,
+    marginTop: 8,
+    marginBottom: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 6
+  },
+  moreButtonText: {
+    fontSize: 14,
+    fontWeight: "600"
+  },
+  episodeTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 2,
+    flexWrap: "wrap",
+    gap: 6
   },
   sectionHeading: {
     fontSize: 17,
