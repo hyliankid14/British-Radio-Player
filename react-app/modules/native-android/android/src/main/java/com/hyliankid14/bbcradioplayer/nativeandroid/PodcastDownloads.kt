@@ -39,7 +39,19 @@ object PodcastDownloads {
     }
 
   private fun safeName(fileName: String): String =
-    fileName.replace('/', '_').replace('\\', '_').trim().ifEmpty { "episode.mp3" }
+    fileName
+      .replace('/', '_')
+      .replace('\\', '_')
+      // Characters invalid or problematic in MediaStore DISPLAY_NAME on some OEM ROMs.
+      .replace('?', '_')
+      .replace('*', '_')
+      .replace(':', '_')
+      .replace('"', '_')
+      .replace('<', '_')
+      .replace('>', '_')
+      .replace('|', '_')
+      .trim()
+      .ifEmpty { "episode.mp3" }
 
   /** Copies a locally downloaded temp file into the public Podcasts folder. Returns the URI. */
   fun publish(context: Context, sourceUri: String, fileName: String, title: String): String? {

@@ -72,6 +72,15 @@ function documentsDirectory(): Directory {
   return directory;
 }
 
+/**
+ * User-Agent sent with every episode download request. BBC's media selector (the gateway
+ * used by all `ppg:enclosureSecure` and `enclosure` URLs in BBC podcast RSS feeds) can
+ * return HTTP 403 when it sees an unrecognised agent such as the default `okhttp/4.x.x`
+ * produced by expo-file-system. The v1 native app set this header explicitly; we mirror
+ * that behaviour here.
+ */
+const DOWNLOAD_USER_AGENT = "British Radio Player/2.0 (Android)";
+
 function fileExtension(url: string): string {
   const clean = url.split("?")[0].split("#")[0];
   const match = clean.match(/\.(mp3|m4a|m4b|aac|mp4|ogg|oga|opus)$/i);
@@ -197,7 +206,8 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
         if (temp.exists) temp.delete();
         const downloaded = await File.downloadFileAsync(entry.audioUrl, temp, {
           idempotent: true,
-          onProgress
+          onProgress,
+          headers: { "User-Agent": DOWNLOAD_USER_AGENT }
         });
         const displayName = `${entry.title || entry.id} - ${entry.id}${extension}`;
         const published = await NativeAndroid.publishDownload(downloaded.uri, displayName, entry.title);
@@ -208,7 +218,8 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
         const destination = new File(documentsDirectory(), tempName);
         const file = await File.downloadFileAsync(entry.audioUrl, destination, {
           idempotent: true,
-          onProgress
+          onProgress,
+          headers: { "User-Agent": DOWNLOAD_USER_AGENT }
         });
         localUri = file.uri;
       }
@@ -236,13 +247,17 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
       enforceMaxDownloads(removeOne);
       notifyDownloadFinished(true, entry.title);
     } catch (error) {
+      const message = error instanceof Error ? error.message : "Download failed";
+      console.error(
+        `[Download] Failed — "${entry.title}" (${entry.id}): ${message}\n  url: ${entry.audioUrl}`
+      );
       set((state) => ({
         downloads: {
           ...state.downloads,
           [entry.id]: {
             status: "error",
             entry,
-            error: error instanceof Error ? error.message : "Download failed"
+            error: message
           }
         }
       }));
