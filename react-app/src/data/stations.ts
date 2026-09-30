@@ -1,6 +1,10 @@
 export const LOGO_BASE = "https://sounds.files.bbci.co.uk/3.11.1/services";
-export const BBC_HLS_UK = "https://a.files.bbci.co.uk/ms6/live/3441A116-B12E-4D2F-ACA8-C1984642FA4B/audio/simulcast/hls/uk/pc_hd_abr_v2/cf";
-export const BBC_HLS_NONUK = "https://a.files.bbci.co.uk/ms6/live/3441A116-B12E-4D2F-ACA8-C1984642FA4B/audio/simulcast/hls/nonuk/pc_hd_abr_v2/cf";
+export const BBC_HLS_BASE = "https://a.files.bbci.co.uk/ms6/live/3441A116-B12E-4D2F-ACA8-C1984642FA4B/audio/simulcast/hls";
+export const BBC_HLS_UK_HIGH = `${BBC_HLS_BASE}/uk/audio_syndication_high_sbr_v1/cf`;
+export const BBC_HLS_UK_MED = `${BBC_HLS_BASE}/uk/audio_syndication_med_sbr_v1/cf`;
+export const BBC_HLS_UK_LOW = `${BBC_HLS_BASE}/uk/audio_syndication_low_sbr_v1/cf`;
+export const BBC_HLS_UK = `${BBC_HLS_BASE}/uk/pc_hd_abr_v2/cf`;
+export const BBC_HLS_NONUK = `${BBC_HLS_BASE}/nonuk/pc_hd_abr_v2/cf`;
 export const STREAM_BASE = "https://lsn.lv/bbcradio.m3u8";
 
 export const StationCategory = {
@@ -23,6 +27,26 @@ export const AUDIO_QUALITIES: Record<AudioQuality, AudioQualityConfig> = {
   LOW: { bitrate: "48000", label: "Low Data (48 kbps)" },
   AUTO: { bitrate: "128000", label: "Auto (Adaptive)" }
 };
+
+/**
+ * Resolves the effective audio quality based on explicit choice, auto quality preference, and network status.
+ * - In auto mode (or if explicit is "AUTO"):
+ *   - Wi-Fi -> HIGH (320 kbps)
+ *   - Cellular -> MEDIUM (128 kbps)
+ *   - Offline -> LOW (96/48 kbps)
+ * - In manual mode:
+ *   - Returns explicit choice ("HIGH" | "MEDIUM" | "LOW")
+ */
+export function resolveEffectiveAudioQuality(
+  explicit: AudioQuality,
+  autoQualityPreference: boolean,
+  network: { isOnline: boolean; isWifi: boolean }
+): AudioQuality {
+  const autoDetect = explicit === "AUTO" || autoQualityPreference;
+  if (!autoDetect) return explicit;
+  if (!network.isOnline) return "LOW";
+  return network.isWifi ? "HIGH" : "MEDIUM";
+}
 
 export interface Station {
   id: string;
@@ -65,6 +89,41 @@ export function getStationUri(station: Station, quality: AudioQuality = "HIGH", 
 
 const UK_ONLY_STATION_IDS = new Set(["radio5livesportsextra2", "radio5livesportsextra3"]);
 
+function getQualityLadder(quality: AudioQuality): ("HIGH" | "MEDIUM" | "LOW")[] {
+  switch (quality) {
+    case "LOW":
+      return ["LOW", "MEDIUM", "HIGH"];
+    case "MEDIUM":
+      return ["MEDIUM", "LOW", "HIGH"];
+    case "HIGH":
+    case "AUTO":
+    default:
+      return ["HIGH", "MEDIUM", "LOW"];
+  }
+}
+
+function getUkQualityBases(tier: "HIGH" | "MEDIUM" | "LOW"): string[] {
+  switch (tier) {
+    case "HIGH":
+      return [
+        `${BBC_HLS_BASE}/uk/audio_syndication_high_sbr_v1/cf`,
+        `${BBC_HLS_BASE}/uk/pc_hd_abr_v2/cf`,
+        `${BBC_HLS_BASE}/uk/audio_syndication_high_sbr_v1/ak`,
+        `${BBC_HLS_BASE}/uk/pc_hd_abr_v2/ak`
+      ];
+    case "MEDIUM":
+      return [
+        `${BBC_HLS_BASE}/uk/audio_syndication_med_sbr_v1/cf`,
+        `${BBC_HLS_BASE}/uk/audio_syndication_med_sbr_v1/ak`
+      ];
+    case "LOW":
+      return [
+        `${BBC_HLS_BASE}/uk/audio_syndication_low_sbr_v1/cf`,
+        `${BBC_HLS_BASE}/uk/audio_syndication_low_sbr_v1/ak`
+      ];
+  }
+}
+
 export function getStreamCandidates(station: Station, quality: AudioQuality = "HIGH", geoBlocked = false): string[] {
   const candidates: string[] = [];
 
@@ -75,6 +134,7 @@ export function getStreamCandidates(station: Station, quality: AudioQuality = "H
   if (geoBlocked) {
     for (const sid of station.streamServiceIds) {
       candidates.push(`${BBC_HLS_NONUK}/${sid}.m3u8`);
+      candidates.push(`${BBC_HLS_BASE}/nonuk/pc_hd_abr_v2/ak/${sid}.m3u8`);
     }
     for (const url of station.directStreamUrls) {
       if (!url.includes("&uk=1") && !url.includes("/live/uk/") && !url.includes("/hls/uk/")) {
@@ -84,9 +144,15 @@ export function getStreamCandidates(station: Station, quality: AudioQuality = "H
     return Array.from(new Set(candidates));
   }
 
-  // 1. Official BBC UK HLS stream
-  for (const sid of station.streamServiceIds) {
-    candidates.push(`${BBC_HLS_UK}/${sid}.m3u8`);
+  const ladder = getQualityLadder(quality);
+  const primaryTier = ladder[0];
+  const fallbackTiers = ladder.slice(1);
+
+  // 1. Primary requested quality tier UK HLS streams
+  for (const base of getUkQualityBases(primaryTier)) {
+    for (const sid of station.streamServiceIds) {
+      candidates.push(`${base}/${sid}.m3u8`);
+    }
   }
 
   // 2. Direct working streams if provided
@@ -94,10 +160,20 @@ export function getStreamCandidates(station: Station, quality: AudioQuality = "H
     candidates.push(url);
   }
 
-  // 3. Official BBC International / Non-UK HLS stream (if station has international broadcast)
+  // 3. Fallback quality tiers UK HLS streams
+  for (const tier of fallbackTiers) {
+    for (const base of getUkQualityBases(tier)) {
+      for (const sid of station.streamServiceIds) {
+        candidates.push(`${base}/${sid}.m3u8`);
+      }
+    }
+  }
+
+  // 4. Official BBC International / Non-UK HLS stream (if station has international broadcast)
   if (!UK_ONLY_STATION_IDS.has(station.id)) {
     for (const sid of station.streamServiceIds) {
       candidates.push(`${BBC_HLS_NONUK}/${sid}.m3u8`);
+      candidates.push(`${BBC_HLS_BASE}/nonuk/pc_hd_abr_v2/ak/${sid}.m3u8`);
     }
   }
 

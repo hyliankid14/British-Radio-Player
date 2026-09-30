@@ -1,6 +1,12 @@
 import { create } from "zustand";
 import TrackPlayer, { State, TrackType } from "react-native-track-player";
-import { Station, StationRepository, AudioQuality, getStreamCandidates } from "../data/stations";
+import {
+  Station,
+  StationRepository,
+  AudioQuality,
+  getStreamCandidates,
+  resolveEffectiveAudioQuality
+} from "../data/stations";
 import { Preferences } from "../storage/preferences";
 import { CurrentShow, fetchShowInfo, onRmsDelayedUpdate, resetStationRmsDelay, isPlaceholderArtwork } from "../api/showInfo";
 import { useStationShowStore } from "./stationShowStore";
@@ -10,7 +16,7 @@ import { notifyNativePhonePlaybackStarted } from "../auto/autoBridge";
 import { notifyCarPlayPhonePlaybackStopped } from "../auto/carPlayBridge";
 import { getDownloadedUri } from "../downloads/downloadStore";
 import { deleteDownloadWhenPlayed, pruneDownloads, setDownloadInUseEpisode } from "../downloads/downloadCleanup";
-import { getNetworkStatus } from "./networkStore";
+import { getNetworkStatus, subscribeNetwork } from "./networkStore";
 import { trackEpisodePlay, trackStationPlay } from "../analytics/analytics";
 
 import { probeGeoBlock, isStationUkOnly } from "../utils/geoBlock";
@@ -76,12 +82,13 @@ function parsePodcastDateEpoch(pubDate?: string): number {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-/** Resolves the effective stream quality, honouring the Auto-detect preference. */
-function resolvePlaybackQuality(explicit: AudioQuality): AudioQuality {
-  if (!Preferences.getSetting("pref_auto_quality", true)) return explicit;
-  const { isOnline, isWifi } = getNetworkStatus();
-  if (!isOnline) return "LOW";
-  return isWifi ? "HIGH" : "MEDIUM";
+/** Resolves the effective stream quality, honouring the Auto-detect preference and network status. */
+export function resolvePlaybackQuality(explicit: AudioQuality): AudioQuality {
+  return resolveEffectiveAudioQuality(
+    explicit,
+    Preferences.getSetting("pref_auto_quality", true),
+    getNetworkStatus()
+  );
 }
 
 /** Station rotation honouring the "scroll favourites only" preference. */
@@ -105,6 +112,7 @@ let stationCandidates: string[] = [];
 let stationCandidateIndex = 0;
 let stationBeingPlayed: Station | null = null;
 let stationPlaybackSessionId = 0;
+let currentStationQuality: AudioQuality | null = null;
 
 async function tryNextStationCandidate(sessionId: number, reason: string): Promise<boolean> {
   if (sessionId !== stationPlaybackSessionId) return false;
@@ -223,6 +231,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     resetStationRmsDelay();
     void probeGeoBlock();
     const quality = resolvePlaybackQuality(get().audioQuality);
+    currentStationQuality = quality;
     const geoBlocked = Preferences.getGeoBlocked();
     const candidates = getStreamCandidates(station, quality, geoBlocked);
 
@@ -504,6 +513,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   pause: async () => {
     try {
+      currentStationQuality = null;
       stopShowInfoInterval();
       ScrobbleManager.onPlaybackPaused();
       await TrackPlayer.pause();
@@ -518,6 +528,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     stationBeingPlayed = null;
     stationCandidates = [];
     stationCandidateIndex = 0;
+    currentStationQuality = null;
     setDownloadInUseEpisode(null);
     try {
       resetStationRmsDelay();
@@ -608,6 +619,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   setAudioQuality: async (quality: AudioQuality) => {
+    if (quality === "AUTO") {
+      Preferences.setSetting("pref_auto_quality", true);
+    } else {
+      Preferences.setSetting("pref_auto_quality", false);
+    }
     Preferences.setAudioQuality(quality);
     set({ audioQuality: quality });
     const { currentStation, isPlaying } = get();
@@ -847,5 +863,24 @@ onRmsDelayedUpdate((stationId) => {
   const { currentStation, isPlaying, refreshShowInfo } = usePlayerStore.getState();
   if (currentStation?.id === stationId && isPlaying) {
     void refreshShowInfo();
+  }
+});
+
+subscribeNetwork((status) => {
+  if (!status.isOnline) return;
+  const store = usePlayerStore.getState();
+  const { currentStation, isPlaying, audioQuality } = store;
+  if (!isPlaying || !currentStation) return;
+
+  const isAuto = audioQuality === "AUTO" || Preferences.getSetting("pref_auto_quality", true);
+  if (!isAuto) return;
+
+  const targetQuality = resolvePlaybackQuality(audioQuality);
+  if (currentStationQuality && targetQuality !== currentStationQuality) {
+    console.log(
+      `Network changed (${status.isWifi ? "Wi-Fi" : "Cellular"}), switching bitrate from ${currentStationQuality} to ${targetQuality}`
+    );
+    currentStationQuality = targetQuality;
+    void store.playStation(currentStation);
   }
 });

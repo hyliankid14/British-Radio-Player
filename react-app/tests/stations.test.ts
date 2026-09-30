@@ -68,6 +68,27 @@ test("Stream Candidates - candidate prioritization and fallbacks", () => {
   assert.equal(se2GeoCandidates.length, 0, "Sports Extra 2 has no international stream candidates");
 });
 
+test("Stream Candidates - variable bitrate prioritization", () => {
+  const r1 = StationRepository.getById("radio1")!;
+  assert.ok(r1, "Radio 1 must exist");
+
+  // HIGH quality selects high syndication first (320 kbps)
+  const highCandidates = getStreamCandidates(r1, "HIGH", false);
+  assert.ok(highCandidates[0].includes("audio_syndication_high_sbr_v1"), "HIGH quality candidate 0 must be 320 kbps high stream");
+
+  // MEDIUM quality selects medium syndication first (128 kbps)
+  const medCandidates = getStreamCandidates(r1, "MEDIUM", false);
+  assert.ok(medCandidates[0].includes("audio_syndication_med_sbr_v1"), "MEDIUM quality candidate 0 must be 128 kbps med stream");
+
+  // LOW quality selects low syndication first (96/48 kbps)
+  const lowCandidates = getStreamCandidates(r1, "LOW", false);
+  assert.ok(lowCandidates[0].includes("audio_syndication_low_sbr_v1"), "LOW quality candidate 0 must be 96 kbps low stream");
+
+  // AUTO quality in candidate generator defaults to HIGH tier
+  const autoCandidates = getStreamCandidates(r1, "AUTO", false);
+  assert.ok(autoCandidates[0].includes("audio_syndication_high_sbr_v1"), "AUTO quality defaults to high tier");
+});
+
 test("ShowInfo - formatShowDisplayTitle", () => {
   // 1. Song with artist and track
   const songShow = {

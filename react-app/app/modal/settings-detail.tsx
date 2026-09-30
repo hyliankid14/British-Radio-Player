@@ -307,7 +307,14 @@ function PlaybackPage() {
           title="Auto-detect based on network"
           subtitle="Automatically chooses the best bitrate for Wi-Fi or cellular"
           value={settings.auto}
-          onChange={(value) => update("auto", value)}
+          onChange={(value) => {
+            update("auto", value);
+            if (value) {
+              void setAudioQuality("AUTO");
+            } else {
+              void setAudioQuality(audioQuality === "AUTO" ? "HIGH" : audioQuality);
+            }
+          }}
         />
         {!settings.auto ? (
           <>
@@ -315,7 +322,7 @@ function PlaybackPage() {
             <Text style={[styles.inputLabel, { color: theme.onSurfaceVariant }]}>Manual audio quality</Text>
             <SegmentedControl
               options={QUALITY_OPTIONS}
-              value={audioQuality}
+              value={audioQuality === "AUTO" ? "HIGH" : audioQuality}
               onChange={(value) => {
                 update("auto", false);
                 void setAudioQuality(value);
