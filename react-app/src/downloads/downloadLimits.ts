@@ -42,6 +42,22 @@ export function normaliseAutoDownloadLimit(value: unknown): number {
   if (!Number.isFinite(parsed) || parsed < 1) return 1;
   return Math.floor(parsed);
 }
+/**
+ * Sanitizes file names to remove characters forbidden in Android / FAT / Linux storage.
+ * Characters forbidden: / \ ? % * : | " < >
+ */
+export function sanitizeFileName(name: string): string {
+  return name
+    .replace(/[/\\?%*:|"<>]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Builds a safe public displayName for MediaStore / file system. */
+export function buildDownloadDisplayName(title: string | undefined, id: string, extension: string): string {
+  const baseTitle = sanitizeFileName(title || id).slice(0, 100).trim();
+  return `${baseTitle || id} - ${id}${extension}`;
+}
 
 export interface DownloadedRecordLike {
   downloadedAtMs?: number;

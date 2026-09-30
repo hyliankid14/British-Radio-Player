@@ -2,6 +2,9 @@ import { createMMKV } from "react-native-mmkv";
 import { NativeAndroid } from "../native/nativeAndroid";
 import { AudioQuality } from "../data/stations";
 import { mergeEpisodeProgress } from "./episodeProgress";
+import { LastPlayed, normalizeLastPlayed, parseLastPlayed } from "./lastPlayed";
+
+export type { LastPlayed };
 
 export interface SavedEpisodeEntry {
   id: string;
@@ -155,6 +158,7 @@ const KEYS = {
   ,NEW_PODCASTS_CACHE_AT: "cache_new_podcasts_at"
   ,ANONYMOUS_INSTALL_ID: "pref_anon_install_id"
   ,PODCAST_RATINGS_CACHE: "cache_podcast_ratings_data"
+  ,LAST_PLAYED: "pref_last_played"
 };
 
 /** Callbacks fired whenever an episode is marked as played. See `onEpisodePlayed`. */
@@ -386,6 +390,21 @@ export const Preferences = {
 
   setLastStationId(stationId: string): void {
     storage.set(KEYS.LAST_STATION, stationId);
+  },
+
+  /**
+   * The most recent thing the listener started playing, or null when nothing has played yet.
+   * Installs that predate this key fall back to the last station so their in-car resume is
+   * unchanged.
+   */
+  getLastPlayed(): LastPlayed | null {
+    return parseLastPlayed(storage.getString(KEYS.LAST_PLAYED), storage.getString(KEYS.LAST_STATION));
+  },
+
+  setLastPlayed(record: Omit<LastPlayed, "atMs"> & { atMs?: number }): void {
+    const payload = normalizeLastPlayed(record);
+    if (!payload) return;
+    storage.set(KEYS.LAST_PLAYED, JSON.stringify(payload));
   },
 
   getPodcastPosition(episodeId: string): number {

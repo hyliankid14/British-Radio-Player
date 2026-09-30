@@ -5,9 +5,11 @@ import { Podcast, Episode } from "../api/podcasts";
 import { Preferences, SavedEpisodeEntry } from "../storage/preferences";
 import { NativeAndroid } from "../native/nativeAndroid";
 import { notifyDownloadFinished, notifyDownloadStarted } from "../notifications/downloadNotifications";
+import { normalizeBbcAudioUrl } from "../utils/shareLinks";
 import {
   AUTO_DOWNLOAD_LIMIT_PREF_KEY,
   MAX_DOWNLOADS_PREF_KEY,
+  buildDownloadDisplayName,
   normaliseMaxDownloads,
   pickDownloadsToRemove,
   pickPerPodcastDownloadsToRemove
@@ -195,7 +197,8 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
     };
 
     try {
-      const extension = fileExtension(entry.audioUrl);
+      const targetUrl = normalizeBbcAudioUrl(entry.audioUrl) || entry.audioUrl;
+      const extension = fileExtension(targetUrl);
       const tempName = `${entry.id}${extension}`;
       let localUri: string;
 
@@ -204,19 +207,36 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
         // visible to (and removable by) the user via the device file manager.
         const temp = new File(cacheDirectory(), tempName);
         if (temp.exists) temp.delete();
-        const downloaded = await File.downloadFileAsync(entry.audioUrl, temp, {
+        const downloaded = await File.downloadFileAsync(targetUrl, temp, {
           idempotent: true,
           onProgress,
           headers: { "User-Agent": DOWNLOAD_USER_AGENT }
         });
-        const displayName = `${entry.title || entry.id} - ${entry.id}${extension}`;
-        const published = await NativeAndroid.publishDownload(downloaded.uri, displayName, entry.title);
-        deleteFileQuietly(downloaded.uri);
-        if (!published) throw new Error("Could not save to the Podcasts folder");
-        localUri = published;
+        const displayName = buildDownloadDisplayName(entry.title, entry.id, extension);
+        let published: string | null = null;
+        try {
+          published = await NativeAndroid.publishDownload(downloaded.uri, displayName, entry.title);
+        } catch (pubErr) {
+          console.warn("[Download] Failed to publish to MediaStore:", pubErr);
+        }
+
+        if (published) {
+          deleteFileQuietly(downloaded.uri);
+          localUri = published;
+        } else {
+          // If publishing to public MediaStore fails (e.g. storage permission, OEM MediaStore quirk,
+          // or un-recompiled native module), fall back to saving in app-internal documents directory
+          // so the file is not discarded and offline playback still works seamlessly.
+          console.warn("[Download] MediaStore publish failed, falling back to internal storage for:", entry.id);
+          const internalDest = new File(documentsDirectory(), tempName);
+          if (internalDest.exists) internalDest.delete();
+          temp.copy(internalDest);
+          deleteFileQuietly(downloaded.uri);
+          localUri = internalDest.uri;
+        }
       } else {
         const destination = new File(documentsDirectory(), tempName);
-        const file = await File.downloadFileAsync(entry.audioUrl, destination, {
+        const file = await File.downloadFileAsync(targetUrl, destination, {
           idempotent: true,
           onProgress,
           headers: { "User-Agent": DOWNLOAD_USER_AGENT }

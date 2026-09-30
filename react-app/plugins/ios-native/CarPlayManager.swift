@@ -753,6 +753,7 @@ final class CarPlayManager: NSObject {
                 "imageUrl": station.logoUrl
             ]
         )
+        CarPlayState.shared.setLastPlayed(kind: "station", id: station.id)
     }
 
     private func play(episode: CarPlayEpisode, playlistId: String? = nil) {
@@ -795,6 +796,7 @@ final class CarPlayManager: NSObject {
         historyEntry.imageUrl = imageUrl
         historyEntry.podcastTitle = podcastTitle
         state.addHistory(historyEntry)
+        state.setLastPlayed(kind: "episode", id: episode.id, podcastId: podcastId)
 
         CarPlayState.shared.addMutation(
             type: "playbackStarted",
@@ -1047,6 +1049,7 @@ final class CarPlayManager: NSObject {
     }
 
     private func resumeLastSession() {
+        if resumeLastPlayed() { return }
         let state = CarPlayState.shared
         let last = state.settingString("lastStationId")
         if !last.isEmpty, let station = CarPlayStationRepository.station(id: last) {
@@ -1061,23 +1064,42 @@ final class CarPlayManager: NSObject {
         if let first = CarPlayStationRepository.all.first { play(station: first) }
     }
 
+    /// Restarts whatever the listener last started: a podcast episode or a radio station.
+    private func resumeLastPlayed() -> Bool {
+        let state = CarPlayState.shared
+        guard let lastPlayed = state.lastPlayedItem else { return false }
+        if lastPlayed.isEpisode {
+            guard let episode = state.findEpisode(episodeId: lastPlayed.id),
+                isResumableEpisode(episode)
+            else { return false }
+            play(episode: episode)
+            return true
+        }
+        guard let station = CarPlayStationRepository.station(id: lastPlayed.id) else { return false }
+        play(station: station)
+        return true
+    }
+
+    /// A finished episode is a poor resume target, so an episode that is already marked played,
+    /// or whose saved position reaches the end, is skipped in favour of the fallback ladder.
+    private func isResumableEpisode(_ episode: CarPlayEpisode) -> Bool {
+        guard !episode.id.isEmpty else { return false }
+        let state = CarPlayState.shared
+        if state.isPlayed(episodeId: episode.id) { return false }
+        let positionMs = state.progress(episodeId: episode.id)
+        if positionMs <= 0 { return true }
+        let durationMs = episode.durationMins * 60_000
+        if durationMs <= 0 { return true }
+        return positionMs < durationMs * 0.99
+    }
+
     /// Restores the previous session when CarPlay connects, matching the
     /// "Automatically resume playback" setting.
     private func resumeOnConnectIfNeeded() {
         guard CarPlayState.shared.settingBool("carplayAutoResume", fallback: true) else { return }
         guard isIdle else { return }
         guard !CarPlayState.shared.settingBool("phonePlaybackActive") else { return }
-        let state = CarPlayState.shared
-        let last = state.settingString("lastStationId")
-        if !last.isEmpty, let station = CarPlayStationRepository.station(id: last) {
-            play(station: station)
-            return
-        }
-        let configured = state.settingString("carplayStation")
-        if !configured.isEmpty, let station = CarPlayStationRepository.station(id: configured) {
-            play(station: station)
-            return
-        }
+        resumeLastSession()
     }
 
     // MARK: Progress

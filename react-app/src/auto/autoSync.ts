@@ -176,6 +176,21 @@ function handleNativeEvent(event: AutoNativeEvent): void {
       break;
     }
 
+    case "lastPlayed": {
+      // The car started something; keep the phone's resume target in step.
+      const id = String(payload.id || "");
+      if (!id) break;
+      const kind = payload.kind === "episode" ? "episode" : "station";
+      Preferences.setLastPlayed({
+        kind,
+        id,
+        podcastId: String(payload.podcastId || ""),
+        ...(typeof payload.atMs === "number" && payload.atMs > 0 ? { atMs: payload.atMs } : {})
+      });
+      if (kind === "station") Preferences.setLastStationId(id);
+      break;
+    }
+
     case "recentSongAdded": {
       const entry = payload as Record<string, any>;
       if (entry?.artist || entry?.track) {

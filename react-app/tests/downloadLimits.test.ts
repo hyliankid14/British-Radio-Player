@@ -7,6 +7,7 @@ import {
   MAX_DOWNLOADS_PREF_KEY,
   MAX_DOWNLOADS_OPTIONS,
   UNLIMITED_DOWNLOADS,
+  buildDownloadDisplayName,
   isAutomaticDownload,
   newestEpisodeIds,
   normaliseAutoDownloadLimit,
@@ -14,6 +15,7 @@ import {
   pickDownloadsToRemove,
   pickPerPodcastDownloadsToRemove,
   pickStaleAutomaticDownloads,
+  sanitizeFileName,
   sortEpisodesNewestFirst
 } from "../src/downloads/downloadLimits.ts";
 
@@ -235,3 +237,30 @@ test("pickStaleAutomaticDownloads never removes manual, other-podcast or protect
   };
   assert.deepEqual(pickStaleAutomaticDownloads(records, "p1", [], ["playing"]), ["stale"]);
 });
+
+test("sanitizeFileName strips invalid Android filesystem characters", () => {
+  assert.equal(sanitizeFileName("How many dead people are on the internet?"), "How many dead people are on the internet_");
+  assert.equal(sanitizeFileName("Power Players: Does Xbox have a future?"), "Power Players_ Does Xbox have a future_");
+  assert.equal(sanitizeFileName('Episode "quoted" / with \\ slashes <and> pipes|*'), "Episode _quoted_ _ with _ slashes _and_ pipes__");
+});
+
+test("buildDownloadDisplayName creates safe, bounded display names", () => {
+  const name1 = buildDownloadDisplayName(
+    "How many dead people are on the internet?",
+    "w3ct8k7g",
+    ".mp3"
+  );
+  assert.equal(name1, "How many dead people are on the internet_ - w3ct8k7g.mp3");
+
+  const name2 = buildDownloadDisplayName(
+    "Power Players: Does Xbox have a future?",
+    "w3ct8glv",
+    ".mp3"
+  );
+  assert.equal(name2, "Power Players_ Does Xbox have a future_ - w3ct8glv.mp3");
+
+  const longTitle = "A".repeat(200);
+  const nameLong = buildDownloadDisplayName(longTitle, "ep123", ".mp3");
+  assert.equal(nameLong, `${"A".repeat(100)} - ep123.mp3`);
+});
+

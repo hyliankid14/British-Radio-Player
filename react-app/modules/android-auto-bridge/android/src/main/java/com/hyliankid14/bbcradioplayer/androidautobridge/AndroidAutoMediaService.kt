@@ -385,6 +385,7 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
       put("subtitle", "BBC Radio")
       put("imageUrl", station.optString("logoUrl"))
     })
+    AutoState.setLastPlayed(this, "station", stationId)?.let { emitMutation("lastPlayed", it) }
   }
 
   private fun playEpisode(episode: JSONObject, playlistId: String? = null) {
@@ -453,6 +454,7 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
       put("playedAtMs", System.currentTimeMillis())
     }
     AutoState.addHistory(this, historyEntry)
+    AutoState.setLastPlayed(this, "episode", epId, podId)?.let { emitMutation("lastPlayed", it) }
 
     emitMutation("playbackStarted", JSONObject().apply {
       put("kind", "episode")
@@ -520,6 +522,7 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
   }
 
   private fun resumeLastSession() {
+    if (resumeLastPlayed()) return
     val lastStationId = AutoState.settingString(this, "lastStationId", "")
     if (lastStationId.isNotEmpty() && findStation(lastStationId) != null) {
       playStation(lastStationId)
@@ -532,6 +535,34 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
     }
     val first = AutoState.snapshot(this).optJSONArray("stations")?.optJSONObject(0)
     if (first != null) playStation(first.optString("id"))
+  }
+
+  /** Restarts whatever the listener last started: a podcast episode or a radio station. */
+  private fun resumeLastPlayed(): Boolean {
+    val lastPlayed = AutoState.lastPlayed(this) ?: return false
+    if (lastPlayed.kind == "episode") {
+      val episode = findEpisode(lastPlayed.id) ?: return false
+      if (!isResumableEpisode(episode)) return false
+      playEpisode(episode)
+      return true
+    }
+    if (findStation(lastPlayed.id) == null) return false
+    playStation(lastPlayed.id)
+    return true
+  }
+
+  /**
+   * A finished episode is a poor resume target, so an episode that is already marked played,
+   * or whose saved position reaches the end, is skipped in favour of the fallback ladder.
+   */
+  private fun isResumableEpisode(episode: JSONObject): Boolean {
+    val id = episode.optString("id")
+    if (id.isEmpty() || AutoState.isPlayed(this, id)) return false
+    val positionMs = AutoState.progress(this, id)
+    if (positionMs <= 0L) return true
+    val durationMs = episode.optInt("durationMins", 0).toLong() * 60_000L
+    if (durationMs <= 0L) return true
+    return positionMs < durationMs * 99L / 100L
   }
 
   fun onPhonePlaybackStarted() {
@@ -1081,10 +1112,7 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
     if (!AutoState.settingBoolean(this, "carplayAutoResume", true)) return
     if (!isStopped || kind != Kind.NONE) return
     if (AutoState.settingBoolean(this, "phonePlaybackActive", false)) return
-    val lastStationId = AutoState.settingString(this, "lastStationId", "")
-    if (lastStationId.isNotEmpty() && findStation(lastStationId) != null) {
-      playStation(lastStationId)
-    }
+    resumeLastSession()
   }
 
   override fun onLoadChildren(parentId: String, result: Result<List<MediaBrowserCompat.MediaItem>>) {

@@ -132,6 +132,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       durationSeconds: 0
     });
     Preferences.setLastStationId(station.id);
+    Preferences.setLastPlayed({ kind: "station", id: station.id, podcastId: "" });
 
     // Query RMS immediately on station launch without waiting for audio stream setup
     const initialShowPromise = fetchShowInfo(station.id, true)
@@ -301,6 +302,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     });
     // Protect this episode's download from "Delete when completed" while it streams.
     setDownloadInUseEpisode(episode?.id || null);
+    Preferences.setLastPlayed({ kind: "episode", id: epId || episode.id, podcastId: podId });
 
     // Record to listening history immediately (mirrors Kotlin RadioService.kt)
     try {

@@ -395,6 +395,41 @@ object AutoState {
   fun lastPlayedEpoch(context: Context, podcastId: String): Long =
     progressObject(context, "lastPlayedEpoch").optLong(podcastId, 0L)
 
+  // ── Last played (resume target) ─────────────────────────────────────────────
+
+  /** The most recently started item, station or episode, used when resuming in the car. */
+  data class LastPlayed(val kind: String, val id: String, val podcastId: String, val atMs: Long)
+
+  /** The resume target, preferring a native change over the last snapshot JS pushed. */
+  fun lastPlayed(context: Context): LastPlayed? {
+    val obj = progressObject(context, "lastPlayed")
+    val id = obj.optString("id", "")
+    if (id.isEmpty()) return null
+    return LastPlayed(
+      kind = if (obj.optString("kind") == "episode") "episode" else "station",
+      id = id,
+      podcastId = obj.optString("podcastId", ""),
+      atMs = obj.optLong("atMs", 0L)
+    )
+  }
+
+  /**
+   * Records the item the car just started in the overlay so the browse tree and resume agree
+   * immediately. Returns the payload for the caller to emit as a `lastPlayed` mutation, or null
+   * when there is nothing to record.
+   */
+  fun setLastPlayed(context: Context, kind: String, id: String, podcastId: String = ""): JSONObject? {
+    if (id.isEmpty()) return null
+    val payload = JSONObject().apply {
+      put("kind", if (kind == "episode") "episode" else "station")
+      put("id", id)
+      put("podcastId", podcastId)
+      put("atMs", System.currentTimeMillis())
+    }
+    updateOverlay(context) { it.put("lastPlayed", payload) }
+    return payload
+  }
+
   // ── Preferences ─────────────────────────────────────────────────────────────
 
   fun settingString(context: Context, key: String, fallback: String = ""): String {

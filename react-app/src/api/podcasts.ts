@@ -1,4 +1,5 @@
 import { Preferences } from "../storage/preferences";
+import { normalizeBbcAudioUrl } from "../utils/shareLinks";
 
 export const PI_BASE_URL = "https://bbc-radio.shai.website";
 export const BBC_OPML_URL = "https://www.bbc.co.uk/radio/opml/bbc_podcast_opml.xml";
@@ -581,6 +582,9 @@ export const PodcastApi = {
                 }
               }
             }
+          }
+          if (audioUrl) {
+            audioUrl = normalizeBbcAudioUrl(audioUrl);
           }
 
           // Episode specific artwork or fallback to channel

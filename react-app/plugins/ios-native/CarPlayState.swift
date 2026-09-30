@@ -89,6 +89,31 @@ struct CarPlayPlaylist: Codable {
     var entries: [CarPlayEpisode] = []
 }
 
+/// The most recent station or podcast episode the listener started, used to resume in the car.
+struct CarPlayLastPlayed: Codable {
+    var kind: String = "station"
+    var id: String = ""
+    var podcastId: String = ""
+    var atMs: Double = 0
+
+    var isEpisode: Bool { kind == "episode" }
+
+    init(kind: String = "station", id: String = "", podcastId: String = "", atMs: Double = 0) {
+        self.kind = kind == "episode" ? "episode" : "station"
+        self.id = id
+        self.podcastId = podcastId
+        self.atMs = atMs
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        kind = (try? container.decode(String.self, forKey: .kind)) == "episode" ? "episode" : "station"
+        id = (try? container.decode(String.self, forKey: .id)) ?? ""
+        podcastId = (try? container.decode(String.self, forKey: .podcastId)) ?? ""
+        atMs = (try? container.decode(Double.self, forKey: .atMs)) ?? 0
+    }
+}
+
 struct CarPlaySnapshot: Codable {
     var version: Int = 0
     var generatedAtMs: Double = 0
@@ -105,6 +130,8 @@ struct CarPlaySnapshot: Codable {
     var carplayAutoResume: Bool = true
     var carplayHidePlayed: Bool = false
     var lastStationId: String = ""
+    /// Most recently started item; preferred over `lastStationId` when resuming in the car.
+    var lastPlayed: CarPlayLastPlayed?
     var subscriptions: [CarPlayPodcast] = []
     var subscribedIds: [String] = []
     var catalog: [CarPlayPodcast] = []
@@ -134,6 +161,7 @@ private struct CarPlayOverlay: Codable {
     var progress: [String: Double]?
     var lastPlayedEpoch: [String: Double]?
     var savedEpisodes: [CarPlayEpisode]?
+    var lastPlayed: CarPlayLastPlayed?
 }
 
 // MARK: - State store
@@ -518,6 +546,40 @@ final class CarPlayState: @unchecked Sendable {
         let trimmed = Array(current.prefix(Self.maxHistory))
         updateOverlay { $0.history = trimmed }
         addMutation(type: "podcastHistoryAdded", payload: CarPlayState.jsonObject(for: episode))
+    }
+
+    // MARK: Last played
+
+    /// The resume target. The overlay carries a change made in the car, but React is
+    /// authoritative once it has pushed a record at least as recent as that change, so the
+    /// newer timestamp wins instead of the overlay shadowing phone playback forever.
+    var lastPlayedItem: CarPlayLastPlayed? {
+        let overlaid = overlay.lastPlayed.flatMap { $0.id.isEmpty ? nil : $0 }
+        let fromSnapshot = snapshot.lastPlayed.flatMap { $0.id.isEmpty ? nil : $0 }
+        guard let overlaid = overlaid else { return fromSnapshot }
+        guard let fromSnapshot = fromSnapshot else { return overlaid }
+        return fromSnapshot.atMs >= overlaid.atMs ? fromSnapshot : overlaid
+    }
+
+    /// Records the item the car just started, in the overlay and as a mutation for React.
+    func setLastPlayed(kind: String, id: String, podcastId: String = "") {
+        guard !id.isEmpty else { return }
+        let record = CarPlayLastPlayed(
+            kind: kind == "episode" ? "episode" : "station",
+            id: id,
+            podcastId: podcastId,
+            atMs: Date().timeIntervalSince1970 * 1000
+        )
+        updateOverlay { $0.lastPlayed = record }
+        addMutation(
+            type: "lastPlayed",
+            payload: [
+                "kind": record.kind,
+                "id": record.id,
+                "podcastId": record.podcastId,
+                "atMs": record.atMs
+            ]
+        )
     }
 
     // MARK: Played / progress

@@ -52,6 +52,14 @@ interface AutoPlaylist {
   entries: AutoEpisode[];
 }
 
+/** The most recent station or podcast episode the listener started, for in-car resume. */
+export interface AutoLastPlayed {
+  kind: "station" | "episode";
+  id: string;
+  podcastId: string;
+  atMs: number;
+}
+
 /** Complete state pushed to the native Android Auto service. */
 export interface AutoSnapshot {
   version: number;
@@ -71,6 +79,8 @@ export interface AutoSnapshot {
   carplayAutoResume: boolean;
   carplayHidePlayed: boolean;
   lastStationId: string;
+  /** Most recently started item; preferred over `lastStationId` when resuming in the car. */
+  lastPlayed: AutoLastPlayed | null;
   subscriptions: AutoPodcast[];
   subscribedIds: string[];
   catalog: AutoPodcast[];
@@ -333,6 +343,7 @@ export async function buildAutoSnapshot(includePodcastData = true): Promise<Auto
     carplayAutoResume: Preferences.getSetting("pref_carplay_auto_resume", true),
     carplayHidePlayed: Preferences.getSetting("pref_carplay_hide_played", false),
     lastStationId: Preferences.getLastStationId(),
+    lastPlayed: Preferences.getLastPlayed(),
     subscriptions,
     subscribedIds,
     catalog: autoCatalog,
