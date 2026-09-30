@@ -77,13 +77,17 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// ── Boolean parser (unchanged) ────────────────────────────────────────────────
+// ── Boolean parser ───────────────────────────────────────────────────────────
 
+// Operators are recognised only in UPPERCASE, the convention every mainstream
+// search engine uses. Case-insensitive matching made ordinary English words
+// into operators: "More or Less" parsed as `more OR less` and matched almost
+// every podcast, burying the real one. Lowercase and/or/not are words.
 export function parseBooleanSearch(query: string): BooleanSearchNode | null {
   const normalisedQuery = query.replace(/[“”]/g, '"');
-  const tokens = normalisedQuery.match(/"[^"]+"|\(|\)|\bAND\b|\bOR\b|\bNOT\b|[^\s()]+/gi) || [];
+  const tokens = normalisedQuery.match(/"[^"]+"|\(|\)|\bAND\b|\bOR\b|\bNOT\b|[^\s()]+/g) || [];
   let index = 0;
-  const peek = () => tokens[index]?.toUpperCase();
+  const peek = () => tokens[index];
   const parsePrimary = (): BooleanSearchNode | null => {
     if (peek() === "NOT") {
       index++;
@@ -97,7 +101,7 @@ export function parseBooleanSearch(query: string): BooleanSearchNode | null {
       return expression;
     }
     const token = tokens[index++];
-    if (!token || /^(AND|OR|NOT)$/i.test(token)) return null;
+    if (!token || /^(AND|OR|NOT)$/.test(token)) return null;
     return { type: "term", value: token.replace(/^["“”]|["“”]$/g, "").toLowerCase() };
   };
   const parseAnd = (): BooleanSearchNode | null => {
@@ -134,17 +138,19 @@ export function parseBooleanSearch(query: string): BooleanSearchNode | null {
  */
 export function isAdvancedBooleanQuery(query: string): boolean {
   if (/[“”"()]/.test(query)) return true;
-  return /(^|\s)(AND|OR|NOT)(\s|$)/i.test(query);
+  return /(^|\s)(AND|OR|NOT)(\s|$)/.test(query);
 }
 
 /**
  * Strip NOT terms (`-term` or `NOT term`) from a query so the server is not
  * asked to match them literally. NOT enforcement is applied locally after
  * results come back, mirroring the Kotlin `extractPositiveQuery`.
+ *
+ * A leading `-term` is always an exclusion; bare `NOT` only when uppercase.
  */
 export function extractPositiveQuery(query: string): string {
   return query
-    .replace(/\bNOT\s+(\S+)/gi, "")
+    .replace(/\bNOT\s+(\S+)/g, "")
     .replace(/(^|\s)-(\S+)/g, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -198,12 +204,12 @@ function extractNotTerms(query: string): string[] {
   for (const token of query.match(/\S+/g) || []) {
     if (token.startsWith("-") && token.length > 1) {
       terms.push(token.slice(1));
-    } else if (/^NOT$/i.test(token)) {
+    } else if (/^NOT$/.test(token)) {
       // next token is the NOT term
     }
   }
-  // Also handle "NOT term" form
-  const notRe = /\bNOT\s+(\S+)/gi;
+  // Also handle "NOT term" form (uppercase only, so "not" stays a word)
+  const notRe = /\bNOT\s+(\S+)/g;
   let m: RegExpExecArray | null;
   while ((m = notRe.exec(query)) !== null) {
     const term = m[1].replace(/^["“”]|["“”]$/g, "");

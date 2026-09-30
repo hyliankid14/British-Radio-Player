@@ -32,6 +32,7 @@ import { applyLanguageFilter } from "../../src/podcasts/languageFilter";
 import {
   appendEpisodePage,
   emptyEpisodePageState,
+  rankEpisodes,
   type EpisodePageState
 } from "../../src/podcasts/episodeSearchPaging";
 import { usePlayerStore } from "../../src/store/playerStore";
@@ -57,7 +58,7 @@ type SearchResultItem =
   | { key: string; type: "podcast"; podcast: Podcast }
   | { key: string; type: "episodesHeading" }
   | { key: string; type: "episode"; episode: SearchEpisodeResult }
-  | { key: string; type: "loadMore" }
+  | { key: string; type: "loadingMore" }
   | { key: string; type: "revealMore" };
 
 export default function PodcastSearchScreen() {
@@ -82,7 +83,9 @@ export default function PodcastSearchScreen() {
   const [isSearchingPodcasts, setIsSearchingPodcasts] = useState(false);
   const [isSearchingEpisodes, setIsSearchingEpisodes] = useState(false);
   const [isLoadingMoreEpisodes, setIsLoadingMoreEpisodes] = useState(false);
-  const [hasMoreEpisodes, setHasMoreEpisodes] = useState(false);
+  // Total matches reported by the backend, shown as soon as the first page
+  // lands. Null until then, or when the deployment does not report a total.
+  const [totalEpisodeCount, setTotalEpisodeCount] = useState<number | null>(null);
   const [visiblePodcastCount, setVisiblePodcastCount] = useState(PODCAST_REVEAL_STEP);
   const [visibleEpisodeCount, setVisibleEpisodeCount] = useState(EPISODE_REVEAL_STEP);
   const [searchPodcastMatches, setSearchPodcastMatches] = useState<Podcast[]>([]);
@@ -224,8 +227,14 @@ export default function PodcastSearchScreen() {
 
     // Episodes: use the Kotlin-style matcher that checks title OR description
     // with normalised word-boundary matching, and enforces NOT terms.
-    const matchingEpisodes = piEpisodeResultsRef.current.filter((ep) =>
-      episodeMatchesQuery(ep.title, ep.description, podcastNames.get(ep.podcastId) || "", q)
+    const matchingEpisodes = rankEpisodes(
+      piEpisodeResultsRef.current.filter((ep) =>
+        episodeMatchesQuery(ep.title, ep.description, podcastNames.get(ep.podcastId) || "", q)
+      ),
+      // Episodes from a podcast whose own name matches the query lead the list.
+      new Set(
+        catalogRef.current.filter((p) => matchesBooleanSearch(q, p.title)).map((p) => p.id)
+      )
     );
 
     if (notifiedEpisodeId) {
@@ -288,23 +297,28 @@ export default function PodcastSearchScreen() {
         // Strip NOT terms before sending to the server, mirroring the Kotlin
         // extractPositiveQuery. The server does not understand -term exclusion.
         const qFts = extractPositiveQuery(query);
-        const batch = await PodcastApi.searchEpisodesOnPi(
+        // Only the first page asks for the total; it costs a full index scan
+        // server-side, so later pages must not pay for it again.
+        const page = await PodcastApi.searchEpisodesPageOnPi(
           qFts,
           EPISODE_SEARCH_PAGE_SIZE,
           offset,
-          signal
+          signal,
+          isFirstPage
         );
         if (seq !== searchSeqRef.current) return;
 
-        const page = appendEpisodePage(
+        const batch = page.results;
+        if (page.total !== null) setTotalEpisodeCount(page.total);
+
+        const next = appendEpisodePage(
           episodePageRef.current,
           batch,
           EPISODE_SEARCH_PAGE_SIZE,
           EPISODE_SEARCH_MAX_EPISODES
         );
-        episodePageRef.current = page;
-        piEpisodeResultsRef.current = page.episodes;
-        setHasMoreEpisodes(!page.exhausted);
+        episodePageRef.current = next;
+        piEpisodeResultsRef.current = next.episodes;
 
         resultsQueryRef.current = query;
         applyEpisodeResults();
@@ -349,7 +363,7 @@ export default function PodcastSearchScreen() {
       }
 
       episodePageRef.current = emptyEpisodePageState();
-      setHasMoreEpisodes(false);
+      setTotalEpisodeCount(null);
       setVisiblePodcastCount(PODCAST_REVEAL_STEP);
       setVisibleEpisodeCount(EPISODE_REVEAL_STEP);
 
@@ -601,8 +615,13 @@ export default function PodcastSearchScreen() {
     searchPodcastMatches.length - visiblePodcasts.length +
     (searchEpisodeMatches.length - visibleEpisodes.length);
 
+  // The backend total is the number of matching episodes; the loaded set is how
+  // many of those rows are actually on screen. Both are shown so a long result
+  // set never looks truncated without explanation.
+  const hasMoreEpisodes = !episodePageRef.current.exhausted;
+  const episodeCountLabel = totalEpisodeCount ?? searchEpisodeMatches.length;
   const showEpisodesSection =
-    visibleEpisodes.length > 0 || isSearchingEpisodes || isLoadingMoreEpisodes || hasMoreEpisodes;
+    totalEpisodeCount !== null || isSearchingEpisodes || visibleEpisodes.length > 0;
 
   // Podcast rows first, then the episodes section. Keeping both in one
   // virtualized list means a long result set never mounts thousands of views
@@ -619,23 +638,42 @@ export default function PodcastSearchScreen() {
         items.push({ key: `episode:${episode.episodeId}`, type: "episode", episode });
       }
     }
-    if (hasMoreEpisodes) {
-      items.push({ key: "load-more", type: "loadMore" });
-    }
     if (hiddenResultCount > 0) {
       items.push({ key: "reveal-more", type: "revealMore" });
     }
+    if (isLoadingMoreEpisodes) {
+      items.push({ key: "loading-more", type: "loadingMore" });
+    }
     return items;
-  }, [visiblePodcasts, showEpisodesSection, visibleEpisodes, hasMoreEpisodes, hiddenResultCount]);
+  }, [
+    visiblePodcasts,
+    showEpisodesSection,
+    visibleEpisodes,
+    hiddenResultCount,
+    isLoadingMoreEpisodes
+  ]);
 
   const handleRevealMore = useCallback(() => {
     setVisiblePodcastCount((count) => count + PODCAST_REVEAL_STEP);
     setVisibleEpisodeCount((count) => count + EPISODE_REVEAL_STEP);
   }, []);
 
+  // Episode rows name their podcast, so this lookup backs that label.
+  const podcastNamesById = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const p of catalog) names.set(p.id, decodeXmlEntities(p.title));
+    return names;
+  }, [catalog]);
+
+  // Scrolling to the end reveals the next slice of what is already loaded, then
+  // fetches the next page from the backend. No button to find or press.
   const handleEndReached = useCallback(() => {
-    if (hiddenResultCount > 0) handleRevealMore();
-  }, [hiddenResultCount, handleRevealMore]);
+    if (hiddenResultCount > 0) {
+      handleRevealMore();
+      return;
+    }
+    if (!isSearchingEpisodes && !isLoadingMoreEpisodes) handleLoadMoreEpisodes();
+  }, [hiddenResultCount, handleRevealMore, handleLoadMoreEpisodes, isSearchingEpisodes, isLoadingMoreEpisodes]);
 
   const renderPodcastRow = (pod: Podcast) => {
     const isSub = subscribedIds.includes(pod.id);
@@ -692,6 +730,7 @@ export default function PodcastSearchScreen() {
 
   const renderEpisodeRow = (ep: SearchEpisodeResult) => {
     const isResolving = resolvingEpisodeId === ep.episodeId;
+    const podcastName = podcastNamesById.get(ep.podcastId) || "BBC Podcast";
     const isNotified = Boolean(
       notifiedEpisodeId &&
         (ep.episodeId === notifiedEpisodeId ||
@@ -715,6 +754,11 @@ export default function PodcastSearchScreen() {
           activeOpacity={0.7}
           onPress={() => openSearchEpisode(ep)}
         >
+          {/* Which show an episode came from, so a result set spanning many
+              podcasts is still readable. */}
+          <Text style={[styles.episodeResultPodcast, { color: theme.primary }]} numberOfLines={1}>
+            {podcastName}
+          </Text>
           <View style={styles.episodeTitleRow}>
             {isNotified ? (
               <View style={[styles.newBadge, { backgroundColor: theme.primary }]}>
@@ -762,7 +806,7 @@ export default function PodcastSearchScreen() {
           return (
             <View>
               <Text style={[styles.sectionHeading, { color: theme.onSurface, marginTop: 24 }]}>
-                Episodes{searchEpisodeMatches.length > 0 ? ` (${searchEpisodeMatches.length})` : ""}
+                Episodes ({episodeCountLabel})
               </Text>
               {visibleEpisodes.length === 0 && isSearchingEpisodes ? (
                 <View style={styles.inlineLoadingRow}>
@@ -772,26 +816,25 @@ export default function PodcastSearchScreen() {
                   </Text>
                 </View>
               ) : null}
+              {!isSearchingEpisodes && searchEpisodeMatches.length > 0 ? (
+                <Text style={[styles.episodesLoadedNote, { color: theme.onSurfaceVariant }]}>
+                  {hasMoreEpisodes
+                    ? `Showing ${searchEpisodeMatches.length} of ${episodeCountLabel} — scroll for more`
+                    : `Showing all ${searchEpisodeMatches.length}`}
+                </Text>
+              ) : null}
             </View>
           );
         case "episode":
           return renderEpisodeRow(item.episode);
-        case "loadMore":
+        case "loadingMore":
           return (
-            <TouchableOpacity
-              style={[styles.moreButton, { backgroundColor: theme.surface, borderColor: theme.outlineVariant }]}
-              onPress={handleLoadMoreEpisodes}
-              disabled={isLoadingMoreEpisodes}
-              accessibilityRole="button"
-              accessibilityLabel="Load more episodes"
-            >
-              {isLoadingMoreEpisodes ? (
-                <ActivityIndicator size="small" color={theme.primary} />
-              ) : (
-                <MaterialIcons name="expand-more" size={20} color={theme.primary} />
-              )}
-              <Text style={[styles.moreButtonText, { color: theme.primary }]}>Load more episodes</Text>
-            </TouchableOpacity>
+            <View style={styles.inlineLoadingRow}>
+              <ActivityIndicator size="small" color={theme.primary} />
+              <Text style={[styles.inlineLoadingText, { color: theme.onSurfaceVariant }]}>
+                Loading more episodes...
+              </Text>
+            </View>
           );
         case "revealMore":
           return (
@@ -817,9 +860,10 @@ export default function PodcastSearchScreen() {
       podcastRatings,
       resolvingEpisodeId,
       isSearchingEpisodes,
-      isLoadingMoreEpisodes,
-      visibleEpisodeCount: visibleEpisodes.length,
-      episodeCount: searchEpisodeMatches.length
+      episodeCountLabel,
+      hasMoreEpisodes,
+      loadedEpisodeCount: searchEpisodeMatches.length,
+      visibleEpisodeCount: visibleEpisodes.length
     }),
     [
       theme,
@@ -827,9 +871,10 @@ export default function PodcastSearchScreen() {
       podcastRatings,
       resolvingEpisodeId,
       isSearchingEpisodes,
-      isLoadingMoreEpisodes,
-      visibleEpisodes.length,
-      searchEpisodeMatches.length
+      episodeCountLabel,
+      hasMoreEpisodes,
+      searchEpisodeMatches.length,
+      visibleEpisodes.length
     ]
   );
 
@@ -1225,6 +1270,18 @@ const styles = StyleSheet.create({
   },
   inlineLoadingText: {
     fontSize: 13
+  },
+  episodesLoadedNote: {
+    fontSize: 12,
+    paddingHorizontal: 16,
+    paddingBottom: 6
+  },
+  episodeResultPodcast: {
+    fontSize: 11,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+    marginBottom: 3
   },
   moreButton: {
     flexDirection: "row",

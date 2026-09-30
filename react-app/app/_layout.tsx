@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useRef, useCallback, useMemo } from "react";
-import { Stack, useRouter, useRootNavigationState } from "expo-router";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
+import { Stack, useRouter, useNavigationContainerRef } from "expo-router";
 import * as Linking from "expo-linking";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -31,7 +31,8 @@ import {
   createLaunchNavigation,
   isFocusedTarget,
   isTargetInState,
-  LAUNCH_INTENT_DEDUPE_MS
+  LAUNCH_INTENT_DEDUPE_MS,
+  type NavigationStateLike
 } from "../src/navigation/launchNavigation";
 import { Preferences } from "../src/storage/preferences";
 import { NativeAndroid, AlarmLaunch } from "../src/native/nativeAndroid";
@@ -85,9 +86,12 @@ Preferences.onChanged((key) => {
 // Configure the native background worker once the store is ready.
 void syncBackgroundSync();
 
+/** Screens a podcast notification opens, which fall back to the subscribed list. */
+const LAUNCH_PODCAST_SCREENS = ["/modal/podcast-detail", "/modal/podcast-search"];
+
 export default function RootLayout() {
   const router = useRouter();
-  const rootNavigationState = useRootNavigationState();
+  const navigationRef = useNavigationContainerRef();
   const theme = useAppTheme();
   const isDark = useIsDarkTheme();
   const initStore = usePlayerStore((state) => state.init);
@@ -96,14 +100,35 @@ export default function RootLayout() {
   // A single notification tap surfaces through several launch paths at once (the
   // expo-linking initial URL, the stored expo-notifications response, and the native
   // Android intent). The coordinator collapses them to one screen and keeps re-issuing
-  // the push until it lands, because expo-router silently discards a push issued before
+  // the push until it lands, because expo-router can drop a navigation issued before
   // the root navigator is mounted — which is exactly the cold-start case.
-  const rootStateRef = useRef(rootNavigationState);
-  rootStateRef.current = rootNavigationState;
+  //
+  // The state has to be read imperatively from the container ref: this layout renders
+  // inside expo-router's own `__root` slot navigator, so it never re-renders when a
+  // route is pushed onto the stack below it, and the ref always reports the live tree.
+  const readNavigationState = useCallback((): NavigationStateLike | null => {
+    try {
+      return (navigationRef.getRootState?.() as NavigationStateLike | undefined) ?? null;
+    } catch {
+      return null;
+    }
+  }, [navigationRef]);
 
   const launchNavigation = useMemo(
     () =>
       createLaunchNavigation({
+        // A podcast or search result opened from a notification has nothing behind it
+        // but whichever tab happened to be open, so put the subscribed podcasts list
+        // under it: back from the screen then lands on the list the episode came from
+        // instead of somewhere unrelated.
+        prepare: (target) => {
+          if (!LAUNCH_PODCAST_SCREENS.includes(target.pathname)) return;
+          try {
+            router.navigate({ pathname: "/(tabs)/favourites", params: { category: "Subscribed" } });
+          } catch (e) {
+            console.warn("Failed to open the subscribed podcasts list:", e);
+          }
+        },
         apply: (target) => {
           try {
             if (target.pathname.startsWith("/modal/")) {
@@ -115,10 +140,10 @@ export default function RootLayout() {
             console.warn("Failed to navigate to target:", target, e);
           }
         },
-        isApplied: (target) => isTargetInState(rootStateRef.current, target),
-        isFocused: (target) => isFocusedTarget(rootStateRef.current, target)
+        isApplied: (target) => isTargetInState(readNavigationState(), target),
+        isFocused: (target) => isFocusedTarget(readNavigationState(), target)
       }),
-    [router]
+    [router, readNavigationState]
   );
 
   useEffect(() => () => launchNavigation.dispose(), [launchNavigation]);

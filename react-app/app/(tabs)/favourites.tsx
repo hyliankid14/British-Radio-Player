@@ -37,6 +37,18 @@ if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental
 }
 
 type FavCategory = "Stations" | "Subscribed" | "Playlists" | "Searches" | "History";
+
+const FAV_CATEGORIES: FavCategory[] = [
+  "Stations",
+  "Subscribed",
+  "Playlists",
+  "Searches",
+  "History"
+];
+
+function parseFavCategory(value: unknown): FavCategory | undefined {
+  return FAV_CATEGORIES.includes(value as FavCategory) ? (value as FavCategory) : undefined;
+}
 type PodcastSort = "most_recently_updated" | "least_recently_updated" | "alphabetical" | "manual" | "tags";
 type PlaylistSummary = { id: string; name: string; isDefault: boolean; itemCount: number };
 type SavedPodcastSearch = { id: string; name: string; query: string; notificationsEnabled: boolean; latestResultDate?: string };
@@ -246,12 +258,9 @@ export default function FavouritesScreen() {
   const insets = useSafeAreaInsets();
   const responsive = useResponsiveLayout();
   const isTablet = responsive.isTablet;
-  const [activeCategory, setActiveCategory] = useState<FavCategory>(() => {
-    const requested = params.category as FavCategory | undefined;
-    return requested && ["Stations", "Subscribed", "Playlists", "Searches", "History"].includes(requested)
-      ? requested
-      : "Stations";
-  });
+  const [activeCategory, setActiveCategory] = useState<FavCategory>(
+    () => parseFavCategory(params.category) ?? "Stations"
+  );
   const [draggingStationId, setDraggingStationId] = useState<string | null>(null);
   const { shows, fetchShowsForStations, checkAndAdvanceShows } = useStationShowStore();
   const [subscribedPodcasts, setSubscribedPodcasts] = useState<Podcast[]>([]);
@@ -297,6 +306,14 @@ export default function FavouritesScreen() {
 
   const [clearHistoryModalVisible, setClearHistoryModalVisible] = useState(false);
   const [historyOptionsTarget, setHistoryOptionsTarget] = useState<PodcastHistoryEntry | null>(null);
+
+  // A tab stays mounted once it has been visited, so a navigation that names a
+  // category (the startup preference, or the list a notification falls back to) has to
+  // re-select it here rather than only seeding the initial state on mount.
+  useEffect(() => {
+    const requested = parseFavCategory(params.category);
+    if (requested) setActiveCategory(requested);
+  }, [params.category]);
 
   const {
     currentStation,

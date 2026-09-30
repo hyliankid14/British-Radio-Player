@@ -49,3 +49,28 @@ export function appendEpisodePage(
     exhausted: batch.length < pageSize || merged.length >= maxEpisodes
   };
 }
+
+/**
+ * Order episodes for display: those belonging to a podcast whose own name
+ * matches the query come first, newest first within each group.
+ *
+ * Episode matching runs on title and description, and short queries contain
+ * common words — "More or Less" ANDs the tokens more/or/less, and "or" appears
+ * in almost every description. Without this, the show's own episodes are buried
+ * among unrelated shows that happen to contain the same words.
+ */
+export function rankEpisodes(
+  episodes: SearchEpisodeResult[],
+  boostedPodcastIds: ReadonlySet<string>
+): SearchEpisodeResult[] {
+  const publishedAt = (episode: SearchEpisodeResult) => {
+    const parsed = Date.parse(episode.pubDate || "");
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  return [...episodes].sort((a, b) => {
+    const boost = Number(boostedPodcastIds.has(b.podcastId)) - Number(boostedPodcastIds.has(a.podcastId));
+    if (boost !== 0) return boost;
+    return publishedAt(b) - publishedAt(a);
+  });
+}

@@ -78,23 +78,61 @@ test("matchesBooleanSearch handles single terms and HTML descriptions", () => {
   );
 });
 
-test("isAdvancedBooleanQuery distinguishes plain from Boolean queries", () => {
+test("parseBooleanSearch only treats UPPERCASE words as operators", () => {
+  assert.deepEqual(parseBooleanSearch("andy AND burnham"), {
+    type: "and",
+    left: { type: "term", value: "andy" },
+    right: { type: "term", value: "burnham" }
+  });
+  assert.equal(parseBooleanSearch("zelda OR link")?.type, "or");
+  assert.equal(parseBooleanSearch("NOT news")?.type, "not");
+
+  // Lowercase and/or/not are ordinary words. "More or Less" is a podcast title,
+  // not the operator, so it must not parse as an OR expression.
+  assert.equal(parseBooleanSearch("More or Less")?.type, "and");
+  assert.equal(parseBooleanSearch("news not sport")?.type, "and");
+  assert.equal(parseBooleanSearch("bread and butter")?.type, "and");
+});
+
+test("isAdvancedBooleanQuery ignores lowercase operator words", () => {
   assert.equal(isAdvancedBooleanQuery("andy burnham"), false);
-  assert.equal(isAdvancedBooleanQuery("AC/DC"), false);
-  assert.equal(isAdvancedBooleanQuery("café"), false);
-  assert.equal(isAdvancedBooleanQuery('"public service broadcasting"'), true);
+  assert.equal(isAdvancedBooleanQuery("More or Less"), false);
+  assert.equal(isAdvancedBooleanQuery("news not football"), false);
+  assert.equal(isAdvancedBooleanQuery("bread AND butter"), true);
   assert.equal(isAdvancedBooleanQuery("zelda OR link"), true);
   assert.equal(isAdvancedBooleanQuery("news NOT football"), true);
+  assert.equal(isAdvancedBooleanQuery('"public service broadcasting"'), true);
   assert.equal(isAdvancedBooleanQuery("(a OR b) AND c"), true);
   assert.equal(isAdvancedBooleanQuery("candy"), false);
 });
 
-test("extractPositiveQuery strips NOT terms", () => {
+test("More or Less matches the show rather than anything containing more or less", () => {
+  const query = "More or Less";
+
+  assert.equal(
+    matchesBooleanSearch(query, "More or Less: The economics podcast from the BBC."),
+    true
+  );
+  // "Lives Less Ordinary" contains "less" but not the phrase, and is not the show.
+  assert.equal(
+    matchesBooleanSearch(query, "Lives Less Ordinary: stories of remarkable lives."),
+    false
+  );
+  // Episodes mentioning either word alone must not be treated as matches.
+  assert.equal(episodeMatchesQuery("More than a feeling", "", "Some Show", query), false);
+  assert.equal(episodeMatchesQuery("Nothing to declare", "", "Some Show", query), false);
+});
+
+test("extractPositiveQuery strips uppercase NOT but keeps lowercase not", () => {
   assert.equal(extractPositiveQuery("andy burnham"), "andy burnham");
   assert.equal(extractPositiveQuery("andy -burnham"), "andy");
   assert.equal(extractPositiveQuery("news NOT football"), "news");
   assert.equal(extractPositiveQuery("Nestle -noodles"), "Nestle");
   assert.equal(extractPositiveQuery("-term1 hello -term2"), "hello");
+
+  // "not" is a word, not an operator, so it stays in the query sent to the server.
+  assert.equal(extractPositiveQuery("More or Less"), "More or Less");
+  assert.equal(extractPositiveQuery("news not football"), "news not football");
 });
 
 test("episodeMatchesQuery uses normalised word-boundary matching like Kotlin", () => {

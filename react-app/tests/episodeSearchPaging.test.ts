@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   appendEpisodePage,
-  emptyEpisodePageState
+  emptyEpisodePageState,
+  rankEpisodes
 } from "../src/podcasts/episodeSearchPaging.ts";
 
 const PAGE_SIZE = 50;
@@ -92,4 +93,48 @@ test("an empty first page yields no episodes and no more to fetch", () => {
 
   assert.deepEqual(state.episodes, []);
   assert.equal(state.exhausted, true);
+});
+
+test("episodes from a podcast that matches the query rank above the rest", () => {
+  const eps = [
+    { episodeId: "a", podcastId: "other", title: "Loose match", description: "", pubDate: "Fri, 13 Feb 2026 18:28:00 +0000" },
+    { episodeId: "b", podcastId: "show", title: "Older episode", description: "", pubDate: "Tue, 16 Aug 2022 19:10:00 +0000" },
+    { episodeId: "c", podcastId: "other", title: "Newer loose", description: "", pubDate: "Wed, 23 Sep 2026 23:01:00 +0000" }
+  ];
+
+  const ranked = rankEpisodes(eps, new Set(["show"]));
+
+  // The matching show leads even though its episode is the oldest of the three.
+  assert.deepEqual(ranked.map((e) => e.episodeId), ["b", "c", "a"]);
+});
+
+test("episodes are ordered newest first within each group", () => {
+  const eps = [
+    { episodeId: "old", podcastId: "x", title: "", description: "", pubDate: "Tue, 16 Aug 2022 19:10:00 +0000" },
+    { episodeId: "new", podcastId: "x", title: "", description: "", pubDate: "Wed, 23 Sep 2026 23:01:00 +0000" },
+    { episodeId: "mid", podcastId: "x", title: "", description: "", pubDate: "Fri, 13 Feb 2026 18:28:00 +0000" }
+  ];
+
+  assert.deepEqual(rankEpisodes(eps, new Set()).map((e) => e.episodeId), ["new", "mid", "old"]);
+});
+
+test("episodes with no usable pubDate do not break ordering", () => {
+  const eps = [
+    { episodeId: "no-date", podcastId: "x", title: "", description: "", pubDate: "" },
+    { episodeId: "dated", podcastId: "x", title: "", description: "", pubDate: "Fri, 13 Feb 2026 18:28:00 +0000" }
+  ];
+
+  assert.deepEqual(rankEpisodes(eps, new Set()).map((e) => e.episodeId), ["dated", "no-date"]);
+});
+
+test("rankEpisodes does not mutate its input", () => {
+  const eps = [
+    { episodeId: "a", podcastId: "x", title: "", description: "", pubDate: "Fri, 13 Feb 2026 18:28:00 +0000" },
+    { episodeId: "b", podcastId: "x", title: "", description: "", pubDate: "Wed, 23 Sep 2026 23:01:00 +0000" }
+  ];
+  const order = eps.map((e) => e.episodeId);
+
+  rankEpisodes(eps, new Set(["x"]));
+
+  assert.deepEqual(eps.map((e) => e.episodeId), order);
 });

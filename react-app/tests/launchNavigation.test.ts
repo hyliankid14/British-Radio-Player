@@ -67,12 +67,16 @@ function createHarnessNavigation(
 ) {
   const harness = createHarness();
   const applied: string[] = [];
+  const prepared: string[] = [];
   let attempts = 0;
 
   const navigation = createLaunchNavigation({
     apply: (target) => {
       attempts++;
       applied.push(target.pathname);
+    },
+    prepare: (target) => {
+      prepared.push(target.pathname);
     },
     isApplied: (target) =>
       isTargetInState(overrides.stateAfterApply?.(attempts) ?? null, target),
@@ -82,12 +86,26 @@ function createHarnessNavigation(
     cancel: harness.cancel
   });
 
-  return { ...harness, navigation, applied, attempts: () => attempts };
+  return { ...harness, navigation, applied, prepared, attempts: () => attempts };
 }
 
-/** Root navigation state for a pushed modal screen. */
+/**
+ * Root state for a pushed modal screen, shaped the way expo-router reports it: the
+ * app's stack is nested inside the `__root` slot navigator the root layout renders in.
+ */
 function withDetailFocused(): NavigationStateLike {
-  return { index: 1, routes: [{ name: "(tabs)" }, { name: "modal/podcast-detail" }] };
+  return {
+    index: 0,
+    routes: [
+      {
+        name: "__root",
+        state: {
+          index: 1,
+          routes: [{ name: "(tabs)" }, { name: "modal/podcast-detail" }]
+        }
+      }
+    ]
+  };
 }
 
 test("a push issued before the navigator is ready is retried until it lands", () => {
@@ -133,12 +151,42 @@ test("retries stop once the retry timeout is exhausted", () => {
 test("a launch already resolved into the initial state is not pushed again", () => {
   // expo-router can build the initial state from the same intent, leaving the screen
   // focused before any of our listeners run.
-  const { navigation, applied } = createHarnessNavigation({
+  const { navigation, applied, prepared } = createHarnessNavigation({
     stateAfterApply: () => withDetailFocused()
   });
 
   assert.equal(navigation.request(DETAIL_URL), true);
   assert.deepEqual(applied, []);
+  // The screen underneath is still prepared, so back from it lands where it should.
+  assert.deepEqual(prepared, [DETAIL_PATH]);
+});
+
+test("the screen underneath is prepared before each navigation attempt", () => {
+  const { navigation, applied, prepared, advance } = createHarnessNavigation({
+    stateAfterApply: (attempts) => (attempts >= 1 ? withDetailFocused() : null)
+  });
+
+  navigation.request(DETAIL_URL);
+  assert.deepEqual(applied, [DETAIL_PATH]);
+  assert.deepEqual(prepared, [DETAIL_PATH]);
+
+  advance(LAUNCH_RETRY_MS);
+  assert.deepEqual(applied, [DETAIL_PATH]);
+  assert.deepEqual(prepared, [DETAIL_PATH]);
+});
+
+test("a destination nested under expo-router's root slot counts as landed", () => {
+  // The root layout renders inside a `__root` slot navigator, so the state it can read
+  // never holds the app's own routes directly. Matching only the top level would report
+  // every push as a miss and stack the screen again on every retry.
+  const { navigation, applied, advance } = createHarnessNavigation({
+    stateAfterApply: (attempts) => (attempts >= 1 ? withDetailFocused() : null)
+  });
+
+  navigation.request(DETAIL_URL);
+  advance(LAUNCH_RETRY_TIMEOUT_MS);
+
+  assert.deepEqual(applied, [DETAIL_PATH]);
 });
 
 test("repeat requests for the same destination within the dedupe window navigate once", () => {

@@ -111,10 +111,15 @@ function isAbortError(err: unknown): boolean {
   return err instanceof Error && err.name === "AbortError";
 }
 
-async function fetchJsonArrayWithRetry(url: string, signal?: AbortSignal): Promise<unknown[]> {
+/**
+ * Fetch JSON with a bounded timeout, one retry, and optional caller
+ * cancellation. Returns the decoded payload as-is; shape handling is the
+ * caller's job.
+ */
+async function fetchJsonWithRetry(url: string, signal?: AbortSignal): Promise<unknown> {
   let lastError: unknown;
   for (let attempt = 0; attempt < SEARCH_REQUEST_ATTEMPTS; attempt++) {
-    if (signal?.aborted) return [];
+    if (signal?.aborted) return null;
     const controller = new AbortController();
     const onCallerAbort = () => controller.abort();
     signal?.addEventListener("abort", onCallerAbort);
@@ -125,12 +130,11 @@ async function fetchJsonArrayWithRetry(url: string, signal?: AbortSignal): Promi
         signal: controller.signal
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      return Array.isArray(data) ? data : [];
+      return await res.json();
     } catch (err) {
       // Caller-driven cancellation is terminal: never retry it, and never let it
       // reach the retry backoff.
-      if (signal?.aborted || isAbortError(err)) return [];
+      if (signal?.aborted || isAbortError(err)) return null;
       lastError = controller.signal.aborted ? new Error("Request timed out") : err;
       if (attempt < SEARCH_REQUEST_ATTEMPTS - 1) {
         await new Promise((resolve) => setTimeout(resolve, 350));
@@ -141,6 +145,81 @@ async function fetchJsonArrayWithRetry(url: string, signal?: AbortSignal): Promi
     }
   }
   throw lastError instanceof Error ? lastError : new Error("Request failed");
+}
+
+async function fetchJsonArrayWithRetry(url: string, signal?: AbortSignal): Promise<unknown[]> {
+  const data = await fetchJsonWithRetry(url, signal);
+  return Array.isArray(data) ? data : [];
+}
+
+/**
+ * Fetch one page of episode search results plus, optionally, the total number
+ * of matches.
+ *
+ * `includeTotal` asks the backend to keep counting past the requested page and
+ * report the figure, so the caller can show "Episodes (1,204)" as soon as the
+ * first page lands instead of after paging the whole result set. The flag is
+ * opt-in because it costs a full index scan server-side, so only the first page
+ * of a query should use it.
+ *
+ * `total` is null when the backend does not support the flag (an older
+ * deployment ignores it and answers with a bare array) or the count was not
+ * requested.
+ */
+async function searchEpisodePage(
+  query: string,
+  limit: number,
+  offset: number,
+  signal: AbortSignal | undefined,
+  includeTotal: boolean
+): Promise<{ results: SearchEpisodeResult[]; total: number | null }> {
+  const empty = { results: [] as SearchEpisodeResult[], total: null };
+  if (!query.trim()) return empty;
+  try {
+    const backendQuery = query.trim().replace(/[“”"]/g, "");
+    const request = async (value: string, resultLimit: number, withTotal: boolean) => {
+      const totalParam = withTotal ? "&include_total=1" : "";
+      const url =
+        `${PI_BASE_URL}/search/episodes?q=${encodeURIComponent(value)}` +
+        `&limit=${resultLimit}&offset=${offset}${totalParam}`;
+      const payload = await fetchJsonWithRetry(url, signal);
+      // The endpoint answers with a bare array by default and with
+      // { results, total } when include_total is honoured. Older deployments
+      // ignore the flag and always send the array.
+      if (payload && !Array.isArray(payload) && Array.isArray((payload as { results?: unknown }).results)) {
+        const body = payload as { results: SearchEpisodeResult[]; total?: unknown };
+        return {
+          results: body.results,
+          total: typeof body.total === "number" ? body.total : null
+        };
+      }
+      return {
+        results: Array.isArray(payload) ? (payload as SearchEpisodeResult[]) : [],
+        total: null
+      };
+    };
+
+    const main = await request(backendQuery, limit, includeTotal);
+    if (!query.includes('"')) return main;
+
+    // Phrase searches need a broad candidate set because the index ranks
+    // individual terms and may omit the exact phrase from a small page.
+    const terms = Array.from(
+      new Set((backendQuery.match(/[^\s()]+/g) || []).filter((term) => !/^(AND|OR|NOT)$/.test(term)))
+    );
+    const broadened = await Promise.all(
+      terms.map((term) => request(term, Math.max(limit, 100), false).then((r) => r.results))
+    );
+    const merged = [...main.results, ...broadened.flat()];
+    return {
+      results: Array.from(new Map(merged.map((episode) => [episode.episodeId, episode])).values()),
+      // Only the main query's total is meaningful for a phrase search.
+      total: main.total
+    };
+  } catch (err) {
+    console.warn("Failed to search episodes on Raspberry Pi:", err);
+    return empty;
+  }
 }
 
 export const PodcastApi = {
@@ -250,6 +329,20 @@ export const PodcastApi = {
   },
 
   /**
+   * Fetch one page of episode search results plus, optionally, the total
+   * number of matches. See searchEpisodePage.
+   */
+  async searchEpisodesPageOnPi(
+    query: string,
+    limit: number = 50,
+    offset: number = 0,
+    signal?: AbortSignal,
+    includeTotal: boolean = false
+  ): Promise<{ results: SearchEpisodeResult[]; total: number | null }> {
+    return searchEpisodePage(query, limit, offset, signal, includeTotal);
+  },
+
+  /**
    * Search episodes on Raspberry Pi database via /search/episodes.
    * Paged: callers fetch a bounded page at a time and append, rather than
    * pulling every match for a broad query in one go.
@@ -260,29 +353,7 @@ export const PodcastApi = {
     offset: number = 0,
     signal?: AbortSignal
   ): Promise<SearchEpisodeResult[]> {
-    if (!query.trim()) return [];
-    try {
-      const backendQuery = query.trim().replace(/[“”"]/g, "");
-      const search = async (value: string, resultLimit: number) => {
-        const url = `${PI_BASE_URL}/search/episodes?q=${encodeURIComponent(value)}&limit=${resultLimit}&offset=${offset}`;
-        return (await fetchJsonArrayWithRetry(url, signal)) as SearchEpisodeResult[];
-      };
-
-      const results = await search(backendQuery, limit);
-      if (!query.includes('"')) return results;
-
-      // Phrase searches need a broad candidate set because the index ranks
-      // individual terms and may omit the exact phrase from a small page.
-      const terms = Array.from(
-        new Set((backendQuery.match(/[^\s()]+/g) || []).filter((term) => !/^(AND|OR|NOT)$/i.test(term)))
-      );
-      const broadened = await Promise.all(terms.map((term) => search(term, Math.max(limit, 100))));
-      const merged = [...results, ...broadened.flat()];
-      return Array.from(new Map(merged.map((episode) => [episode.episodeId, episode])).values());
-    } catch (err) {
-      console.warn("Failed to search episodes on Raspberry Pi:", err);
-      return [];
-    }
+    return (await searchEpisodePage(query, limit, offset, signal, false)).results;
   },
 
   /**
