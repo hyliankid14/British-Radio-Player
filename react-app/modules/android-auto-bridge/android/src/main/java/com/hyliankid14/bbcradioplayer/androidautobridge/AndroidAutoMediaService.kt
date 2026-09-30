@@ -356,6 +356,19 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
     currentPlaylistId = null
     episodeEndedNoRestart = false
     retriedWithGeoFallback = false
+    val serviceId = station.optString("serviceId")
+    if (serviceId.isNotEmpty()) {
+      AutoShowInfo.resetDelay(serviceId)
+      io.execute {
+        AutoShowInfo.refreshShowInfo(serviceId, skipDelay = true)
+        handler.post {
+          if (kind == Kind.STATION && stationJson?.optString("serviceId") == serviceId) {
+            updateSessionMetadata()
+            updateNotification()
+          }
+        }
+      }
+    }
     candidates = AutoState.streamCandidates(
       station,
       AutoState.settingString(this, "audioQuality", "HIGH"),
@@ -791,7 +804,7 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
         .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_DESCRIPTION, if (hasSong) info.showTitle.ifEmpty { stationTitle } else stationTitle)
 
       val songArtworkBitmap = AutoShowInfo.cachedArtworkBitmap(serviceId)
-      if (hasSong && info.songArtworkUrl.isNotEmpty()) {
+      if (hasSong && info.songArtworkUrl.isNotEmpty() && !AutoShowInfo.isPlaceholderUrl(info.songArtworkUrl)) {
         metadata
           .putString(MediaMetadataCompat.METADATA_KEY_ALBUM_ART_URI, info.songArtworkUrl)
           .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON_URI, info.songArtworkUrl)

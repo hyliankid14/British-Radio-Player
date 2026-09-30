@@ -113,16 +113,13 @@ export function isPlaceholderArtwork(url?: string, stationLogoUrl?: string): boo
     lower.includes("p0bqcdzf") ||
     lower.includes("p01tqv8z") ||
     lower.includes("default") ||
-    lower.includes("placeholder")
+    lower.includes("placeholder") ||
+    lower.includes("blocks-colour-black") ||
+    lower.includes("/services/")
   ) {
     return true;
   }
-  if (
-    stationLogoUrl &&
-    (trimmed === stationLogoUrl ||
-      lower.includes("blocks-colour-black") ||
-      lower.includes("/services/"))
-  ) {
+  if (stationLogoUrl && trimmed === stationLogoUrl) {
     return true;
   }
   return false;

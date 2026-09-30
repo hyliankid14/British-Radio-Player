@@ -57,6 +57,24 @@ object PodcastDownloads {
   fun publish(context: Context, sourceUri: String, fileName: String, title: String): String? {
     val resolver = context.contentResolver
     val name = safeName(fileName)
+    try {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        resolver.delete(
+          collection(),
+          "${MediaStore.Audio.Media.DISPLAY_NAME} = ? AND ${MediaStore.Audio.Media.RELATIVE_PATH} LIKE ?",
+          arrayOf(name, "$RELATIVE_PATH%")
+        )
+      } else {
+        resolver.delete(
+          collection(),
+          "${MediaStore.Audio.Media.DISPLAY_NAME} = ?",
+          arrayOf(name)
+        )
+      }
+    } catch (_: Exception) {}
+    try {
+      File(folderPath(), name).delete()
+    } catch (_: Exception) {}
     val values = ContentValues().apply {
       put(MediaStore.Audio.Media.DISPLAY_NAME, name)
       put(MediaStore.Audio.Media.TITLE, title)

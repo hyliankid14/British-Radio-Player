@@ -914,7 +914,7 @@ private fun NowPlayingScreen(
                 modifier = Modifier.fillMaxSize()
             )
         }
-        if (!artworkUrl.isNullOrBlank()) {
+        if (!artworkUrl.isNullOrBlank() && !isPlaceholderArtwork(artworkUrl)) {
             AsyncImage(
                 model = artworkUrl,
                 contentDescription = "Now playing artwork",
@@ -1078,4 +1078,15 @@ private fun NowPlayingScreen(
             }
         }
     }
+}
+
+private fun isPlaceholderArtwork(url: String?): Boolean {
+    if (url.isNullOrBlank()) return true
+    val lower = url.lowercase()
+    return lower.contains("p0bqcdzf") ||
+        lower.contains("p01tqv8z") ||
+        lower.contains("default") ||
+        lower.contains("placeholder") ||
+        lower.contains("blocks-colour-black") ||
+        lower.contains("/services/")
 }

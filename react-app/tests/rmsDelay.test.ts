@@ -50,3 +50,28 @@ test("resolveDelayedRmsTrack delays song change by exactly 20 seconds", () => {
 
   resetStationRmsDelay();
 });
+
+test("resolveDelayedRmsTrack with skipDelay=true applies fresh RMS song immediately on tune-in", () => {
+  resetStationRmsDelay();
+
+  const stationId = "radio1";
+  const t0 = 1000000;
+
+  // 1. Initial state had Song 1
+  resolveDelayedRmsTrack(stationId, "Artist 1", "Track 1", "https://img/1.jpg", t0);
+
+  // 2. Station is loaded/tuned: skipDelay=true applies Song 2 immediately with 0s delay
+  const immediate = resolveDelayedRmsTrack(
+    stationId,
+    "Artist 2",
+    "Track 2",
+    "https://img/2.jpg",
+    undefined,
+    t0 + 1000,
+    true
+  );
+  assert.equal(immediate.artist, "Artist 2", "Fresh check on station load must update song immediately");
+  assert.equal(immediate.track, "Track 2");
+
+  resetStationRmsDelay();
+});

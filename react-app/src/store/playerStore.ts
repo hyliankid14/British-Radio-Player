@@ -316,8 +316,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     }
 
     try {
-      // Await immediate show fetch or fetch fresh
-      const show = (await initialShowPromise) || (await fetchShowInfo(station.id, true));
+      // Station is loaded: perform a fresh check on RMS data immediately
+      const show =
+        (await fetchShowInfo(station.id, true).catch(() => null)) ||
+        (await initialShowPromise) ||
+        { title: station.title };
       if (sessionId !== stationPlaybackSessionId) return;
 
       set({ currentShow: show });
@@ -602,7 +605,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       set({ isPlaying: true });
       ScrobbleManager.onPlaybackResumed();
       startShowInfoInterval();
-      void get().refreshShowInfo();
+      void get().refreshShowInfo(true);
     } catch (e) {
       console.warn("Resume fallback to playStation:", e);
       await get().playStation(currentStation);

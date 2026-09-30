@@ -237,10 +237,12 @@ test("isPlaceholderArtwork - correctly filters placeholder and logo URLs", () =>
   assert.equal(isPlaceholderArtwork("   "), true);
   assert.equal(isPlaceholderArtwork("not-a-url"), true);
 
-  // Station logos
+  // Station logos (filtered with or without explicit stationLogo param)
   assert.equal(isPlaceholderArtwork(stationLogo, stationLogo), true);
   assert.equal(isPlaceholderArtwork("https://ichef.bbci.co.uk/images/ic/320x320/blocks-colour-black.png", stationLogo), true);
+  assert.equal(isPlaceholderArtwork("https://ichef.bbci.co.uk/images/ic/320x320/blocks-colour-black.png"), true);
   assert.equal(isPlaceholderArtwork("https://ichef.bbci.co.uk/services/radio1/logo.png", stationLogo), true);
+  assert.equal(isPlaceholderArtwork("https://ichef.bbci.co.uk/services/radio1/logo.png"), true);
 
   // Valid album artwork
   assert.equal(isPlaceholderArtwork("https://ichef.bbci.co.uk/images/ic/320x320/p0customalbum123.jpg", stationLogo), false);

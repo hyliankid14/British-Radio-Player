@@ -117,7 +117,7 @@ export const useStationShowStore = create<StationShowState>((set, get) => ({
         const results = await Promise.all(
           chunk.map(async (stationId) => {
             try {
-              const info = await fetchShowInfo(stationId);
+              const info = await fetchShowInfo(stationId, true);
               return { stationId, info };
             } catch {
               return { stationId, info: null };

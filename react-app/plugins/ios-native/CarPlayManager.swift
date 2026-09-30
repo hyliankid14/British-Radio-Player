@@ -857,7 +857,7 @@ final class CarPlayManager: NSObject {
             }
         }
         if case .station(let station) = kind {
-            refreshShowInfoInBackground(for: station)
+            refreshShowInfoInBackground(for: station, skipDelay: true)
         }
 
         startProgressTimer()
@@ -1114,7 +1114,17 @@ final class CarPlayManager: NSObject {
         progressTimer = timer
     }
 
+    private var lastStationShowRefreshMs: Double = 0
+
     private func tick() {
+        if case .station(let station) = kind {
+            let now = Date().timeIntervalSince1970 * 1000
+            if now - lastStationShowRefreshMs >= 5000 {
+                lastStationShowRefreshMs = now
+                refreshShowInfoInBackground(for: station, skipDelay: false)
+            }
+            return
+        }
         guard let episode = currentEpisode, let player = player else { return }
         let positionMs = player.currentTime().seconds * 1000
         guard positionMs > 0 else { return }
@@ -1170,7 +1180,7 @@ final class CarPlayManager: NSObject {
 
             // Without song artwork the custom station ident is published and no asset URL
             // is set, so the official BBC station logo is never loaded.
-            if hasSong, !showInfo.songArtworkUrl.isEmpty {
+            if hasSong, !showInfo.songArtworkUrl.isEmpty, !CarPlayShowInfo.isPlaceholderArtwork(showInfo.songArtworkUrl) {
                 info[MPNowPlayingInfoPropertyAssetURL] = URL(
                     string: showInfo.songArtworkUrl.replacingOccurrences(of: "http://", with: "https://")
                 )
@@ -1241,13 +1251,16 @@ final class CarPlayManager: NSObject {
         return nil
     }
 
-    private func refreshShowInfoInBackground(for station: CarPlayStation) {
+    private func refreshShowInfoInBackground(for station: CarPlayStation, skipDelay: Bool = false) {
         guard !station.serviceId.isEmpty else { return }
         let stationId = station.id
         let stationName = station.title
         let logoUrl = station.logoUrl
+        if skipDelay {
+            CarPlayShowInfo.shared.resetDelay(serviceId: station.serviceId)
+        }
         DispatchQueue.global(qos: .utility).async { [weak self] in
-            let info = CarPlayShowInfo.shared.refresh(serviceId: station.serviceId)
+            let info = CarPlayShowInfo.shared.refresh(serviceId: station.serviceId, skipDelay: skipDelay)
             Task { @MainActor in
                 guard let self, self.currentStationId == stationId else { return }
                 self.updateNowPlayingInfo()

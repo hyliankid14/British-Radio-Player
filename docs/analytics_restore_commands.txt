@@ -119,6 +119,16 @@ cur.execute(
 )
 print("BBC-prefix normalisation updates:", cur.rowcount)
 
+cur.execute(
+    """
+    UPDATE events
+    SET app_version = 'v' || app_version
+    WHERE app_version IS NOT NULL
+      AND app_version GLOB '[0-9]*'
+    """
+)
+print("App-version 'v' prefix updates:", cur.rowcount)
+
 conn.commit()
 
 # Safe to detach after commit.
@@ -479,6 +489,10 @@ with open(NEW_CSV, "r", encoding="utf-8-sig", newline="") as f:
         if not vals_by_col["date"]:
             skipped_missing_date += 1
             continue
+
+        # Normalise app_version so numeric versions carry 'v'
+        if vals_by_col.get("app_version") and vals_by_col["app_version"][0].isdigit():
+            vals_by_col["app_version"] = f"v{vals_by_col['app_version']}"
 
         vals = [vals_by_col[tgt] for tgt in TARGET_COLS]
         rows.append(tuple(vals))

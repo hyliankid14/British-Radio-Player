@@ -230,8 +230,7 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
           console.warn("[Download] MediaStore publish failed, falling back to internal storage for:", entry.id);
           const internalDest = new File(documentsDirectory(), tempName);
           if (internalDest.exists) internalDest.delete();
-          temp.copy(internalDest);
-          deleteFileQuietly(downloaded.uri);
+          temp.moveSync(internalDest);
           localUri = internalDest.uri;
         }
       } else {

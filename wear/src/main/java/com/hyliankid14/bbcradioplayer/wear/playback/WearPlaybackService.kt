@@ -233,7 +233,7 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
                 currentServiceId = intent.getStringExtra(EXTRA_SERVICE_ID)
                 currentTitle = intent.getStringExtra(EXTRA_TITLE).orEmpty()
                 currentSubtitle = intent.getStringExtra(EXTRA_SUBTITLE).orEmpty()
-                currentArtwork = intent.getStringExtra(EXTRA_ARTWORK_URL)
+                currentArtwork = null
                 currentIsLive = intent.getBooleanExtra(EXTRA_IS_LIVE, true)
                 currentEpisodeId = null
                 currentPodcastId = null
@@ -589,7 +589,7 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
             MediaMetadataCompat.METADATA_KEY_DURATION,
             if (currentIsLive) -1L else (player.duration.takeIf { it > 0 } ?: 0L)
         )
-        if (!currentArtwork.isNullOrBlank()) {
+        if (!currentArtwork.isNullOrBlank() && !isPlaceholderArtwork(currentArtwork)) {
             builder.putString(MediaMetadataCompat.METADATA_KEY_ALBUM_ART_URI, currentArtwork)
         } else {
             val fallbackStationId = currentStationId
@@ -737,7 +737,13 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
         } else {
             showDetail.ifBlank { showName.ifBlank { "On air now" } }
         }
-        val artwork = normaliseUrl(segment?.imageUrl ?: schedule?.imageUrl)
+        val hasSong = songTitle.isNotBlank()
+        val rawArtwork = if (hasSong) {
+            segment?.imageUrl?.takeIf { !isPlaceholderArtwork(it) }
+        } else {
+            (segment?.imageUrl ?: schedule?.imageUrl)?.takeIf { !isPlaceholderArtwork(it) }
+        }
+        val artwork = normaliseUrl(rawArtwork)
         LiveNowPlayingUpdate(title = title, subtitle = subtitle, artworkUrl = artwork, segment = segment)
     }
 
@@ -797,6 +803,17 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
         }.getOrNull()
     }
 
+    private fun isPlaceholderArtwork(url: String?): Boolean {
+        if (url.isNullOrBlank()) return true
+        val lower = url.lowercase()
+        return lower.contains("p0bqcdzf") ||
+            lower.contains("p01tqv8z") ||
+            lower.contains("default") ||
+            lower.contains("placeholder") ||
+            lower.contains("blocks-colour-black") ||
+            lower.contains("/services/")
+    }
+
     private fun fetchCurrentSegment(serviceId: String): SegmentNowPlaying? {
         return runCatching {
             val url = "https://rms.api.bbc.co.uk/v2/services/$serviceId/segments/latest?t=${System.currentTimeMillis()}"
@@ -805,6 +822,9 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
                 readTimeout = 5000
                 requestMethod = "GET"
                 setRequestProperty("User-Agent", "BBC Radio Player Wear/1.0")
+                setRequestProperty("Cache-Control", "no-cache, no-store, must-revalidate")
+                setRequestProperty("Pragma", "no-cache")
+                useCaches = false
             }
             if (connection.responseCode != HttpURLConnection.HTTP_OK) {
                 connection.disconnect()
@@ -830,7 +850,7 @@ class WearPlaybackService : MediaBrowserServiceCompat() {
             val imageUrl = rawImage
                 .replace("\\/", "/")
                 .replace("{recipe}", "320x320")
-                .takeIf { it.startsWith("http") }
+                .takeIf { it.startsWith("http") && !isPlaceholderArtwork(it) }
             val durationSec = latest.optString("duration").toIntOrNull() ?: 0
             if (artist.isBlank() && track.isBlank()) {
                 return@runCatching null

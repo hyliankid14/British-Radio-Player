@@ -10,6 +10,7 @@ import { downloadFinishedNotice, downloadStartedBody } from "./downloadMessages"
 type NotificationsModule = typeof ExpoNotifications;
 
 const DOWNLOAD_CHANNEL_ID = "downloads";
+const DOWNLOAD_NOTIFICATION_ID = "download_status";
 
 /**
  * Downloads are queued in bursts (a podcast's newest episodes, a whole playlist,
@@ -66,6 +67,7 @@ async function post(title: string, body: string): Promise<void> {
   try {
     await ensureDownloadChannel(Notifications);
     await Notifications.scheduleNotificationAsync({
+      identifier: DOWNLOAD_NOTIFICATION_ID,
       content: { title, body, sound: false },
       trigger:
         Platform.OS === "android"

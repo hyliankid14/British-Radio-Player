@@ -81,12 +81,32 @@ final class CarPlayShowInfo {
         queue.sync { artwork[serviceId] }
     }
 
-    // MARK: Refresh
+    static func isPlaceholderArtwork(_ url: String?) -> Bool {
+        guard let url = url?.trimmingCharacters(in: .whitespacesAndNewlines), !url.isEmpty,
+              url.lowercased().starts(with: "http") else { return true }
+        let lower = url.lowercased()
+        return lower.contains("p0bqcdzf") ||
+               lower.contains("p01tqv8z") ||
+               lower.contains("default") ||
+               lower.contains("placeholder") ||
+               lower.contains("blocks-colour-black") ||
+               lower.contains("/services/")
+    }
+
+    func resetDelay(serviceId: String? = nil) {
+        queue.sync {
+            if let serviceId = serviceId {
+                delayed.removeValue(forKey: serviceId)
+            } else {
+                delayed.removeAll()
+            }
+        }
+    }
 
     /// Fetches the latest show and song info. Runs synchronously, so call it off the
     /// main thread; the results land in the cache for the UI to pick up.
     @discardableResult
-    func refresh(serviceId: String) -> ShowInfo {
+    func refresh(serviceId: String, skipDelay: Bool = false) -> ShowInfo {
         guard !serviceId.isEmpty else { return ShowInfo() }
         let now = Date().timeIntervalSince1970 * 1000
         let streamTime = now - Self.rmsDelayMs
@@ -94,7 +114,7 @@ final class CarPlayShowInfo {
         let existing = queue.sync { cache[serviceId] }
 
         // Song metadata (RMS).
-        let rmsFresh = existing.map { now - $0.fetchedAtMs <= Self.rmsCacheTTL } ?? false
+        let rmsFresh = !skipDelay && (existing.map { now - $0.fetchedAtMs <= Self.rmsCacheTTL } ?? false)
         var rawSong = RmsSong()
         if rmsFresh, let existing = existing {
             rawSong = RmsSong(
@@ -103,7 +123,7 @@ final class CarPlayShowInfo {
         } else {
             let fetched = fetchRmsNowPlaying(serviceId: serviceId) ?? RmsSong()
             if fetched.artist.isEmpty, fetched.track.isEmpty, fetched.artworkUrl.isEmpty,
-                let existing = existing {
+                let existing = existing, !skipDelay {
                 rawSong = RmsSong(
                     artist: existing.info.artist, track: existing.info.track,
                     artworkUrl: existing.info.songArtworkUrl)
@@ -114,15 +134,22 @@ final class CarPlayShowInfo {
 
         let applied = queue.sync { () -> RmsSong in
             var state = delayed[serviceId] ?? DelayedRms()
-            if state.pendingApplyAtMs > 0, now >= state.pendingApplyAtMs {
-                state.applied = state.pending ?? RmsSong()
+            if skipDelay {
+                state.applied = rawSong
                 state.pending = nil
                 state.pendingApplyAtMs = 0
-            }
-            if state.lastRaw != rawSong {
                 state.lastRaw = rawSong
-                state.pending = rawSong
-                state.pendingApplyAtMs = now + Self.rmsDelayMs
+            } else {
+                if state.pendingApplyAtMs > 0, now >= state.pendingApplyAtMs {
+                    state.applied = state.pending ?? RmsSong()
+                    state.pending = nil
+                    state.pendingApplyAtMs = 0
+                }
+                if state.lastRaw != rawSong {
+                    state.lastRaw = rawSong
+                    state.pending = rawSong
+                    state.pendingApplyAtMs = now + Self.rmsDelayMs
+                }
             }
             delayed[serviceId] = state
             return state.applied
@@ -240,9 +267,7 @@ final class CarPlayShowInfo {
         song.track = secondary.isEmpty ? tertiary : secondary
 
         let template = (segment["image_url"] as? String) ?? ""
-        if !template.isEmpty, !template.lowercased().contains("default"),
-            !template.lowercased().contains("p01tqv8z"),
-            !template.lowercased().contains("p0bqcdzf") {
+        if !template.isEmpty, !Self.isPlaceholderArtwork(template) {
             song.artworkUrl = template.replacingOccurrences(of: "{recipe}", with: "640x640")
         }
         return song

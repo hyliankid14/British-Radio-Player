@@ -116,17 +116,28 @@ object AutoShowInfo {
     return artworkBitmapCache[serviceId]
   }
 
+  fun isPlaceholderUrl(url: String?): Boolean {
+    if (url.isNullOrBlank()) return true
+    val lower = url.lowercase()
+    return lower.contains("p0bqcdzf") ||
+           lower.contains("p01tqv8z") ||
+           lower.contains("default") ||
+           lower.contains("placeholder") ||
+           lower.contains("blocks-colour-black") ||
+           lower.contains("/services/")
+  }
+
   /**
    * Fetches and caches the latest show & song info. Call from a background thread.
    */
-  fun refreshShowInfo(serviceId: String): ShowInfo {
+  fun refreshShowInfo(serviceId: String, skipDelay: Boolean = false): ShowInfo {
     if (serviceId.isBlank()) return ShowInfo()
     val existing = infoCache[serviceId]
     val now = System.currentTimeMillis()
     val streamTime = now - RMS_DELAY_MS
 
-    // Check if we should skip RMS network call if within RMS_CACHE_TTL_MS
-    val rmsFresh = existing != null && (now - existing.fetchedAtMs <= RMS_CACHE_TTL_MS)
+    // Check if we should skip RMS network call if within RMS_CACHE_TTL_MS (bypass cache on skipDelay)
+    val rmsFresh = !skipDelay && existing != null && (now - existing.fetchedAtMs <= RMS_CACHE_TTL_MS)
 
     val (rawArtist, rawTrack, rawArtworkUrl) = if (rmsFresh) {
       Triple(existing?.artist.orEmpty(), existing?.track.orEmpty(), existing?.songArtworkUrl.orEmpty())
@@ -139,22 +150,30 @@ object AutoShowInfo {
       }
     }
 
-    // Delay RMS song metadata updates by 20s to account for audio stream buffer delay
+    // Delay RMS song metadata updates by 20s to account for audio stream buffer delay,
+    // or apply immediately when tuning in / loading a station (skipDelay = true).
     val rawSong = RmsSong(rawArtist, rawTrack, rawArtworkUrl)
     val delayState = delayedRmsCache.computeIfAbsent(serviceId) {
       DelayedRms(applied = rawSong, lastRaw = rawSong)
     }
 
-    if (delayState.pendingApplyAtMs > 0L && now >= delayState.pendingApplyAtMs) {
-      delayState.applied = delayState.pending ?: RmsSong()
+    if (skipDelay) {
+      delayState.applied = rawSong
       delayState.pending = null
       delayState.pendingApplyAtMs = 0L
-    }
-
-    if (rawSong != delayState.lastRaw) {
       delayState.lastRaw = rawSong
-      delayState.pending = rawSong
-      delayState.pendingApplyAtMs = now + RMS_DELAY_MS
+    } else {
+      if (delayState.pendingApplyAtMs > 0L && now >= delayState.pendingApplyAtMs) {
+        delayState.applied = delayState.pending ?: RmsSong()
+        delayState.pending = null
+        delayState.pendingApplyAtMs = 0L
+      }
+
+      if (rawSong != delayState.lastRaw) {
+        delayState.lastRaw = rawSong
+        delayState.pending = rawSong
+        delayState.pendingApplyAtMs = now + RMS_DELAY_MS
+      }
     }
 
     val artist = delayState.applied.artist
@@ -236,7 +255,9 @@ object AutoShowInfo {
       requestMethod = "GET"
       setRequestProperty("User-Agent", "BritishRadioPlayer/1.0 (Android)")
       setRequestProperty("Accept", "application/json")
-      setRequestProperty("Cache-Control", "no-cache")
+      setRequestProperty("Cache-Control", "no-cache, no-store, must-revalidate")
+      setRequestProperty("Pragma", "no-cache")
+      useCaches = false
     }
     try {
       if (connection.responseCode == 404) {
@@ -268,9 +289,7 @@ object AutoShowInfo {
         val artist = primary
         val track = secondary.ifEmpty { tertiary }
         val template = segment.optString("image_url", "")
-        val artworkUrl = if (template.isNotEmpty() &&
-          !template.contains("default", ignoreCase = true) &&
-          !template.contains("p01tqv8z", ignoreCase = true)) {
+        val artworkUrl = if (template.isNotEmpty() && !isPlaceholderUrl(template)) {
           template.replace("{recipe}", "640x640")
         } else {
           ""
