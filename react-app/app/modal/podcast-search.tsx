@@ -24,6 +24,7 @@ import {
   PodcastApi,
   decodeXmlEntities,
   matchesBooleanSearch,
+  filterSuggestions,
   extractPositiveQuery,
   episodeMatchesQuery
 } from "../../src/api/podcasts";
@@ -615,13 +616,20 @@ export default function PodcastSearchScreen() {
     searchPodcastMatches.length - visiblePodcasts.length +
     (searchEpisodeMatches.length - visibleEpisodes.length);
 
-  // The backend total is the number of matching episodes; the loaded set is how
-  // many of those rows are actually on screen. Both are shown so a long result
-  // set never looks truncated without explanation.
+  // The backend total is the number of episodes it matched; the loaded set is
+  // how many of those survive the stricter client-side filter and are actually
+  // listed. The two differ, so only the loaded count is ever presented as the
+  // number of results, and the backend total only describes how much is loaded.
   const hasMoreEpisodes = !episodePageRef.current.exhausted;
-  const episodeCountLabel = totalEpisodeCount ?? searchEpisodeMatches.length;
   const showEpisodesSection =
     totalEpisodeCount !== null || isSearchingEpisodes || visibleEpisodes.length > 0;
+  const episodesLoadedNote = useMemo(() => {
+    if (searchEpisodeMatches.length === 0) return null;
+    if (!hasMoreEpisodes) return null;
+    return totalEpisodeCount !== null
+      ? `Showing ${searchEpisodeMatches.length} of ${totalEpisodeCount} — scroll for more`
+      : `Showing ${searchEpisodeMatches.length} — scroll for more`;
+  }, [searchEpisodeMatches.length, hasMoreEpisodes, totalEpisodeCount]);
 
   // Podcast rows first, then the episodes section. Keeping both in one
   // virtualized list means a long result set never mounts thousands of views
@@ -657,6 +665,14 @@ export default function PodcastSearchScreen() {
     setVisiblePodcastCount((count) => count + PODCAST_REVEAL_STEP);
     setVisibleEpisodeCount((count) => count + EPISODE_REVEAL_STEP);
   }, []);
+
+  // Never suggest a podcast back under the exact name just typed. That podcast
+  // is already the top result below, and a single suggestion echoing the query
+  // looks like a second copy of the search field.
+  const visibleSuggestions = useMemo(
+    () => filterSuggestions(suggestions, searchQuery),
+    [suggestions, searchQuery]
+  );
 
   // Episode rows name their podcast, so this lookup backs that label.
   const podcastNamesById = useMemo(() => {
@@ -806,7 +822,7 @@ export default function PodcastSearchScreen() {
           return (
             <View>
               <Text style={[styles.sectionHeading, { color: theme.onSurface, marginTop: 24 }]}>
-                Episodes ({episodeCountLabel})
+                Episodes ({searchEpisodeMatches.length})
               </Text>
               {visibleEpisodes.length === 0 && isSearchingEpisodes ? (
                 <View style={styles.inlineLoadingRow}>
@@ -816,11 +832,9 @@ export default function PodcastSearchScreen() {
                   </Text>
                 </View>
               ) : null}
-              {!isSearchingEpisodes && searchEpisodeMatches.length > 0 ? (
+              {episodesLoadedNote ? (
                 <Text style={[styles.episodesLoadedNote, { color: theme.onSurfaceVariant }]}>
-                  {hasMoreEpisodes
-                    ? `Showing ${searchEpisodeMatches.length} of ${episodeCountLabel} — scroll for more`
-                    : `Showing all ${searchEpisodeMatches.length}`}
+                  {episodesLoadedNote}
                 </Text>
               ) : null}
             </View>
@@ -860,7 +874,7 @@ export default function PodcastSearchScreen() {
       podcastRatings,
       resolvingEpisodeId,
       isSearchingEpisodes,
-      episodeCountLabel,
+      episodesLoadedNote,
       hasMoreEpisodes,
       loadedEpisodeCount: searchEpisodeMatches.length,
       visibleEpisodeCount: visibleEpisodes.length
@@ -871,7 +885,7 @@ export default function PodcastSearchScreen() {
       podcastRatings,
       resolvingEpisodeId,
       isSearchingEpisodes,
-      episodeCountLabel,
+      episodesLoadedNote,
       hasMoreEpisodes,
       searchEpisodeMatches.length,
       visibleEpisodes.length
@@ -987,16 +1001,28 @@ export default function PodcastSearchScreen() {
             ) : null}
 
             {/* Live suggestions when typing */}
-            {isSearchFocused && isSearchActive && suggestions.length > 0 ? (
+            {isSearchFocused && isSearchActive && visibleSuggestions.length > 0 ? (
               <View style={[styles.suggestionsBox, { backgroundColor: theme.surface, borderColor: theme.outlineVariant }]}>
-                {suggestions.map((suggestion) => (
+                {visibleSuggestions.map((suggestion, index) => (
                   <TouchableOpacity
                     key={suggestion.podcastId}
-                    style={[styles.suggestionRow, { borderBottomColor: theme.outlineVariant }]}
+                    style={[
+                      styles.suggestionRow,
+                      index < visibleSuggestions.length - 1
+                        ? [styles.suggestionDivider, { borderBottomColor: theme.outlineVariant }]
+                        : null
+                    ]}
                     onPress={() => handleSelectQuery(suggestion.title)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Search for ${suggestion.title}`}
                   >
-                    <MaterialIcons name="search" size={20} color={theme.onSurfaceVariant} style={styles.recentIcon} />
-                    <Text style={[styles.suggestionText, { color: theme.onSurface }]}>{suggestion.title}</Text>
+                    {/* No leading magnifier and a trailing arrow: a leading
+                        icon plus a single row is indistinguishable from the
+                        search field above, which reads as a duplicated box. */}
+                    <Text style={[styles.suggestionText, { color: theme.onSurface }]} numberOfLines={1}>
+                      {suggestion.title}
+                    </Text>
+                    <MaterialIcons name="north-west" size={16} color={theme.outline} />
                   </TouchableOpacity>
                 ))}
               </View>
@@ -1244,12 +1270,16 @@ const styles = StyleSheet.create({
   suggestionRow: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 12
+  },
+  suggestionDivider: {
     borderBottomWidth: StyleSheet.hairlineWidth
   },
   suggestionText: {
-    fontSize: 15
+    fontSize: 15,
+    flexShrink: 1
   },
   searchLoadingBanner: {
     flexDirection: "row",

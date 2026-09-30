@@ -196,6 +196,22 @@ export function episodeMatchesQuery(
 }
 
 /**
+ * Drop live-suggestion entries that merely echo the query back at the user.
+ *
+ * The matching podcast is already the top result in the list below, and a
+ * single suggestion drawn in the same rounded box as the search field is
+ * indistinguishable from a second search box sitting under the first.
+ */
+export function filterSuggestions<T extends { title: string }>(
+  suggestions: T[],
+  query: string
+): T[] {
+  const typed = query.trim().toLowerCase();
+  if (!typed) return [];
+  return suggestions.filter((s) => s.title.trim().toLowerCase() !== typed);
+}
+
+/**
  * NOT term extraction. Returns the plain term values after stripping leading
  * `-` or `NOT ` prefix.
  */

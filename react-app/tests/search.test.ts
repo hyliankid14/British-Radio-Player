@@ -6,6 +6,7 @@ import {
   isAdvancedBooleanQuery,
   extractPositiveQuery,
   episodeMatchesQuery,
+  filterSuggestions,
   type BooleanSearchNode
 } from "../src/utils/searchUtils.ts";
 
@@ -203,4 +204,32 @@ test("resolves latest publication date among matching episodes only", () => {
     .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
 
   assert.equal(correctLatest, "Fri, 13 Feb 2026 18:28:00 +0000");
+});
+
+test("filterSuggestions never echoes the typed query back as a suggestion", () => {
+  const suggestions = [
+    { podcastId: "p1", title: "Swingers" },
+    { podcastId: "p2", title: "Swingers Club" },
+    { podcastId: "p3", title: "The Swingers Show" }
+  ];
+
+  // Typing the full name must not render a suggestion box that looks like a
+  // second copy of the search field.
+  assert.deepEqual(filterSuggestions(suggestions, "Swingers").map((s) => s.title), [
+    "Swingers Club",
+    "The Swingers Show"
+  ]);
+
+  // Case and surrounding whitespace are not meaningful here.
+  assert.deepEqual(filterSuggestions(suggestions, "  swingers  ").map((s) => s.title), [
+    "Swingers Club",
+    "The Swingers Show"
+  ]);
+
+  // A partial query keeps every suggestion.
+  assert.equal(filterSuggestions(suggestions, "swing").length, 3);
+
+  // No query, no suggestions.
+  assert.deepEqual(filterSuggestions(suggestions, ""), []);
+  assert.deepEqual(filterSuggestions(suggestions, "   "), []);
 });
