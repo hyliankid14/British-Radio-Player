@@ -84,7 +84,7 @@ module.exports = function withAndroidCleartextTraffic(config) {
     configWithBuildGradle.modResults.contents =
       configWithBuildGradle.modResults.contents.replace(
         "debug {\n            signingConfig signingConfigs.debug",
-        "debug {\n            signingConfig signingConfigs.debug\n            minifyEnabled = (findProperty('android.enableMinifyInDebugBuilds') ?: 'false').toBoolean()\n            shrinkResources = (findProperty('android.enableMinifyInDebugBuilds') ?: 'false').toBoolean()"
+        "debug {\n            signingConfig signingConfigs.debug\n            minifyEnabled = (findProperty('android.enableMinifyInDebugBuilds') ?: 'false').toBoolean()\n            shrinkResources = (findProperty('android.enableMinifyInDebugBuilds') ?: 'false').toBoolean()\n            proguardFiles getDefaultProguardFile(\"proguard-android.txt\"), \"proguard-rules.pro\""
       );
     return configWithBuildGradle;
   });
