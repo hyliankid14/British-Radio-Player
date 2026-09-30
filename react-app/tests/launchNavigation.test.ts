@@ -8,6 +8,7 @@ import {
   LAUNCH_INTENT_DEDUPE_MS,
   LAUNCH_RETRY_MS,
   LAUNCH_RETRY_TIMEOUT_MS,
+  LAUNCH_STATE_SETTLE_MS,
   type NavigationStateLike
 } from "../src/navigation/launchNavigation.ts";
 
@@ -91,7 +92,9 @@ function withDetailFocused(): NavigationStateLike {
 
 test("a push issued before the navigator is ready is retried until it lands", () => {
   // The navigator only reports the route once it has taken two attempts, mirroring a
-  // cold start where the first push is discarded.
+  // cold start where the first push is discarded. The settle guard means a second push
+  // is only issued once LAUNCH_STATE_SETTLE_MS has elapsed — ensuring a successful push
+  // whose re-render hasn't propagated yet is not mistakenly retried.
   const { navigation, applied, advance } = createHarnessNavigation({
     stateAfterApply: (attempts) =>
       attempts >= 2 ? withDetailFocused() : null
@@ -100,7 +103,9 @@ test("a push issued before the navigator is ready is retried until it lands", ()
   navigation.request(DETAIL_URL);
   assert.deepEqual(applied, [DETAIL_PATH]);
 
-  advance(LAUNCH_RETRY_MS);
+  // Advance far enough for the state propagation window to expire and the next
+  // retry timer to fire. The second push happens once sinceApply ≥ LAUNCH_STATE_SETTLE_MS.
+  advance(LAUNCH_STATE_SETTLE_MS + LAUNCH_RETRY_MS);
   assert.deepEqual(applied, [DETAIL_PATH, DETAIL_PATH]);
 
   // The second attempt landed, so no further retries are scheduled.
@@ -159,12 +164,14 @@ test("a still in-flight request absorbs repeats of the same destination", () => 
   });
 
   navigation.request(DETAIL_URL);
-  advance(LAUNCH_RETRY_MS);
+  // Advance past the settle window so the second push fires.
+  advance(LAUNCH_STATE_SETTLE_MS + LAUNCH_RETRY_MS);
   assert.equal(applied.length, 2);
 
   // The same tap is reported again by another launch path mid-retry.
   assert.equal(navigation.request(DETAIL_URL), true);
-  advance(LAUNCH_RETRY_MS);
+  // Advance again so the third push fires (retries continue without resetting).
+  advance(LAUNCH_STATE_SETTLE_MS + LAUNCH_RETRY_MS);
   assert.equal(applied.length, 3);
 });
 

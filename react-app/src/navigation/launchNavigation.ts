@@ -7,6 +7,20 @@ export const LAUNCH_DEDUPE_MS = 2000;
 /** Delay between an attempt and the check that tells us whether it landed. */
 export const LAUNCH_RETRY_MS = 120;
 
+/**
+ * Minimum time between consecutive pushes of the same destination.
+ *
+ * After `router.push` succeeds React re-renders the root layout (updating
+ * `rootStateRef`) within a frame — well under 100 ms on any real device.
+ * Waiting this long before a second push means: if the state still has not
+ * updated after LAUNCH_STATE_SETTLE_MS it is because the push was silently
+ * discarded by an uninitialised navigator (cold start), not because the state
+ * just hasn't propagated yet.  Without this guard a warm-start retry would
+ * fire a second `router.push` while the first one's re-render was still
+ * pending, stacking a duplicate screen on every notification tap.
+ */
+export const LAUNCH_STATE_SETTLE_MS = 250;
+
 /** How long a destination keeps being retried before it is given up on. */
 export const LAUNCH_RETRY_TIMEOUT_MS = 4000;
 
@@ -87,7 +101,7 @@ export function createLaunchNavigation(options: LaunchNavigationOptions) {
   const cancel = options.cancel ?? ((handle) => clearTimeout(handle));
 
   let timer: TimerHandle | null = null;
-  let inFlight: { key: string; target: AppNavigationTarget; startedAt: number } | null = null;
+  let inFlight: { key: string; target: AppNavigationTarget; startedAt: number; lastAppliedAt: number } | null = null;
   let handled: { key: string; at: number } | null = null;
 
   function stopTimer() {
@@ -103,8 +117,18 @@ export function createLaunchNavigation(options: LaunchNavigationOptions) {
     handled = { key: entry.key, at: now() };
   }
 
-  function run(entry: { key: string; target: AppNavigationTarget; startedAt: number }) {
-    apply(entry.target);
+  function run(entry: { key: string; target: AppNavigationTarget; startedAt: number; lastAppliedAt: number }) {
+    // Only push if this is the first attempt (lastAppliedAt === 0) or the state
+    // propagation window has elapsed since the last push. This prevents the timer
+    // from stacking a second screen while the first push's React re-render is still
+    // pending. On cold start the navigator discards pushes silently, so after
+    // LAUNCH_STATE_SETTLE_MS with no state change we know the push didn't land and
+    // it is safe to try again.
+    const sinceApply = entry.lastAppliedAt === 0 ? Infinity : now() - entry.lastAppliedAt;
+    if (sinceApply >= LAUNCH_STATE_SETTLE_MS) {
+      apply(entry.target);
+      entry.lastAppliedAt = now();
+    }
     timer = schedule(() => {
       // A push is only considered done once the route exists in the state. Checking
       // the whole stack rather than the focused route matters because a podcast
@@ -140,7 +164,7 @@ export function createLaunchNavigation(options: LaunchNavigationOptions) {
     const isFirstRequest = handled === null && inFlight === null;
 
     stopTimer();
-    const entry = { key, target, startedAt: now() };
+    const entry = { key, target, startedAt: now(), lastAppliedAt: 0 };
 
     // On a cold start expo-router can resolve the same intent into the initial state,
     // leaving the screen focused before any of our listeners run. Pushing again would
