@@ -1,5 +1,6 @@
 import { NativeAndroid } from "../native/nativeAndroid";
 import { Preferences } from "../storage/preferences";
+import { LASTFM_PROXY_URL } from "../api/lastfm";
 
 /**
  * Wear OS state sync. Pushes favourites, subscriptions, played ids, history and progress to
@@ -29,6 +30,7 @@ export function pushWearState(): void {
       episode_progress_json: JSON.stringify(progressMap),
       lastfm_session_key: lastFm.sessionKey,
       lastfm_username: lastFm.username,
+      lastfm_proxy_url: LASTFM_PROXY_URL,
       lastfm_direct_enabled: lastFm.direct,
       lastfm_broadcast_enabled: lastFm.broadcast,
       lastfm_scrobble_podcasts: lastFm.podcasts

@@ -2,6 +2,7 @@ package com.hyliankid14.bbcradioplayer.nativeandroid
 
 import android.content.Context
 import android.content.Intent
+import com.hyliankid14.bbcradioplayer.nativeandroid.widget.WidgetStore
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 
@@ -222,20 +223,32 @@ class NativeAndroidModule : Module() {
 
     // ── Home screen widget ──────────────────────────────────────────────────
 
-    /** Pushes the current station/show/playing state to the home screen widget. */
-    Function("updateWidgetState") { stationTitle: String, showTitle: String, isPlaying: Boolean ->
+    /**
+     * Stores the station catalogue the widget's station picker offers, as
+     * `{"stations":[{"id","title","category"}]}`. The React layer owns the list so the
+     * picker cannot drift from the stations the app actually plays.
+     */
+    Function("setWidgetCatalogue") { stationsJson: String ->
       val ctx = context ?: return@Function null
-      StationWidgetProvider.updateState(ctx, stationTitle, showTitle, isPlaying)
+      WidgetStore.saveCatalogue(ctx, stationsJson)
       null
     }
 
-    /** True when the app was launched by the widget's play/pause button. */
-    Function("consumeWidgetToggle") { ->
-      val activity = appContext.currentActivity ?: return@Function false
-      val intent = activity.intent ?: return@Function false
-      val toggle = intent.getBooleanExtra(StationWidgetProvider.EXTRA_WIDGET_TOGGLE, false)
-      if (toggle) intent.removeExtra(StationWidgetProvider.EXTRA_WIDGET_TOGGLE)
-      toggle
+    /** Pushes what the player is doing, so the widget for that station can show it. */
+    Function("updateWidgetState") {
+        stationId: String, stationTitle: String, showLine: String, isPlaying: Boolean, artworkUrl: String ->
+      val ctx = context ?: return@Function null
+      StationWidgetProvider.updateState(ctx, stationId, stationTitle, showLine, isPlaying, artworkUrl)
+      null
+    }
+
+    /**
+     * Returns the tap the user made on a widget as `{"action","stationId"}` and clears it,
+     * or an empty string when the app was not opened by a widget.
+     */
+    Function("consumeWidgetAction") { ->
+      val ctx = context ?: return@Function ""
+      WidgetStore.consumeAction(ctx) ?: ""
     }
 
     /** Returns the deep link or target URL when launched from a notification intent, else null. */

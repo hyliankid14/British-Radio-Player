@@ -37,9 +37,18 @@ import {
 import { Preferences } from "../src/storage/preferences";
 import { NativeAndroid, AlarmLaunch } from "../src/native/nativeAndroid";
 import { StationRepository } from "../src/data/stations";
-import { formatShowDisplayTitle } from "../src/api/showInfo";
+import { isPlaceholderArtwork } from "../src/api/showInfo";
 import { RadioAlarm } from "../src/audio/radioAlarm";
 import { probeGeoBlock } from "../src/utils/geoBlock";
+import {
+  buildWidgetCatalogueJson,
+  isSameWidgetState,
+  parseWidgetActionUrl,
+  resolveWidgetLiveState,
+  type WidgetAction,
+  type WidgetLiveState
+} from "../src/widgets/widgetSync";
+import { syncIosWidgetState } from "../src/widgets/widgetIos";
 
 LogBox.ignoreAllLogs();
 
@@ -89,6 +98,13 @@ void syncBackgroundSync();
 /** Screens a podcast notification opens, which fall back to the subscribed list. */
 const LAUNCH_PODCAST_SCREENS = ["/modal/podcast-detail", "/modal/podcast-search"];
 
+/**
+ * A widget tap that arrived before the player existed, kept at module scope because the
+ * link listener, the startup sequence and the render that flips `playerReady` all need to
+ * see the same slot.
+ */
+let pendingWidgetAction: WidgetAction | null = null;
+
 export default function RootLayout() {
   const router = useRouter();
   const navigationRef = useNavigationContainerRef();
@@ -96,6 +112,7 @@ export default function RootLayout() {
   const isDark = useIsDarkTheme();
   const initStore = usePlayerStore((state) => state.init);
   const [showAnalyticsConsent, setShowAnalyticsConsent] = useState(false);
+  const [playerReady, setPlayerReady] = useState(false);
 
   // A single notification tap surfaces through several launch paths at once (the
   // expo-linking initial URL, the stored expo-notifications response, and the native
@@ -155,16 +172,54 @@ export default function RootLayout() {
     [launchNavigation]
   );
 
+  // Play or stop the station a widget was tapped for. Playback lives in the React layer, so
+  // a widget tap brings the app forward and the request is drained here.
+  const handleWidgetAction = useCallback(async (action: WidgetAction | null) => {
+    if (!action || action.action === "open") return;
+    if (action.action === "stop") {
+      await usePlayerStore.getState().stop();
+      return;
+    }
+    if (!action.stationId) return;
+    const station = StationRepository.getById(action.stationId);
+    if (!station) return;
+    try {
+      await usePlayerStore.getState().playStation(station);
+    } catch (error) {
+      console.warn("Widget playback failed:", error);
+    }
+  }, []);
+
+  // A widget tap that arrived before the player existed, replayed once setup finishes.
+  useEffect(() => {
+    if (!pendingWidgetAction) return;
+    const action = pendingWidgetAction;
+    pendingWidgetAction = null;
+    void handleWidgetAction(action);
+  }, [handleWidgetAction, playerReady]);
+
   // Deep linking (e.g. bbcradioplayer://...)
   useEffect(() => {
+    const route = (url: string) => {
+      const action = parseWidgetActionUrl(url);
+      if (!action) {
+        navigateToTarget(url);
+        return;
+      }
+      if (!playerReady) {
+        pendingWidgetAction = action;
+        return;
+      }
+      void handleWidgetAction(action);
+    };
     const sub = Linking.addEventListener("url", (event) => {
-      if (event.url) navigateToTarget(event.url);
+      if (event.url) route(event.url);
     });
     Linking.getInitialURL().then((url) => {
-      if (url) navigateToTarget(url);
+      if (url) route(url);
     });
     return () => sub.remove();
-  }, [navigateToTarget]);
+  }, [navigateToTarget, handleWidgetAction, playerReady]);
 
   // Handles alarm playback on both Android and iOS
   const handleAlarmPlayback = useCallback(async (alarm: AlarmLaunch | null) => {
@@ -260,6 +315,17 @@ export default function RootLayout() {
       // Ensure radio alarm is scheduled from preferences (especially on iOS)
       void RadioAlarm.scheduleFromPreferences();
 
+      // Hand the widget station pickers the station list. The Android picker is a native
+      // screen the launcher shows while a widget is added, so it cannot ask the React layer.
+      NativeAndroid.setWidgetCatalogue(buildWidgetCatalogueJson(StationRepository.getAll()));
+
+            // A widget tap queues its request natively and brings the app forward; drain it
+      // here, once the player exists, rather than at mount.
+      void handleWidgetAction(NativeAndroid.consumeWidgetAction());
+
+      // Unblocks a widget tap that arrived through the link listener during startup.
+      setPlayerReady(true);
+
       // If the app was launched by the radio alarm, start the chosen station and ramp up.
       const alarm = NativeAndroid.consumeAlarmLaunch();
       if (alarm) {
@@ -276,27 +342,37 @@ export default function RootLayout() {
       }
     }
     start();
-  }, [initStore, navigateToTarget, handleAlarmPlayback]);
+  }, [initStore, navigateToTarget, handleAlarmPlayback, handleWidgetAction]);
 
-  // Keep the home screen widget in sync with playback state.
+  // Keep the home screen widgets in sync. Android renders from its own shared preferences,
+  // iOS from the App Group container the widget extension reads, so both get the same push.
   useEffect(() => {
+    // The store notifies far more often than a widget can show anything new (playback
+    // position ticks several times a second), and every push costs a redraw on Android and a
+    // timeline reload on iOS. Only push what the widgets actually render.
+    let last: WidgetLiveState | null = null;
     const push = (state: ReturnType<typeof usePlayerStore.getState>) => {
-      const title =
-        state.currentStation?.title ?? state.currentPodcast?.title ?? "British Radio Player";
-      const show = state.currentShow
-        ? formatShowDisplayTitle(state.currentShow)
-        : state.currentEpisode?.title ?? "";
-      NativeAndroid.updateWidgetState(title, show, state.isPlaying);
+      const live = resolveWidgetLiveState({
+        stationId: state.currentStation?.id,
+        stationTitle: state.currentStation?.title,
+        stationLogoUrl: state.currentStation?.logoUrl,
+        show: state.currentShow,
+        isPlaying: state.isPlaying,
+        isPlaceholderArtwork
+      });
+      if (last && isSameWidgetState(last, live)) return;
+      last = live;
+      NativeAndroid.updateWidgetState(
+        live.stationId,
+        live.stationTitle,
+        live.showLine,
+        live.isPlaying,
+        live.artworkUrl
+      );
+      void syncIosWidgetState(live);
     };
     push(usePlayerStore.getState());
     return usePlayerStore.subscribe(push);
-  }, []);
-
-  // Toggle playback when launched from the widget's play/pause button.
-  useEffect(() => {
-    if (NativeAndroid.consumeWidgetToggle()) {
-      void usePlayerStore.getState().togglePlayPause();
-    }
   }, []);
 
   return (

@@ -121,8 +121,10 @@ jobs:
         env:
           # Selects the GitHub distribution: in-app updater enabled, "GitHub" on the About page.
           EXPO_PUBLIC_DISTRIBUTION_CHANNEL: github
+          # Last.fm signing lives in the first-party proxy (api/lastfm_proxy.py), so
+          # no shared secret is compiled into the app. LASTFM_API_KEY is public by design.
           EXPO_PUBLIC_LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
-          EXPO_PUBLIC_LASTFM_API_SECRET: ${{ secrets.LASTFM_API_SECRET }}
+          EXPO_PUBLIC_LASTFM_PROXY_URL: ${{ secrets.LASTFM_PROXY_URL }}
           # arm64-v8a only by default: it covers every Android device in practical use and halves
           # the download.  A tag push has no inputs, so the fallback keeps the build deterministic.
           ARCHITECTURES: ${{ inputs.architectures || 'arm64-v8a' }}
@@ -168,7 +170,6 @@ jobs:
             "-PAPP_VERSION_CODE=${{ steps.version.outputs.version_code }}"
             "-PWEAR_VERSION_CODE=${{ steps.version.outputs.wear_version_code }}"
             "-PLASTFM_API_KEY=${{ secrets.LASTFM_API_KEY }}"
-            "-PLASTFM_API_SECRET=${{ secrets.LASTFM_API_SECRET }}"
           )
 
           if [ "${{ steps.wear_keystore.outputs.has_signing }}" = "true" ]; then

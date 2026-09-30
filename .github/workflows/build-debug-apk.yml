@@ -102,8 +102,10 @@ jobs:
         env:
           EXPO_PUBLIC_DISTRIBUTION_CHANNEL: github
           EXPO_PUBLIC_BUILD_VARIANT: debug
+          # Last.fm signing lives in the first-party proxy (api/lastfm_proxy.py), so
+          # no shared secret is compiled into the app. LASTFM_API_KEY is public by design.
           EXPO_PUBLIC_LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
-          EXPO_PUBLIC_LASTFM_API_SECRET: ${{ secrets.LASTFM_API_SECRET }}
+          EXPO_PUBLIC_LASTFM_PROXY_URL: ${{ secrets.LASTFM_PROXY_URL }}
         run: |
           set -euo pipefail
           # The JavaScript bundle is embedded in debug builds too (the generated project sets

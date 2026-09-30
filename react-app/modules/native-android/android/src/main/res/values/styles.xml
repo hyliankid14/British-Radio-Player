@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <!--
+    The picker is a plain Activity rather than a screen in the React app: the launcher
+    shows it the moment a widget is added and discards the widget unless it returns a
+    station, so it has to work before the app is ever opened for that reason.
+  -->
+  <style name="WidgetConfigTheme" parent="android:Theme.Material.Light.NoActionBar">
+    <item name="android:windowBackground">@color/widget_config_background</item>
+  </style>
+</resources>

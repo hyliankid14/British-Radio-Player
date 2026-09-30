@@ -16,9 +16,12 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             window?.makeKeyAndVisible()
         }
 
+        // Start mirroring the React widget snapshot into the App Group the WidgetKit
+        // extension reads. Safe to call once per scene: the bridge guards itself.
+        WidgetStateBridge.shared.start()
+
         // Handle cold start deep links
-        for context in connectionOptions.urlContexts {
-            let options: [UIApplication.OpenURLOptionsKey: Any] = [
+        for context in connectionOptions.urlContexts {            let options: [UIApplication.OpenURLOptionsKey: Any] = [
                 .sourceApplication: context.options.sourceApplication as Any,
                 .annotation: context.options.annotation as Any,
                 .openInPlace: context.options.openInPlace

@@ -87,10 +87,31 @@ REACT_RELEASE_ARCHITECTURES=arm64-v8a,armeabi-v7a ./scripts/github-release.sh
 
 Google Play is unaffected: Play delivers per-ABI itself, so the app bundle keeps all four.
 
-`EXPO_PUBLIC_LASTFM_API_KEY` and `EXPO_PUBLIC_LASTFM_API_SECRET` must be present in the
-environment at bundle time. Locally they come from `.env.local`; in CI they come from
-repository secrets. Do not put `EXPO_PUBLIC_DISTRIBUTION_CHANNEL` in `.env.local` — a dotenv
-value there can silently override the channel a release was built for.
+### Last.fm scrobbling credentials
+
+Every authenticated Last.fm call needs `api_sig`, an MD5 over the request parameters plus a
+shared secret. That secret must **not** ship in the app: Expo inlines `EXPO_PUBLIC_*` into the
+JS bundle, so anything declared there is readable by anyone who downloads the build. Signing
+therefore happens in the first-party proxy at `api/lastfm_proxy.py`, which holds the secret and
+exposes only three whitelisted methods.
+
+Three values are needed:
+
+| Variable | Secret? | Purpose |
+| --- | --- | --- |
+| `EXPO_PUBLIC_LASTFM_API_KEY` | No | Public key. Last.fm requires it to be embedded so the browser auth flow works. |
+| `EXPO_PUBLIC_LASTFM_PROXY_URL` | No | Base URL of the signing proxy, e.g. `https://bbc-radio.shai.website`. |
+| `LASTFM_API_KEY` / `LASTFM_API_SECRET` | **Yes** | Server-side only, on the proxy host. |
+
+Locally the first two come from `.env.local`; in CI they come from repository secrets
+(`LASTFM_API_KEY`, `LASTFM_PROXY_URL`). There is deliberately no `EXPO_PUBLIC_LASTFM_API_SECRET`
+— `tests/lastfm.test.ts` asserts it is undefined so it cannot be reintroduced by accident.
+
+When no proxy URL is configured the Last.fm settings page says so, and scrobbles that do cross
+the threshold are held in a local outbox and retried rather than dropped.
+
+Do not put `EXPO_PUBLIC_DISTRIBUTION_CHANNEL` in `.env.local` — a dotenv value there can silently
+override the channel a release was built for.
 
 ### Build a standalone Android debug APK
 

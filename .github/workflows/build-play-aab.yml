@@ -174,8 +174,10 @@ jobs:
         env:
           # Selects the Play distribution: in-app updater hidden, "Google Play" on the About page.
           EXPO_PUBLIC_DISTRIBUTION_CHANNEL: play
+          # Last.fm signing lives in the first-party proxy (api/lastfm_proxy.py), so
+          # no shared secret is compiled into the app. LASTFM_API_KEY is public by design.
           EXPO_PUBLIC_LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
-          EXPO_PUBLIC_LASTFM_API_SECRET: ${{ secrets.LASTFM_API_SECRET }}
+          EXPO_PUBLIC_LASTFM_PROXY_URL: ${{ secrets.LASTFM_PROXY_URL }}
           RELEASE_STORE_FILE: ${{ steps.keystore.outputs.store_file }}
           RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
@@ -198,8 +200,7 @@ jobs:
           ./gradlew :wear:bundleRelease \
             -PAPP_VERSION_NAME=${{ steps.version.outputs.version_name }} \
             -PWEAR_VERSION_CODE=${{ steps.version.outputs.wear_version_code }} \
-            -PLASTFM_API_KEY=${{ secrets.LASTFM_API_KEY }} \
-            -PLASTFM_API_SECRET=${{ secrets.LASTFM_API_SECRET }}
+            -PLASTFM_API_KEY=${{ secrets.LASTFM_API_KEY }}
 
       - name: Locate the app bundles
         id: bundles

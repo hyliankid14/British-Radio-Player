@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from "react";
 import { ActivityIndicator, Alert, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { LastFmApi } from "../src/api/lastfm";
+import { ScrobbleOutbox } from "../src/audio/scrobbleOutbox";
 import { Preferences } from "../src/storage/preferences";
 import { useAppTheme } from "../src/theme/colors";
 
@@ -27,6 +28,8 @@ export default function LastFmAuthScreen() {
       try {
         const session = await LastFmApi.exchangeToken(token);
         Preferences.setLastFmSession(session.username, session.sessionKey);
+        // Anything queued while disconnected can go out now.
+        ScrobbleOutbox.flush();
         Alert.alert("Last.fm connected", `Connected as ${session.username}.`);
       } catch (error) {
         Alert.alert(

@@ -2,13 +2,13 @@ package com.hyliankid14.bbcradioplayer.wear.playback
 
 import android.content.Context
 import android.content.SharedPreferences
-import com.hyliankid14.bbcradioplayer.wear.BuildConfig
 
 object WearLastFmPreference {
     private const val PREFS_NAME = "wear_lastfm_prefs"
 
     private const val KEY_SESSION_KEY = "session_key"
     private const val KEY_USERNAME = "username"
+    private const val KEY_PROXY_URL = "proxy_url"
     private const val KEY_DIRECT_SCROBBLE_ENABLED = "direct_scrobble_enabled"
     private const val KEY_BROADCAST_SCROBBLE_ENABLED = "broadcast_scrobble_enabled"
     private const val KEY_SCROBBLE_PODCASTS = "scrobble_podcasts"
@@ -38,6 +38,7 @@ object WearLastFmPreference {
         context: Context,
         sessionKey: String,
         username: String,
+        proxyUrl: String,
         directEnabled: Boolean,
         broadcastEnabled: Boolean,
         scrobblePodcasts: Boolean
@@ -50,6 +51,11 @@ object WearLastFmPreference {
                 remove(KEY_SESSION_KEY)
                 remove(KEY_USERNAME)
             }
+            // Only the public API key ships in the app; the shared secret stays on
+            // the proxy, so the watch is told where to send signed requests.
+            if (proxyUrl.isNotBlank()) {
+                putString(KEY_PROXY_URL, proxyUrl)
+            }
             putBoolean(KEY_DIRECT_SCROBBLE_ENABLED, directEnabled)
             putBoolean(KEY_BROADCAST_SCROBBLE_ENABLED, broadcastEnabled)
             putBoolean(KEY_SCROBBLE_PODCASTS, scrobblePodcasts)
@@ -57,7 +63,7 @@ object WearLastFmPreference {
         }
     }
 
-    fun getEffectiveApiKey(): String = BuildConfig.LASTFM_API_KEY
-
-    fun getEffectiveApiSecret(): String = BuildConfig.LASTFM_API_SECRET
+    /** Base URL of the Last.fm signing proxy, pushed by the phone. */
+    fun getProxyUrl(context: Context): String? =
+        prefs(context).getString(KEY_PROXY_URL, null)?.takeIf { it.isNotBlank() }
 }

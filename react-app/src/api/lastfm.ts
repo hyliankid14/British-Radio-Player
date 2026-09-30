@@ -1,50 +1,64 @@
 import * as Linking from "expo-linking";
 import { Preferences } from "../storage/preferences";
 
-const API_URL = "https://ws.audioscrobbler.com/2.0/";
+/**
+ * Last.fm requires every authenticated call to carry api_sig, an MD5 over the
+ * request parameters plus a shared secret. That secret cannot live in this app:
+ * Expo inlines EXPO_PUBLIC_* into the JS bundle, so it is extractable from any
+ * build. The signing therefore happens in firstfmProxy, which holds the secret.
+ *
+ * The API key itself is not secret — Last.fm requires it to be public so the
+ * browser auth flow can work — and is the only credential still shipped here.
+ */
+const PROXY_URL = (process.env.EXPO_PUBLIC_LASTFM_PROXY_URL || "").replace(/\/+$/, "");
 const API_KEY = process.env.EXPO_PUBLIC_LASTFM_API_KEY || "";
-const API_SECRET = process.env.EXPO_PUBLIC_LASTFM_API_SECRET || "";
 export const LASTFM_CALLBACK = "bbcradioplayer://lastfm-auth";
 
-import SparkMD5 from "spark-md5";
+/** Normalised proxy base URL, or "" when this build has no proxy configured. */
+export const LASTFM_PROXY_URL = PROXY_URL;
 
-function signature(params: Record<string, string>): string {
-  const input = Object.keys(params)
-    .filter((key) => key !== "format" && key !== "callback")
-    .sort()
-    .map((key) => `${key}${params[key]}`)
-    .join("") + API_SECRET;
-  return SparkMD5.hash(input);
-}
+async function request(method: string, params: Record<string, string>): Promise<any> {
+  if (!PROXY_URL) {
+    throw new Error("Last.fm scrobbling is not configured in this build");
+  }
 
-async function request(method: string, params: Record<string, string>, post = false): Promise<any> {
-  const signed: Record<string, string> = { method, api_key: API_KEY, ...params };
-  signed.api_sig = signature(signed);
-  signed.format = "json";
-  const body = Object.entries(signed)
-    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
-    .join("&");
-  const response = await fetch(post ? API_URL : `${API_URL}?${body}`, {
-    method: post ? "POST" : "GET",
+  const response = await fetch(`${PROXY_URL}/lastfm/${method}`, {
+    method: "POST",
     headers: {
-      "User-Agent": "BritishRadioPlayer/1.0",
-      ...(post ? { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" } : {})
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+      "User-Agent": "BritishRadioPlayer/1.0"
     },
-    body: post ? body : undefined
+    body: JSON.stringify(params)
   });
+
   const data = await response.json().catch(() => null);
-  if (!response.ok || (data && typeof data === "object" && "error" in data)) {
+  if (!response.ok) {
     const errorMsg = data?.message || `Last.fm request failed (${response.status})`;
-    console.warn(`[LastFmApi] ${method} failed (${data?.error || response.status}): ${errorMsg}`);
-    throw new Error(errorMsg);
+    console.warn(`[LastFmApi] ${method} failed (${response.status}): ${errorMsg}`);
+    throw withStatus(new Error(errorMsg), response.status);
+  }
+  // Last.fm reports API-level errors (e.g. an invalid session key) in a body with
+  // either a 4xx or a 200 status, and the proxy passes them through. Treat them as
+  // failures, and keep the status so the outbox can tell a permanent rejection (bad
+  // key, missing route) from a transient one.
+  if (data && typeof data === "object" && "error" in data) {
+    console.warn(`[LastFmApi] ${method} failed (${data.error}): ${data.message}`);
+    throw withStatus(new Error(data.message || `Last.fm error ${data.error}`), 400);
   }
   return data;
+}
+
+/** Tags an error with its HTTP status so retry policy can distinguish 4xx from 5xx. */
+function withStatus(error: Error, status: number): Error {
+  (error as Error & { status?: number }).status = status;
+  return error;
 }
 
 const inFlightExchanges = new Map<string, Promise<{ username: string; sessionKey: string }>>();
 
 export const LastFmApi = {
-  isConfigured: () => Boolean(API_KEY && API_SECRET),
+  isConfigured: () => Boolean(PROXY_URL && API_KEY),
   authUrl: () => `https://www.last.fm/api/auth/?api_key=${encodeURIComponent(API_KEY)}&cb=${encodeURIComponent(LASTFM_CALLBACK)}`,
   async exchangeToken(token: string): Promise<{ username: string; sessionKey: string }> {
     const existing = inFlightExchanges.get(token);
@@ -75,7 +89,7 @@ export const LastFmApi = {
         sk: sessionKey,
         ...(album ? { album } : {}),
         ...(durationSec && durationSec > 0 ? { duration: String(durationSec) } : {})
-      }, true);
+      });
       console.log(`[LastFmApi] Now playing updated: ${artist} - ${track}`);
     } catch (err) {
       console.warn(`[LastFmApi] Failed to update now playing:`, err);
@@ -93,11 +107,19 @@ export const LastFmApi = {
         timestamp: String(timestampSec),
         ...(album ? { album } : {}),
         ...(durationSec && durationSec > 0 ? { duration: String(durationSec) } : {})
-      }, true);
+      });
 
+      // With format=json Last.fm returns scrobbles.scrobble as an array, so the
+      // ignoredMessage path is an array index rather than a bare property.
       const ignored = result?.scrobbles?.["@attr"]?.ignored;
       if (ignored && Number(ignored) > 0) {
-        const ignoredMsg = result?.scrobbles?.scrobble?.ignoredMessage?.["#text"] || "Track ignored by Last.fm";
+        const first = Array.isArray(result?.scrobbles?.scrobble)
+          ? result.scrobbles.scrobble[0]
+          : result?.scrobbles?.scrobble;
+        const rawMessage = first?.ignoredMessage;
+        const ignoredMsg =
+          (typeof rawMessage === "object" ? rawMessage?.["#text"] : rawMessage) ||
+          "Track ignored by Last.fm";
         console.warn(`[LastFmApi] Scrobble ignored by Last.fm (${ignoredMsg}): ${artist} - ${track}`);
         return false;
       }

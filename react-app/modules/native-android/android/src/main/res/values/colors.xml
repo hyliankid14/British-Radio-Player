@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <!-- Picker colours mirror the app's Material 3 palette so the sheet matches the app. -->
+  <color name="widget_config_background">#FEF7FF</color>
+  <color name="widget_config_on_background">#1D1B20</color>
+  <color name="widget_config_accent">#6200EE</color>
+</resources>

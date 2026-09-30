@@ -1,31 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import SparkMD5 from "spark-md5";
 
-test("Last.fm API signature computation matches RFC and Kotlin implementation", () => {
-  const params: Record<string, string> = {
-    method: "auth.getSession",
-    api_key: "my_api_key",
-    token: "my_token",
-    format: "json",
-    callback: "my_callback"
-  };
-  const secret = "my_secret";
+// The api_sig implementation moved to the signing proxy (api/lastfm_proxy.py) so the
+// shared secret is no longer shipped in the JS bundle. Its digest is pinned by
+// test_matches_the_known_good_digest in api/test_lastfm_proxy.py; the check here is
+// that this build carries no Last.fm secret at all.
 
-  // format and callback must be excluded, and params sorted alphabetically:
-  // api_key + my_api_key + method + auth.getSession + token + my_token + my_secret
-  const expectedString = "api_keymy_api_keymethodauth.getSessiontokenmy_tokenmy_secret";
-
-  const input = Object.keys(params)
-    .filter((key) => key !== "format" && key !== "callback")
-    .sort()
-    .map((key) => `${key}${params[key]}`)
-    .join("") + secret;
-
-  assert.equal(input, expectedString);
-  const signature = SparkMD5.hash(input);
-  // Expected md5 hash of "api_keymy_api_keymethodauth.getSessiontokenmy_tokenmy_secret"
-  assert.equal(signature, "fd1f5c26f12b34f3f19a4c506eee55a7");
+test("the app bundle carries no Last.fm shared secret", () => {
+  const secret = process.env.EXPO_PUBLIC_LASTFM_API_SECRET;
+  assert.equal(
+    secret,
+    undefined,
+    "EXPO_PUBLIC_LASTFM_API_SECRET must not be defined — Expo inlines it into the " +
+      "shipped JS bundle. Signing belongs to the first-party proxy."
+  );
 });
 
 import { calculateScrobbleThresholdMs } from "../src/audio/scrobbleThreshold.ts";

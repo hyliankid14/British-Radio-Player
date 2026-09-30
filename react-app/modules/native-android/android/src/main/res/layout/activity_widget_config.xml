@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  android:layout_width="match_parent"
+  android:layout_height="match_parent"
+  android:orientation="vertical"
+  android:background="@color/widget_config_background">
+
+  <TextView
+    android:id="@+id/widget_config_title"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:paddingStart="20dp"
+    android:paddingEnd="20dp"
+    android:paddingTop="24dp"
+    android:paddingBottom="12dp"
+    android:textSize="22sp"
+    android:textStyle="bold"
+    android:textColor="@color/widget_config_on_background"
+    android:text="@string/widget_config_title" />
+
+  <ListView
+    android:id="@+id/widget_station_list"
+    android:layout_width="match_parent"
+    android:layout_height="0dp"
+    android:layout_weight="1"
+    android:clipToPadding="false"
+    android:paddingBottom="12dp"
+    android:divider="@null"
+    android:dividerHeight="0dp" />
+
+  <TextView
+    android:id="@+id/widget_station_empty"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:padding="24dp"
+    android:visibility="gone"
+    android:textSize="16sp"
+    android:textColor="@color/widget_config_on_background"
+    android:text="@string/widget_config_empty" />
+</LinearLayout>

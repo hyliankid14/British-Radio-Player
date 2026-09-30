@@ -46,10 +46,18 @@ declare class NativeAndroidModule extends NativeModule<{}> {
   checkForUpdate(currentVersion: string): Promise<string>;
   /** Downloads the update APK and opens the system installer when complete. */
   downloadAndInstallUpdate(apkUrl: string, apkName: string): void;
-  /** Pushes the current station/show/playing state to the home screen widget. */
-  updateWidgetState(stationTitle: string, showTitle: string, isPlaying: boolean): void;
-  /** True when the app was launched by the widget's play/pause button. */
-  consumeWidgetToggle(): boolean;
+  /** Pushes the current station/show/playing state to the home screen widgets. */
+  updateWidgetState(
+    stationId: string,
+    stationTitle: string,
+    showLine: string,
+    isPlaying: boolean,
+    artworkUrl: string
+  ): void;
+  /** Stores the station catalogue the widget's station picker offers, as JSON. */
+  setWidgetCatalogue(stationsJson: string): void;
+  /** Returns the queued widget tap as `{"action","stationId"}`, or "" when there was none. */
+  consumeWidgetAction(): string;
   /** Returns the deep link or target URL when launched from a notification intent, else null. */
   consumeNotificationLaunch(): string | null;
   /** Pushes phone state to the Wear OS companion. */

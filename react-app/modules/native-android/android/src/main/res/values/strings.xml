@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-  <string name="widget_play_pause">Play or pause</string>
+  <string name="widget_label_resizable">British Radio Widget</string>
+  <string name="widget_config_title">Select a station for this widget</string>
+  <string name="widget_config_empty">Open British Radio Player once to load the station list, then add the widget again.</string>
+  <string name="widget_play_pause">Play or stop station</string>
+  <string name="widget_station_artwork">Station artwork</string>
+  <string name="widget_tap_to_play">Tap to play</string>
+  <string name="widget_live">Live now</string>
   <string name="widget_default_station">British Radio Player</string>
-  <string name="widget_default_show">Tap to open</string>
+  <string name="widget_default_show">Tap to play</string>
 </resources>

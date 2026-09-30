@@ -1,10 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  One scalable widget rather than three: the station is picked when the widget is added,
+  and the layout is chosen at render time from the size the launcher allocated. The
+  provider is not updated on a timer because every change comes from the player pushing
+  state down, and there is nothing to show before the app has ever run.
+-->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
-  android:minWidth="180dp"
-  android:minHeight="72dp"
-  android:targetCellWidth="3"
+  android:configure="com.hyliankid14.bbcradioplayer.nativeandroid.widget.WidgetConfigActivity"
+  android:initialLayout="@layout/widget_station_small"
+  android:previewLayout="@layout/widget_station_small"
+  android:minWidth="120dp"
+  android:minHeight="56dp"
+  android:targetCellWidth="2"
   android:targetCellHeight="1"
-  android:updatePeriodMillis="1800000"
-  android:initialLayout="@layout/widget_station"
   android:resizeMode="horizontal|vertical"
+  android:updatePeriodMillis="0"
   android:widgetCategory="home_screen" />

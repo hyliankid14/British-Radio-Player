@@ -25,6 +25,7 @@ import {
 } from "../../src/api/podcasts";
 import { Preferences } from "../../src/storage/preferences";
 import { applyLanguageFilter } from "../../src/podcasts/languageFilter";
+import { ensureLanguageIndex } from "../../src/podcasts/languageResolver";
 import { OfflineBanner, VpnBanner } from "../../src/components/NetworkBanners";
 import { NativeAndroid } from "../../src/native/nativeAndroid";
 import { usePlayerStore } from "../../src/store/playerStore";
@@ -189,6 +190,15 @@ export default function PodcastsScreen() {
 
         rawCatalogRef.current = cats;
         setCatalog(applyLanguageFilter(cats));
+
+        // Resolve catalogue languages in the background when the filter is on, and
+        // re-filter as each batch lands. Until then the filter falls back to a text
+        // guess, so Welsh and Gaelic podcasts may appear briefly.
+        if (Preferences.getSetting("pref_exclude_non_english", false)) {
+          ensureLanguageIndex(cats, () => {
+            if (mounted) setCatalog(applyLanguageFilter(cats));
+          });
+        }
 
         // Map popular ranks (1-based rank by play count)
         const ranks = new Map<string, number>();

@@ -27,6 +27,7 @@ object WearSync {
   private const val KEY_HAS_EPISODE_SNAPSHOT = "has_episode_snapshot"
   private const val KEY_UPDATED_AT = "updated_at"
   private const val KEY_LASTFM_SESSION_KEY = "lastfm_session_key"
+  private const val KEY_LASTFM_PROXY_URL = "lastfm_proxy_url"
   private const val KEY_LASTFM_USERNAME = "lastfm_username"
   private const val KEY_LASTFM_DIRECT_ENABLED = "lastfm_direct_enabled"
   private const val KEY_LASTFM_BROADCAST_ENABLED = "lastfm_broadcast_enabled"
@@ -54,6 +55,7 @@ object WearSync {
       dataMap.putString(KEY_EPISODE_PROGRESS_JSON, payload.optString(KEY_EPISODE_PROGRESS_JSON, "{}"))
       dataMap.putString(KEY_HISTORY_META_JSON, payload.optString(KEY_HISTORY_META_JSON, ""))
       dataMap.putString(KEY_LASTFM_SESSION_KEY, payload.optString(KEY_LASTFM_SESSION_KEY, ""))
+      dataMap.putString(KEY_LASTFM_PROXY_URL, payload.optString(KEY_LASTFM_PROXY_URL, ""))
       dataMap.putString(KEY_LASTFM_USERNAME, payload.optString(KEY_LASTFM_USERNAME, ""))
       dataMap.putBoolean(KEY_LASTFM_DIRECT_ENABLED, payload.optBoolean(KEY_LASTFM_DIRECT_ENABLED, false))
       dataMap.putBoolean(KEY_LASTFM_BROADCAST_ENABLED, payload.optBoolean(KEY_LASTFM_BROADCAST_ENABLED, true))
@@ -81,6 +83,7 @@ object WearSync {
       put(KEY_EPISODE_PROGRESS_JSON, progressJson)
       put(KEY_HISTORY_META_JSON, dataMap.getString(KEY_HISTORY_META_JSON).orEmpty())
       put(KEY_LASTFM_SESSION_KEY, dataMap.getString(KEY_LASTFM_SESSION_KEY).orEmpty())
+      put(KEY_LASTFM_PROXY_URL, dataMap.getString(KEY_LASTFM_PROXY_URL).orEmpty())
       put(KEY_LASTFM_USERNAME, dataMap.getString(KEY_LASTFM_USERNAME).orEmpty())
       put(KEY_LASTFM_DIRECT_ENABLED, dataMap.getBoolean(KEY_LASTFM_DIRECT_ENABLED, false))
       put(KEY_LASTFM_BROADCAST_ENABLED, dataMap.getBoolean(KEY_LASTFM_BROADCAST_ENABLED, true))

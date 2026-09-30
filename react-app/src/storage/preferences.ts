@@ -4,6 +4,8 @@ import { AudioQuality } from "../data/stations";
 import { mergeEpisodeProgress } from "./episodeProgress";
 import { LastPlayed, normalizeLastPlayed, parseLastPlayed } from "./lastPlayed";
 import { configureGeoBlockedStorage } from "../utils/geoBlock";
+import type { QueuedScrobble } from "../audio/scrobbleQueue";
+import { sanitizeScrobbleQueue } from "../audio/scrobbleQueue";
 
 export type { LastPlayed };
 
@@ -126,6 +128,8 @@ const KEYS = {
   LASTFM_LAST_SCROBBLED: "pref_lastfm_last_scrobbled",
   LASTFM_LAST_SCROBBLED_TIME_MS: "pref_lastfm_last_scrobbled_time_ms",
   LASTFM_RECENT_SCROBBLES: "pref_lastfm_recent_scrobbles"
+  ,LASTFM_OUTBOX: "pref_lastfm_outbox"
+  ,LASTFM_LAST_ERROR: "pref_lastfm_last_error"
   ,AUTO_QUALITY: "pref_auto_quality"
   ,PODCAST_ARTWORK: "pref_podcast_artwork"
   ,PAUSE_BUFFERING: "pref_pause_buffering"
@@ -160,6 +164,10 @@ const KEYS = {
   ,ANONYMOUS_INSTALL_ID: "pref_anon_install_id"
   ,PODCAST_RATINGS_CACHE: "cache_podcast_ratings_data"
   ,LAST_PLAYED: "pref_last_played"
+  // Podcast language index. A PID's BBC service and its feed language never change,
+  // so these are written once per podcast and never expire.
+  ,PODCAST_SERVICES_CACHE: "cache_podcast_services_data"
+  ,PODCAST_LANGUAGES_CACHE: "cache_podcast_languages_data"
 };
 
 /** Callbacks fired whenever an episode is marked as played. See `onEpisodePlayed`. */
@@ -277,6 +285,38 @@ export const Preferences = {
         track: parts.slice(1).join(" - ") || parts[0] || "",
         timestampMs: Date.now()
       });
+    }
+  },
+
+  /** Scrobbles still waiting to be accepted by Last.fm. Newest first. */
+  getLastFmOutbox(): QueuedScrobble[] {
+    const raw = storage.getString(KEYS.LASTFM_OUTBOX);
+    if (!raw) return [];
+    try {
+      return sanitizeScrobbleQueue(JSON.parse(raw));
+    } catch {
+      return [];
+    }
+  },
+
+  setLastFmOutbox(queue: QueuedScrobble[]): void {
+    if (queue.length === 0) {
+      storage.remove(KEYS.LASTFM_OUTBOX);
+      return;
+    }
+    storage.set(KEYS.LASTFM_OUTBOX, JSON.stringify(queue));
+  },
+
+  /** Most recent scrobble delivery failure, shown on the Last.fm settings page. */
+  getLastFmLastError(): string {
+    return storage.getString(KEYS.LASTFM_LAST_ERROR) || "";
+  },
+
+  setLastFmLastError(value: string): void {
+    if (value) {
+      storage.set(KEYS.LASTFM_LAST_ERROR, value);
+    } else {
+      storage.remove(KEYS.LASTFM_LAST_ERROR);
     }
   },
   getRecentSongs(): {
@@ -1132,6 +1172,39 @@ export const Preferences = {
   setCachedNewPodcasts(entries: { id: string; title: string; first_seen_epoch_ms?: number; oldest_pub_epoch_ms?: number }[]): void {
     storage.set(KEYS.NEW_PODCASTS_CACHE, JSON.stringify(entries.slice(0, 50)));
     storage.set(KEYS.NEW_PODCASTS_CACHE_AT, Date.now());
+  },
+
+  // ── Podcast language index (permanent, no TTL) ──
+
+  /** Podcast PID to its BBC service key, e.g. `radio4`, `radiocymru`. */
+  getPodcastServiceMap(): Record<string, string> {
+    return this.getStringMap(KEYS.PODCAST_SERVICES_CACHE);
+  },
+
+  /** Podcast PID to the `<language>` tag from its RSS feed, e.g. `cy`, `en-gb`. */
+  getPodcastLanguageMap(): Record<string, string> {
+    return this.getStringMap(KEYS.PODCAST_LANGUAGES_CACHE);
+  },
+
+  /**
+   * @internal Merge freshly resolved service keys. Written in batches by the language
+   * resolver, which resolves the whole catalogue in one pass rather than per podcast.
+   */
+  _mergePodcastServices(entries: Record<string, string>): void {
+    if (Object.keys(entries).length === 0) return;
+    storage.set(
+      KEYS.PODCAST_SERVICES_CACHE,
+      JSON.stringify({ ...this.getPodcastServiceMap(), ...entries })
+    );
+  },
+
+  /** @internal Merge freshly resolved feed language tags. Batched, like the service map. */
+  _mergePodcastLanguages(entries: Record<string, string>): void {
+    if (Object.keys(entries).length === 0) return;
+    storage.set(
+      KEYS.PODCAST_LANGUAGES_CACHE,
+      JSON.stringify({ ...this.getPodcastLanguageMap(), ...entries })
+    );
   },
 
   /**

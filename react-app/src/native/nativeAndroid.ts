@@ -1,4 +1,5 @@
 import { Platform } from "react-native";
+import { parseWidgetAction, type WidgetAction } from "../widgets/widgetSync";
 
 interface NativeAndroidBridge {
   hasLegacyData(): boolean;
@@ -33,8 +34,15 @@ interface NativeAndroidBridge {
   ): { remove(): void };
   checkForUpdate(currentVersion: string): Promise<string>;
   downloadAndInstallUpdate(apkUrl: string, apkName: string): void;
-  updateWidgetState(stationTitle: string, showTitle: string, isPlaying: boolean): void;
-  consumeWidgetToggle(): boolean;
+  updateWidgetState(
+    stationId: string,
+    stationTitle: string,
+    showLine: string,
+    isPlaying: boolean,
+    artworkUrl: string
+  ): void;
+  setWidgetCatalogue(stationsJson: string): void;
+  consumeWidgetAction(): string;
   consumeNotificationLaunch(): string | null;
   pushWearState(payloadJson: string): void;
   addListener(
@@ -325,20 +333,36 @@ export const NativeAndroid = {
   },
 
   /** Pushes playback state to the home screen widget. */
-  updateWidgetState(stationTitle: string, showTitle: string, isPlaying: boolean): void {
+  updateWidgetState(
+    stationId: string,
+    stationTitle: string,
+    showLine: string,
+    isPlaying: boolean,
+    artworkUrl: string
+  ) {
     try {
-      load()?.updateWidgetState(stationTitle, showTitle, isPlaying);
+      load()?.updateWidgetState(stationId, stationTitle, showLine, isPlaying, artworkUrl);
     } catch {
       // Ignore.
     }
   },
 
-  /** True when the app was launched by the widget toggle button. */
-  consumeWidgetToggle(): boolean {
+  /** Stores the station list the widget's station picker offers. */
+  setWidgetCatalogue(stationsJson: string) {
     try {
-      return load()?.consumeWidgetToggle() ?? false;
+      load()?.setWidgetCatalogue(stationsJson);
     } catch {
-      return false;
+      // Ignore.
+    }
+  },
+
+  /** The tap the user made on a widget as `{ action, stationId }`, or null if there was none. */
+  consumeWidgetAction(): WidgetAction | null {
+    try {
+      const raw = load()?.consumeWidgetAction();
+      return raw ? parseWidgetAction(raw) : null;
+    } catch {
+      return null;
     }
   },
 

@@ -27,6 +27,7 @@ object WatchAppStateSync {
     private const val KEY_HAS_EPISODE_SNAPSHOT = "has_episode_snapshot"
     private const val KEY_UPDATED_AT = "updated_at"
     private const val KEY_LASTFM_SESSION_KEY = "lastfm_session_key"
+    private const val KEY_LASTFM_PROXY_URL = "lastfm_proxy_url"
     private const val KEY_LASTFM_USERNAME = "lastfm_username"
     private const val KEY_LASTFM_DIRECT_ENABLED = "lastfm_direct_enabled"
     private const val KEY_LASTFM_BROADCAST_ENABLED = "lastfm_broadcast_enabled"
@@ -132,6 +133,7 @@ object WatchAppStateSync {
         if (item.dataMap.containsKey(KEY_LASTFM_SESSION_KEY) || item.dataMap.containsKey(KEY_LASTFM_DIRECT_ENABLED)) {
             val sessionKey = item.dataMap.getString(KEY_LASTFM_SESSION_KEY).orEmpty()
             val username = item.dataMap.getString(KEY_LASTFM_USERNAME).orEmpty()
+            val proxyUrl = item.dataMap.getString(KEY_LASTFM_PROXY_URL).orEmpty()
             val directEnabled = item.dataMap.getBoolean(KEY_LASTFM_DIRECT_ENABLED, true)
             val broadcastEnabled = item.dataMap.getBoolean(KEY_LASTFM_BROADCAST_ENABLED, true)
             val scrobblePodcasts = item.dataMap.getBoolean(KEY_LASTFM_SCROBBLE_PODCASTS, false)
@@ -139,6 +141,7 @@ object WatchAppStateSync {
                 context,
                 sessionKey,
                 username,
+                proxyUrl,
                 directEnabled,
                 broadcastEnabled,
                 scrobblePodcasts
@@ -223,6 +226,7 @@ object WatchAppStateSync {
         if (json.has(KEY_LASTFM_SESSION_KEY) || json.has(KEY_LASTFM_DIRECT_ENABLED)) {
             val sessionKey = json.optString(KEY_LASTFM_SESSION_KEY, "")
             val username = json.optString(KEY_LASTFM_USERNAME, "")
+            val proxyUrl = json.optString(KEY_LASTFM_PROXY_URL, "")
             val directEnabled = json.optBoolean(KEY_LASTFM_DIRECT_ENABLED, true)
             val broadcastEnabled = json.optBoolean(KEY_LASTFM_BROADCAST_ENABLED, true)
             val scrobblePodcasts = json.optBoolean(KEY_LASTFM_SCROBBLE_PODCASTS, false)
@@ -230,6 +234,7 @@ object WatchAppStateSync {
                 context,
                 sessionKey,
                 username,
+                proxyUrl,
                 directEnabled,
                 broadcastEnabled,
                 scrobblePodcasts

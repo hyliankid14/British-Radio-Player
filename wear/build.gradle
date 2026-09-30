@@ -21,8 +21,10 @@ if (_lpf.exists()) { _lpf.withInputStream { s -> ext.localProps.load(s) } }
 
 // Analytics endpoint URL — set in local.properties or env to override the default.
 def analyticsEndpoint = (project.hasProperty("ANALYTICS_ENDPOINT_URL") ? project.property("ANALYTICS_ENDPOINT_URL") : ext.localProps.getProperty("ANALYTICS_ENDPOINT_URL") ?: System.getenv("ANALYTICS_ENDPOINT_URL") ?: "").toString()
-def lastfmApiKey    = (project.hasProperty("LASTFM_API_KEY")    ? project.property("LASTFM_API_KEY")    : ext.localProps.getProperty("LASTFM_API_KEY")    ?: System.getenv("LASTFM_API_KEY")    ?: "").toString()
-def lastfmApiSecret = (project.hasProperty("LASTFM_API_SECRET") ? project.property("LASTFM_API_SECRET") : ext.localProps.getProperty("LASTFM_API_SECRET") ?: System.getenv("LASTFM_API_SECRET") ?: "").toString()
+// No LASTFM_API_SECRET here on purpose: it would be baked into the APK and readable
+// by anyone who unpacks it. Signed Last.fm calls go through the first-party signing
+// proxy instead, and the phone pushes its URL to the watch at runtime.
+def lastfmApiKey    = (project.hasProperty("LASTFM_API_KEY") ? project.property("LASTFM_API_KEY") : ext.localProps.getProperty("LASTFM_API_KEY") ?: System.getenv("LASTFM_API_KEY") ?: "").toString()
 
 android {
     namespace "com.hyliankid14.bbcradioplayer.wear"
@@ -39,7 +41,6 @@ android {
         // Falls back to the hardcoded default in PrivacyAnalytics.kt if blank.
         buildConfigField "String", "ANALYTICS_ENDPOINT_URL", "\"${analyticsEndpoint}\""
         buildConfigField "String", "LASTFM_API_KEY", "\"${lastfmApiKey}\""
-        buildConfigField "String", "LASTFM_API_SECRET", "\"${lastfmApiSecret}\""
     }
 
     signingConfigs {

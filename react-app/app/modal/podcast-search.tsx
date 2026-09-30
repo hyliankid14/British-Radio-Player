@@ -30,6 +30,7 @@ import {
 } from "../../src/api/podcasts";
 import { Preferences } from "../../src/storage/preferences";
 import { applyLanguageFilter } from "../../src/podcasts/languageFilter";
+import { ensureLanguageIndex } from "../../src/podcasts/languageResolver";
 import {
   appendEpisodePage,
   emptyEpisodePageState,
@@ -153,6 +154,13 @@ export default function PodcastSearchScreen() {
     PodcastApi.fetchLiveCatalog().then((cats) => {
       if (!mounted) return;
       setCatalog(applyLanguageFilter(cats));
+      // Same background language index as the Podcasts tab, so results stop showing
+      // Welsh and Gaelic podcasts once their feed languages are known.
+      if (Preferences.getSetting("pref_exclude_non_english", false)) {
+        ensureLanguageIndex(cats, () => {
+          if (mounted) setCatalog(applyLanguageFilter(cats));
+        });
+      }
       const ids = cats.map((p) => p.id);
       PodcastApi.fetchRatings(ids).then((ratings) => {
         if (mounted) setPodcastRatings(ratings);

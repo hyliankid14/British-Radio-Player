@@ -32,12 +32,25 @@
       android:exported="true">
       <intent-filter>
         <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-        <action android:name="com.hyliankid14.bbcradioplayer.action.WIDGET_UPDATE" />
+        <action android:name="com.hyliankid14.bbcradioplayer.action.WIDGET_ACTION" />
       </intent-filter>
       <meta-data
         android:name="android.appwidget.provider"
         android:resource="@xml/widget_station_info" />
     </receiver>
+
+    <!-- Shown by the launcher when a widget is added, to pick the station it plays. -->
+    <activity
+      android:name=".widget.WidgetConfigActivity"
+      android:excludeFromRecents="true"
+      android:exported="true"
+      android:launchMode="singleTop"
+      android:taskAffinity=""
+      android:theme="@style/WidgetConfigTheme">
+      <intent-filter>
+        <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+      </intent-filter>
+    </activity>
 
     <service
       android:name=".WearListenerService"

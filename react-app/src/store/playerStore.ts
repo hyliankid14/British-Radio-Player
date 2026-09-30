@@ -12,6 +12,7 @@ import { CurrentShow, fetchShowInfo, onRmsDelayedUpdate, resetStationRmsDelay, i
 import { useStationShowStore } from "./stationShowStore";
 import { Podcast, Episode, PodcastApi } from "../api/podcasts";
 import { ScrobbleManager } from "../audio/scrobbleManager";
+import { ScrobbleOutbox } from "../audio/scrobbleOutbox";
 import { notifyNativePhonePlaybackStarted } from "../auto/autoBridge";
 import { notifyCarPlayPhonePlaybackStopped } from "../auto/carPlayBridge";
 import { getDownloadedUri } from "../downloads/downloadStore";
@@ -225,6 +226,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       favorites: Preferences.getFavorites(),
       playbackError: null
     });
+    // Deliver anything left queued by a previous run before a new scrobble is added.
+    ScrobbleOutbox.flush();
   },
 
   playStation: async (station: Station) => {

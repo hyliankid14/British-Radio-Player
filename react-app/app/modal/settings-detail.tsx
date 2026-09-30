@@ -639,12 +639,17 @@ function BackupPage() {
 
 // ─── LAST.FM PAGE ───────────────────────────────────────────────────────────
 
+/** How many recently scrobbled tracks the settings page lists. */
+const RECENT_SCROBBLE_DISPLAY_LIMIT = 5;
+
 function LastFmPage() {
   const theme = useAppTheme();
   const [settings, setSettings] = useState(Preferences.getLastFm());
   const [recentScrobbles, setRecentScrobbles] = useState<LastFmScrobbleEntry[]>(() =>
     Preferences.getLastFmRecentScrobbles()
   );
+  const [pendingCount, setPendingCount] = useState(() => Preferences.getLastFmOutbox().length);
+  const [lastError, setLastError] = useState(() => Preferences.getLastFmLastError());
   const now = useNow();
 
   useEffect(() => {
@@ -652,6 +657,8 @@ function LastFmPage() {
       if (key.startsWith("pref_lastfm")) {
         setSettings(Preferences.getLastFm());
         setRecentScrobbles(Preferences.getLastFmRecentScrobbles());
+        setPendingCount(Preferences.getLastFmOutbox().length);
+        setLastError(Preferences.getLastFmLastError());
       }
     });
     return () => subscription.remove();
@@ -659,7 +666,11 @@ function LastFmPage() {
 
   const connect = async () => {
     if (!LastFmApi.isConfigured()) {
-      Alert.alert("Last.fm setup required", "Configure the Last.fm API key and secret before connecting.");
+      Alert.alert(
+        "Last.fm setup required",
+        "This build has no Last.fm scrobbling proxy configured, so songs cannot be " +
+          "sent to Last.fm. Reinstall a build that includes the proxy URL."
+      );
       return;
     }
     await Linking.openURL(LastFmApi.authUrl());
@@ -755,14 +766,37 @@ function LastFmPage() {
 
       <SettingsSectionHeader label="ACTIVITY & INFO" />
       <SettingsCard>
-        <Text style={[styles.cardTitle, { color: theme.onSurface, marginBottom: 4 }]}>Recent scrobbles</Text>
+        {pendingCount > 0 || lastError ? (
+          <View
+            style={[
+              styles.statusBanner,
+              { backgroundColor: lastError ? "#E5484D18" : theme.primaryContainer + "40" }
+            ]}
+          >
+            <Text style={[styles.cardTitle, { color: lastError ? "#E5484D" : theme.onSurface }]}>
+              {pendingCount === 1
+                ? "1 scrobble has not reached Last.fm"
+                : `${pendingCount} scrobbles have not reached Last.fm`}
+            </Text>
+            <Text style={[styles.cardSubtitle, { color: theme.onSurfaceVariant }]}>
+              {lastError
+                ? `Last attempt failed: ${lastError}. These tracks are queued and will be sent once this is fixed.`
+                : "These tracks are queued and will be sent automatically."}
+            </Text>
+          </View>
+        ) : null}
+        <Text style={[styles.cardTitle, { color: theme.onSurface, marginBottom: 4, marginTop: pendingCount > 0 || lastError ? 16 : 0 }]}>
+          Recent scrobbles
+        </Text>
         {recentScrobbles.length === 0 ? (
           <Text style={[styles.cardSubtitle, { color: theme.onSurfaceVariant, marginBottom: 12 }]}>
-            No tracks scrobbled yet
+            {pendingCount > 0
+              ? "Nothing has been confirmed by Last.fm yet"
+              : "No tracks scrobbled yet"}
           </Text>
         ) : (
           <View style={{ marginTop: 4, marginBottom: 12 }}>
-            {recentScrobbles.slice(0, 10).map((item, index) => {
+            {recentScrobbles.slice(0, RECENT_SCROBBLE_DISPLAY_LIMIT).map((item, index) => {
               const playedAt = formatSongPlayedAt(item.timestampMs, now);
               return (
                 <View key={`${item.artist}-${item.track}-${item.timestampMs}-${index}`}>
@@ -1340,7 +1374,7 @@ function IndexingPage() {
         <SwitchRow
           icon="translate"
           title="Exclude non-English podcasts"
-          subtitle="Hides BBC World Service foreign language editions from search & lists"
+          subtitle="Hides non-English podcasts, including BBC World Service, Welsh and Gaelic editions, from search & lists"
           value={excludeEnglish}
           onChange={toggleExcludeEnglish}
         />
@@ -1810,6 +1844,10 @@ const styles = StyleSheet.create({
   },
   cardTitle: { fontSize: 16, fontWeight: "600" },
   cardSubtitle: { fontSize: 13, lineHeight: 18, marginTop: 3 },
+  statusBanner: {
+    borderRadius: 12,
+    padding: 12,
+  },
   separator: { height: StyleSheet.hairlineWidth, marginVertical: 12 },
   flex: { flex: 1 },
   disabled: { opacity: 0.45 },

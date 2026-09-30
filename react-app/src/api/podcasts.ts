@@ -1,5 +1,6 @@
 import { Preferences } from "../storage/preferences";
 import { normalizeBbcAudioUrl } from "../utils/shareLinks";
+import { harvestFeedLanguage } from "../podcasts/languageResolver";
 
 export const PI_BASE_URL = "https://bbc-radio.shai.website";
 export const BBC_OPML_URL = "https://www.bbc.co.uk/radio/opml/bbc_podcast_opml.xml";
@@ -574,6 +575,10 @@ export const PodcastApi = {
         });
         if (!res.ok) return episodesCache.get(podcastId) || [];
         const xmlText = await res.text();
+
+        // We are already paying for this feed, so record its language for the
+        // "Exclude non-English podcasts" filter instead of spending a request on it.
+        harvestFeedLanguage(podcastId, xmlText);
 
         // Extract channel image
         let channelImage = "";
