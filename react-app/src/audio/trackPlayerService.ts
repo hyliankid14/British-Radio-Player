@@ -37,6 +37,14 @@ export async function playbackService(): Promise<void> {
   TrackPlayer.addEventListener(Event.PlaybackQueueEnded, () => {
     void usePlayerStore.getState().handleEpisodeEnded();
   });
+
+  TrackPlayer.addEventListener(Event.PlaybackError, (error) => {
+    void usePlayerStore.getState().handlePlaybackError(error);
+  });
+
+  TrackPlayer.addEventListener(Event.PlaybackState, (event) => {
+    usePlayerStore.getState().handlePlaybackState(event.state);
+  });
 }
 
 let isSetup = false;

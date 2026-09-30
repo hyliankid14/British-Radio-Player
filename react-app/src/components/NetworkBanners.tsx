@@ -3,8 +3,9 @@ import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
 import { create } from "zustand";
-import { useAppTheme } from "../theme/colors";
+import { useAppTheme, useIsDarkTheme } from "../theme/colors";
 import { useNetworkStatus } from "../store/networkStore";
+import { usePlayerStore } from "../store/playerStore";
 
 /**
  * Session-scoped store ensuring the VPN warning banner appears at most once per user session,
@@ -119,6 +120,36 @@ export function VpnBanner() {
   );
 }
 
+/**
+ * Banner shown when playback fails, e.g. due to regional geo-blocking or rights restrictions.
+ */
+export function PlaybackErrorBanner() {
+  const isDark = useIsDarkTheme();
+  const playbackError = usePlayerStore((state) => state.playbackError);
+  const clearPlaybackError = usePlayerStore((state) => state.clearPlaybackError);
+
+  if (!playbackError) return null;
+
+  const bg = isDark ? "#442726" : "#FFEBEE";
+  const fg = isDark ? "#F2B8B5" : "#B71C1C";
+
+  return (
+    <View style={[styles.errorBanner, { backgroundColor: bg }]}>
+      <MaterialIcons name="error-outline" size={20} color={fg} />
+      <Text style={[styles.errorText, { color: fg }]}>
+        {playbackError}
+      </Text>
+      <TouchableOpacity
+        onPress={clearPlaybackError}
+        style={styles.errorDismiss}
+        accessibilityLabel="Dismiss playback error"
+      >
+        <MaterialIcons name="close" size={20} color={fg} />
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   offlineBanner: {
     flexDirection: "row",
@@ -147,6 +178,21 @@ const styles = StyleSheet.create({
     paddingVertical: 4
   },
   vpnDismiss: {
+    padding: 8
+  },
+  errorBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 10
+  },
+  errorText: {
+    flex: 1,
+    marginLeft: 10,
+    fontSize: 13,
+    fontWeight: "600"
+  },
+  errorDismiss: {
     padding: 8
   }
 });

@@ -3,6 +3,7 @@ import { NativeAndroid } from "../native/nativeAndroid";
 import { AudioQuality } from "../data/stations";
 import { mergeEpisodeProgress } from "./episodeProgress";
 import { LastPlayed, normalizeLastPlayed, parseLastPlayed } from "./lastPlayed";
+import { configureGeoBlockedStorage } from "../utils/geoBlock";
 
 export type { LastPlayed };
 
@@ -1500,3 +1501,8 @@ export const Preferences = {
     } catch {}
   },
 };
+
+configureGeoBlockedStorage({
+  getGeoBlocked: () => Preferences.getGeoBlocked(),
+  setGeoBlocked: (val: boolean) => Preferences.setGeoBlocked(val)
+});

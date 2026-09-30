@@ -37,16 +37,35 @@ test("Stream Candidates - candidate prioritization and fallbacks", () => {
   const uriLow = getStationUri(r5, "LOW");
   assert.ok(uriLow.includes("bitrate=48000"), "Low URI should match 48000 bitrate");
 
-  // Stream candidates
+  // Stream candidates for Radio 5 Live
   const candidatesHigh = getStreamCandidates(r5, "HIGH", false);
   assert.ok(candidatesHigh.length > 0, "Candidates should not be empty");
+  assert.ok(candidatesHigh[0].includes("/hls/uk/"), "First candidate for UK should be UK HLS stream");
+  assert.ok(candidatesHigh.some(c => c.includes("/hls/nonuk/")), "Candidates should include non-UK fallback");
 
-  // Geo-blocked stream candidates
+  // Geo-blocked stream candidates for Radio 5 Live
   const candidatesGeo = getStreamCandidates(r5, "HIGH", true);
   assert.ok(candidatesGeo.length > 0, "Geo candidates should not be empty");
+  assert.ok(candidatesGeo[0].includes("/hls/nonuk/"), "First candidate for geo-blocked should be international stream");
   for (const c of candidatesGeo) {
-    assert.ok(!c.includes("&uk=1"), `Geo-blocked candidate should not be UK-only: ${c}`);
+    assert.ok(!c.includes("&uk=1") && !c.includes("/live/uk/") && !c.includes("/hls/uk/"), `Geo-blocked candidate should not be UK-only: ${c}`);
   }
+
+  // Radio 1 UK vs geo-blocked prioritization
+  const r1 = StationRepository.getById("radio1")!;
+  assert.ok(r1, "Radio 1 must exist");
+  const r1UkCandidates = getStreamCandidates(r1, "HIGH", false);
+  const r1NonUkCandidates = getStreamCandidates(r1, "HIGH", true);
+  assert.ok(r1UkCandidates[0].includes("/hls/uk/"), "UK Radio 1 candidate must prioritize UK HLS");
+  assert.ok(r1NonUkCandidates[0].includes("/hls/nonuk/"), "Geo-blocked Radio 1 candidate must prioritize international HLS");
+
+  // UK-only stations (Sports Extra 2 & 3)
+  const se2 = StationRepository.getById("radio5livesportsextra2")!;
+  assert.ok(se2, "Sports Extra 2 must exist");
+  const se2UkCandidates = getStreamCandidates(se2, "HIGH", false);
+  const se2GeoCandidates = getStreamCandidates(se2, "HIGH", true);
+  assert.ok(se2UkCandidates.length > 0, "Sports Extra 2 has UK stream candidates");
+  assert.equal(se2GeoCandidates.length, 0, "Sports Extra 2 has no international stream candidates");
 });
 
 test("ShowInfo - formatShowDisplayTitle", () => {

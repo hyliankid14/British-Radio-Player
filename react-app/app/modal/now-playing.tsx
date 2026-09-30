@@ -24,7 +24,7 @@ import { SeekBar } from "../../src/components/SeekBar";
 import { Preferences } from "../../src/storage/preferences";
 import { toSavedEpisodeEntry, useDownloadStore } from "../../src/downloads/downloadStore";
 import { NativeAndroid, ArtworkPalette } from "../../src/native/nativeAndroid";
-import { OfflineBanner, VpnBanner } from "../../src/components/NetworkBanners";
+import { OfflineBanner, VpnBanner, PlaybackErrorBanner } from "../../src/components/NetworkBanners";
 import { fitNowPlayingArtworkSize, useResponsiveLayout } from "../../src/theme/responsive";
 import { shareEpisode } from "../../src/utils/share";
 
@@ -541,6 +541,7 @@ export default function NowPlayingModal() {
 
       <OfflineBanner />
       <VpnBanner />
+      <PlaybackErrorBanner />
 
       <ScrollView
         contentContainerStyle={styles.scrollContent}

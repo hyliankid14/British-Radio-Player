@@ -38,11 +38,15 @@ import { NativeAndroid, AlarmLaunch } from "../src/native/nativeAndroid";
 import { StationRepository } from "../src/data/stations";
 import { formatShowDisplayTitle } from "../src/api/showInfo";
 import { RadioAlarm } from "../src/audio/radioAlarm";
+import { probeGeoBlock } from "../src/utils/geoBlock";
 
 LogBox.ignoreAllLogs();
 
 // Register playback service
 TrackPlayer.registerPlaybackService(() => playbackService);
+
+// Run geo-probe on startup to identify regional availability
+void probeGeoBlock();
 
 // Convert any data left behind by the legacy Kotlin build before anything reads preferences.
 runLegacyMigration();

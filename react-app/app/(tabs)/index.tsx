@@ -20,7 +20,7 @@ import { useStationShowStore } from "../../src/store/stationShowStore";
 import { StationLogo } from "../../src/components/StationLogo";
 import { useAppTheme } from "../../src/theme/colors";
 import { Preferences } from "../../src/storage/preferences";
-import { OfflineBanner, VpnBanner } from "../../src/components/NetworkBanners";
+import { OfflineBanner, VpnBanner, PlaybackErrorBanner } from "../../src/components/NetworkBanners";
 import { formatSongPlayedAt } from "../../src/utils/dateUtils";
 import { useNow } from "../../src/hooks/useNow";
 import { isPlaceholderArtwork } from "../../src/api/showInfo";
@@ -244,6 +244,7 @@ export default function AllStationsScreen() {
 
       <OfflineBanner />
       <VpnBanner />
+      <PlaybackErrorBanner />
 
       {/* Underline Tabs: National, Regions, Local, Songs */}
       <View

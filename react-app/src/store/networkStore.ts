@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import NetInfo, { NetInfoState } from "@react-native-community/netinfo";
 import { NativeAndroid } from "../native/nativeAndroid";
+import { probeGeoBlock } from "../utils/geoBlock";
 
 export interface NetworkStatus {
   isOnline: boolean;
@@ -34,12 +35,19 @@ function emit(status: NetworkStatus): void {
 function ensureSubscribed(): void {
   if (subscription) return;
   subscription = NetInfo.addEventListener((state) => {
-    emit(toStatus(state));
+    const status = toStatus(state);
+    emit(status);
+    if (status.isOnline) {
+      void probeGeoBlock();
+    }
   });
   // VPN state is not surfaced by NetInfo, so refresh it on a slow poll.
   setInterval(() => {
     const vpn = NativeAndroid.isVpnActive();
-    if (vpn !== cached.isVpn) emit({ ...cached, isVpn: vpn });
+    if (vpn !== cached.isVpn) {
+      emit({ ...cached, isVpn: vpn });
+      void probeGeoBlock(true);
+    }
   }, 15000);
 }
 

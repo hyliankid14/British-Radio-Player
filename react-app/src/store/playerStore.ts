@@ -13,6 +13,8 @@ import { deleteDownloadWhenPlayed, pruneDownloads, setDownloadInUseEpisode } fro
 import { getNetworkStatus } from "./networkStore";
 import { trackEpisodePlay, trackStationPlay } from "../analytics/analytics";
 
+import { probeGeoBlock, isStationUkOnly } from "../utils/geoBlock";
+
 interface PlayerState {
   currentStation: Station | null;
   currentShow: CurrentShow | null;
@@ -24,6 +26,7 @@ interface PlayerState {
   favorites: string[];
   positionSeconds: number;
   durationSeconds: number;
+  playbackError: string | null;
   init: () => Promise<void>;
   playStation: (station: Station) => Promise<void>;
   playEpisode: (podcast: Podcast, episode: Episode) => Promise<void>;
@@ -43,6 +46,9 @@ interface PlayerState {
   playPrevious: () => Promise<void>;
   handleEpisodeProgress: (positionSeconds: number, durationSeconds: number) => void;
   handleEpisodeEnded: () => Promise<void>;
+  clearPlaybackError: () => void;
+  handlePlaybackError: (error: any) => Promise<void>;
+  handlePlaybackState: (state: State) => void;
 }
 
 let showInfoInterval: any = null;
@@ -95,6 +101,102 @@ function resolvePodcastArtwork(podcast?: Podcast | null, episode?: Episode | nul
   return preference === "podcast" ? (podImg || epImg) : (epImg || podImg);
 }
 
+let stationCandidates: string[] = [];
+let stationCandidateIndex = 0;
+let stationBeingPlayed: Station | null = null;
+let stationPlaybackSessionId = 0;
+
+async function tryNextStationCandidate(sessionId: number, reason: string): Promise<boolean> {
+  if (sessionId !== stationPlaybackSessionId) return false;
+  const station = stationBeingPlayed;
+  if (!station) return false;
+
+  const failedCandidate = stationCandidates[stationCandidateIndex];
+  if (
+    failedCandidate &&
+    (failedCandidate.includes("as-hls-uk") ||
+      failedCandidate.includes("/live/uk/") ||
+      failedCandidate.includes("/hls/uk/"))
+  ) {
+    Preferences.setGeoBlocked(true);
+  }
+
+  if (stationCandidateIndex + 1 < stationCandidates.length) {
+    stationCandidateIndex += 1;
+    console.warn(
+      `Falling back to station candidate ${stationCandidateIndex + 1}/${stationCandidates.length} for ${station.title}: ${stationCandidates[stationCandidateIndex]} (${reason})`
+    );
+    usePlayerStore.setState({ isBuffering: true });
+    return startStationCandidate(stationCandidateIndex, sessionId);
+  }
+
+  // If geoBlocked was not yet true, but all UK candidates failed, try international candidate list
+  if (!Preferences.getGeoBlocked() && !isStationUkOnly(station.id)) {
+    Preferences.setGeoBlocked(true);
+    const quality = resolvePlaybackQuality(usePlayerStore.getState().audioQuality);
+    const nonUkCandidates = getStreamCandidates(station, quality, true);
+    if (nonUkCandidates.length > 0 && nonUkCandidates[0] !== failedCandidate) {
+      stationCandidates = nonUkCandidates;
+      stationCandidateIndex = 0;
+      console.warn(
+        `Falling back to international stream for ${station.title}: ${stationCandidates[0]}`
+      );
+      usePlayerStore.setState({ isBuffering: true });
+      return startStationCandidate(0, sessionId);
+    }
+  }
+
+  console.error(`All stream candidates failed for ${station.title}: ${reason}`);
+  ScrobbleManager.onPlaybackStopped();
+  stopShowInfoInterval();
+  await TrackPlayer.reset().catch(() => {});
+
+  const isGeo = Preferences.getGeoBlocked();
+  const errorMessage = isStationUkOnly(station.id)
+    ? `${station.title} is only available in the UK due to broadcasting rights.`
+    : isGeo
+      ? `${station.title} is currently unavailable in your region. Live sports and certain programmes may be restricted outside the UK.`
+      : `Unable to connect to ${station.title}. Please check your connection and try again.`;
+
+  usePlayerStore.setState({
+    isPlaying: false,
+    isBuffering: false,
+    playbackError: errorMessage
+  });
+  return false;
+}
+
+async function startStationCandidate(index: number, sessionId: number): Promise<boolean> {
+  if (sessionId !== stationPlaybackSessionId) return false;
+  const station = stationBeingPlayed;
+  if (!station || index >= stationCandidates.length) return false;
+
+  const streamUrl = stationCandidates[index];
+  try {
+    ScrobbleManager.onPlaybackStopped();
+    await TrackPlayer.reset();
+    await TrackPlayer.add({
+      id: station.id,
+      url: streamUrl,
+      type: streamUrl.includes(".m3u8") ? TrackType.HLS : TrackType.Default,
+      title: station.title,
+      artist: "BBC Radio",
+      artwork: station.logoUrl,
+      isLiveStream: true
+    });
+    await TrackPlayer.play();
+    if (sessionId === stationPlaybackSessionId) {
+      usePlayerStore.setState({ isPlaying: true, isBuffering: false, playbackError: null });
+      notifyNativePhonePlaybackStarted();
+      void trackStationPlay(station.id, station.title);
+    }
+    return true;
+  } catch (err) {
+    console.warn(`Candidate ${index} (${streamUrl}) failed:`, err);
+    return tryNextStationCandidate(sessionId, String(err));
+  }
+}
+
 export const usePlayerStore = create<PlayerState>((set, get) => ({
   currentStation: null,
   currentShow: null,
@@ -106,21 +208,29 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   favorites: Preferences.getFavorites(),
   positionSeconds: 0,
   durationSeconds: 0,
+  playbackError: null,
 
   init: async () => {
     set({
       currentStation: null,
       audioQuality: Preferences.getAudioQuality(),
-      favorites: Preferences.getFavorites()
+      favorites: Preferences.getFavorites(),
+      playbackError: null
     });
   },
 
   playStation: async (station: Station) => {
     resetStationRmsDelay();
+    void probeGeoBlock();
     const quality = resolvePlaybackQuality(get().audioQuality);
     const geoBlocked = Preferences.getGeoBlocked();
     const candidates = getStreamCandidates(station, quality, geoBlocked);
-    const streamUrl = candidates[0] || station.directStreamUrls[0] || `https://lsn.lv/bbcradio.m3u8?station=${station.serviceId}&bitrate=320000`;
+
+    stationPlaybackSessionId += 1;
+    const sessionId = stationPlaybackSessionId;
+    stationBeingPlayed = station;
+    stationCandidates = candidates;
+    stationCandidateIndex = 0;
 
     set({
       currentStation: station,
@@ -129,10 +239,20 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       currentPodcast: null,
       currentEpisode: null,
       positionSeconds: 0,
-      durationSeconds: 0
+      durationSeconds: 0,
+      playbackError: null
     });
     Preferences.setLastStationId(station.id);
     Preferences.setLastPlayed({ kind: "station", id: station.id, podcastId: "" });
+
+    if (candidates.length === 0) {
+      set({
+        isPlaying: false,
+        isBuffering: false,
+        playbackError: `${station.title} is only available to listeners in the UK due to broadcasting rights.`
+      });
+      return;
+    }
 
     // Query RMS immediately on station launch without waiting for audio stream setup
     const initialShowPromise = fetchShowInfo(station.id, true)
@@ -181,25 +301,16 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         return null;
       });
 
-    try {
-      ScrobbleManager.onPlaybackStopped();
-      await TrackPlayer.reset();
-      await TrackPlayer.add({
-        id: station.id,
-        url: streamUrl,
-        type: streamUrl.includes(".m3u8") ? TrackType.HLS : TrackType.Default,
-        title: station.title,
-        artist: "BBC Radio",
-        artwork: station.logoUrl,
-        isLiveStream: true
-      });
-      await TrackPlayer.play();
-      set({ isPlaying: true, isBuffering: false });
-      notifyNativePhonePlaybackStarted();
-      void trackStationPlay(station.id, station.title);
+    const started = await startStationCandidate(0, sessionId);
+    if (!started || sessionId !== stationPlaybackSessionId) {
+      return;
+    }
 
+    try {
       // Await immediate show fetch or fetch fresh
       const show = (await initialShowPromise) || (await fetchShowInfo(station.id, true));
+      if (sessionId !== stationPlaybackSessionId) return;
+
       set({ currentShow: show });
       if (show.title && show.title !== "BBC Radio") {
         useStationShowStore.getState().updateShow(station.id, {
@@ -263,12 +374,15 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       // Poll show info every 5s (delayed RMS promotion triggers immediate refresh)
       startShowInfoInterval();
     } catch (err) {
-      console.warn("Error playing station:", err);
-      set({ isBuffering: false, isPlaying: false });
+      console.warn("Error updating station metadata:", err);
     }
   },
 
   playEpisode: async (podcast: Podcast, episode: Episode) => {
+    stationPlaybackSessionId += 1;
+    stationBeingPlayed = null;
+    stationCandidates = [];
+    stationCandidateIndex = 0;
     resetStationRmsDelay();
     stopShowInfoInterval();
     const podId = (podcast?.id || episode?.podcastId || "").trim();
@@ -297,6 +411,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       currentEpisode: episode,
       isBuffering: true,
       isPlaying: false,
+      playbackError: null,
       positionSeconds: 0,
       durationSeconds: (episode?.durationMins || 0) * 60
     });
@@ -399,6 +514,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   stop: async () => {
+    stationPlaybackSessionId += 1;
+    stationBeingPlayed = null;
+    stationCandidates = [];
+    stationCandidateIndex = 0;
     setDownloadInUseEpisode(null);
     try {
       resetStationRmsDelay();
@@ -413,6 +532,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         currentEpisode: null,
         isPlaying: false,
         isBuffering: false,
+        playbackError: null,
         positionSeconds: 0,
         durationSeconds: 0
       });
@@ -426,6 +546,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         currentEpisode: null,
         isPlaying: false,
         isBuffering: false,
+        playbackError: null,
         positionSeconds: 0,
         durationSeconds: 0
       });
@@ -682,6 +803,43 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const prevIndex = (currentIndex - 1 + stations.length) % stations.length;
     const prevStation = stations[prevIndex];
     await get().playStation(prevStation);
+  },
+
+  clearPlaybackError: () => {
+    set({ playbackError: null });
+  },
+
+  handlePlaybackError: async (error: any) => {
+    console.warn("TrackPlayer playback error received:", error);
+    const { currentStation } = get();
+    if (currentStation && stationBeingPlayed?.id === currentStation.id) {
+      await tryNextStationCandidate(
+        stationPlaybackSessionId,
+        error?.message || error?.code || "PlaybackError"
+      );
+      return;
+    }
+    const { currentEpisode } = get();
+    if (currentEpisode) {
+      set({ isPlaying: false, isBuffering: false, playbackError: "Playback failed for this episode." });
+    }
+  },
+
+  handlePlaybackState: (state: State) => {
+    if (state === State.Playing) {
+      set({ isPlaying: true, isBuffering: false, playbackError: null });
+    } else if (state === State.Buffering || state === State.Loading) {
+      set({ isBuffering: true });
+    } else if (state === State.Paused || state === State.Stopped) {
+      set({ isPlaying: false, isBuffering: false });
+    } else if (state === State.Error) {
+      const { currentStation } = get();
+      if (currentStation && stationBeingPlayed?.id === currentStation.id) {
+        void tryNextStationCandidate(stationPlaybackSessionId, "State.Error");
+      } else {
+        set({ isPlaying: false, isBuffering: false });
+      }
+    }
   }
 }));
 

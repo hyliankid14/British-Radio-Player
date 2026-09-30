@@ -63,15 +63,21 @@ export function getStationUri(station: Station, quality: AudioQuality = "HIGH", 
   return `${STREAM_BASE}?station=${resolvedServiceId}&bitrate=${bitrate}`;
 }
 
+const UK_ONLY_STATION_IDS = new Set(["radio5livesportsextra2", "radio5livesportsextra3"]);
+
 export function getStreamCandidates(station: Station, quality: AudioQuality = "HIGH", geoBlocked = false): string[] {
   const candidates: string[] = [];
+
+  if (geoBlocked && UK_ONLY_STATION_IDS.has(station.id)) {
+    return [];
+  }
 
   if (geoBlocked) {
     for (const sid of station.streamServiceIds) {
       candidates.push(`${BBC_HLS_NONUK}/${sid}.m3u8`);
     }
     for (const url of station.directStreamUrls) {
-      if (!url.includes("&uk=1")) {
+      if (!url.includes("&uk=1") && !url.includes("/live/uk/") && !url.includes("/hls/uk/")) {
         candidates.push(url);
       }
     }
@@ -88,9 +94,11 @@ export function getStreamCandidates(station: Station, quality: AudioQuality = "H
     candidates.push(url);
   }
 
-  // 3. Official BBC International / Non-UK HLS stream
-  for (const sid of station.streamServiceIds) {
-    candidates.push(`${BBC_HLS_NONUK}/${sid}.m3u8`);
+  // 3. Official BBC International / Non-UK HLS stream (if station has international broadcast)
+  if (!UK_ONLY_STATION_IDS.has(station.id)) {
+    for (const sid of station.streamServiceIds) {
+      candidates.push(`${BBC_HLS_NONUK}/${sid}.m3u8`);
+    }
   }
 
   return Array.from(new Set(candidates));
@@ -109,41 +117,25 @@ export const STATIONS: Station[] = [
   createStation("radio4extra", "Radio 4 Extra", "bbc_radio_four_extra", StationCategory.NATIONAL),
   createStation("radio5live", "Radio 5 Live", "bbc_radio_five_live", StationCategory.NATIONAL, {
     directStreamUrls: [
-      "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_live&bitrate=320000&uk=1",
-      "https://as-hls-ww-live.akamaized.net/pool_89021708/live/ww/bbc_radio_five_live/bbc_radio_five_live.isml/bbc_radio_five_live-audio%3d96000.norewind.m3u8",
-      "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_live&bitrate=128000&uk=1",
-      "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_live&bitrate=96000&uk=1",
-      "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_live&bitrate=48000&uk=1"
+      "https://as-hls-ww-live.akamaized.net/pool_89021708/live/ww/bbc_radio_five_live/bbc_radio_five_live.isml/bbc_radio_five_live-audio%3d96000.norewind.m3u8"
     ]
   }),
   createStation("radio5livesportsextra", "Radio 5 Sports Extra", "bbc_radio_five_live_sports_extra", StationCategory.NATIONAL, {
     streamServiceIds: ["bbc_radio_five_live_sports_extra", "bbc_radio_five_sports_extra"],
     directStreamUrls: [
-      "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_live_sports_extra&bitrate=320000&uk=1",
-      "https://as-hls-uk-live.akamaized.net/pool_47700285/live/uk/bbc_radio_five_live_sports_extra/bbc_radio_five_live_sports_extra.isml/bbc_radio_five_live_sports_extra-audio%3d96000.norewind.m3u8",
-      "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_live_sports_extra&bitrate=128000&uk=1",
-      "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_live_sports_extra&bitrate=96000&uk=1",
-      "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_live_sports_extra&bitrate=48000&uk=1"
+      "https://as-hls-uk-live.akamaized.net/pool_47700285/live/uk/bbc_radio_five_live_sports_extra/bbc_radio_five_live_sports_extra.isml/bbc_radio_five_live_sports_extra-audio%3d96000.norewind.m3u8"
     ]
   }),
   createStation("radio5livesportsextra2", "Radio 5 Sports Extra 2", "bbc_radio_five_sports_extra_2", StationCategory.NATIONAL, {
     streamServiceIds: ["bbc_radio_five_sports_extra_2", "bbc_radio_five_live_sports_extra_2"],
     directStreamUrls: [
-      "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_sports_extra_2&bitrate=320000&uk=1",
-      "https://a.files.bbci.co.uk/ms6/live/3441A116-B12E-4D2F-ACA8-C1984642FA4B/audio/simulcast/hls/uk/audio_syndication_high_sbr_v1/ak/bbc_radio_five_sports_extra_2.m3u8",
-      "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_sports_extra_2&bitrate=128000&uk=1",
-      "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_sports_extra_2&bitrate=96000&uk=1",
-      "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_sports_extra_2&bitrate=48000&uk=1"
+      "https://a.files.bbci.co.uk/ms6/live/3441A116-B12E-4D2F-ACA8-C1984642FA4B/audio/simulcast/hls/uk/audio_syndication_high_sbr_v1/ak/bbc_radio_five_sports_extra_2.m3u8"
     ]
   }),
   createStation("radio5livesportsextra3", "Radio 5 Sports Extra 3", "bbc_radio_five_sports_extra_3", StationCategory.NATIONAL, {
     streamServiceIds: ["bbc_radio_five_sports_extra_3", "bbc_radio_five_live_sports_extra_3"],
     directStreamUrls: [
-      "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_sports_extra_3&bitrate=320000&uk=1",
-      "https://a.files.bbci.co.uk/ms6/live/3441A116-B12E-4D2F-ACA8-C1984642FA4B/audio/simulcast/hls/uk/audio_syndication_high_sbr_v1/ak/bbc_radio_five_sports_extra_3.m3u8",
-      "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_sports_extra_3&bitrate=128000&uk=1",
-      "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_sports_extra_3&bitrate=96000&uk=1",
-      "https://lsn.lv/bbcradio.m3u8?station=bbc_radio_five_sports_extra_3&bitrate=48000&uk=1"
+      "https://a.files.bbci.co.uk/ms6/live/3441A116-B12E-4D2F-ACA8-C1984642FA4B/audio/simulcast/hls/uk/audio_syndication_high_sbr_v1/ak/bbc_radio_five_sports_extra_3.m3u8"
     ]
   }),
   createStation("radio6", "Radio 6 Music", "bbc_6music", StationCategory.NATIONAL),

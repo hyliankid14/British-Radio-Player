@@ -27,7 +27,7 @@ import { useAppTheme } from "../../src/theme/colors";
 import { useStationShowStore } from "../../src/store/stationShowStore";
 import { Podcast, PodcastApi, decodeXmlEntities, Episode, matchesBooleanSearch } from "../../src/api/podcasts";
 import { Preferences, PodcastHistoryEntry } from "../../src/storage/preferences";
-import { OfflineBanner, VpnBanner } from "../../src/components/NetworkBanners";
+import { OfflineBanner, VpnBanner, PlaybackErrorBanner } from "../../src/components/NetworkBanners";
 import { NativeAndroid } from "../../src/native/nativeAndroid";
 import { useResponsiveLayout } from "../../src/theme/responsive";
 import { ensureNotificationPermissions } from "../../src/notifications/notifications";
@@ -1206,6 +1206,7 @@ export default function FavouritesScreen() {
 
       <OfflineBanner />
       <VpnBanner />
+      <PlaybackErrorBanner />
 
       {/* Pill group under Top App Bar matching favorites_toggle_group */}
       <View style={[styles.pillGroupContainer, isTablet && styles.pillGroupContainerTablet]}>
