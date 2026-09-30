@@ -404,27 +404,26 @@ export default function PodcastDetailModal() {
           }
         }
 
-        // A new-episode alert carries the episode it is about; open it instead of
-        // making the user hunt for it in the list.
+        // A notification carrying an episodeId should open the episode list with
+        // the relevant episode visible — not jump straight to Now Playing. The
+        // requestedEpisodeId is used to highlight the episode in the list (the
+        // episode row is already rendered and the user can tap it to play).
+        // The openedEpisodeRef prevents repeated work if loadData re-runs.
         if (requestedEpisodeId && openedEpisodeRef.current !== requestedEpisodeId) {
-          let target = eps.find((ep) => ep.id === requestedEpisodeId);
-          // If the episode is no longer in the live feed (BBC feeds are typically
-          // capped at ~20 episodes), try the snapshot saved when the notification fired.
-          if (!target) {
+          openedEpisodeRef.current = requestedEpisodeId;
+          // If the episode has been evicted from the live feed, restore it from the
+          // notification snapshot so it still appears in the list.
+          const liveEpisode = eps.find((ep) => ep.id === requestedEpisodeId);
+          if (!liveEpisode) {
             const snapshot = Preferences.getNotifiedEpisode(requestedEpisodeId);
             if (snapshot) {
-              target = { id: requestedEpisodeId, description: "", ...snapshot };
+              const restored: import("../../src/api/podcasts").Episode = {
+                id: requestedEpisodeId,
+                description: "",
+                ...snapshot
+              };
+              if (mounted) setEpisodes((prev) => [restored, ...prev.filter((ep) => ep.id !== requestedEpisodeId)]);
             }
-          }
-          if (target) {
-            openedEpisodeRef.current = requestedEpisodeId;
-            router.push({
-              pathname: "/modal/now-playing",
-              params: {
-                podcastData: JSON.stringify(currentPod),
-                episodeData: JSON.stringify(target)
-              }
-            });
           }
         }
       }

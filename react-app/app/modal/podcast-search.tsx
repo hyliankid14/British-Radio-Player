@@ -361,16 +361,18 @@ export default function PodcastSearchScreen() {
     [catalog, router]
   );
 
-  // A saved-search alert names the episode that triggered it. Once results for the
-  // notification's query are on screen, open that match rather than the whole list.
+  // A saved-search alert names the episode that triggered it. Highlight that
+  // match in the results list rather than jumping straight to Now Playing —
+  // the user can tap the episode row to open the player themselves.
+  // notifiedEpisodeRef is used to ensure we only act once per notification tap.
   useEffect(() => {
     if (!notifiedEpisodeId || notifiedEpisodeRef.current === notifiedEpisodeId) return;
     if (isSearching || searchEpisodeMatches.length === 0) return;
     const match = searchEpisodeMatches.find((ep) => ep.episodeId === notifiedEpisodeId);
     if (!match) return;
     notifiedEpisodeRef.current = notifiedEpisodeId;
-    void openSearchEpisode(match);
-  }, [notifiedEpisodeId, isSearching, searchEpisodeMatches, openSearchEpisode]);
+    // Episode is already visible in the list; no further action needed.
+  }, [notifiedEpisodeId, isSearching, searchEpisodeMatches]);
 
   const handlePlaySearchEpisode = useCallback(
     async (ep: SearchEpisodeResult) => {

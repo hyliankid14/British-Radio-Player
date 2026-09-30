@@ -392,6 +392,14 @@ export async function checkForNewPodcasts(force = false): Promise<void> {
 const handledResponseIds = new Set<string>();
 const MAX_HANDLED_RESPONSE_IDS = 50;
 
+/**
+ * Guards clearLastNotificationResponseAsync so a re-registered listener never
+ * clears a response that has already been consumed, and never tries to clear twice.
+ * This prevents a cold-start race where the navigator re-mounts after player setup
+ * and a second consumeLastResponse call would find an empty response.
+ */
+let lastResponseCleared = false;
+
 /** Opens the deep link carried by a tapped notification or handles alarm playback. */
 export function initNotificationNavigation(
   onOpenUrl: (url: string) => void,
@@ -459,10 +467,16 @@ export function initNotificationNavigation(
   const consumeLastResponse = (last: ExpoNotifications.NotificationResponse | null | undefined) => {
     if (!last) return;
     handleResponse(last);
-    // Clearing keeps a later re-initialisation from re-routing the same tap.
-    try {
-      Promise.resolve(Notifications.clearLastNotificationResponseAsync?.()).catch(() => {});
-    } catch {}
+    // Only clear once: a re-registered listener must not clear a response that has
+    // already been routed (it would be a no-op on the server side but signals intent
+    // incorrectly), and must not cause a second registration to miss the response
+    // because it was cleared before the navigator was ready.
+    if (!lastResponseCleared) {
+      lastResponseCleared = true;
+      try {
+        Promise.resolve(Notifications.clearLastNotificationResponseAsync?.()).catch(() => {});
+      } catch {}
+    }
   };
 
   try {
