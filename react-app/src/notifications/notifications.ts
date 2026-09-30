@@ -184,9 +184,11 @@ export async function checkSubscriptionsForNewEpisodes(force = false): Promise<v
       const podcast = catalog.find((item) => item.id === id);
       if (!podcast) continue;
 
-      let episodes = PodcastApi.getEpisodesFromCache(id);
-      if (!episodes || episodes.length === 0) {
-        episodes = await PodcastApi.fetchEpisodes(podcast.rssUrl, podcast.id);
+      let episodes: import("../api/podcasts").Episode[];
+      try {
+        episodes = await PodcastApi.fetchEpisodes(podcast.rssUrl, podcast.id, true);
+      } catch {
+        episodes = PodcastApi.getEpisodesFromCache(id) || [];
       }
       if (!episodes.length) continue;
 
@@ -304,6 +306,15 @@ export async function checkSavedSearchesForNewEpisodes(force = false): Promise<v
           // the alert rather than an undifferentiated results list.
           const targetUrl = buildPodcastSearchUrl(search.query, search.id, {
             episodeId: newest.episodeId,
+            podcastId: newest.podcastId
+          });
+
+          Preferences.setNotifiedEpisode(newest.episodeId, {
+            title: newest.title,
+            audioUrl: "",
+            imageUrl: "",
+            pubDate: newest.pubDate,
+            durationMins: 0,
             podcastId: newest.podcastId
           });
 

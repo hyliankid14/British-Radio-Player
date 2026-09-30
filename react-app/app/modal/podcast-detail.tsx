@@ -73,7 +73,29 @@ export default function PodcastDetailModal() {
 
   const [episodes, setEpisodes] = useState<Episode[]>(() => {
     if (params.podcastId) {
-      return PodcastApi.getEpisodesFromCache(params.podcastId) || [];
+      const cached = PodcastApi.getEpisodesFromCache(params.podcastId) || [];
+      if (requestedEpisodeId) {
+        const snapshot = Preferences.getNotifiedEpisode(requestedEpisodeId);
+        if (
+          snapshot &&
+          !cached.some(
+            (ep) =>
+              ep.id === requestedEpisodeId ||
+              ep.id.includes(requestedEpisodeId) ||
+              requestedEpisodeId.includes(ep.id)
+          )
+        ) {
+          return [
+            {
+              id: requestedEpisodeId,
+              description: "",
+              ...snapshot
+            },
+            ...cached
+          ];
+        }
+      }
+      return cached;
     }
     return [];
   });
@@ -143,9 +165,21 @@ export default function PodcastDetailModal() {
   }, [episodes, isOnline, downloads, episodeSort]);
 
   const displayEpisodes = useMemo(() => {
-    if (!hidePlayed) return candidateEpisodes;
-    return candidateEpisodes.filter((ep) => !playedIds.has(ep.id));
-  }, [candidateEpisodes, hidePlayed, playedIds]);
+    let list = hidePlayed ? candidateEpisodes.filter((ep) => !playedIds.has(ep.id)) : candidateEpisodes;
+    if (requestedEpisodeId) {
+      // Find the requested episode from all known episodes (even if marked played)
+      const target = episodes.find(
+        (ep) =>
+          ep.id === requestedEpisodeId ||
+          ep.id.includes(requestedEpisodeId) ||
+          requestedEpisodeId.includes(ep.id)
+      );
+      if (target) {
+        list = [target, ...list.filter((ep) => ep.id !== target.id)];
+      }
+    }
+    return list;
+  }, [candidateEpisodes, hidePlayed, playedIds, requestedEpisodeId, episodes]);
 
   const playedEpisodes = useMemo(() => {
     if (!hidePlayed) return [];
@@ -385,9 +419,29 @@ export default function PodcastDetailModal() {
           if (mounted) setIsLoadingEpisodes(true);
         }
 
-        const eps = await PodcastApi.fetchEpisodes(currentPod.rssUrl, currentPod.id);
+        const eps = await PodcastApi.fetchEpisodes(currentPod.rssUrl, currentPod.id, Boolean(requestedEpisodeId));
         if (mounted) {
-          setEpisodes(eps);
+          let updatedEps = eps;
+          if (requestedEpisodeId) {
+            const hasRequested = eps.some(
+              (ep) =>
+                ep.id === requestedEpisodeId ||
+                ep.id.includes(requestedEpisodeId) ||
+                requestedEpisodeId.includes(ep.id)
+            );
+            if (!hasRequested) {
+              const snapshot = Preferences.getNotifiedEpisode(requestedEpisodeId);
+              if (snapshot) {
+                const restored: import("../../src/api/podcasts").Episode = {
+                  id: requestedEpisodeId,
+                  description: "",
+                  ...snapshot
+                };
+                updatedEps = [restored, ...eps.filter((ep) => ep.id !== requestedEpisodeId)];
+              }
+            }
+          }
+          setEpisodes(updatedEps);
           setVisibleEpisodeCount(20);
           setIsLoadingEpisodes(false);
 
@@ -401,29 +455,6 @@ export default function PodcastDetailModal() {
                 ? { ...prev, title: resolvedTitle, imageUrl: prev.imageUrl || meta?.imageUrl || "" }
                 : prev
             );
-          }
-        }
-
-        // A notification carrying an episodeId should open the episode list with
-        // the relevant episode visible — not jump straight to Now Playing. The
-        // requestedEpisodeId is used to highlight the episode in the list (the
-        // episode row is already rendered and the user can tap it to play).
-        // The openedEpisodeRef prevents repeated work if loadData re-runs.
-        if (requestedEpisodeId && openedEpisodeRef.current !== requestedEpisodeId) {
-          openedEpisodeRef.current = requestedEpisodeId;
-          // If the episode has been evicted from the live feed, restore it from the
-          // notification snapshot so it still appears in the list.
-          const liveEpisode = eps.find((ep) => ep.id === requestedEpisodeId);
-          if (!liveEpisode) {
-            const snapshot = Preferences.getNotifiedEpisode(requestedEpisodeId);
-            if (snapshot) {
-              const restored: import("../../src/api/podcasts").Episode = {
-                id: requestedEpisodeId,
-                description: "",
-                ...snapshot
-              };
-              if (mounted) setEpisodes((prev) => [restored, ...prev.filter((ep) => ep.id !== requestedEpisodeId)]);
-            }
           }
         }
       }
@@ -616,6 +647,10 @@ export default function PodcastDetailModal() {
       const isSelected = selectedIds.has(ep.id);
       const isPlayed = playedIds.has(ep.id);
       const isDownloaded = downloads[ep.id]?.status === "downloaded";
+      const isNotified = Boolean(
+        requestedEpisodeId &&
+        (ep.id === requestedEpisodeId || ep.id.includes(requestedEpisodeId) || requestedEpisodeId.includes(ep.id))
+      );
 
       const openEpisode = () => {
         router.push({
@@ -661,7 +696,13 @@ export default function PodcastDetailModal() {
             styles.episodeItem,
             {
               borderBottomColor: theme.outlineVariant,
-              backgroundColor: isSelected ? theme.surfaceVariant : theme.surface
+              backgroundColor: isSelected
+                ? theme.surfaceVariant
+                : isNotified
+                ? theme.surfaceContainer
+                : theme.surface,
+              borderLeftWidth: isNotified ? 4 : 0,
+              borderLeftColor: theme.primary
             }
           ]}
         >
@@ -689,6 +730,11 @@ export default function PodcastDetailModal() {
               </Text>
             ) : null}
             <View style={styles.episodeMetaRow}>
+              {isNotified ? (
+                <View style={[styles.newBadge, { backgroundColor: theme.primary }]}>
+                  <Text style={[styles.newBadgeText, { color: theme.onPrimary }]}>New</Text>
+                </View>
+              ) : null}
               {ep.pubDate ? (
                 <Text style={[styles.episodeMeta, { color: theme.onSurfaceVariant, flex: 1 }]}>
                   {ep.pubDate.split(" ").slice(0, 4).join(" ")}
@@ -738,7 +784,8 @@ export default function PodcastDetailModal() {
       selectedIds,
       playedIds,
       downloads,
-      toggleEpisodeSelection
+      toggleEpisodeSelection,
+      requestedEpisodeId
     ]
   );
 
@@ -1618,5 +1665,18 @@ const styles = StyleSheet.create({
   },
   playedList: {
     width: "100%"
+  },
+  newBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginRight: 6,
+    alignSelf: "center"
+  },
+  newBadgeText: {
+    fontSize: 10,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.5
   }
 });

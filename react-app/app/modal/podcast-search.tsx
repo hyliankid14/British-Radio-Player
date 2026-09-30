@@ -16,6 +16,7 @@ import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useAppTheme, useIsDarkTheme } from "../../src/theme/colors";
 import {
+  Episode,
   Podcast,
   SearchEpisodeResult,
   SearchPodcastResult,
@@ -58,7 +59,23 @@ export default function PodcastSearchScreen() {
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [searchPodcastMatches, setSearchPodcastMatches] = useState<Podcast[]>([]);
-  const [searchEpisodeMatches, setSearchEpisodeMatches] = useState<SearchEpisodeResult[]>([]);
+  const [searchEpisodeMatches, setSearchEpisodeMatches] = useState<SearchEpisodeResult[]>(() => {
+    if (notifiedEpisodeId) {
+      const snapshot = Preferences.getNotifiedEpisode(notifiedEpisodeId);
+      if (snapshot) {
+        return [
+          {
+            episodeId: notifiedEpisodeId,
+            podcastId: snapshot.podcastId || "",
+            title: snapshot.title,
+            description: "",
+            pubDate: snapshot.pubDate || ""
+          }
+        ];
+      }
+    }
+    return [];
+  });
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [suggestions, setSuggestions] = useState<{ podcastId: string; title: string }[]>([]);
 
@@ -167,6 +184,31 @@ export default function PodcastSearchScreen() {
       const podcastName = podcast ? podcast.title : "";
       return episodeMatchesQuery(ep.title, ep.description, podcastName, q);
     });
+
+    if (notifiedEpisodeId) {
+      const targetIndex = matchingEpisodes.findIndex(
+        (ep) =>
+          ep.episodeId === notifiedEpisodeId ||
+          ep.episodeId.includes(notifiedEpisodeId) ||
+          notifiedEpisodeId.includes(ep.episodeId)
+      );
+      if (targetIndex > 0) {
+        const [targetEp] = matchingEpisodes.splice(targetIndex, 1);
+        matchingEpisodes.unshift(targetEp);
+      } else if (targetIndex === -1) {
+        const snapshot = Preferences.getNotifiedEpisode(notifiedEpisodeId);
+        if (snapshot) {
+          matchingEpisodes.unshift({
+            episodeId: notifiedEpisodeId,
+            podcastId: snapshot.podcastId || "",
+            title: snapshot.title,
+            description: "",
+            pubDate: snapshot.pubDate || ""
+          });
+        }
+      }
+    }
+
     setSearchEpisodeMatches(matchingEpisodes);
 
     const latestResultDate = matchingEpisodes
@@ -181,7 +223,7 @@ export default function PodcastSearchScreen() {
     if (targetSavedSearchId && latestResultDate) {
       Preferences.updatePodcastSearchLatestResult(targetSavedSearchId, latestResultDate);
     }
-  }, [params.savedSearchId]);
+  }, [params.savedSearchId, notifiedEpisodeId]);
 
   const executeSearch = useCallback(
     (text: string) => {
@@ -343,12 +385,28 @@ export default function PodcastSearchScreen() {
           episodes.find((e) => e.id === ep.episodeId || e.id.includes(ep.episodeId) || ep.episodeId.includes(e.id)) ||
           episodes.find((e) => e.title.toLowerCase() === ep.title.toLowerCase());
 
-        if (resolved) {
+        const snapshot = Preferences.getNotifiedEpisode(ep.episodeId);
+        const targetEpisode: Episode | null =
+          resolved ||
+          (snapshot && snapshot.audioUrl
+            ? {
+                id: ep.episodeId,
+                title: ep.title,
+                description: ep.description || "",
+                pubDate: ep.pubDate || snapshot.pubDate || "",
+                durationMins: snapshot.durationMins || 0,
+                audioUrl: snapshot.audioUrl,
+                imageUrl: snapshot.imageUrl || parentPodcast.imageUrl || "",
+                podcastId: parentPodcast.id
+              }
+            : null);
+
+        if (targetEpisode) {
           router.push({
             pathname: "/modal/now-playing",
             params: {
               podcastData: JSON.stringify(parentPodcast),
-              episodeData: JSON.stringify(resolved)
+              episodeData: JSON.stringify(targetEpisode)
             }
           });
         }
@@ -395,8 +453,24 @@ export default function PodcastSearchScreen() {
           eps.find((e) => e.title.toLowerCase() === ep.title.toLowerCase()) ||
           (eps.length > 0 ? eps[0] : null);
 
-        if (resolved && resolved.audioUrl) {
-          await playEpisode(parentPodcast, resolved);
+        const snapshot = Preferences.getNotifiedEpisode(ep.episodeId);
+        const targetEpisode: Episode | null =
+          resolved ||
+          (snapshot && snapshot.audioUrl
+            ? {
+                id: ep.episodeId,
+                title: ep.title,
+                description: ep.description || "",
+                pubDate: ep.pubDate || snapshot.pubDate || "",
+                durationMins: snapshot.durationMins || 0,
+                audioUrl: snapshot.audioUrl,
+                imageUrl: snapshot.imageUrl || parentPodcast.imageUrl || "",
+                podcastId: parentPodcast.id
+              }
+            : null);
+
+        if (targetEpisode && targetEpisode.audioUrl) {
+          await playEpisode(parentPodcast, targetEpisode);
         } else {
           handleOpenPodcast(parentPodcast);
         }
@@ -623,12 +697,23 @@ export default function PodcastSearchScreen() {
                 </Text>
                 {searchEpisodeMatches.map((ep) => {
                   const isResolving = resolvingEpisodeId === ep.episodeId;
+                  const isNotified = Boolean(
+                    notifiedEpisodeId &&
+                      (ep.episodeId === notifiedEpisodeId ||
+                        ep.episodeId.includes(notifiedEpisodeId) ||
+                        notifiedEpisodeId.includes(ep.episodeId))
+                  );
                   return (
                     <View
                       key={ep.episodeId}
                       style={[
                         styles.episodeResultCard,
-                        { backgroundColor: theme.surface, borderColor: theme.outlineVariant }
+                        {
+                          backgroundColor: isNotified ? theme.surfaceContainer : theme.surface,
+                          borderColor: isNotified ? theme.primary : theme.outlineVariant,
+                          borderLeftWidth: isNotified ? 4 : 1,
+                          borderLeftColor: isNotified ? theme.primary : theme.outlineVariant
+                        }
                       ]}
                     >
                       <TouchableOpacity
@@ -636,9 +721,16 @@ export default function PodcastSearchScreen() {
                         activeOpacity={0.7}
                         onPress={() => openSearchEpisode(ep)}
                       >
-                        <Text style={[styles.episodeResultTitle, { color: theme.onSurface }]} numberOfLines={2}>
-                          {decodeXmlEntities(ep.title)}
-                        </Text>
+                        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 2, flexWrap: "wrap", gap: 6 }}>
+                          {isNotified ? (
+                            <View style={[styles.newBadge, { backgroundColor: theme.primary }]}>
+                              <Text style={[styles.newBadgeText, { color: theme.onPrimary }]}>New match</Text>
+                            </View>
+                          ) : null}
+                          <Text style={[styles.episodeResultTitle, { color: theme.onSurface, flex: 1, marginBottom: 0 }]} numberOfLines={2}>
+                            {decodeXmlEntities(ep.title)}
+                          </Text>
+                        </View>
                         {ep.pubDate ? (
                           <Text style={[styles.episodeResultDate, { color: theme.onSurfaceVariant }]}>
                             {ep.pubDate.split(" ").slice(0, 4).join(" ")}
@@ -1048,5 +1140,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 10
+  },
+  newBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginRight: 6,
+    alignSelf: "center"
+  },
+  newBadgeText: {
+    fontSize: 10,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.5
   }
 });
