@@ -10,7 +10,8 @@ import {
   Platform,
   Dimensions,
   NativeSyntheticEvent,
-  NativeScrollEvent
+  NativeScrollEvent,
+  Animated
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
@@ -109,7 +110,8 @@ export default function GuideScreen() {
   // Scroll references
   const dateScrollRef = useRef<ScrollView>(null);
   const timeRulerScrollRef = useRef<ScrollView>(null);
-  const mainHorizontalScrollRef = useRef<ScrollView>(null);
+  const mainHorizontalScrollRef = useRef<any>(null);
+  const scrollX = useRef(new Animated.Value(0)).current;
 
   const selectedTab = tabs[selectedTabIndex] || tabs[todayIndex];
   const isSelectedDateToday = selectedTab.isToday;
@@ -181,7 +183,11 @@ export default function GuideScreen() {
     const now = new Date();
     const currentMinutes = now.getHours() * 60 + now.getMinutes();
     const targetX = Math.max(0, currentMinutes * PIXELS_PER_MINUTE - 140);
-    mainHorizontalScrollRef.current?.scrollTo({ x: targetX, animated: true });
+    const scrollRef =
+      mainHorizontalScrollRef.current?.scrollTo
+        ? mainHorizontalScrollRef.current
+        : mainHorizontalScrollRef.current?.getNode?.();
+    scrollRef?.scrollTo({ x: targetX, animated: true });
     timeRulerScrollRef.current?.scrollTo({ x: targetX, animated: true });
   }, [isSelectedDateToday]);
 
@@ -263,6 +269,18 @@ export default function GuideScreen() {
       timeRulerScrollRef.current?.scrollTo({ x, animated: false });
     },
     []
+  );
+
+  const onHorizontalScrollEvent = useMemo(
+    () =>
+      Animated.event(
+        [{ nativeEvent: { contentOffset: { x: scrollX } } }],
+        {
+          useNativeDriver: true,
+          listener: onGridHorizontalScroll
+        }
+      ),
+    [onGridHorizontalScroll, scrollX]
   );
 
   // Compute position of the "NOW" vertical indicator
@@ -539,10 +557,10 @@ export default function GuideScreen() {
             </View>
 
             {/* Horizontally Scrollable Timeline Body */}
-            <ScrollView
+            <Animated.ScrollView
               ref={mainHorizontalScrollRef}
               horizontal
-              onScroll={onGridHorizontalScroll}
+              onScroll={onHorizontalScrollEvent}
               scrollEventThrottle={16}
               showsHorizontalScrollIndicator={true}
               style={styles.timelineHorizontalScroll}
@@ -605,6 +623,19 @@ export default function GuideScreen() {
                         const showPodcastBadge = Boolean(matchedPodcast) && blockWidth >= 60;
                         const showTime = !isVeryNarrow;
 
+                        // Ensure titles of long shows remain in view as the user scrolls
+                        const stickyContentWidth = Math.min(blockWidth - 8, isNarrow ? 70 : 160);
+                        const maxStickyOffset = Math.max(0, blockWidth - stickyContentWidth - 8);
+
+                        const stickyTranslateX =
+                          maxStickyOffset > 0
+                            ? scrollX.interpolate({
+                                inputRange: [left, left + maxStickyOffset],
+                                outputRange: [0, maxStickyOffset],
+                                extrapolate: "clamp"
+                              })
+                            : 0;
+
                         return (
                           <TouchableOpacity
                             key={`${entry.startTimeMs}_${index}`}
@@ -637,7 +668,15 @@ export default function GuideScreen() {
                               }
                             }}
                           >
-                            <View style={styles.blockContent}>
+                            <Animated.View
+                              style={[
+                                styles.blockContent,
+                                {
+                                  maxWidth: stickyContentWidth,
+                                  transform: [{ translateX: stickyTranslateX }]
+                                }
+                              ]}
+                            >
                               <View style={styles.blockTitleRow}>
                                 {/* Prominent Red Play Button for currently airing shows (Freeview inspired) */}
                                 {isNow && (
@@ -710,7 +749,7 @@ export default function GuideScreen() {
                                   />
                                 </TouchableOpacity>
                               )}
-                            </View>
+                            </Animated.View>
                           </TouchableOpacity>
                         );
                       })}
@@ -748,7 +787,7 @@ export default function GuideScreen() {
                   />
                 )}
               </View>
-            </ScrollView>
+            </Animated.ScrollView>
           </View>
         </ScrollView>
       </View>
