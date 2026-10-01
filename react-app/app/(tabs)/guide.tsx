@@ -197,6 +197,63 @@ export default function GuideScreen() {
     }
   }, [isSelectedDateToday, scrollToNow]);
 
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const retryStation = useCallback(
+    async (stationId: string) => {
+      const dateStr = selectedTab.dateStr;
+      setLoadingStations((prev) => ({ ...prev, [stationId]: true }));
+      try {
+        const entries = await fetchScheduleForDate(stationId, dateStr, true);
+        if (entries.length > 0) {
+          setStationSchedules((prev) => ({
+            ...prev,
+            [`${stationId}_${dateStr}`]: entries
+          }));
+        }
+      } finally {
+        setLoadingStations((prev) => {
+          const next = { ...prev };
+          delete next[stationId];
+          return next;
+        });
+      }
+    },
+    [selectedTab.dateStr]
+  );
+
+  const refreshSchedules = useCallback(async () => {
+    setIsRefreshing(true);
+    const dateStr = selectedTab.dateStr;
+    const CHUNK_SIZE = 4;
+    try {
+      for (let i = 0; i < filteredStations.length; i += CHUNK_SIZE) {
+        const chunk = filteredStations.slice(i, i + CHUNK_SIZE);
+        const results = await Promise.all(
+          chunk.map(async (st) => {
+            try {
+              const entries = await fetchScheduleForDate(st.id, dateStr, true);
+              return { stationId: st.id, entries };
+            } catch {
+              return { stationId: st.id, entries: [] };
+            }
+          })
+        );
+        setStationSchedules((prev) => {
+          const next = { ...prev };
+          results.forEach((r) => {
+            if (r.entries.length > 0) {
+              next[`${r.stationId}_${dateStr}`] = r.entries;
+            }
+          });
+          return next;
+        });
+      }
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [filteredStations, selectedTab.dateStr]);
+
   // Fetch schedules for visible stations when station list or date changes
   useEffect(() => {
     let cancelled = false;
@@ -205,7 +262,8 @@ export default function GuideScreen() {
     async function loadSchedules() {
       const toFetch = filteredStations.filter((s) => {
         const key = `${s.id}_${dateStr}`;
-        return !stationSchedules[key];
+        const cached = stationSchedules[key];
+        return !cached || cached.length === 0;
       });
 
       if (toFetch.length === 0) return;
@@ -219,8 +277,8 @@ export default function GuideScreen() {
         return next;
       });
 
-      // Chunk requests by 5
-      const CHUNK_SIZE = 5;
+      // Chunk requests by 4 for mobile socket reliability
+      const CHUNK_SIZE = 4;
       for (let i = 0; i < toFetch.length; i += CHUNK_SIZE) {
         if (cancelled) break;
         const chunk = toFetch.slice(i, i + CHUNK_SIZE);
@@ -240,7 +298,9 @@ export default function GuideScreen() {
         setStationSchedules((prev) => {
           const next = { ...prev };
           results.forEach((r) => {
-            next[`${r.stationId}_${dateStr}`] = r.entries;
+            if (r.entries.length > 0) {
+              next[`${r.stationId}_${dateStr}`] = r.entries;
+            }
           });
           return next;
         });
@@ -324,18 +384,34 @@ export default function GuideScreen() {
           <Text style={[styles.headerTitle, { color: theme.onSurface }]}>Guide</Text>
         </View>
 
-        {isSelectedDateToday && (
+        <View style={styles.headerActionsRow}>
           <TouchableOpacity
-            style={[styles.nowButton, { backgroundColor: theme.primaryContainer }]}
-            onPress={scrollToNow}
+            style={[styles.headerIconButton, { backgroundColor: theme.surfaceContainer }]}
+            onPress={() => void refreshSchedules()}
+            disabled={isRefreshing}
             activeOpacity={0.7}
+            accessibilityLabel="Refresh schedules"
           >
-            <MaterialIcons name="my-location" size={16} color={theme.onPrimaryContainer} />
-            <Text style={[styles.nowButtonText, { color: theme.onPrimaryContainer }]}>
-              Now
-            </Text>
+            {isRefreshing ? (
+              <ActivityIndicator size="small" color={theme.primary} />
+            ) : (
+              <MaterialIcons name="refresh" size={22} color={theme.onSurfaceVariant} />
+            )}
           </TouchableOpacity>
-        )}
+
+          {isSelectedDateToday && (
+            <TouchableOpacity
+              style={[styles.nowButton, { backgroundColor: theme.primaryContainer }]}
+              onPress={scrollToNow}
+              activeOpacity={0.7}
+            >
+              <MaterialIcons name="my-location" size={16} color={theme.onPrimaryContainer} />
+              <Text style={[styles.nowButtonText, { color: theme.onPrimaryContainer }]}>
+                Now
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       <OfflineBanner />
@@ -768,6 +844,20 @@ export default function GuideScreen() {
                           </Text>
                         </View>
                       )}
+
+                      {/* Retry row if station schedule failed to load */}
+                      {!isLoading && entries.length === 0 && (
+                        <TouchableOpacity
+                          style={styles.retryRowContainer}
+                          onPress={() => void retryStation(station.id)}
+                          activeOpacity={0.7}
+                        >
+                          <MaterialIcons name="refresh" size={16} color={theme.primary} />
+                          <Text style={[styles.loadingRowText, { color: theme.primary }]}>
+                            Schedule unavailable · Tap to retry
+                          </Text>
+                        </TouchableOpacity>
+                      )}
                     </View>
                   );
                 })}
@@ -924,6 +1014,18 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 22,
     fontWeight: "800"
+  },
+  headerActionsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8
+  },
+  headerIconButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center"
   },
   nowButton: {
     flexDirection: "row",
@@ -1117,6 +1219,13 @@ const styles = StyleSheet.create({
   loadingRowText: {
     fontSize: 11,
     fontStyle: "italic"
+  },
+  retryRowContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingLeft: 20,
+    height: "100%",
+    gap: 6
   },
   verticalNowLine: {
     position: "absolute",

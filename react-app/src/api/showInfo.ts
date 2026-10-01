@@ -438,9 +438,66 @@ export function formatScheduleTime(timestampMs: number): string {
   return `${hours}:${mins}`;
 }
 
+function parseEssSchedule(items: any[]): ScheduleEntry[] {
+  const entries: ScheduleEntry[] = [];
+  for (const item of items) {
+    const pubTime = item.published_time;
+    if (!pubTime?.start || !pubTime?.end) continue;
+    const start = new Date(pubTime.start).getTime();
+    const end = new Date(pubTime.end).getTime();
+
+    const brand = item.brand;
+    const episode = item.episode;
+    const title = brand?.title || episode?.title || "BBC Radio";
+    const epTitle = brand?.title && episode?.title && episode.title !== brand.title ? episode.title : undefined;
+
+    const imgObj = episode?.image || brand?.image;
+    const template = imgObj?.template_url;
+    const imageUrl = template ? template.replace("{recipe}", "320x320") : undefined;
+
+    entries.push({
+      title,
+      episodeTitle: epTitle,
+      startTimeMs: start,
+      endTimeMs: end,
+      imageUrl
+    });
+  }
+  return entries;
+}
+
+function parseRmsSchedule(data: any): ScheduleEntry[] {
+  const entries: ScheduleEntry[] = [];
+  const modules = data?.data || [];
+  for (const mod of modules) {
+    const items = mod?.data || [];
+    for (const item of items) {
+      if (item.type !== "broadcast_summary") continue;
+      if (!item.start || !item.end) continue;
+      const start = new Date(item.start).getTime();
+      const end = new Date(item.end).getTime();
+
+      const titles = item.titles;
+      const title = titles?.primary || "BBC Radio";
+      const secondary = titles?.secondary;
+      const epTitle = secondary && secondary !== title ? secondary : undefined;
+      const imgUrl = item.image_url ? item.image_url.replace("{recipe}", "320x320") : undefined;
+
+      entries.push({
+        title,
+        episodeTitle: epTitle,
+        startTimeMs: start,
+        endTimeMs: end,
+        imageUrl: imgUrl
+      });
+    }
+  }
+  return entries;
+}
+
 /**
  * Fetch schedule entries for a station and date ("YYYY-MM-DD").
- * Uses ESS API for today and RMS API for past/future dates.
+ * Uses ESS API for today with RMS API fallback, and RMS API for past/future dates.
  */
 export async function fetchScheduleForDate(
   stationId: string,
@@ -449,7 +506,8 @@ export async function fetchScheduleForDate(
 ): Promise<ScheduleEntry[]> {
   const cacheKey = `${stationId}_${dateStr}`;
   if (!forceRefresh && scheduleCache.has(cacheKey)) {
-    return scheduleCache.get(cacheKey)!;
+    const cached = scheduleCache.get(cacheKey)!;
+    if (cached.length > 0) return cached;
   }
 
   const station = StationRepository.getById(stationId);
@@ -459,80 +517,53 @@ export async function fetchScheduleForDate(
   const now = new Date();
   const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
-  const entries: ScheduleEntry[] = [];
+  let entries: ScheduleEntry[] = [];
 
+  // 1. Try primary API (ESS for today, RMS for other dates)
   try {
     if (dateStr === todayStr) {
-      // Fetch today from ESS API
       const res = await fetch(`https://ess.api.bbci.co.uk/schedules?serviceId=${serviceId}&mediatypes=audio`, {
         headers: { "User-Agent": "BritishRadioPlayer/1.0" }
       });
       if (res.ok) {
         const data = await res.json();
-        const items = data?.items || [];
-        for (const item of items) {
-          const pubTime = item.published_time;
-          if (!pubTime?.start || !pubTime?.end) continue;
-          const start = new Date(pubTime.start).getTime();
-          const end = new Date(pubTime.end).getTime();
-
-          const brand = item.brand;
-          const episode = item.episode;
-          const title = brand?.title || episode?.title || "BBC Radio";
-          const epTitle = brand?.title && episode?.title && episode.title !== brand.title ? episode.title : undefined;
-
-          const imgObj = episode?.image || brand?.image;
-          const template = imgObj?.template_url;
-          const imageUrl = template ? template.replace("{recipe}", "320x320") : undefined;
-
-          entries.push({
-            title,
-            episodeTitle: epTitle,
-            startTimeMs: start,
-            endTimeMs: end,
-            imageUrl
-          });
-        }
+        entries = parseEssSchedule(data?.items || []);
       }
     } else {
-      // Fetch other date from RMS API
       const res = await fetch(`https://rms.api.bbc.co.uk/v2/experience/inline/schedules/${serviceId}/${dateStr}`, {
         headers: { "User-Agent": "BritishRadioPlayer/1.0" }
       });
       if (res.ok) {
         const data = await res.json();
-        const modules = data?.data || [];
-        for (const mod of modules) {
-          const items = mod?.data || [];
-          for (const item of items) {
-            if (item.type !== "broadcast_summary") continue;
-            if (!item.start || !item.end) continue;
-            const start = new Date(item.start).getTime();
-            const end = new Date(item.end).getTime();
-
-            const titles = item.titles;
-            const title = titles?.primary || "BBC Radio";
-            const secondary = titles?.secondary;
-            const epTitle = secondary && secondary !== title ? secondary : undefined;
-            const imgUrl = item.image_url ? item.image_url.replace("{recipe}", "320x320") : undefined;
-
-            entries.push({
-              title,
-              episodeTitle: epTitle,
-              startTimeMs: start,
-              endTimeMs: end,
-              imageUrl: imgUrl
-            });
-          }
-        }
+        entries = parseRmsSchedule(data);
       }
     }
   } catch (err) {
-    console.warn(`Failed to fetch schedule for ${stationId} on ${dateStr}:`, err);
+    console.warn(`Primary schedule fetch failed for ${stationId} on ${dateStr}:`, err);
   }
 
-  entries.sort((a, b) => a.startTimeMs - b.startTimeMs);
-  scheduleCache.set(cacheKey, entries);
+  // 2. Fallback: If primary returned nothing (e.g. ESS API error/rate-limit for today), try RMS API
+  if (entries.length === 0) {
+    try {
+      const fallbackUrl = `https://rms.api.bbc.co.uk/v2/experience/inline/schedules/${serviceId}/${dateStr}`;
+      const res = await fetch(fallbackUrl, {
+        headers: { "User-Agent": "BritishRadioPlayer/1.0" }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        entries = parseRmsSchedule(data);
+      }
+    } catch (err) {
+      console.warn(`Fallback RMS schedule fetch failed for ${stationId} on ${dateStr}:`, err);
+    }
+  }
+
+  // 3. Only cache when valid entries exist, never poison cache with empty results
+  if (entries.length > 0) {
+    entries.sort((a, b) => a.startTimeMs - b.startTimeMs);
+    scheduleCache.set(cacheKey, entries);
+  }
+
   return entries;
 }
 

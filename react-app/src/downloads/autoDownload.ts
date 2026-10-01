@@ -88,6 +88,7 @@ export async function runAutoDownload(): Promise<void> {
     const enqueue = (entry: SavedEpisodeEntry, podcast?: { id: string; title: string; imageUrl?: string }) => {
       const normId = normalizeEpisodeId(entry.id) || entry.id;
       if (isDownloaded(normId, entry)) return;
+      if (Preferences.isAutoDownloadBlocked(normId)) return;
       const resolved: SavedEpisodeEntry = podcast
         ? {
             ...entry,
@@ -165,7 +166,9 @@ export async function runAutoDownload(): Promise<void> {
       }
       for (const [podcastId, group] of byPodcast.entries()) {
         for (const entry of sortEpisodesNewestFirst(group).slice(0, limit)) {
-          if (isDownloaded(entry.id, entry)) continue;
+          const normId = normalizeEpisodeId(entry.id) || entry.id;
+          if (isDownloaded(normId, entry)) continue;
+          if (Preferences.isAutoDownloadBlocked(normId)) continue;
           let entryToDownload = entry;
           if (!entryToDownload.audioUrl) {
             let episodes = PodcastApi.getEpisodesFromCache(podcastId);

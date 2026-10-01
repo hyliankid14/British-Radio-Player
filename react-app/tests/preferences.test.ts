@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 // In-memory memory store test for Preferences logic
 import type { AudioQuality } from "../src/data/stations.ts";
+import { normalizeEpisodeId } from "../src/downloads/downloadLimits.ts";
 
 function createMockPreferences() {
   const memoryStore = new Map<string, any>();
@@ -185,6 +186,52 @@ function createMockPreferences() {
           timestampMs: Date.now()
         });
       }
+    },
+    getFailedAutoDownloads(): Record<string, { timestampMs: number; count: number }> {
+      const raw = storage.getString("pref_failed_auto_downloads");
+      if (!raw) return {};
+      try {
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+      } catch {
+        return {};
+      }
+    },
+    recordFailedAutoDownload(episodeId: string): void {
+      if (!episodeId) return;
+      const norm = normalizeEpisodeId(episodeId) || episodeId;
+      const records = this.getFailedAutoDownloads();
+      const existing = records[norm] || records[episodeId] || { count: 0, timestampMs: 0 };
+      records[norm] = {
+        count: existing.count + 1,
+        timestampMs: Date.now()
+      };
+      if (episodeId !== norm) delete records[episodeId];
+      storage.set("pref_failed_auto_downloads", JSON.stringify(records));
+    },
+    clearFailedAutoDownload(episodeId: string): void {
+      if (!episodeId) return;
+      const norm = normalizeEpisodeId(episodeId) || episodeId;
+      const records = this.getFailedAutoDownloads();
+      let changed = false;
+      for (const key of Object.keys(records)) {
+        if (key === episodeId || normalizeEpisodeId(key) === norm) {
+          delete records[key];
+          changed = true;
+        }
+      }
+      if (changed) {
+        storage.set("pref_failed_auto_downloads", JSON.stringify(records));
+      }
+    },
+    isAutoDownloadBlocked(episodeId: string): boolean {
+      if (!episodeId) return false;
+      const norm = normalizeEpisodeId(episodeId) || episodeId;
+      const records = this.getFailedAutoDownloads();
+      const entry = records[norm] || records[episodeId];
+      if (!entry) return false;
+      const cooldownMs = entry.count >= 2 ? 24 * 60 * 60 * 1000 : 12 * 60 * 60 * 1000;
+      return Date.now() - entry.timestampMs < cooldownMs;
     },
     storage
   };
@@ -386,4 +433,24 @@ test("Preferences - legacy single scrobble keeps a real stored time when present
   assert.equal(scrobbles.length, 1);
   assert.equal(scrobbles[0].timestampMs, scrobbledAt);
 });
+
+test("Preferences - failed auto-download tracking and cooldown blocking", () => {
+  const prefs = createMockPreferences();
+  const rawId = "urn:bbc:podcast:w3ct998z";
+  const canonicalId = "w3ct998z";
+
+  assert.equal(prefs.isAutoDownloadBlocked(rawId), false);
+  assert.equal(prefs.isAutoDownloadBlocked(canonicalId), false);
+
+  // Record a failure
+  prefs.recordFailedAutoDownload(rawId);
+  assert.equal(prefs.isAutoDownloadBlocked(rawId), true);
+  assert.equal(prefs.isAutoDownloadBlocked(canonicalId), true);
+
+  // Clear failure
+  prefs.clearFailedAutoDownload(canonicalId);
+  assert.equal(prefs.isAutoDownloadBlocked(rawId), false);
+  assert.equal(prefs.isAutoDownloadBlocked(canonicalId), false);
+});
+
 

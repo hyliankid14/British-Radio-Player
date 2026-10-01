@@ -169,6 +169,7 @@ const KEYS = {
   // so these are written once per podcast and never expire.
   ,PODCAST_SERVICES_CACHE: "cache_podcast_services_data"
   ,PODCAST_LANGUAGES_CACHE: "cache_podcast_languages_data"
+  ,FAILED_AUTO_DOWNLOADS: "pref_failed_auto_downloads"
 };
 
 /** Callbacks fired whenever an episode is marked as played. See `onEpisodePlayed`. */
@@ -1143,6 +1144,59 @@ export const Preferences = {
   /** Removes every downloaded-episode record. */
   clearDownloadedEntries(): void {
     storage.set(KEYS.DOWNLOADED_EPISODES, JSON.stringify({}));
+  },
+
+  getFailedAutoDownloads(): Record<string, { timestampMs: number; count: number }> {
+    const raw = storage.getString(KEYS.FAILED_AUTO_DOWNLOADS);
+    if (!raw) return {};
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as Record<string, { timestampMs: number; count: number }>)
+        : {};
+    } catch {
+      return {};
+    }
+  },
+
+  recordFailedAutoDownload(episodeId: string): void {
+    if (!episodeId) return;
+    const norm = normalizeEpisodeId(episodeId) || episodeId;
+    const records = this.getFailedAutoDownloads();
+    const existing = records[norm] || records[episodeId] || { count: 0, timestampMs: 0 };
+    records[norm] = {
+      count: existing.count + 1,
+      timestampMs: Date.now()
+    };
+    if (episodeId !== norm) delete records[episodeId];
+    storage.set(KEYS.FAILED_AUTO_DOWNLOADS, JSON.stringify(records));
+  },
+
+  clearFailedAutoDownload(episodeId: string): void {
+    if (!episodeId) return;
+    const norm = normalizeEpisodeId(episodeId) || episodeId;
+    const records = this.getFailedAutoDownloads();
+    let changed = false;
+    for (const key of Object.keys(records)) {
+      if (key === episodeId || normalizeEpisodeId(key) === norm) {
+        delete records[key];
+        changed = true;
+      }
+    }
+    if (changed) {
+      storage.set(KEYS.FAILED_AUTO_DOWNLOADS, JSON.stringify(records));
+    }
+  },
+
+  isAutoDownloadBlocked(episodeId: string): boolean {
+    if (!episodeId) return false;
+    const norm = normalizeEpisodeId(episodeId) || episodeId;
+    const records = this.getFailedAutoDownloads();
+    const entry = records[norm] || records[episodeId];
+    if (!entry) return false;
+    // Cool down for 12 hours after a failure, or 24 hours if it has failed multiple times
+    const cooldownMs = entry.count >= 2 ? 24 * 60 * 60 * 1000 : 12 * 60 * 60 * 1000;
+    return Date.now() - entry.timestampMs < cooldownMs;
   },
 
   /** Empties a podcast playlist without deleting the playlist itself. */

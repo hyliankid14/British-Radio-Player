@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { Platform } from "react-native";
 import { Directory, File, Paths } from "expo-file-system";
-import { Podcast, Episode } from "../api/podcasts";
+import { Podcast, Episode, PodcastApi } from "../api/podcasts";
 import { Preferences, SavedEpisodeEntry } from "../storage/preferences";
 import { NativeAndroid } from "../native/nativeAndroid";
 import { notifyDownloadFinished, notifyDownloadStarted } from "../notifications/downloadNotifications";
@@ -174,6 +174,40 @@ export function enforcePerPodcastDownloadLimit(remove: (episodeId: string) => vo
   return victims.length;
 }
 
+async function refreshEpisodeAudioUrl(
+  podcastId: string | undefined,
+  episodeId: string,
+  episodeTitle?: string
+): Promise<string | null> {
+  if (!podcastId && !episodeId) return null;
+  try {
+    let pId = podcastId;
+    let rssUrl: string | null = null;
+    if (pId) {
+      const catalog = await PodcastApi.fetchLiveCatalog();
+      const p = catalog.find((item) => item.id === pId);
+      if (p) rssUrl = p.rssUrl;
+    }
+    if (!rssUrl && pId) {
+      rssUrl = `https://podcasts.files.bbci.co.uk/${pId}.rss`;
+    }
+    if (!rssUrl) return null;
+
+    const episodes = await PodcastApi.fetchEpisodes(rssUrl, pId || "", true);
+    const norm = normalizeEpisodeId(episodeId);
+    const titleNorm = episodeTitle?.trim().toLowerCase();
+    const matched = episodes.find(
+      (e) =>
+        (norm && normalizeEpisodeId(e.id) === norm) ||
+        (titleNorm && e.title.trim().toLowerCase() === titleNorm)
+    );
+    return matched?.audioUrl || null;
+  } catch (err) {
+    console.warn("[Download] Failed to refresh audio URL from feed:", err);
+    return null;
+  }
+}
+
 export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
   downloads: storedDownloads(),
 
@@ -213,10 +247,10 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
     };
 
     try {
-      const targetUrl = normalizeBbcAudioUrl(entry.audioUrl) || entry.audioUrl;
-      const extension = fileExtension(targetUrl);
+      let targetUrl = normalizeBbcAudioUrl(entry.audioUrl) || entry.audioUrl;
+      let extension = fileExtension(targetUrl);
       const safeId = sanitizeFileName(normId);
-      const tempName = `${safeId}${extension}`;
+      let tempName = `${safeId}${extension}`;
       let localUri: string;
 
       if (Platform.OS === "android") {
@@ -224,11 +258,34 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
         // visible to (and removable by) the user via the device file manager.
         const temp = new File(cacheDirectory(), tempName);
         deleteFileQuietly(temp.uri);
-        const downloaded = await File.downloadFileAsync(targetUrl, temp, {
-          idempotent: true,
-          onProgress,
-          headers: { "User-Agent": DOWNLOAD_USER_AGENT }
-        });
+        let downloaded: File;
+        try {
+          downloaded = await File.downloadFileAsync(targetUrl, temp, {
+            idempotent: true,
+            onProgress,
+            headers: { "User-Agent": DOWNLOAD_USER_AGENT }
+          });
+        } catch (downloadErr) {
+          console.warn(`[Download] Primary download attempt failed for "${entry.title}", refreshing audio URL:`, downloadErr);
+          const freshUrl = await refreshEpisodeAudioUrl(entry.podcastId, normId, entry.title);
+          if (freshUrl && freshUrl !== entry.audioUrl) {
+            targetUrl = normalizeBbcAudioUrl(freshUrl) || freshUrl;
+            extension = fileExtension(targetUrl);
+            tempName = `${safeId}${extension}`;
+            normalizedEntry.audioUrl = freshUrl;
+            if (Preferences.isEpisodeSaved(normId)) {
+              Preferences.addPodcastPlaylistEntry("saved", normalizedEntry);
+            }
+            deleteFileQuietly(temp.uri);
+            downloaded = await File.downloadFileAsync(targetUrl, temp, {
+              idempotent: true,
+              onProgress,
+              headers: { "User-Agent": DOWNLOAD_USER_AGENT }
+            });
+          } else {
+            throw downloadErr;
+          }
+        }
         const displayName = buildDownloadDisplayName(entry.title, normId, extension);
         let published: string | null = null;
         try {
@@ -261,11 +318,34 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
       } else {
         const destination = new File(documentsDirectory(), tempName);
         deleteFileQuietly(destination.uri);
-        const file = await File.downloadFileAsync(targetUrl, destination, {
-          idempotent: true,
-          onProgress,
-          headers: { "User-Agent": DOWNLOAD_USER_AGENT }
-        });
+        let file: File;
+        try {
+          file = await File.downloadFileAsync(targetUrl, destination, {
+            idempotent: true,
+            onProgress,
+            headers: { "User-Agent": DOWNLOAD_USER_AGENT }
+          });
+        } catch (downloadErr) {
+          console.warn(`[Download] Primary download attempt failed for "${entry.title}", refreshing audio URL:`, downloadErr);
+          const freshUrl = await refreshEpisodeAudioUrl(entry.podcastId, normId, entry.title);
+          if (freshUrl && freshUrl !== entry.audioUrl) {
+            targetUrl = normalizeBbcAudioUrl(freshUrl) || freshUrl;
+            extension = fileExtension(targetUrl);
+            tempName = `${safeId}${extension}`;
+            normalizedEntry.audioUrl = freshUrl;
+            if (Preferences.isEpisodeSaved(normId)) {
+              Preferences.addPodcastPlaylistEntry("saved", normalizedEntry);
+            }
+            deleteFileQuietly(destination.uri);
+            file = await File.downloadFileAsync(targetUrl, destination, {
+              idempotent: true,
+              onProgress,
+              headers: { "User-Agent": DOWNLOAD_USER_AGENT }
+            });
+          } else {
+            throw downloadErr;
+          }
+        }
         localUri = file.uri;
       }
 
@@ -277,6 +357,7 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
       });
       // Mirror the episode into the built-in "Downloaded Files" playlist so counts match.
       Preferences.addPodcastPlaylistEntry("downloaded", normalizedEntry);
+      Preferences.clearFailedAutoDownload(normId);
 
       set((state) => {
         const next = { ...state.downloads };
@@ -296,6 +377,9 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
       console.error(
         `[Download] Failed — "${entry.title}" (${normId}): ${message}\n  url: ${entry.audioUrl}`
       );
+      if (options?.auto) {
+        Preferences.recordFailedAutoDownload(normId);
+      }
       set((state) => {
         const next = { ...state.downloads };
         if (entry.id !== normId) delete next[entry.id];
