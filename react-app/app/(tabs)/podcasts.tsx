@@ -142,8 +142,7 @@ export default function PodcastsScreen() {
   const miniPlayerVisible = usePlayerStore(
     (state) => !!(state.currentStation || (state.currentPodcast && state.currentEpisode))
   );
-  const miniPlayerHeight =
-    responsive.miniPlayerArtworkSize + (responsive.isTablet ? 24 : 16);
+  const miniPlayerHeight = responsive.miniPlayerHeight;
   const fabBottom = (miniPlayerVisible ? miniPlayerHeight : 0) + 16;
 
   // Data state

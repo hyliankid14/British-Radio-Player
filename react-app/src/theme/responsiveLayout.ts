@@ -10,6 +10,8 @@ export interface ResponsiveLayout {
   nowPlayingArtworkSize: number;
   /** MiniPlayer artwork dimension (80dp on tablet, 72dp on phone). */
   miniPlayerArtworkSize: number;
+  /** MiniPlayer overall container height (104dp on tablet, 96dp on phone). */
+  miniPlayerHeight: number;
   /** MiniPlayer button touch target size (64dp on tablet, 44dp on phone). */
   miniPlayerButtonSize: number;
   /** MiniPlayer button padding (12dp on tablet, 6dp on phone). */
@@ -39,6 +41,7 @@ export function calculateResponsiveLayout(width: number, height: number): Respon
   }
 
   const miniPlayerArtworkSize = isTablet ? 80 : 72;
+  const miniPlayerHeight = isTablet ? 104 : 96;
   const miniPlayerButtonSize = isTablet ? 64 : 44;
   const miniPlayerButtonPadding = isTablet ? 12 : 6;
 
@@ -50,6 +53,7 @@ export function calculateResponsiveLayout(width: number, height: number): Respon
     isLargeTablet,
     nowPlayingArtworkSize,
     miniPlayerArtworkSize,
+    miniPlayerHeight,
     miniPlayerButtonSize,
     miniPlayerButtonPadding
   };

@@ -861,6 +861,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     } else if (state === State.Buffering || state === State.Loading) {
       set({ isBuffering: true });
     } else if (state === State.Paused || state === State.Stopped) {
+      if (get().isBuffering) {
+        // Ignore transient stopped state while TrackPlayer resets and buffers a new track/candidate
+        return;
+      }
       set({ isPlaying: false, isBuffering: false });
     } else if (state === State.Error) {
       const { currentStation } = get();

@@ -125,11 +125,29 @@ export function MiniPlayer() {
     </TouchableOpacity>
   );
 
+  const controlButtonStyle = isTablet
+    ? [
+        styles.controlButtonTablet,
+        {
+          width: responsive.miniPlayerButtonSize,
+          height: responsive.miniPlayerButtonSize,
+          padding: responsive.miniPlayerButtonPadding
+        }
+      ]
+    : [
+        styles.controlButtonPhone,
+        {
+          flex: 1,
+          maxWidth: responsive.miniPlayerButtonSize,
+          height: responsive.miniPlayerButtonSize
+        }
+      ];
+
   const renderControls = () => (
     <View style={isTablet ? styles.controlsRowTablet : styles.controlsRowPhone}>
       {/* Stop Button */}
       <TouchableOpacity
-        style={isTablet ? [styles.controlButtonTablet, { width: responsive.miniPlayerButtonSize, height: responsive.miniPlayerButtonSize, padding: responsive.miniPlayerButtonPadding }] : styles.controlButtonPhone}
+        style={controlButtonStyle}
         onPress={stop}
         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       >
@@ -138,7 +156,7 @@ export function MiniPlayer() {
 
       {/* Previous Button */}
       <TouchableOpacity
-        style={isTablet ? [styles.controlButtonTablet, { width: responsive.miniPlayerButtonSize, height: responsive.miniPlayerButtonSize, padding: responsive.miniPlayerButtonPadding }] : styles.controlButtonPhone}
+        style={controlButtonStyle}
         onPress={handlePrevious}
         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         accessibilityLabel={isPodcast ? "Rewind 10 seconds" : "Previous station"}
@@ -148,7 +166,7 @@ export function MiniPlayer() {
 
       {/* Play/Pause Button */}
       <TouchableOpacity
-        style={isTablet ? [styles.controlButtonTablet, { width: responsive.miniPlayerButtonSize, height: responsive.miniPlayerButtonSize, padding: responsive.miniPlayerButtonPadding }] : styles.controlButtonPhone}
+        style={controlButtonStyle}
         onPress={togglePlayPause}
         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       >
@@ -165,7 +183,7 @@ export function MiniPlayer() {
 
       {/* Next Button */}
       <TouchableOpacity
-        style={isTablet ? [styles.controlButtonTablet, { width: responsive.miniPlayerButtonSize, height: responsive.miniPlayerButtonSize, padding: responsive.miniPlayerButtonPadding }] : styles.controlButtonPhone}
+        style={controlButtonStyle}
         onPress={handleNext}
         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         accessibilityLabel={isPodcast ? "Skip forward 30 seconds" : "Next station"}
@@ -175,7 +193,7 @@ export function MiniPlayer() {
 
       {/* Favorite / Subscribed Star Button */}
       <TouchableOpacity
-        style={isTablet ? [styles.controlButtonTablet, { width: responsive.miniPlayerButtonSize, height: responsive.miniPlayerButtonSize, padding: responsive.miniPlayerButtonPadding }] : styles.controlButtonPhone}
+        style={controlButtonStyle}
         onPress={() => {
           if (currentStation) {
             toggleFavorite(currentStation.id);
@@ -201,7 +219,8 @@ export function MiniPlayer() {
         styles.container,
         {
           backgroundColor: theme.miniPlayerBg,
-          paddingVertical: isTablet ? 12 : 8
+          paddingVertical: isTablet ? 12 : 8,
+          minHeight: responsive.miniPlayerHeight
         }
       ]}
     >
@@ -209,7 +228,14 @@ export function MiniPlayer() {
       <TouchableOpacity
         activeOpacity={0.8}
         onPress={openNowPlaying}
-        style={[styles.artworkContainer, { marginRight: isTablet ? 20 : 16 }]}
+        style={[
+          styles.artworkContainer,
+          {
+            width: artworkSize,
+            height: artworkSize,
+            marginRight: isTablet ? 20 : 16
+          }
+        ]}
       >
         {artworkUrl && !imageError ? (
           <Image
@@ -280,7 +306,8 @@ const styles = StyleSheet.create({
     justifyContent: "space-between"
   },
   textContainerPhone: {
-    marginBottom: 4
+    marginBottom: 2,
+    justifyContent: "center"
   },
   textContainerTablet: {
     flex: 1,
@@ -289,11 +316,13 @@ const styles = StyleSheet.create({
   },
   stationTitle: {
     fontSize: 16,
+    lineHeight: 20,
     fontWeight: "bold",
     letterSpacing: 0.15
   },
   showSubtitle: {
     fontSize: 13,
+    lineHeight: 16,
     marginTop: 1
   },
   progressTrack: {
@@ -309,8 +338,7 @@ const styles = StyleSheet.create({
   controlsRowPhone: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingRight: 4
+    justifyContent: "space-between"
   },
   controlsRowTablet: {
     flexDirection: "row",
@@ -318,7 +346,6 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end"
   },
   controlButtonPhone: {
-    padding: 6,
     alignItems: "center",
     justifyContent: "center"
   },

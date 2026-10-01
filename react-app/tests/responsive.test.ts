@@ -51,3 +51,15 @@ test("artwork shrink is monotonic as the viewport shrinks", () => {
     assert.ok(sizes[i] <= sizes[i - 1], `expected ${sizes[i]} <= ${sizes[i - 1]}`);
   }
 });
+
+test("mini player height is stable and consistent on phone and tablet", () => {
+  const phone = calculateResponsiveLayout(390, 844);
+  assert.equal(phone.miniPlayerHeight, 96);
+  assert.equal(phone.miniPlayerArtworkSize, 72);
+  assert.equal(phone.miniPlayerButtonSize, 44);
+
+  const tablet = calculateResponsiveLayout(800, 1280);
+  assert.equal(tablet.miniPlayerHeight, 104);
+  assert.equal(tablet.miniPlayerArtworkSize, 80);
+  assert.equal(tablet.miniPlayerButtonSize, 64);
+});
