@@ -324,6 +324,8 @@ object LegacyMigration {
     copyBoolean(lastfm, "broadcast_scrobble_enabled", out, "pref_lastfm_broadcast")
     copyBoolean(lastfm, "scrobble_podcasts", out, "pref_lastfm_podcasts")
     copyString(lastfm, "last_scrobbled_track", out, "pref_lastfm_last_scrobbled")
+    copyNumber(lastfm, "last_scrobbled_time_ms", out, "pref_lastfm_last_scrobbled_time_ms")
+    copyString(lastfm, "lastfm_recent_scrobbles", out, "pref_lastfm_recent_scrobbles")
 
     // ── Privacy Analytics ───────────────────────────────────────────────────
     val analytics = try { prefs(context, "privacy_analytics").all } catch (_: Exception) { emptyMap<String, Any?>() }

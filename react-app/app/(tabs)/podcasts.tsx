@@ -15,6 +15,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useAppTheme } from "../../src/theme/colors";
+import { ScreenHeader, HeaderIconButton } from "../../src/components/ScreenHeader";
 import {
   Podcast,
   PopularEntry,
@@ -351,29 +352,23 @@ export default function PodcastsScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.surfaceContainer }]} edges={["top"]}>
-      {/* 56dp Top Toolbar matching podcasts_title_bar */}
-      <View style={[styles.toolbar, { backgroundColor: theme.surfaceContainer }]}>
-        <Text style={[styles.toolbarTitle, { color: theme.onSurface }]}>Podcasts</Text>
-        <View style={styles.toolbarActions}>
-          <TouchableOpacity
-            style={styles.toolbarIconButton}
-            onPress={() => router.push("/modal/podcast-search")}
-            accessibilityLabel="Search podcasts"
-            accessibilityRole="button"
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <MaterialIcons name="search" size={24} color={theme.onSurface} />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.toolbarIconButton}
-            onPress={handleShuffle}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <MaterialIcons name="shuffle" size={24} color={theme.onSurface} />
-          </TouchableOpacity>
-        </View>
-      </View>
+      <ScreenHeader
+        title="Podcasts"
+        rightActions={
+          <>
+            <HeaderIconButton
+              icon="search"
+              accessibilityLabel="Search podcasts"
+              onPress={() => router.push("/modal/podcast-search")}
+            />
+            <HeaderIconButton
+              icon="shuffle"
+              accessibilityLabel="Play a random podcast"
+              onPress={handleShuffle}
+            />
+          </>
+        }
+      />
 
       <OfflineBanner />
       <VpnBanner />
@@ -557,29 +552,6 @@ export default function PodcastsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1
-  },
-  toolbar: {
-    height: 56,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16
-  },
-  toolbarTitle: {
-    fontSize: 22,
-    fontWeight: "700",
-    letterSpacing: -0.2
-  },
-  toolbarActions: {
-    flexDirection: "row",
-    alignItems: "center"
-  },
-  toolbarIconButton: {
-    width: 44,
-    height: 44,
-    alignItems: "center",
-    justifyContent: "center",
-    marginLeft: 4
   },
   searchBarContainer: {
     paddingHorizontal: 12,

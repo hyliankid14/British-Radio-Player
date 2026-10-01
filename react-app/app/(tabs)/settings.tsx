@@ -11,6 +11,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { MaterialIcons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useAppTheme } from "../../src/theme/colors";
+import { ScreenHeader } from "../../src/components/ScreenHeader";
 import { IS_DEBUG_BUILD, appVersion } from "../../src/config/buildInfo";
 import { OfflineBanner, VpnBanner } from "../../src/components/NetworkBanners";
 
@@ -24,18 +25,16 @@ export default function SettingsScreen() {
 
   return (
     <SafeAreaView
-      style={[styles.container, { backgroundColor: theme.surface }]}
+      style={[styles.container, { backgroundColor: theme.surfaceContainer }]}
       edges={["top"]}
     >
-      {/* 56dp Top App Bar */}
-      <View style={[styles.topAppBar, { backgroundColor: theme.surface }]}>
-        <Text style={[styles.appBarTitle, { color: theme.onSurface }]}>Settings</Text>
-      </View>
+      <ScreenHeader title="Settings" />
 
       <OfflineBanner />
       <VpnBanner />
 
       <ScrollView
+        style={{ backgroundColor: theme.surface }}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: 170 + insets.bottom }]}
         showsVerticalScrollIndicator={false}
       >
@@ -186,17 +185,6 @@ function Divider({ theme }: { theme: ReturnType<typeof useAppTheme> }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1
-  },
-  topAppBar: {
-    height: 56,
-    justifyContent: "center",
-    paddingHorizontal: 20,
-    elevation: 2
-  },
-  appBarTitle: {
-    fontSize: 22,
-    fontWeight: "600",
-    letterSpacing: -0.2
   },
   scrollContent: {
     paddingBottom: 120

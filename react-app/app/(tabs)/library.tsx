@@ -8,6 +8,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { ScreenHeader } from "../../src/components/ScreenHeader";
 
 type LibrarySection = "DOWNLOADS" | "SAVED" | "PLAYLISTS" | "HISTORY";
 
@@ -16,9 +17,7 @@ export default function LibraryScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Library</Text>
-      </View>
+      <ScreenHeader title="Library" />
 
       {/* Section Filter Pills */}
       <View style={styles.tabsContainer}>

@@ -65,6 +65,8 @@ interface NativeAndroidBridge {
   clearDownloads(): number;
   openDownloadsFolder(): boolean;
   broadcastScrobble(state: number, artist: string, track: string, album: string, durationSec: number): void;
+  savePersistentScrobbles(json: string): void;
+  readPersistentScrobbles(): string | null;
 }
 
 export interface UpdateInfo {
@@ -503,6 +505,24 @@ export const NativeAndroid = {
       load()?.broadcastScrobble(state, artist, track, album, durationSec);
     } catch {
       // Degrades gracefully when native module is unavailable
+    }
+  },
+
+  /** Persists the last 5 scrobbled tracks to public storage and SharedPreferences (survives reinstalls). */
+  savePersistentScrobbles(json: string): void {
+    try {
+      load()?.savePersistentScrobbles(json);
+    } catch {
+      // Degrades gracefully when native module is unavailable
+    }
+  },
+
+  /** Reads persisted scrobbled tracks from public storage / Auto Backup (survives reinstalls). */
+  readPersistentScrobbles(): string | null {
+    try {
+      return load()?.readPersistentScrobbles() ?? null;
+    } catch {
+      return null;
     }
   }
 };

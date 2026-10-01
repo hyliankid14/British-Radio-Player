@@ -71,6 +71,18 @@ function createMockPreferences() {
         favorites: this.getFavorites(),
         audioQuality: this.getAudioQuality(),
         geoBlocked: this.getGeoBlocked(),
+        lastfm: {
+          username: this.getLastFm().username,
+          sessionKey: this.getLastFm().sessionKey,
+          recentScrobbles: this.getLastFmRecentScrobbles().slice(0, 5),
+          lastScrobbled: this.getLastFmLastScrobbled()
+        },
+        lastfm_prefs: {
+          username: this.getLastFm().username,
+          session_key: this.getLastFm().sessionKey,
+          recent_scrobbles: this.getLastFmRecentScrobbles().slice(0, 5),
+          last_scrobbled_track: this.getLastFmLastScrobbled()
+        },
         exportedAt: new Date().toISOString(),
         version: 1
       }, null, 2);
@@ -81,6 +93,33 @@ function createMockPreferences() {
         if (Array.isArray(data.favorites)) this.setFavorites(data.favorites);
         if (data.audioQuality) this.setAudioQuality(data.audioQuality);
         if (typeof data.geoBlocked === "boolean") this.setGeoBlocked(data.geoBlocked);
+        if (data.lastfm) {
+          if (Array.isArray(data.lastfm.recentScrobbles)) {
+            this.setLastFmRecentScrobbles(data.lastfm.recentScrobbles);
+          } else if (typeof data.lastfm.lastScrobbled === "string") {
+            this.setLastFmLastScrobbled(data.lastfm.lastScrobbled);
+          }
+          if (data.lastfm.username && data.lastfm.sessionKey) {
+            this.setLastFmSession(data.lastfm.username, data.lastfm.sessionKey);
+          }
+        }
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    importKotlinBackup(jsonString: string): boolean {
+      try {
+        const root = JSON.parse(jsonString) as Record<string, any>;
+        const lastfm = root.lastfm_prefs || {};
+        if (Array.isArray(lastfm.recent_scrobbles)) {
+          this.setLastFmRecentScrobbles(lastfm.recent_scrobbles);
+        } else if (typeof lastfm.last_scrobbled_track === "string" && lastfm.last_scrobbled_track.trim().length > 0) {
+          this.setLastFmLastScrobbled(lastfm.last_scrobbled_track);
+        }
+        if (typeof lastfm.username === "string" && typeof lastfm.session_key === "string" && lastfm.session_key) {
+          this.setLastFmSession(lastfm.username, lastfm.session_key);
+        }
         return true;
       } catch {
         return false;
@@ -132,7 +171,7 @@ function createMockPreferences() {
       if (raw) {
         try {
           const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+          if (Array.isArray(parsed)) return parsed;
         } catch {
           // fallback below
         }
@@ -186,6 +225,33 @@ function createMockPreferences() {
           timestampMs: Date.now()
         });
       }
+    },
+    setLastFmRecentScrobbles(entries: any[]): void {
+      storage.set("pref_lastfm_recent_scrobbles", JSON.stringify(entries.slice(0, 20)));
+      if (entries.length > 0) {
+        storage.set("pref_lastfm_last_scrobbled", `${entries[0].artist} - ${entries[0].track}`);
+        storage.set("pref_lastfm_last_scrobbled_time_ms", entries[0].timestampMs || 0);
+      } else {
+        storage.remove("pref_lastfm_last_scrobbled");
+        storage.remove("pref_lastfm_last_scrobbled_time_ms");
+      }
+    },
+    getLastFm() {
+      return {
+        username: storage.getString("pref_lastfm_username") || "",
+        sessionKey: storage.getString("pref_lastfm_session_key") || "",
+        direct: storage.getBoolean("pref_lastfm_direct") ?? false,
+        broadcast: storage.getBoolean("pref_lastfm_broadcast") ?? true,
+        podcasts: storage.getBoolean("pref_lastfm_podcasts") ?? false
+      };
+    },
+    setLastFmSession(username: string, sessionKey: string): void {
+      storage.set("pref_lastfm_username", username);
+      storage.set("pref_lastfm_session_key", sessionKey);
+    },
+    clearLastFmSession(): void {
+      storage.remove("pref_lastfm_username");
+      storage.remove("pref_lastfm_session_key");
     },
     getFailedAutoDownloads(): Record<string, { timestampMs: number; count: number }> {
       const raw = storage.getString("pref_failed_auto_downloads");
@@ -451,6 +517,78 @@ test("Preferences - failed auto-download tracking and cooldown blocking", () => 
   prefs.clearFailedAutoDownload(canonicalId);
   assert.equal(prefs.isAutoDownloadBlocked(rawId), false);
   assert.equal(prefs.isAutoDownloadBlocked(canonicalId), false);
+});
+
+test("Preferences - Last.fm recent scrobbles and session preserved in backup export and restore", () => {
+  const prefs = createMockPreferences();
+  const now = Date.now();
+
+  // Add 6 recent scrobbles
+  for (let i = 1; i <= 6; i++) {
+    prefs.addLastFmRecentScrobble({
+      artist: `Artist ${i}`,
+      track: `Track ${i}`,
+      stationName: "BBC Radio 1",
+      timestampMs: now + i * 100_000
+    });
+  }
+  prefs.setLastFmSession("testuser", "testsessionkey123");
+
+  const recentBefore = prefs.getLastFmRecentScrobbles();
+  assert.equal(recentBefore.length, 6);
+  assert.equal(recentBefore[0].artist, "Artist 6");
+
+  // Export backup
+  const backupJson = prefs.exportBackup();
+  const parsedBackup = JSON.parse(backupJson);
+
+  // Backup should contain top 5 scrobbles and credentials
+  assert.ok(parsedBackup.lastfm_prefs);
+  assert.equal(parsedBackup.lastfm_prefs.username, "testuser");
+  assert.equal(parsedBackup.lastfm_prefs.session_key, "testsessionkey123");
+  assert.equal(parsedBackup.lastfm_prefs.recent_scrobbles.length, 5);
+  assert.equal(parsedBackup.lastfm_prefs.recent_scrobbles[0].artist, "Artist 6");
+  assert.equal(parsedBackup.lastfm_prefs.recent_scrobbles[4].artist, "Artist 2");
+
+  // Clear preferences to simulate fresh reinstall
+  prefs.clearLastFmSession();
+  prefs.setLastFmRecentScrobbles([]);
+  assert.equal(prefs.getLastFm().username, "");
+  assert.equal(prefs.getLastFmRecentScrobbles().length, 0);
+
+  // Restore via importKotlinBackup (standard backup format)
+  const success = prefs.importKotlinBackup(backupJson);
+  assert.equal(success, true);
+  assert.equal(prefs.getLastFm().username, "testuser");
+  assert.equal(prefs.getLastFm().sessionKey, "testsessionkey123");
+
+  const restored = prefs.getLastFmRecentScrobbles();
+  assert.equal(restored.length, 5);
+  assert.equal(restored[0].artist, "Artist 6");
+  assert.equal(restored[0].track, "Track 6");
+  assert.equal(restored[4].artist, "Artist 2");
+  assert.equal(restored[4].track, "Track 2");
+});
+
+test("Preferences - Kotlin backup restore falls back to single last_scrobbled_track when recent_scrobbles missing", () => {
+  const prefs = createMockPreferences();
+  const legacyBackup = JSON.stringify({
+    lastfm_prefs: {
+      username: "legacyuser",
+      session_key: "legacysession",
+      last_scrobbled_track: "Dua Lipa - Training Season"
+    }
+  });
+
+  const success = prefs.importKotlinBackup(legacyBackup);
+  assert.equal(success, true);
+  assert.equal(prefs.getLastFm().username, "legacyuser");
+  assert.equal(prefs.getLastFm().sessionKey, "legacysession");
+
+  const scrobbles = prefs.getLastFmRecentScrobbles();
+  assert.equal(scrobbles.length, 1);
+  assert.equal(scrobbles[0].artist, "Dua Lipa");
+  assert.equal(scrobbles[0].track, "Training Season");
 });
 
 

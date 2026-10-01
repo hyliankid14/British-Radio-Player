@@ -7,6 +7,7 @@ import { configureGeoBlockedStorage } from "../utils/geoBlock";
 import type { QueuedScrobble } from "../audio/scrobbleQueue";
 import { sanitizeScrobbleQueue } from "../audio/scrobbleQueue";
 import { normalizeEpisodeId } from "../downloads/downloadLimits";
+import { savePersistentRecentScrobbles, readPersistentRecentScrobbles } from "./persistentScrobbles";
 
 export type { LastPlayed };
 
@@ -225,10 +226,18 @@ export const Preferences = {
     if (raw) {
       try {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed)) return parsed;
       } catch {
         // Fall back below
       }
+    }
+    // Check persistent storage (survives app uninstalls, reinstalls and updates)
+    const persistent = readPersistentRecentScrobbles();
+    if (persistent && persistent.length > 0) {
+      storage.set(KEYS.LASTFM_RECENT_SCROBBLES, JSON.stringify(persistent));
+      storage.set(KEYS.LASTFM_LAST_SCROBBLED, `${persistent[0].artist} - ${persistent[0].track}`);
+      storage.set(KEYS.LASTFM_LAST_SCROBBLED_TIME_MS, persistent[0].timestampMs);
+      return persistent;
     }
     const single = storage.getString(KEYS.LASTFM_LAST_SCROBBLED);
     if (single) {
@@ -246,6 +255,19 @@ export const Preferences = {
       }];
     }
     return [];
+  },
+
+  setLastFmRecentScrobbles(entries: LastFmScrobbleEntry[]): void {
+    const updated = entries.slice(0, 20);
+    storage.set(KEYS.LASTFM_RECENT_SCROBBLES, JSON.stringify(updated));
+    if (updated.length > 0) {
+      storage.set(KEYS.LASTFM_LAST_SCROBBLED, `${updated[0].artist} - ${updated[0].track}`);
+      storage.set(KEYS.LASTFM_LAST_SCROBBLED_TIME_MS, updated[0].timestampMs);
+    } else {
+      storage.remove(KEYS.LASTFM_LAST_SCROBBLED);
+      storage.remove(KEYS.LASTFM_LAST_SCROBBLED_TIME_MS);
+    }
+    savePersistentRecentScrobbles(updated.slice(0, 5));
   },
 
   addLastFmRecentScrobble(entry: LastFmScrobbleEntry): void {
@@ -268,6 +290,7 @@ export const Preferences = {
     storage.set(KEYS.LASTFM_RECENT_SCROBBLES, JSON.stringify(updated));
     storage.set(KEYS.LASTFM_LAST_SCROBBLED, `${entry.artist} - ${entry.track}`);
     storage.set(KEYS.LASTFM_LAST_SCROBBLED_TIME_MS, entry.timestampMs);
+    savePersistentRecentScrobbles(updated.slice(0, 5));
   },
 
   getLastFmLastScrobbled(): string {
@@ -1409,6 +1432,15 @@ export const Preferences = {
         download_on_wifi_only: this.getSetting("pref_download_wifi", true),
         delete_on_played: this.getSetting("pref_delete_played", false),
         max_downloaded_episodes: this.getSetting("pref_max_downloads", 0)
+      },
+      lastfm_prefs: {
+        session_key: this.getLastFm().sessionKey,
+        username: this.getLastFm().username,
+        direct_scrobble_enabled: this.getLastFm().direct,
+        broadcast_scrobble_enabled: this.getLastFm().broadcast,
+        scrobble_podcasts: this.getLastFm().podcasts,
+        recent_scrobbles: this.getLastFmRecentScrobbles().slice(0, 5),
+        last_scrobbled_track: this.getLastFmLastScrobbled()
       }
     };
 
@@ -1422,6 +1454,16 @@ export const Preferences = {
       if (data.audioQuality) this.setAudioQuality(data.audioQuality);
       if (typeof data.geoBlocked === "boolean") this.setGeoBlocked(data.geoBlocked);
       if (data.theme) this.setTheme(data.theme);
+      if (data.lastfm) {
+        if (Array.isArray(data.lastfm.recentScrobbles)) {
+          this.setLastFmRecentScrobbles(data.lastfm.recentScrobbles);
+        } else if (typeof data.lastfm.lastScrobbled === "string") {
+          this.setLastFmLastScrobbled(data.lastfm.lastScrobbled);
+        }
+        if (data.lastfm.username && data.lastfm.sessionKey) {
+          this.setLastFmSession(data.lastfm.username, data.lastfm.sessionKey);
+        }
+      }
       return true;
     } catch {
       return false;
@@ -1634,6 +1676,26 @@ export const Preferences = {
       if (typeof songsRaw === "string") {
         const songs = JSON.parse(songsRaw);
         if (Array.isArray(songs)) storage.set("pref_recent_songs", JSON.stringify(songs));
+      }
+
+      // Last.fm preferences and scrobbles
+      const lastfm = group("lastfm_prefs");
+      if (Array.isArray(lastfm.recent_scrobbles)) {
+        this.setLastFmRecentScrobbles(lastfm.recent_scrobbles as LastFmScrobbleEntry[]);
+      } else if (typeof lastfm.last_scrobbled_track === "string" && lastfm.last_scrobbled_track.trim().length > 0) {
+        this.setLastFmLastScrobbled(lastfm.last_scrobbled_track);
+      }
+      if (typeof lastfm.username === "string" && typeof lastfm.session_key === "string" && lastfm.session_key) {
+        this.setLastFmSession(lastfm.username, lastfm.session_key);
+      }
+      if (typeof lastfm.direct_scrobble_enabled === "boolean") {
+        this.setLastFmDirect(lastfm.direct_scrobble_enabled);
+      }
+      if (typeof lastfm.broadcast_scrobble_enabled === "boolean") {
+        this.setLastFmBroadcast(lastfm.broadcast_scrobble_enabled);
+      }
+      if (typeof lastfm.scrobble_podcasts === "boolean") {
+        this.setLastFmPodcasts(lastfm.scrobble_podcasts);
       }
 
       return true;

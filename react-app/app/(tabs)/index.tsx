@@ -24,6 +24,7 @@ import { OfflineBanner, VpnBanner, PlaybackErrorBanner } from "../../src/compone
 import { formatSongPlayedAt } from "../../src/utils/dateUtils";
 import { useNow } from "../../src/hooks/useNow";
 import { isPlaceholderArtwork } from "../../src/api/showInfo";
+import { ScreenHeader, HeaderIconButton } from "../../src/components/ScreenHeader";
 
 type SubCategoryTab = "National" | "Regions" | "Local" | "Songs";
 
@@ -228,26 +229,16 @@ export default function AllStationsScreen() {
       style={[styles.container, { backgroundColor: theme.surfaceContainer }]}
       edges={["top"]}
     >
-      {/* Top App Bar (Material 3: 56dp) */}
-      <View
-        style={[
-          styles.topAppBar,
-          {
-            backgroundColor: theme.surfaceContainer
-          }
-        ]}
-      >
-        <Text style={[styles.topAppBarTitle, { color: theme.onSurface }]}>
-          All Stations
-        </Text>
-        <TouchableOpacity
-          onPress={() => router.navigate("/(tabs)/guide")}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          accessibilityLabel="Open Radio Guide"
-        >
-          <MaterialIcons name="calendar-view-week" size={24} color={theme.onSurface} />
-        </TouchableOpacity>
-      </View>
+      <ScreenHeader
+        title="All Stations"
+        rightActions={
+          <HeaderIconButton
+            icon="calendar-view-week"
+            accessibilityLabel="Open Radio Guide"
+            onPress={() => router.navigate("/(tabs)/guide")}
+          />
+        }
+      />
 
       <OfflineBanner />
       <VpnBanner />
@@ -420,19 +411,6 @@ export default function AllStationsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1
-  },
-  topAppBar: {
-    height: 56,
-    paddingHorizontal: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    elevation: 4
-  },
-  topAppBarTitle: {
-    fontSize: 22,
-    fontWeight: "600",
-    letterSpacing: 0
   },
   tabBarStrip: {
     flexDirection: "row",

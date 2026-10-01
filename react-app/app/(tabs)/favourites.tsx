@@ -24,6 +24,7 @@ import { Station, StationRepository } from "../../src/data/stations";
 import { usePlayerStore } from "../../src/store/playerStore";
 import { StationLogo } from "../../src/components/StationLogo";
 import { useAppTheme } from "../../src/theme/colors";
+import { ScreenHeader, HeaderIconButton } from "../../src/components/ScreenHeader";
 import { useStationShowStore } from "../../src/store/stationShowStore";
 import { Podcast, PodcastApi, decodeXmlEntities, Episode, matchesBooleanSearch } from "../../src/api/podcasts";
 import { Preferences, PodcastHistoryEntry } from "../../src/storage/preferences";
@@ -64,7 +65,7 @@ const CATEGORY_ITEMS: { id: FavCategory; label: string; icon: string }[] = [
 const ITEM_HEIGHT = 72;
 const PODCAST_ITEM_HEIGHT = 104;
 const FAVOURITE_SECTION_TITLES: Record<FavCategory, string> = {
-  Stations: "Favourite Stations",
+  Stations: "Favourites",
   Subscribed: "Subscribed Podcasts",
   Playlists: "Playlists",
   Searches: "Saved Searches",
@@ -1167,59 +1168,45 @@ export default function FavouritesScreen() {
       style={[styles.container, { backgroundColor: theme.surfaceContainer }]}
       edges={["top"]}
     >
-      {/* Top App Bar (Material 3: 56dp) */}
-      <View
-        style={[
-          styles.topAppBar,
-          {
-            backgroundColor: theme.surfaceContainer,
-            borderBottomColor: theme.outlineVariant
-          }
-        ]}
-      >
-        {activeCategory === "Subscribed" && selectedTag !== null ? (
-          <TouchableOpacity
-            style={styles.navBackButton}
-            onPress={() => setSelectedTag(null)}
-            accessibilityLabel="Back to categories"
-          >
-            <MaterialIcons name="arrow-back" size={24} color={theme.onSurface} />
-          </TouchableOpacity>
-        ) : null}
-        <Text style={[styles.topAppBarTitle, { color: theme.onSurface }]} numberOfLines={1}>
-          {activeCategory === "Subscribed" && selectedTag !== null
+      <ScreenHeader
+        title={
+          activeCategory === "Subscribed" && selectedTag !== null
             ? decodeXmlEntities(selectedTag)
-            : FAVOURITE_SECTION_TITLES[activeCategory]}
-        </Text>
-        {activeCategory === "Subscribed" ? (
-          <TouchableOpacity
-            style={styles.overflowButton}
-            onPress={selectPodcastSort}
-            accessibilityLabel="Sort subscribed podcasts"
-          >
-            <MaterialIcons name="sort" size={24} color={theme.onSurface} />
-          </TouchableOpacity>
-        ) : activeCategory === "Playlists" ? (
-          <TouchableOpacity
-            style={styles.overflowButton}
-            onPress={() => {
-              setNewPlaylistName("");
-              setCreatePlaylistVisible(true);
-            }}
-            accessibilityLabel="Create playlist"
-          >
-            <MaterialIcons name="add" size={25} color={theme.onSurface} />
-          </TouchableOpacity>
-        ) : activeCategory === "History" && podcastHistory.length > 0 ? (
-          <TouchableOpacity
-            style={styles.overflowButton}
-            onPress={promptClearHistory}
-            accessibilityLabel="Clear listening history"
-          >
-            <MaterialIcons name="delete-sweep" size={24} color={theme.onSurface} />
-          </TouchableOpacity>
-        ) : null}
-      </View>
+            : FAVOURITE_SECTION_TITLES[activeCategory]
+        }
+        navigationAction={
+          activeCategory === "Subscribed" && selectedTag !== null
+            ? {
+                label: "Back to categories",
+                onPress: () => setSelectedTag(null)
+              }
+            : undefined
+        }
+        rightActions={
+          activeCategory === "Subscribed" ? (
+            <HeaderIconButton
+              icon="sort"
+              accessibilityLabel="Sort subscribed podcasts"
+              onPress={selectPodcastSort}
+            />
+          ) : activeCategory === "Playlists" ? (
+            <HeaderIconButton
+              icon="add"
+              accessibilityLabel="Create playlist"
+              onPress={() => {
+                setNewPlaylistName("");
+                setCreatePlaylistVisible(true);
+              }}
+            />
+          ) : activeCategory === "History" && podcastHistory.length > 0 ? (
+            <HeaderIconButton
+              icon="delete-sweep"
+              accessibilityLabel="Clear listening history"
+              onPress={promptClearHistory}
+            />
+          ) : null
+        }
+      />
 
       <OfflineBanner />
       <VpnBanner />
@@ -2298,29 +2285,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1
   },
-  topAppBar: {
-    height: 56,
-    paddingHorizontal: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    borderBottomWidth: StyleSheet.hairlineWidth
-  },
-  topAppBarTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    letterSpacing: 0
-  },
-  overflowButton: {
-    width: 40,
-    height: 40,
-    alignItems: "center",
-    justifyContent: "center"
-  },
-  headerActions: {
-    flexDirection: "row",
-    alignItems: "center"
-  },
   pillGroupContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -2666,13 +2630,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 10
-  },
-  navBackButton: {
-    width: 44,
-    height: 44,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 4
   },
   playlistActions: {
     flexDirection: "row",

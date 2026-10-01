@@ -17,6 +17,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { MaterialIcons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useAppTheme } from "../../src/theme/colors";
+import { ScreenHeader, HeaderIconButton } from "../../src/components/ScreenHeader";
 import { Station, StationCategory, StationRepository } from "../../src/data/stations";
 import {
   ScheduleEntry,
@@ -377,42 +378,39 @@ export default function GuideScreen() {
       style={[styles.container, { backgroundColor: theme.surfaceContainer }]}
       edges={["top"]}
     >
-      {/* Top Header Bar */}
-      <View style={[styles.headerBar, { backgroundColor: theme.surfaceContainer }]}>
-        <View style={styles.headerTitleRow}>
-          <MaterialIcons name="radio" size={24} color={theme.primary} style={{ marginRight: 8 }} />
-          <Text style={[styles.headerTitle, { color: theme.onSurface }]}>Guide</Text>
-        </View>
-
-        <View style={styles.headerActionsRow}>
-          <TouchableOpacity
-            style={[styles.headerIconButton, { backgroundColor: theme.surfaceContainer }]}
-            onPress={() => void refreshSchedules()}
-            disabled={isRefreshing}
-            activeOpacity={0.7}
-            accessibilityLabel="Refresh schedules"
-          >
-            {isRefreshing ? (
-              <ActivityIndicator size="small" color={theme.primary} />
-            ) : (
-              <MaterialIcons name="refresh" size={22} color={theme.onSurfaceVariant} />
-            )}
-          </TouchableOpacity>
-
-          {isSelectedDateToday && (
-            <TouchableOpacity
-              style={[styles.nowButton, { backgroundColor: theme.primaryContainer }]}
-              onPress={scrollToNow}
-              activeOpacity={0.7}
+      <ScreenHeader
+        title="Guide"
+        rightActions={
+          <>
+            <HeaderIconButton
+              icon="refresh"
+              accessibilityLabel="Refresh schedules"
+              disabled={isRefreshing}
+              onPress={() => void refreshSchedules()}
             >
-              <MaterialIcons name="my-location" size={16} color={theme.onPrimaryContainer} />
-              <Text style={[styles.nowButtonText, { color: theme.onPrimaryContainer }]}>
-                Now
-              </Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      </View>
+              {isRefreshing ? (
+                <ActivityIndicator size="small" color={theme.primary} />
+              ) : (
+                <MaterialIcons name="refresh" size={24} color={theme.onSurface} />
+              )}
+            </HeaderIconButton>
+
+            {isSelectedDateToday && (
+              <TouchableOpacity
+                style={[styles.nowButton, { backgroundColor: theme.primaryContainer }]}
+                onPress={scrollToNow}
+                activeOpacity={0.7}
+                accessibilityLabel="Scroll to now"
+              >
+                <MaterialIcons name="my-location" size={16} color={theme.onPrimaryContainer} />
+                <Text style={[styles.nowButtonText, { color: theme.onPrimaryContainer }]}>
+                  Now
+                </Text>
+              </TouchableOpacity>
+            )}
+          </>
+        }
+      />
 
       <OfflineBanner />
 
@@ -999,33 +997,6 @@ export default function GuideScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1
-  },
-  headerBar: {
-    height: 52,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16
-  },
-  headerTitleRow: {
-    flexDirection: "row",
-    alignItems: "center"
-  },
-  headerTitle: {
-    fontSize: 22,
-    fontWeight: "800"
-  },
-  headerActionsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8
-  },
-  headerIconButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center"
   },
   nowButton: {
     flexDirection: "row",

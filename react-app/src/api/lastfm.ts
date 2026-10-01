@@ -1,5 +1,4 @@
-import * as Linking from "expo-linking";
-import { Preferences } from "../storage/preferences";
+import { Preferences, type LastFmScrobbleEntry } from "../storage/preferences";
 
 /**
  * Last.fm requires every authenticated call to carry api_sig, an MD5 over the
@@ -129,6 +128,39 @@ export const LastFmApi = {
     } catch (err) {
       console.warn(`[LastFmApi] Failed to scrobble ${artist} - ${track}:`, err);
       throw err;
+    }
+  },
+  async fetchRecentScrobbles(username: string, limit = 5): Promise<LastFmScrobbleEntry[]> {
+    if (!username || !API_KEY) return [];
+    try {
+      const url = `https://ws.audioscrobbler.com/2.0/?method=user.getRecentTracks&user=${encodeURIComponent(username)}&api_key=${encodeURIComponent(API_KEY)}&limit=${limit}&format=json`;
+      const response = await fetch(url, {
+        headers: {
+          "Accept": "application/json",
+          "User-Agent": "BritishRadioPlayer/1.0"
+        }
+      });
+      if (!response.ok) return [];
+      const data = await response.json().catch(() => null);
+      const rawTracks = data?.recenttracks?.track;
+      if (!rawTracks) return [];
+      const trackList = Array.isArray(rawTracks) ? rawTracks : [rawTracks];
+      const entries: LastFmScrobbleEntry[] = [];
+      for (const t of trackList) {
+        if (t?.["@attr"]?.nowplaying === "true") continue;
+        const artist = (typeof t.artist === "object" ? t.artist?.["#text"] || t.artist?.name : t.artist) || "";
+        const track = t.name || "";
+        const timeSec = Number(t.date?.uts);
+        const timestampMs = Number.isFinite(timeSec) && timeSec > 0 ? timeSec * 1000 : 0;
+        if (artist && track) {
+          entries.push({ artist, track, timestampMs });
+        }
+        if (entries.length >= limit) break;
+      }
+      return entries;
+    } catch (err) {
+      console.warn("[LastFmApi] Failed to fetch recent scrobbles:", err);
+      return [];
     }
   }
 };

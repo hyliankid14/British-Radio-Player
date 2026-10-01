@@ -35,6 +35,7 @@ import {
   type NavigationStateLike
 } from "../src/navigation/launchNavigation";
 import { Preferences } from "../src/storage/preferences";
+import { readPersistentRecentScrobblesAsync } from "../src/storage/persistentScrobbles";
 import { NativeAndroid, AlarmLaunch } from "../src/native/nativeAndroid";
 import { StationRepository } from "../src/data/stations";
 import { isPlaceholderArtwork } from "../src/api/showInfo";
@@ -60,6 +61,13 @@ void probeGeoBlock();
 
 // Convert any data left behind by the legacy Kotlin build before anything reads preferences.
 runLegacyMigration();
+
+// Recover persistent Last.fm scrobbles if MMKV is empty (e.g. after reinstall)
+void readPersistentRecentScrobblesAsync().then((entries) => {
+  if (entries && entries.length > 0 && Preferences.getLastFmRecentScrobbles().length === 0) {
+    Preferences.setLastFmRecentScrobbles(entries);
+  }
+});
 
 // Trim downloads back to the configured maximum and start honouring "Delete when completed".
 initDownloadCleanup();

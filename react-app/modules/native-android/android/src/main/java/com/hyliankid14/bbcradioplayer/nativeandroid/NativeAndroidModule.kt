@@ -74,6 +74,19 @@ class NativeAndroidModule : Module() {
       null
     }
 
+    /** Saves the last 5 scrobbled tracks to persistent storage (survives reinstalls). */
+    Function("savePersistentScrobbles") { json: String ->
+      val ctx = context ?: return@Function null
+      PersistentScrobbleStore.save(ctx, json)
+      null
+    }
+
+    /** Reads persistent scrobbled tracks from persistent storage (survives reinstalls). */
+    Function("readPersistentScrobbles") { ->
+      val ctx = context ?: return@Function null
+      PersistentScrobbleStore.read(ctx)
+    }
+
     /**
      * Extracts the adaptive Now Playing palette from artwork, mirroring the Kotlin
      * `Palette.from(bitmap)` behaviour. Returns "{}" when the image cannot be loaded.

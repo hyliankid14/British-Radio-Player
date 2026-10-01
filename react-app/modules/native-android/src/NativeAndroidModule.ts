@@ -93,6 +93,10 @@ declare class NativeAndroidModule extends NativeModule<{}> {
   openDownloadsFolder(): boolean;
   /** Broadcasts track playback state to third-party Android scrobbler apps (SLS, Scrobble Droid, Last.fm). */
   broadcastScrobble(state: number, artist: string, track: string, album: string, durationSec: number): void;
+  /** Saves the last 5 scrobbled tracks as JSON to persistent storage (survives reinstalls). */
+  savePersistentScrobbles(json: string): void;
+  /** Reads persistent scrobbled tracks from persistent storage (survives reinstalls). */
+  readPersistentScrobbles(): string | null;
 }
 
 export default requireNativeModule<NativeAndroidModule>('NativeAndroid');

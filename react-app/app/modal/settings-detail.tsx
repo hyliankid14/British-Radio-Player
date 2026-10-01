@@ -664,6 +664,33 @@ function LastFmPage() {
     return () => subscription.remove();
   }, []);
 
+  useEffect(() => {
+    if (settings.username && recentScrobbles.length < RECENT_SCROBBLE_DISPLAY_LIMIT) {
+      LastFmApi.fetchRecentScrobbles(settings.username, RECENT_SCROBBLE_DISPLAY_LIMIT)
+        .then((remoteTracks) => {
+          if (remoteTracks.length > 0) {
+            const current = Preferences.getLastFmRecentScrobbles();
+            const combined = [...current];
+            for (const track of remoteTracks) {
+              const exists = combined.some(
+                (c) =>
+                  c.artist.toLowerCase() === track.artist.toLowerCase() &&
+                  c.track.toLowerCase() === track.track.toLowerCase() &&
+                  (Math.abs(c.timestampMs - track.timestampMs) < 60_000 ||
+                    c.timestampMs === 0 ||
+                    track.timestampMs === 0)
+              );
+              if (!exists) combined.push(track);
+            }
+            combined.sort((a, b) => b.timestampMs - a.timestampMs);
+            Preferences.setLastFmRecentScrobbles(combined.slice(0, 20));
+            setRecentScrobbles(combined);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [settings.username]);
+
   const connect = async () => {
     if (!LastFmApi.isConfigured()) {
       Alert.alert(

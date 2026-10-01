@@ -28,6 +28,12 @@ export default function LastFmAuthScreen() {
       try {
         const session = await LastFmApi.exchangeToken(token);
         Preferences.setLastFmSession(session.username, session.sessionKey);
+        // Pre-fetch recent scrobbles to immediately restore recent history upon connecting
+        LastFmApi.fetchRecentScrobbles(session.username, 5).then((remoteTracks) => {
+          if (remoteTracks.length > 0) {
+            Preferences.setLastFmRecentScrobbles(remoteTracks);
+          }
+        }).catch(() => {});
         // Anything queued while disconnected can go out now.
         ScrobbleOutbox.flush();
         Alert.alert("Last.fm connected", `Connected as ${session.username}.`);
