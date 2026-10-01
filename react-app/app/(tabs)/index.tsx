@@ -240,6 +240,13 @@ export default function AllStationsScreen() {
         <Text style={[styles.topAppBarTitle, { color: theme.onSurface }]}>
           All Stations
         </Text>
+        <TouchableOpacity
+          onPress={() => router.navigate("/(tabs)/guide")}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityLabel="Open Radio Guide"
+        >
+          <MaterialIcons name="calendar-view-week" size={24} color={theme.onSurface} />
+        </TouchableOpacity>
       </View>
 
       <OfflineBanner />
@@ -417,7 +424,9 @@ const styles = StyleSheet.create({
   topAppBar: {
     height: 56,
     paddingHorizontal: 16,
-    justifyContent: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     elevation: 4
   },
   topAppBarTitle: {

@@ -624,20 +624,8 @@ export default function PodcastSearchScreen() {
     searchPodcastMatches.length - visiblePodcasts.length +
     (searchEpisodeMatches.length - visibleEpisodes.length);
 
-  // The backend total is the number of episodes it matched; the loaded set is
-  // how many of those survive the stricter client-side filter and are actually
-  // listed. The two differ, so only the loaded count is ever presented as the
-  // number of results, and the backend total only describes how much is loaded.
-  const hasMoreEpisodes = !episodePageRef.current.exhausted;
   const showEpisodesSection =
     totalEpisodeCount !== null || isSearchingEpisodes || visibleEpisodes.length > 0;
-  const episodesLoadedNote = useMemo(() => {
-    if (searchEpisodeMatches.length === 0) return null;
-    if (!hasMoreEpisodes) return null;
-    return totalEpisodeCount !== null
-      ? `Showing ${searchEpisodeMatches.length} of ${totalEpisodeCount} — scroll for more`
-      : `Showing ${searchEpisodeMatches.length} — scroll for more`;
-  }, [searchEpisodeMatches.length, hasMoreEpisodes, totalEpisodeCount]);
 
   // Podcast rows first, then the episodes section. Keeping both in one
   // virtualized list means a long result set never mounts thousands of views
@@ -826,11 +814,12 @@ export default function PodcastSearchScreen() {
       switch (item.type) {
         case "podcast":
           return renderPodcastRow(item.podcast);
-        case "episodesHeading":
+        case "episodesHeading": {
+          const episodeCount = totalEpisodeCount ?? searchEpisodeMatches.length;
           return (
             <View>
               <Text style={[styles.sectionHeading, { color: theme.onSurface, marginTop: 24 }]}>
-                Episodes ({searchEpisodeMatches.length})
+                Episodes ({episodeCount})
               </Text>
               {visibleEpisodes.length === 0 && isSearchingEpisodes ? (
                 <View style={styles.inlineLoadingRow}>
@@ -840,13 +829,9 @@ export default function PodcastSearchScreen() {
                   </Text>
                 </View>
               ) : null}
-              {episodesLoadedNote ? (
-                <Text style={[styles.episodesLoadedNote, { color: theme.onSurfaceVariant }]}>
-                  {episodesLoadedNote}
-                </Text>
-              ) : null}
             </View>
           );
+        }
         case "episode":
           return renderEpisodeRow(item.episode);
         case "loadingMore":
@@ -882,8 +867,7 @@ export default function PodcastSearchScreen() {
       podcastRatings,
       resolvingEpisodeId,
       isSearchingEpisodes,
-      episodesLoadedNote,
-      hasMoreEpisodes,
+      totalEpisodeCount,
       loadedEpisodeCount: searchEpisodeMatches.length,
       visibleEpisodeCount: visibleEpisodes.length
     }),
@@ -893,8 +877,7 @@ export default function PodcastSearchScreen() {
       podcastRatings,
       resolvingEpisodeId,
       isSearchingEpisodes,
-      episodesLoadedNote,
-      hasMoreEpisodes,
+      totalEpisodeCount,
       searchEpisodeMatches.length,
       visibleEpisodes.length
     ]
@@ -1308,11 +1291,6 @@ const styles = StyleSheet.create({
   },
   inlineLoadingText: {
     fontSize: 13
-  },
-  episodesLoadedNote: {
-    fontSize: 12,
-    paddingHorizontal: 16,
-    paddingBottom: 6
   },
   episodeResultPodcast: {
     fontSize: 11,

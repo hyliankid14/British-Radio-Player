@@ -120,6 +120,36 @@ export default function TabLayout() {
           }}
         />
         <Tabs.Screen
+          name="guide"
+          options={{
+            title: "Guide",
+            tabBarIcon: ({ focused }) => (
+              <View
+                style={[
+                  styles.iconIndicator,
+                  focused && { backgroundColor: theme.navIndicator }
+                ]}
+              >
+                <MaterialIcons
+                  name="calendar-view-week"
+                  size={24}
+                  color={focused ? theme.navIndicatorIcon : theme.navInactiveIcon}
+                />
+              </View>
+            )
+          }}
+          listeners={{
+            tabPress: (event) => {
+              if (!isOnline) {
+                event.preventDefault();
+                notifyOffline(
+                  "Radio guide schedule is not available while offline. Showing downloaded content."
+                );
+              }
+            }
+          }}
+        />
+        <Tabs.Screen
           name="podcasts"
           options={{
             title: "Podcasts",
