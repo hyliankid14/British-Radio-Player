@@ -404,7 +404,7 @@ final class CarPlayManager: NSObject {
 
         let template = CPListTemplate(title: "Podcasts", sections: [CPListSection(items: items)])
         template.tabTitle = "Podcasts"
-        template.tabImage = UIImage(systemName: "dot.radiowaves.up.forward")
+        template.tabImage = UIImage(systemName: "antenna.radiowaves.left.and.right")
         template.trailingNavigationBarButtons = [makeSearchButton()]
         return template
     }

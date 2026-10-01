@@ -161,7 +161,7 @@ export default function TabLayout() {
                 ]}
               >
                 <MaterialIcons
-                  name="headphones"
+                  name="podcasts"
                   size={24}
                   color={focused ? theme.navIndicatorIcon : theme.navInactiveIcon}
                 />

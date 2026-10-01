@@ -55,7 +55,7 @@ type SavedPodcastSearch = { id: string; name: string; query: string; notificatio
 
 const CATEGORY_ITEMS: { id: FavCategory; label: string; icon: string }[] = [
   { id: "Stations", label: "Stations", icon: "star" },
-  { id: "Subscribed", label: "Subscribed", icon: "headphones" },
+  { id: "Subscribed", label: "Subscribed", icon: "podcasts" },
   { id: "Playlists", label: "Playlists", icon: "bookmark" },
   { id: "Searches", label: "Searches", icon: "search" },
   { id: "History", label: "History", icon: "history" }

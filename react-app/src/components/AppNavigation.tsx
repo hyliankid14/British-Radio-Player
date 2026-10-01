@@ -8,7 +8,8 @@ import { useAppTheme } from "../theme/colors";
 const tabs = [
   { path: "/favourites", label: "Favourites", icon: "star-border" as const },
   { path: "/", label: "All Stations", icon: "list" as const },
-  { path: "/podcasts", label: "Podcasts", icon: "headphones" as const },
+  { path: "/guide", label: "Guide", icon: "calendar-view-week" as const },
+  { path: "/podcasts", label: "Podcasts", icon: "podcasts" as const },
   { path: "/settings", label: "Settings", icon: "settings" as const }
 ];
 

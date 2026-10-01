@@ -106,7 +106,7 @@ const STARTUP_ITEMS = [
     value: "subscribed_podcasts",
     label: "Subscribed podcasts",
     subtitle: "Your subscribed podcast feeds and new episodes",
-    icon: "headphones" as const
+    icon: "podcasts" as const
   },
   {
     value: "playlists",
