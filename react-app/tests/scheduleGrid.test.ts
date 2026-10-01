@@ -9,6 +9,7 @@ import {
   MINUTES_IN_DAY,
   type PodcastLike
 } from "../src/utils/scheduleGridUtils.ts";
+import { fillScheduleGaps, type ScheduleEntry } from "../src/api/showInfo.ts";
 
 test("generateTimeSlots generates 48 half-hour slots for a 24h day", () => {
   const slots = generateTimeSlots();
@@ -102,3 +103,71 @@ test("matchShowToPodcast matches exact or fuzzy show titles", () => {
   const matchNone = matchShowToPodcast("Weather Forecast", undefined, podcastMap);
   assert.equal(matchNone, undefined);
 });
+
+test("fillScheduleGaps fills 1.5 - 6.5 minute gaps with BBC News bulletin", () => {
+  const baseTime = 1700000000000;
+  const entries: ScheduleEntry[] = [
+    {
+      title: "Trevor Nelson",
+      startTimeMs: baseTime,
+      endTimeMs: baseTime + 116 * 60 * 1000 // 1h56m (ends at :56, leaving 4m gap)
+    },
+    {
+      title: "Radio 2 Drivetime",
+      startTimeMs: baseTime + 120 * 60 * 1000, // starts at :00 (4 min gap)
+      endTimeMs: baseTime + 300 * 60 * 1000
+    }
+  ];
+
+  const result = fillScheduleGaps(entries);
+  assert.equal(result.length, 3);
+  assert.equal(result[0].title, "Trevor Nelson");
+  assert.equal(result[1].title, "BBC News");
+  assert.equal(result[1].episodeTitle, "News Summary");
+  assert.equal(result[1].startTimeMs, baseTime + 116 * 60 * 1000);
+  assert.equal(result[1].endTimeMs, baseTime + 120 * 60 * 1000);
+  assert.equal(result[2].title, "Radio 2 Drivetime");
+});
+
+test("fillScheduleGaps snaps micro-gaps under 1.5 minutes without creating extra block", () => {
+  const baseTime = 1700000000000;
+  const entries: ScheduleEntry[] = [
+    {
+      title: "Show A",
+      startTimeMs: baseTime,
+      endTimeMs: baseTime + 59 * 60 * 1000 // 59m (1 min gap)
+    },
+    {
+      title: "Show B",
+      startTimeMs: baseTime + 60 * 60 * 1000,
+      endTimeMs: baseTime + 120 * 60 * 1000
+    }
+  ];
+
+  const result = fillScheduleGaps(entries);
+  assert.equal(result.length, 2);
+  assert.equal(result[0].title, "Show A");
+  assert.equal(result[0].endTimeMs, baseTime + 60 * 60 * 1000); // Snapped to Show B start
+  assert.equal(result[1].title, "Show B");
+});
+
+test("fillScheduleGaps leaves large gaps (> 6.5 minutes) untouched", () => {
+  const baseTime = 1700000000000;
+  const entries: ScheduleEntry[] = [
+    {
+      title: "Show A",
+      startTimeMs: baseTime,
+      endTimeMs: baseTime + 30 * 60 * 1000
+    },
+    {
+      title: "Show B",
+      startTimeMs: baseTime + 60 * 60 * 1000, // 30 min gap
+      endTimeMs: baseTime + 90 * 60 * 1000
+    }
+  ];
+
+  const result = fillScheduleGaps(entries);
+  assert.equal(result.length, 2);
+  assert.equal(result[0].endTimeMs, baseTime + 30 * 60 * 1000);
+});
+

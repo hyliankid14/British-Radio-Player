@@ -315,58 +315,32 @@ export async function fetchShowInfo(stationId: string, skipDelay: boolean = fals
       const essData = await essRes.json();
       const items = essData?.items || [];
       const now = Date.now() - RMS_DELAY_MS;
-      const entries: ScheduleEntry[] = [];
+      const entries = parseEssSchedule(items);
 
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        const publishedTime = item.published_time;
-        if (!publishedTime?.start || !publishedTime?.end) continue;
-
-        const start = new Date(publishedTime.start).getTime();
-        const end = new Date(publishedTime.end).getTime();
-
-        const brand = item.brand;
-        const episode = item.episode;
-        const itemTitle = brand?.title || episode?.title || "BBC Radio";
-        const itemEpTitle = brand?.title && episode?.title && episode.title !== brand.title ? episode.title : undefined;
-        const imageObj = episode?.image || brand?.image;
-        const template = imageObj?.template_url;
-        const itemImageUrl = template ? template.replace("{recipe}", "320x320") : undefined;
-
-        entries.push({
-          title: itemTitle,
-          episodeTitle: itemEpTitle,
-          startTimeMs: start,
-          endTimeMs: end,
-          imageUrl: itemImageUrl
-        });
-
-        if (now >= start && now <= end) {
-          showTitle = itemTitle;
-          if (brand?.title && episode?.title) {
-            episodeTitle = episode.title;
+      for (let i = 0; i < entries.length; i++) {
+        const entry = entries[i];
+        if (now >= entry.startTimeMs && now <= entry.endTimeMs) {
+          showTitle = entry.title;
+          episodeTitle = entry.episodeTitle;
+          if (entry.imageUrl) {
+            essImageUrl = entry.imageUrl;
           }
-          if (itemImageUrl) {
-            essImageUrl = itemImageUrl;
-          }
-          startTime = publishedTime.start;
-          endTime = publishedTime.end;
-          startTimeMs = start;
-          endTimeMs = end;
+          startTime = new Date(entry.startTimeMs).toISOString();
+          endTime = new Date(entry.endTimeMs).toISOString();
+          startTimeMs = entry.startTimeMs;
+          endTimeMs = entry.endTimeMs;
 
           // Next show
-          if (i + 1 < items.length) {
-            const nextItem = items[i + 1];
-            nextShowTitle = nextItem.brand?.title || nextItem.episode?.title;
-            if (nextItem.published_time?.start) {
-              nextShowStartTimeMs = new Date(nextItem.published_time.start).getTime();
-            }
+          if (i + 1 < entries.length) {
+            const nextEntry = entries[i + 1];
+            nextShowTitle = nextEntry.title;
+            nextShowStartTimeMs = nextEntry.startTimeMs;
           }
+          break;
         }
       }
 
       if (entries.length > 0) {
-        entries.sort((a, b) => a.startTimeMs - b.startTimeMs);
         const todayDate = new Date();
         const todayStr = `${todayDate.getFullYear()}-${String(todayDate.getMonth() + 1).padStart(2, "0")}-${String(todayDate.getDate()).padStart(2, "0")}`;
         scheduleCache.set(`${stationId}_${todayStr}`, entries);
@@ -438,6 +412,44 @@ export function formatScheduleTime(timestampMs: number): string {
   return `${hours}:${mins}`;
 }
 
+/**
+ * Automatically fill schedule gaps:
+ * 1. Micro-gaps / overlaps (< 1.5 min): snap previous show's end time to next show's start time to eliminate slivers.
+ * 2. 1.5 - 6.5 min gaps (top-of-hour news bulletin junctions): insert a synthetic "BBC News" entry with "News Summary".
+ */
+export function fillScheduleGaps(entries: ScheduleEntry[]): ScheduleEntry[] {
+  if (entries.length === 0) return [];
+
+  const sorted = [...entries].sort((a, b) => a.startTimeMs - b.startTimeMs);
+  const result: ScheduleEntry[] = [];
+
+  for (let i = 0; i < sorted.length; i++) {
+    const current = { ...sorted[i] };
+    result.push(current);
+
+    if (i + 1 < sorted.length) {
+      const next = sorted[i + 1];
+      const gapMs = next.startTimeMs - current.endTimeMs;
+      const gapMinutes = gapMs / (60 * 1000);
+
+      if (gapMinutes >= -1.5 && gapMinutes < 1.5) {
+        // Micro-gap or slight overlap: snap end time to next start time
+        current.endTimeMs = next.startTimeMs;
+      } else if (gapMinutes >= 1.5 && gapMinutes <= 6.5) {
+        // News bulletin gap (usually 2-5 minutes at the top of the hour)
+        result.push({
+          title: "BBC News",
+          episodeTitle: "News Summary",
+          startTimeMs: current.endTimeMs,
+          endTimeMs: next.startTimeMs
+        });
+      }
+    }
+  }
+
+  return result;
+}
+
 function parseEssSchedule(items: any[]): ScheduleEntry[] {
   const entries: ScheduleEntry[] = [];
   for (const item of items) {
@@ -463,7 +475,7 @@ function parseEssSchedule(items: any[]): ScheduleEntry[] {
       imageUrl
     });
   }
-  return entries;
+  return fillScheduleGaps(entries);
 }
 
 function parseRmsSchedule(data: any): ScheduleEntry[] {
@@ -492,7 +504,7 @@ function parseRmsSchedule(data: any): ScheduleEntry[] {
       });
     }
   }
-  return entries;
+  return fillScheduleGaps(entries);
 }
 
 /**
