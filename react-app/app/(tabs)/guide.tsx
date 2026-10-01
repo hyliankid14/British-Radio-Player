@@ -302,7 +302,7 @@ export default function GuideScreen() {
       {/* Top Header Bar */}
       <View style={[styles.headerBar, { backgroundColor: theme.surfaceContainer }]}>
         <View style={styles.headerTitleRow}>
-          <MaterialIcons name="live-tv" size={24} color={theme.primary} style={{ marginRight: 8 }} />
+          <MaterialIcons name="radio" size={24} color={theme.primary} style={{ marginRight: 8 }} />
           <Text style={[styles.headerTitle, { color: theme.onSurface }]}>Guide</Text>
         </View>
 
@@ -599,6 +599,12 @@ export default function GuideScreen() {
                           podcastMap
                         );
 
+                        const blockWidth = Math.max(20, width - 2);
+                        const isVeryNarrow = blockWidth < 50;
+                        const isNarrow = blockWidth < 80;
+                        const showPodcastBadge = Boolean(matchedPodcast) && blockWidth >= 60;
+                        const showTime = !isVeryNarrow;
+
                         return (
                           <TouchableOpacity
                             key={`${entry.startTimeMs}_${index}`}
@@ -606,9 +612,11 @@ export default function GuideScreen() {
                               styles.programBlock,
                               {
                                 left,
-                                width: Math.max(24, width - 2),
+                                width: blockWidth,
                                 height: ROW_HEIGHT - 6,
                                 top: 3,
+                                paddingHorizontal: isVeryNarrow ? 4 : isNarrow ? 6 : 8,
+                                paddingVertical: 4,
                                 backgroundColor: isNow
                                   ? theme.primaryContainer
                                   : theme.surfaceVariant,
@@ -629,27 +637,27 @@ export default function GuideScreen() {
                               }
                             }}
                           >
-                            <View style={styles.blockInnerRow}>
-                              {/* Prominent Red Play Button for currently airing shows (Freeview inspired) */}
-                              {isNow && (
-                                <TouchableOpacity
-                                  style={styles.blockPlayButton}
-                                  onPress={() => void handlePlayStation(station)}
-                                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                                >
-                                  <MaterialIcons
-                                    name={
-                                      isStationPlaying
-                                        ? "volume-up"
-                                        : "play-circle-filled"
-                                    }
-                                    size={24}
-                                    color="#E53935"
-                                  />
-                                </TouchableOpacity>
-                              )}
+                            <View style={styles.blockContent}>
+                              <View style={styles.blockTitleRow}>
+                                {/* Prominent Red Play Button for currently airing shows (Freeview inspired) */}
+                                {isNow && (
+                                  <TouchableOpacity
+                                    style={styles.blockPlayButton}
+                                    onPress={() => void handlePlayStation(station)}
+                                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                  >
+                                    <MaterialIcons
+                                      name={
+                                        isStationPlaying
+                                          ? "volume-up"
+                                          : "play-circle-filled"
+                                      }
+                                      size={isVeryNarrow ? 15 : isNarrow ? 18 : 22}
+                                      color="#E53935"
+                                    />
+                                  </TouchableOpacity>
+                                )}
 
-                              <View style={styles.blockTextCol}>
                                 <Text
                                   style={[
                                     styles.blockTitle,
@@ -657,39 +665,47 @@ export default function GuideScreen() {
                                       color: isNow
                                         ? theme.onPrimaryContainer
                                         : theme.onSurfaceVariant,
-                                      fontWeight: isNow ? "700" : "600"
+                                      fontWeight: isNow ? "700" : "600",
+                                      fontSize: isVeryNarrow ? 10 : isNarrow ? 11 : 12,
+                                      lineHeight: isVeryNarrow ? 12 : isNarrow ? 14 : 16,
+                                      flex: 1,
+                                      paddingRight: showPodcastBadge ? 18 : 0
                                     }
                                   ]}
-                                  numberOfLines={1}
+                                  numberOfLines={2}
                                 >
                                   {entry.title}
                                 </Text>
+                              </View>
 
+                              {showTime && (
                                 <Text
                                   style={[
                                     styles.blockTime,
                                     {
                                       color: isNow
                                         ? theme.onPrimaryContainer
-                                        : theme.onSurfaceVariant
+                                        : theme.onSurfaceVariant,
+                                      fontSize: isNarrow ? 9 : 10,
+                                      marginTop: 2
                                     }
                                   ]}
                                   numberOfLines={1}
                                 >
                                   {formatScheduleTime(entry.startTimeMs)}
                                 </Text>
-                              </View>
+                              )}
 
-                              {/* Podcast Badge Icon if matching podcast exists */}
-                              {matchedPodcast && (
+                              {/* Podcast Badge Icon in corner if matching podcast exists and space permits */}
+                              {showPodcastBadge && (
                                 <TouchableOpacity
                                   style={styles.blockPodcastBadge}
-                                  onPress={() => handleOpenPodcast(matchedPodcast)}
+                                  onPress={() => handleOpenPodcast(matchedPodcast!)}
                                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                                 >
                                   <MaterialIcons
                                     name="podcasts"
-                                    size={18}
+                                    size={isNarrow ? 14 : 16}
                                     color={theme.primary}
                                   />
                                 </TouchableOpacity>
@@ -1023,36 +1039,34 @@ const styles = StyleSheet.create({
     position: "absolute",
     borderRadius: 8,
     borderWidth: 1,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
     justifyContent: "center",
     overflow: "hidden"
   },
-  blockInnerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6
-  },
-  blockPlayButton: {
-    marginRight: 2
-  },
-  blockTextCol: {
+  blockContent: {
     flex: 1,
     justifyContent: "center"
   },
+  blockTitleRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 3
+  },
+  blockPlayButton: {
+    marginTop: 1,
+    marginRight: 2
+  },
   blockTitle: {
-    fontSize: 12,
-    lineHeight: 16
+    fontWeight: "600"
   },
   blockTime: {
-    fontSize: 10,
-    marginTop: 2,
     opacity: 0.85
   },
   blockPodcastBadge: {
-    padding: 4,
-    borderRadius: 12,
-    marginLeft: 4
+    position: "absolute",
+    top: -2,
+    right: -2,
+    padding: 2,
+    borderRadius: 8
   },
   loadingRowContainer: {
     flexDirection: "row",

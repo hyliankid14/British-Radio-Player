@@ -4,11 +4,11 @@ export interface PodcastLike {
   [key: string]: any;
 }
 
-export const PIXELS_PER_MINUTE = 2.5; // 30 min = 75dp, 60 min = 150dp
+export const PIXELS_PER_MINUTE = 4.0; // 30 min = 120dp, 60 min = 240dp
 export const ROW_HEIGHT = 76;
 export const STATION_COLUMN_WIDTH = 88;
 export const MINUTES_IN_DAY = 1440; // 24 hours * 60 minutes
-export const TIMELINE_WIDTH = MINUTES_IN_DAY * PIXELS_PER_MINUTE; // 3600dp
+export const TIMELINE_WIDTH = MINUTES_IN_DAY * PIXELS_PER_MINUTE; // 5760dp
 
 export interface TimeSlot {
   label: string; // e.g., "10:00am"
