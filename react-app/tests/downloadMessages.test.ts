@@ -19,9 +19,9 @@ test("downloadFinishedNotice is silent when nothing ran", () => {
   assert.equal(downloadFinishedNotice(0, 0), null);
 });
 
-test("downloadFinishedNotice summarises successful downloads", () => {
+test("downloadFinishedNotice summarises successful downloads without titles", () => {
   assert.deepEqual(downloadFinishedNotice(1, 0), {
-    title: "Downloads complete",
+    title: "Download complete",
     body: "1 episode downloaded"
   });
   assert.deepEqual(downloadFinishedNotice(3, 0), {
@@ -85,3 +85,66 @@ test("downloadFinishedNotice mixes named failures with successes", () => {
     body: `3 episodes downloaded — Could not download "The News" or "The Archers"`
   });
 });
+
+test("downloadFinishedNotice names a single successful episode with title", () => {
+  assert.deepEqual(downloadFinishedNotice(1, 0, [], ["How much luck do you need to win the World Cup?"]), {
+    title: "Download complete",
+    body: `"How much luck do you need to win the World Cup?"`
+  });
+});
+
+test("downloadFinishedNotice names a single successful episode with podcast and episode title", () => {
+  assert.deepEqual(
+    downloadFinishedNotice(1, 0, [], [
+      { title: "How much luck do you need to win the World Cup?", podcastTitle: "More or Less: Behind the Stats" }
+    ]),
+    {
+      title: "Download complete",
+      body: `"How much luck do you need to win the World Cup?" • More or Less: Behind the Stats`
+    }
+  );
+});
+
+test("downloadFinishedNotice avoids duplicating podcast title if identical to episode title", () => {
+  assert.deepEqual(
+    downloadFinishedNotice(1, 0, [], [{ title: "Desert Island Discs", podcastTitle: "Desert Island Discs" }]),
+    {
+      title: "Download complete",
+      body: `"Desert Island Discs"`
+    }
+  );
+});
+
+test("downloadFinishedNotice names multiple successful episodes", () => {
+  assert.deepEqual(downloadFinishedNotice(2, 0, [], ["Ep A", "Ep B"]), {
+    title: "Downloads complete",
+    body: `"Ep A" and "Ep B"`
+  });
+  assert.deepEqual(downloadFinishedNotice(3, 0, [], ["Ep A", "Ep B", "Ep C"]), {
+    title: "Downloads complete",
+    body: `"Ep A", "Ep B" and 1 more`
+  });
+});
+
+test("downloadFinishedNotice mixes named successes with named failures", () => {
+  assert.deepEqual(
+    downloadFinishedNotice(
+      1,
+      1,
+      ["The Archers"],
+      [{ title: "How much luck do you need to win the World Cup?", podcastTitle: "More or Less" }]
+    ),
+    {
+      title: "Downloads complete",
+      body: `"How much luck do you need to win the World Cup?" • More or Less downloaded — Could not download "The Archers"`
+    }
+  );
+});
+
+test("downloadStartedBody includes podcast title when available", () => {
+  assert.equal(
+    downloadStartedBody(1, [{ title: "The Archers", podcastTitle: "Radio 4 Drama" }]),
+    `Downloading "The Archers" • Radio 4 Drama…`
+  );
+});
+

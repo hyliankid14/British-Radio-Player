@@ -219,7 +219,12 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
     const activeDownload = get().downloads[normId] || get().downloads[entry.id];
     if (activeDownload?.status === "downloading") return;
 
-    notifyDownloadStarted(options?.auto === true, entry.title);
+    notifyDownloadStarted(options?.auto === true, {
+      title: entry.title,
+      podcastTitle: entry.podcastTitle,
+      podcastId: entry.podcastId,
+      episodeId: normId
+    });
 
     const normalizedEntry = { ...entry, id: normId };
 
@@ -371,7 +376,12 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
       const removeOne = (id: string) => get().remove(id);
       enforcePerPodcastDownloadLimit(removeOne);
       enforceMaxDownloads(removeOne);
-      notifyDownloadFinished(true, entry.title);
+      notifyDownloadFinished(true, {
+        title: entry.title,
+        podcastTitle: entry.podcastTitle,
+        podcastId: entry.podcastId,
+        episodeId: normId
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Download failed";
       console.error(
@@ -390,7 +400,12 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
         };
         return { downloads: next };
       });
-      notifyDownloadFinished(false, entry.title);
+      notifyDownloadFinished(false, {
+        title: entry.title,
+        podcastTitle: entry.podcastTitle,
+        podcastId: entry.podcastId,
+        episodeId: normId
+      });
     }
   },
 
