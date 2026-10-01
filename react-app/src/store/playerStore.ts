@@ -11,6 +11,7 @@ import { Preferences } from "../storage/preferences";
 import { CurrentShow, fetchShowInfo, onRmsDelayedUpdate, resetStationRmsDelay, isPlaceholderArtwork } from "../api/showInfo";
 import { useStationShowStore } from "./stationShowStore";
 import { Podcast, Episode, PodcastApi } from "../api/podcasts";
+import { shouldMarkEpisodePlayed, resolveEffectiveDuration } from "../podcasts/episodePlaybackStatus";
 import { ScrobbleManager } from "../audio/scrobbleManager";
 import { ScrobbleOutbox } from "../audio/scrobbleOutbox";
 import { notifyNativePhonePlaybackStarted } from "../auto/autoBridge";
@@ -114,6 +115,7 @@ let stationCandidateIndex = 0;
 let stationBeingPlayed: Station | null = null;
 let stationPlaybackSessionId = 0;
 let currentStationQuality: AudioQuality | null = null;
+let endingEpisodeId: string | null = null;
 
 async function tryNextStationCandidate(sessionId: number, reason: string): Promise<boolean> {
   if (sessionId !== stationPlaybackSessionId) return false;
@@ -394,6 +396,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   playEpisode: async (podcast: Podcast, episode: Episode) => {
+    endingEpisodeId = null;
     stationPlaybackSessionId += 1;
     stationBeingPlayed = null;
     stationCandidates = [];
@@ -524,6 +527,23 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       ScrobbleManager.onPlaybackPaused();
       await TrackPlayer.pause();
       set({ isPlaying: false });
+
+      const { currentEpisode, positionSeconds, durationSeconds } = get();
+      if (currentEpisode) {
+        const effectiveDuration = resolveEffectiveDuration(
+          durationSeconds,
+          0,
+          currentEpisode.durationMins
+        );
+        if (shouldMarkEpisodePlayed(positionSeconds, effectiveDuration)) {
+          Preferences.markEpisodePlayed(
+            currentEpisode.id,
+            currentEpisode.podcastId,
+            parsePodcastDateEpoch(currentEpisode.pubDate),
+            { keepDownload: true }
+          );
+        }
+      }
     } catch (e) {
       console.warn("Pause error:", e);
     }
@@ -536,6 +556,25 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     stationCandidateIndex = 0;
     currentStationQuality = null;
     setDownloadInUseEpisode(null);
+
+    const { currentEpisode, positionSeconds, durationSeconds } = get();
+    if (currentEpisode) {
+      const effectiveDuration = resolveEffectiveDuration(
+        durationSeconds,
+        0,
+        currentEpisode.durationMins
+      );
+      if (shouldMarkEpisodePlayed(positionSeconds, effectiveDuration)) {
+        Preferences.markEpisodePlayed(
+          currentEpisode.id,
+          currentEpisode.podcastId,
+          parsePodcastDateEpoch(currentEpisode.pubDate)
+        );
+        deleteDownloadWhenPlayed(currentEpisode.id);
+        pruneDownloads();
+      }
+    }
+
     try {
       resetStationRmsDelay();
       stopShowInfoInterval();
@@ -651,31 +690,59 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   handleEpisodeProgress: (positionSeconds: number, durationSeconds: number) => {
     const { currentEpisode } = get();
+    const effectiveDuration = resolveEffectiveDuration(
+      durationSeconds,
+      get().durationSeconds,
+      currentEpisode?.durationMins
+    );
     set({
       positionSeconds,
-      durationSeconds: durationSeconds > 0 ? durationSeconds : get().durationSeconds
+      durationSeconds: effectiveDuration > 0 ? effectiveDuration : get().durationSeconds
     });
     if (!currentEpisode) return;
-    Preferences.setEpisodeProgress(currentEpisode.id, positionSeconds);
-    if (durationSeconds > 0 && positionSeconds / durationSeconds >= 0.98) {
-      Preferences.markEpisodePlayed(
-        currentEpisode.id,
-        currentEpisode.podcastId,
-        parsePodcastDateEpoch(currentEpisode.pubDate),
-        // Still playing, so a "Delete when completed" download must be kept.
-        { keepDownload: true }
-      );
+
+    const alreadyPlayed = Preferences.isEpisodePlayed(currentEpisode.id);
+    if (shouldMarkEpisodePlayed(positionSeconds, effectiveDuration)) {
+      if (!alreadyPlayed) {
+        Preferences.markEpisodePlayed(
+          currentEpisode.id,
+          currentEpisode.podcastId,
+          parsePodcastDateEpoch(currentEpisode.pubDate),
+          // Still playing, so a "Delete when completed" download must be kept.
+          { keepDownload: true }
+        );
+      }
+    } else if (!alreadyPlayed) {
+      Preferences.setEpisodeProgress(currentEpisode.id, positionSeconds);
     }
   },
 
   seekTo: async (seconds: number) => {
-    const { durationSeconds } = get();
-    const target = Math.max(0, durationSeconds > 0 ? Math.min(seconds, durationSeconds) : seconds);
+    const { durationSeconds, currentEpisode } = get();
+    const effectiveDuration = resolveEffectiveDuration(
+      durationSeconds,
+      0,
+      currentEpisode?.durationMins
+    );
+    const target = Math.max(0, effectiveDuration > 0 ? Math.min(seconds, effectiveDuration) : seconds);
     set({ positionSeconds: target });
     try {
       await TrackPlayer.seekTo(target);
     } catch (error) {
       console.warn("Seek failed:", error);
+    }
+
+    if (currentEpisode && effectiveDuration > 0) {
+      if (target >= effectiveDuration - 1) {
+        void get().handleEpisodeEnded();
+      } else if (shouldMarkEpisodePlayed(target, effectiveDuration)) {
+        Preferences.markEpisodePlayed(
+          currentEpisode.id,
+          currentEpisode.podcastId,
+          parsePodcastDateEpoch(currentEpisode.pubDate),
+          { keepDownload: true }
+        );
+      }
     }
   },
 
@@ -703,43 +770,54 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   handleEpisodeEnded: async () => {
     const { currentPodcast, currentEpisode } = get();
     if (!currentEpisode) return;
-    ScrobbleManager.onPlaybackStopped();
-    // Playback is over, so the file is free to go once the episode counts as played.
-    setDownloadInUseEpisode(null);
-    Preferences.markEpisodePlayed(
-      currentEpisode.id,
-      currentEpisode.podcastId,
-      parsePodcastDateEpoch(currentEpisode.pubDate)
-    );
-    set({ positionSeconds: 0 });
+    if (endingEpisodeId === currentEpisode.id) return;
+    endingEpisodeId = currentEpisode.id;
 
-    // Auto-delete the download once the episode finishes, mirroring the Kotlin app.
-    deleteDownloadWhenPlayed(currentEpisode.id);
-    // The finished file was exempt from earlier pruning, so trim again now.
-    pruneDownloads();
+    try {
+      ScrobbleManager.onPlaybackStopped();
+      // Playback is over, so the file is free to go once the episode counts as played.
+      setDownloadInUseEpisode(null);
+      Preferences.markEpisodePlayed(
+        currentEpisode.id,
+        currentEpisode.podcastId,
+        parsePodcastDateEpoch(currentEpisode.pubDate)
+      );
+      set({ positionSeconds: 0, isPlaying: false, isBuffering: false });
 
-    const autoplayNext = Preferences.getSetting("pref_autoplay_next", "none");
-    if (autoplayNext === "none" || !currentPodcast) return;
-    if (
-      autoplayNext === "subscriptions" &&
-      !Preferences.getSubscribedPodcasts().includes(currentPodcast.id)
-    ) {
-      return;
+      // Auto-delete the download once the episode finishes, mirroring the Kotlin app.
+      deleteDownloadWhenPlayed(currentEpisode.id);
+      // The finished file was exempt from earlier pruning, so trim again now.
+      pruneDownloads();
+
+      const autoplayNext = Preferences.getSetting("pref_autoplay_next", "none");
+      if (autoplayNext === "none" || !currentPodcast) return;
+      if (
+        autoplayNext === "subscriptions" &&
+        !Preferences.getSubscribedPodcasts().includes(currentPodcast.id)
+      ) {
+        return;
+      }
+
+      const cached = PodcastApi.getEpisodesFromCache(currentPodcast.id) || [];
+      if (!cached.length) return;
+      const oldestFirst = Preferences.getPodcastEpisodeSort(currentPodcast.id) === "oldest_first";
+      const sorted = [...cached].sort((a, b) => {
+        const aEpoch = parsePodcastDateEpoch(a.pubDate);
+        const bEpoch = parsePodcastDateEpoch(b.pubDate);
+        return oldestFirst ? aEpoch - bEpoch : bEpoch - aEpoch;
+      });
+      const index = sorted.findIndex((episode) => episode.id === currentEpisode.id);
+      const next = sorted
+        .slice(index + 1)
+        .find((episode) => !Preferences.isEpisodePlayed(episode.id));
+      if (next) await get().playEpisode(currentPodcast, next);
+    } finally {
+      setTimeout(() => {
+        if (endingEpisodeId === currentEpisode.id) {
+          endingEpisodeId = null;
+        }
+      }, 1000);
     }
-
-    const cached = PodcastApi.getEpisodesFromCache(currentPodcast.id) || [];
-    if (!cached.length) return;
-    const oldestFirst = Preferences.getPodcastEpisodeSort(currentPodcast.id) === "oldest_first";
-    const sorted = [...cached].sort((a, b) => {
-      const aEpoch = parsePodcastDateEpoch(a.pubDate);
-      const bEpoch = parsePodcastDateEpoch(b.pubDate);
-      return oldestFirst ? aEpoch - bEpoch : bEpoch - aEpoch;
-    });
-    const index = sorted.findIndex((episode) => episode.id === currentEpisode.id);
-    const next = sorted
-      .slice(index + 1)
-      .find((episode) => !Preferences.isEpisodePlayed(episode.id));
-    if (next) await get().playEpisode(currentPodcast, next);
   },
 
   refreshShowInfo: async (skipDelay: boolean = false) => {
@@ -860,6 +938,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       set({ isPlaying: true, isBuffering: false, playbackError: null });
     } else if (state === State.Buffering || state === State.Loading) {
       set({ isBuffering: true });
+    } else if (state === State.Ended) {
+      set({ isPlaying: false, isBuffering: false });
+      if (get().currentEpisode) {
+        void get().handleEpisodeEnded();
+      }
     } else if (state === State.Paused || state === State.Stopped) {
       if (get().isBuffering) {
         // Ignore transient stopped state while TrackPlayer resets and buffers a new track/candidate

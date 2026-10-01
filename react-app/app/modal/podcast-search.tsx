@@ -40,6 +40,8 @@ import {
 import { usePlayerStore } from "../../src/store/playerStore";
 import { OfflineBanner, VpnBanner } from "../../src/components/NetworkBanners";
 import { ensureNotificationPermissions } from "../../src/notifications/notifications";
+import { EpisodePlaybackIndicator, EpisodeProgressBar } from "../../src/components/EpisodeIndicators";
+import { computeEpisodePlaybackStatus } from "../../src/podcasts/episodePlaybackStatus";
 
 const SEARCH_DEBOUNCE_MS = 250;
 
@@ -137,6 +139,14 @@ export default function PodcastSearchScreen() {
   const [saveSearchNotify, setSaveSearchNotify] = useState(true);
 
   const { playEpisode } = usePlayerStore();
+  const currentEpisode = usePlayerStore((state) => state.currentEpisode);
+  const positionSeconds = usePlayerStore((state) => state.positionSeconds);
+  const [playedIds, setPlayedIds] = useState<Set<string>>(
+    () => new Set(Preferences.getPlayedEpisodeIds())
+  );
+  const [progressMap, setProgressMap] = useState<Record<string, number>>(() =>
+    Preferences.getEpisodeProgressMap()
+  );
   const [resolvingEpisodeId, setResolvingEpisodeId] = useState<string | null>(null);
 
   useFocusEffect(
@@ -145,8 +155,21 @@ export default function PodcastSearchScreen() {
       setSubscribedIds(Preferences.getSubscribedPodcasts());
       setPodcastRatings(Preferences.getCachedPodcastRatings());
       setRecentSearches(Preferences.getRecentPodcastSearches());
+      setPlayedIds(new Set(Preferences.getPlayedEpisodeIds()));
+      setProgressMap(Preferences.getEpisodeProgressMap());
     }, [])
   );
+
+  useEffect(() => {
+    const sub = Preferences.onChanged((key) => {
+      if (key === "played_episode_ids") {
+        setPlayedIds(new Set(Preferences.getPlayedEpisodeIds()));
+      } else if (key === "episode_progress" || key === "last_podcast_positions") {
+        setProgressMap(Preferences.getEpisodeProgressMap());
+      }
+    });
+    return () => sub.remove();
+  }, []);
 
   // Load catalog in background if not already cached
   useEffect(() => {
@@ -749,6 +772,17 @@ export default function PodcastSearchScreen() {
           ep.episodeId.includes(notifiedEpisodeId) ||
           notifiedEpisodeId.includes(ep.episodeId))
     );
+    const isCurrentEpisode = currentEpisode?.id === ep.episodeId;
+    const isPlayed = playedIds.has(ep.episodeId) || Preferences.isEpisodePlayed(ep.episodeId);
+    const progressSeconds =
+      isCurrentEpisode && positionSeconds > 0
+        ? positionSeconds
+        : (progressMap[ep.episodeId] || Preferences.getEpisodeProgress(ep.episodeId));
+    const cachedEp = PodcastApi.getEpisodesFromCache(ep.podcastId)?.find((e) => e.id === ep.episodeId);
+    const notifiedEp = Preferences.getNotifiedEpisode(ep.episodeId);
+    const durationMins = cachedEp?.durationMins || notifiedEp?.durationMins || 0;
+    const playbackStatus = computeEpisodePlaybackStatus(isPlayed, durationMins, progressSeconds);
+
     return (
       <View
         style={[
@@ -781,16 +815,37 @@ export default function PodcastSearchScreen() {
               {decodeXmlEntities(ep.title)}
             </Text>
           </View>
-          {ep.pubDate ? (
-            <Text style={[styles.episodeResultDate, { color: theme.onSurfaceVariant }]}>
-              {ep.pubDate.split(" ").slice(0, 4).join(" ")}
-            </Text>
-          ) : null}
           {ep.description ? (
             <Text style={[styles.episodeResultDesc, { color: theme.onSurfaceVariant }]} numberOfLines={2}>
               {decodeXmlEntities(ep.description)}
             </Text>
           ) : null}
+          {playbackStatus.progressPercent > 0 ? (
+            <EpisodeProgressBar
+              progressPercent={playbackStatus.progressPercent}
+              trackColor={theme.surfaceVariant}
+              fillColor={theme.primary}
+            />
+          ) : null}
+          <View style={styles.episodeMetaRow}>
+            {ep.pubDate ? (
+              <Text style={[styles.episodeResultDate, { color: theme.onSurfaceVariant, flex: 1, marginBottom: 0 }]}>
+                {ep.pubDate.split(" ").slice(0, 4).join(" ")}
+              </Text>
+            ) : (
+              <View style={{ flex: 1 }} />
+            )}
+            {durationMins > 0 ? (
+              <Text style={[styles.episodeResultDate, { color: theme.onSurfaceVariant, marginBottom: 0 }]}>
+                {durationMins} min
+              </Text>
+            ) : null}
+            <EpisodePlaybackIndicator
+              isPlayed={isPlayed}
+              durationMins={durationMins}
+              progressSeconds={progressSeconds}
+            />
+          </View>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.episodePlayBtn, { backgroundColor: theme.primary }]}
@@ -869,7 +924,11 @@ export default function PodcastSearchScreen() {
       isSearchingEpisodes,
       totalEpisodeCount,
       loadedEpisodeCount: searchEpisodeMatches.length,
-      visibleEpisodeCount: visibleEpisodes.length
+      visibleEpisodeCount: visibleEpisodes.length,
+      playedIds,
+      progressMap,
+      positionSeconds,
+      currentEpisodeId: currentEpisode?.id
     }),
     [
       theme,
@@ -879,7 +938,11 @@ export default function PodcastSearchScreen() {
       isSearchingEpisodes,
       totalEpisodeCount,
       searchEpisodeMatches.length,
-      visibleEpisodes.length
+      visibleEpisodes.length,
+      playedIds,
+      progressMap,
+      positionSeconds,
+      currentEpisode?.id
     ]
   );
 
@@ -1407,6 +1470,11 @@ const styles = StyleSheet.create({
   episodeResultDate: {
     fontSize: 11,
     marginBottom: 2
+  },
+  episodeMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 4
   },
   episodeResultDesc: {
     fontSize: 12,

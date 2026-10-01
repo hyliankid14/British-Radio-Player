@@ -32,7 +32,7 @@ export async function playbackService(): Promise<void> {
   });
 
   TrackPlayer.addEventListener(Event.RemoteSeek, (event) => {
-    TrackPlayer.seekTo(event.position);
+    void usePlayerStore.getState().seekTo(event.position);
   });
 
   TrackPlayer.addEventListener(Event.RemoteDuck, async (event) => {
@@ -106,7 +106,7 @@ export async function setupPlayer(): Promise<boolean> {
       ],
       forwardJumpInterval: 30,
       backwardJumpInterval: 10,
-      progressUpdateEventInterval: 5
+      progressUpdateEventInterval: 1
     });
 
     isSetup = true;

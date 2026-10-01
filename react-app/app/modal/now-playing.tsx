@@ -270,7 +270,7 @@ export default function NowPlayingModal() {
         if (!mounted || dragging || Date.now() < seekingUntilRef.current) return;
         setLocalPosition(progress.position);
         const duration = progress.duration > 0 ? progress.duration : durationSeconds;
-        if (duration > 0) usePlayerStore.setState({ durationSeconds: duration });
+        usePlayerStore.getState().handleEpisodeProgress(progress.position, duration);
       } catch {
         // Player not ready yet.
       }

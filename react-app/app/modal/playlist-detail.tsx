@@ -23,6 +23,8 @@ import { useAppTheme, ThemeColors } from "../../src/theme/colors";
 import { MiniPlayer } from "../../src/components/MiniPlayer";
 import { AppNavigation } from "../../src/components/AppNavigation";
 import { useNetworkStatus } from "../../src/store/networkStore";
+import { EpisodePlaybackIndicator, EpisodeProgressBar } from "../../src/components/EpisodeIndicators";
+import { computeEpisodePlaybackStatus } from "../../src/podcasts/episodePlaybackStatus";
 
 type PlaylistSort = "newest_first" | "oldest_first" | "title" | "manual";
 
@@ -114,11 +116,11 @@ const EpisodeRow = React.memo(function EpisodeRow({
 }: EpisodeRowProps) {
   const artworkSource = useMemo(() => ({ uri: item.imageUrl }), [item.imageUrl]);
 
-  const durationSeconds = (item.durationMins || 0) * 60;
-  const progressPercent =
-    !isPlayed && durationSeconds > 0 && progressSeconds > 0
-      ? Math.min(100, Math.round((progressSeconds / durationSeconds) * 100))
-      : 0;
+  const playbackStatus = computeEpisodePlaybackStatus(
+    isPlayed,
+    item.durationMins || 0,
+    progressSeconds
+  );
 
   // Only attach an animated transform while a drag is in progress. Giving every
   // idle row an Animated.View + transform makes the whole scroll surface run
@@ -193,20 +195,12 @@ const EpisodeRow = React.memo(function EpisodeRow({
             </Text>
           ) : null}
 
-          {progressPercent > 0 ? (
-            <View
-              style={[
-                styles.progressBarTrack,
-                { backgroundColor: theme.surfaceVariant }
-              ]}
-            >
-              <View
-                style={[
-                  styles.progressBarFill,
-                  { width: `${progressPercent}%`, backgroundColor: theme.primary }
-                ]}
-              />
-            </View>
+          {playbackStatus.progressPercent > 0 ? (
+            <EpisodeProgressBar
+              progressPercent={playbackStatus.progressPercent}
+              trackColor={theme.surfaceVariant}
+              fillColor={theme.primary}
+            />
           ) : null}
 
           <View style={styles.metaRow}>
@@ -218,14 +212,11 @@ const EpisodeRow = React.memo(function EpisodeRow({
                 {item.durationMins} min
               </Text>
             ) : null}
-            {isPlayed ? (
-              <View style={styles.playedBadge}>
-                <MaterialIcons name="check-circle" size={13} color="#4CAF50" />
-                <Text style={styles.playedBadgeText}>Played</Text>
-              </View>
-            ) : progressSeconds > 0 ? (
-              <Text style={styles.inProgressBadgeText}>~ In progress</Text>
-            ) : null}
+            <EpisodePlaybackIndicator
+              isPlayed={isPlayed}
+              durationMins={item.durationMins}
+              progressSeconds={progressSeconds}
+            />
           </View>
         </View>
       </TouchableOpacity>

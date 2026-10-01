@@ -32,6 +32,8 @@ import { OfflineBanner, VpnBanner, PlaybackErrorBanner } from "../../src/compone
 import { NativeAndroid } from "../../src/native/nativeAndroid";
 import { useResponsiveLayout } from "../../src/theme/responsive";
 import { ensureNotificationPermissions } from "../../src/notifications/notifications";
+import { EpisodePlaybackIndicator, EpisodeProgressBar } from "../../src/components/EpisodeIndicators";
+import { computeEpisodePlaybackStatus } from "../../src/podcasts/episodePlaybackStatus";
 
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -325,7 +327,8 @@ export default function FavouritesScreen() {
     setFavoritesOrder,
     playEpisode,
     currentEpisode,
-    isPlaying
+    isPlaying,
+    positionSeconds
   } = usePlayerStore();
   const favorites = usePlayerStore((state) => state.favorites);
 
@@ -1062,13 +1065,17 @@ export default function FavouritesScreen() {
   const renderHistoryItem = useCallback(
     ({ item }: { item: PodcastHistoryEntry }) => {
       const isCurrent = currentEpisode?.id === item.id;
-      const progressSeconds = Preferences.getEpisodeProgress(item.id);
+      const progressSeconds =
+        isCurrent && positionSeconds > 0
+          ? positionSeconds
+          : Preferences.getEpisodeProgress(item.id);
       const totalSeconds = (item.durationMins > 0 ? item.durationMins : 0) * 60;
       const isPlayed = Preferences.isEpisodePlayed(item.id);
-      const progressPercent =
-        !isPlayed && totalSeconds > 0 && progressSeconds > 0
-          ? Math.min(100, Math.max(0, Math.round((progressSeconds / totalSeconds) * 100)))
-          : 0;
+      const playbackStatus = computeEpisodePlaybackStatus(
+        isPlayed,
+        item.durationMins,
+        progressSeconds
+      );
 
       return (
         <TouchableOpacity
@@ -1109,20 +1116,12 @@ export default function FavouritesScreen() {
               </Text>
             ) : null}
 
-            {progressPercent > 0 ? (
-              <View
-                style={[
-                  styles.historyProgressBarTrack,
-                  { backgroundColor: theme.surfaceVariant }
-                ]}
-              >
-                <View
-                  style={[
-                    styles.historyProgressBarFill,
-                    { width: `${progressPercent}%`, backgroundColor: theme.primary }
-                  ]}
-                />
-              </View>
+            {playbackStatus.progressPercent > 0 ? (
+              <EpisodeProgressBar
+                progressPercent={playbackStatus.progressPercent}
+                trackColor={theme.surfaceVariant}
+                fillColor={theme.primary}
+              />
             ) : null}
 
             <View style={styles.historyMetaRow}>
@@ -1134,12 +1133,11 @@ export default function FavouritesScreen() {
                   {item.durationMins} min
                 </Text>
               ) : null}
-              {isPlayed ? (
-                <View style={styles.playedBadge}>
-                  <MaterialIcons name="check-circle" size={14} color="#4CAF50" />
-                  <Text style={styles.playedBadgeText}>Played</Text>
-                </View>
-              ) : null}
+              <EpisodePlaybackIndicator
+                isPlayed={isPlayed}
+                durationMins={item.durationMins}
+                progressSeconds={progressSeconds}
+              />
             </View>
           </View>
 
@@ -1160,7 +1158,7 @@ export default function FavouritesScreen() {
         </TouchableOpacity>
       );
     },
-    [currentEpisode?.id, isPlaying, theme, handlePlayHistoryEntry]
+    [currentEpisode?.id, isPlaying, positionSeconds, theme, handlePlayHistoryEntry]
   );
 
   return (
@@ -1633,6 +1631,7 @@ export default function FavouritesScreen() {
           data={podcastHistory}
           keyExtractor={(item) => item.id}
           renderItem={renderHistoryItem}
+          extraData={{ currentEpisodeId: currentEpisode?.id, isPlaying, positionSeconds }}
           contentContainerStyle={[styles.listContent, { paddingBottom: 170 + insets.bottom }]}
           style={{ backgroundColor: theme.surface }}
           ListEmptyComponent={

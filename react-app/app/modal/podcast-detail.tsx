@@ -21,6 +21,8 @@ import { Preferences } from "../../src/storage/preferences";
 import { toSavedEpisodeEntry, useDownloadStore } from "../../src/downloads/downloadStore";
 import { MiniPlayer } from "../../src/components/MiniPlayer";
 import { AppNavigation } from "../../src/components/AppNavigation";
+import { EpisodePlaybackIndicator, EpisodeProgressBar } from "../../src/components/EpisodeIndicators";
+import { computeEpisodePlaybackStatus } from "../../src/podcasts/episodePlaybackStatus";
 import { useNetworkStatus } from "../../src/store/networkStore";
 import { sharePodcast } from "../../src/utils/share";
 import {
@@ -129,6 +131,7 @@ export default function PodcastDetailModal() {
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { playEpisode, pause, resume, currentEpisode, isPlaying } = usePlayerStore();
+  const positionSeconds = usePlayerStore((state) => state.positionSeconds);
   const downloads = useDownloadStore((state) => state.downloads);
   const { isOnline } = useNetworkStatus();
   const [overflowMenuVisible, setOverflowMenuVisible] = useState(false);
@@ -146,6 +149,9 @@ export default function PodcastDetailModal() {
   );
   const [playedIds, setPlayedIds] = useState<Set<string>>(
     () => new Set(Preferences.getPlayedEpisodeIds())
+  );
+  const [progressMap, setProgressMap] = useState<Record<string, number>>(() =>
+    Preferences.getEpisodeProgressMap()
   );
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [playlistModalVisible, setPlaylistModalVisible] = useState(false);
@@ -374,8 +380,20 @@ export default function PodcastDetailModal() {
     useCallback(() => {
       setSavedIds(new Set(Preferences.getPodcastPlaylistEntries("saved").map((entry) => entry.id)));
       setPlayedIds(new Set(Preferences.getPlayedEpisodeIds()));
+      setProgressMap(Preferences.getEpisodeProgressMap());
     }, [])
   );
+
+  useEffect(() => {
+    const sub = Preferences.onChanged((key) => {
+      if (key === "played_episode_ids") {
+        setPlayedIds(new Set(Preferences.getPlayedEpisodeIds()));
+      } else if (key === "episode_progress" || key === "last_podcast_positions") {
+        setProgressMap(Preferences.getEpisodeProgressMap());
+      }
+    });
+    return () => sub.remove();
+  }, []);
 
   useEffect(() => {
     if (params.podcastId && podcast?.id !== params.podcastId) {
@@ -655,6 +673,15 @@ export default function PodcastDetailModal() {
       const isSelected = selectedIds.has(ep.id);
       const isPlayed = playedIds.has(ep.id);
       const isDownloaded = downloads[ep.id]?.status === "downloaded";
+      const progressSeconds =
+        isCurrentEpisode && positionSeconds > 0
+          ? positionSeconds
+          : (progressMap[ep.id] || 0);
+      const playbackStatus = computeEpisodePlaybackStatus(
+        isPlayed,
+        ep.durationMins,
+        progressSeconds
+      );
       const isNotified = Boolean(
         requestedEpisodeId &&
         (ep.id === requestedEpisodeId || ep.id.includes(requestedEpisodeId) || requestedEpisodeId.includes(ep.id))
@@ -731,6 +758,13 @@ export default function PodcastDetailModal() {
                 {decodeXmlEntities(ep.description)}
               </Text>
             ) : null}
+            {playbackStatus.progressPercent > 0 ? (
+              <EpisodeProgressBar
+                progressPercent={playbackStatus.progressPercent}
+                trackColor={theme.surfaceVariant}
+                fillColor={theme.primary}
+              />
+            ) : null}
             <View style={styles.episodeMetaRow}>
               {isNotified ? (
                 <View style={[styles.newBadge, { backgroundColor: theme.primary }]}>
@@ -747,9 +781,11 @@ export default function PodcastDetailModal() {
                   {ep.durationMins} min
                 </Text>
               ) : null}
-              {isPlayed ? (
-                <MaterialIcons name="check" size={16} color="#4CAF50" style={styles.statusIcon} />
-              ) : null}
+              <EpisodePlaybackIndicator
+                isPlayed={isPlayed}
+                durationMins={ep.durationMins}
+                progressSeconds={progressSeconds}
+              />
               {isDownloaded ? (
                 <MaterialIcons name="file-download" size={16} color={theme.primary} style={styles.statusIcon} />
               ) : null}
@@ -778,6 +814,8 @@ export default function PodcastDetailModal() {
       podcast,
       currentEpisode?.id,
       isPlaying,
+      positionSeconds,
+      progressMap,
       playEpisode,
       pause,
       resume,
@@ -899,6 +937,8 @@ export default function PodcastDetailModal() {
           playedIds,
           downloads,
           isPlaying,
+          positionSeconds,
+          progressMap,
           currentEpisodeId: currentEpisode?.id,
           hidePlayed,
           playedSectionExpanded,
