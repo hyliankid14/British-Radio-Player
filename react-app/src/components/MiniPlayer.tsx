@@ -33,7 +33,7 @@ export function MiniPlayer() {
     durationSeconds
   } = usePlayerStore();
 
-  const isPodcast = !currentStation && !!currentEpisode && !!currentPodcast;
+  const isPodcast = !currentStation && (!!currentEpisode || !!currentPodcast);
   const isFav = currentStation ? favorites.includes(currentStation.id) : false;
   const isSubscribed = currentPodcast ? Preferences.getSubscribedPodcasts().includes(currentPodcast.id) : false;
   const title = currentStation ? currentStation.title : (currentEpisode?.title || "Podcast Episode");
@@ -141,8 +141,9 @@ export function MiniPlayer() {
         style={isTablet ? [styles.controlButtonTablet, { width: responsive.miniPlayerButtonSize, height: responsive.miniPlayerButtonSize, padding: responsive.miniPlayerButtonPadding }] : styles.controlButtonPhone}
         onPress={handlePrevious}
         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        accessibilityLabel={isPodcast ? "Rewind 10 seconds" : "Previous station"}
       >
-        <MaterialIcons name="skip-previous" size={iconSize} color={theme.miniPlayerIconTint} />
+        <MaterialIcons name={isPodcast ? "replay-10" : "skip-previous"} size={iconSize} color={theme.miniPlayerIconTint} />
       </TouchableOpacity>
 
       {/* Play/Pause Button */}
@@ -167,8 +168,9 @@ export function MiniPlayer() {
         style={isTablet ? [styles.controlButtonTablet, { width: responsive.miniPlayerButtonSize, height: responsive.miniPlayerButtonSize, padding: responsive.miniPlayerButtonPadding }] : styles.controlButtonPhone}
         onPress={handleNext}
         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        accessibilityLabel={isPodcast ? "Skip forward 30 seconds" : "Next station"}
       >
-        <MaterialIcons name="skip-next" size={iconSize} color={theme.miniPlayerIconTint} />
+        <MaterialIcons name={isPodcast ? "forward-30" : "skip-next"} size={iconSize} color={theme.miniPlayerIconTint} />
       </TouchableOpacity>
 
       {/* Favorite / Subscribed Star Button */}

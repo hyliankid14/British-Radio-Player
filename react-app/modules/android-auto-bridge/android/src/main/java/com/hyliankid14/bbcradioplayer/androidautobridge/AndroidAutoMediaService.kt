@@ -613,7 +613,9 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
 
   private fun seekBy(deltaMs: Long) {
     if (kind != Kind.EPISODE) return
-    player.seekTo((player.currentPosition + deltaMs).coerceAtLeast(0L))
+    val newPos = (player.currentPosition + deltaMs).coerceAtLeast(0L)
+    val clamped = if (player.duration > 0) newPos.coerceAtMost(player.duration) else newPos
+    player.seekTo(clamped)
     updatePlaybackState()
   }
 
@@ -1956,11 +1958,7 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
         playStation(list[(currentIndex + 1).mod(list.size)].optString("id"))
       }
       Kind.EPISODE -> {
-        val pool = episodePool()
-        if (pool.isEmpty()) return
-        val index = pool.indexOfFirst { it.optString("id") == episodeJson?.optString("id") }
-        val next = pool.getOrNull(index + 1) ?: pool.first()
-        playEpisode(next, currentPlaylistId)
+        seekBy(SEEK_FORWARD_MS)
       }
       Kind.NONE -> resumeLastSession()
     }
@@ -1976,14 +1974,7 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
         playStation(list[(safeIndex - 1 + list.size).mod(list.size)].optString("id"))
       }
       Kind.EPISODE -> {
-        val pool = episodePool()
-        val index = pool.indexOfFirst { it.optString("id") == episodeJson?.optString("id") }
-        if (index > 0) {
-          playEpisode(pool[index - 1], currentPlaylistId)
-        } else {
-          player.seekTo(0)
-          updatePlaybackState()
-        }
+        seekBy(-SEEK_BACK_MS)
       }
       Kind.NONE -> resumeLastSession()
     }

@@ -1,4 +1,6 @@
-const { withAppBuildGradle } = require("@expo/config-plugins");
+const fs = require("fs");
+const path = require("path");
+const { withAppBuildGradle, withDangerousMod } = require("@expo/config-plugins");
 
 /**
  * Adds the GitHub / Play distribution channels to the generated Android project.
@@ -85,8 +87,10 @@ android {
             applicationIdSuffix ".debug"
         }
         release {
-            // Default for a bare "assembleRelease"; the flavours above take precedence.
-            signingConfig signingConfigs.githubShared
+            // Expo's template sets signingConfig signingConfigs.debug on the release build type.
+            // In AGP, buildType signingConfig overrides flavor signingConfig.  Setting this to null
+            // allows the flavor's signingConfig (githubShared for github, release for play) to take effect.
+            signingConfig = null
         }
     }
 }
@@ -138,12 +142,58 @@ def resolveSigningProperty(String key) {
 }
 `;
 
+const GITHUB_MANIFEST = `<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Required for GitHub sideloaded in-app self-updater -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+</manifest>
+`;
+
+const PLAY_MANIFEST = `<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- Play Store policy prohibits REQUEST_INSTALL_PACKAGES for non-installer apps -->
+    <uses-permission
+        android:name="android.permission.REQUEST_INSTALL_PACKAGES"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.USE_FULL_SCREEN_INTENT"
+        tools:node="remove" />
+</manifest>
+`;
+
 function patchBuildGradle(contents) {
   if (contents.includes(MARKER)) return contents;
   return `${contents}\n${SIGNING_RESOLVER}${GRADLE_BLOCK}`;
 }
 
 module.exports = function withAndroidReleaseChannels(config) {
+  config = withDangerousMod(config, [
+    "android",
+    async (configWithProject) => {
+      const srcDir = path.join(
+        configWithProject.modRequest.platformProjectRoot,
+        "app/src"
+      );
+
+      const githubManifestDir = path.join(srcDir, "github");
+      await fs.promises.mkdir(githubManifestDir, { recursive: true });
+      await fs.promises.writeFile(
+        path.join(githubManifestDir, "AndroidManifest.xml"),
+        GITHUB_MANIFEST
+      );
+
+      const playManifestDir = path.join(srcDir, "play");
+      await fs.promises.mkdir(playManifestDir, { recursive: true });
+      await fs.promises.writeFile(
+        path.join(playManifestDir, "AndroidManifest.xml"),
+        PLAY_MANIFEST
+      );
+
+      return configWithProject;
+    }
+  ]);
+
   return withAppBuildGradle(config, (configWithBuildGradle) => {
     configWithBuildGradle.modResults.contents = patchBuildGradle(
       configWithBuildGradle.modResults.contents
@@ -151,3 +201,8 @@ module.exports = function withAndroidReleaseChannels(config) {
     return configWithBuildGradle;
   });
 };
+module.exports.patchBuildGradle = patchBuildGradle;
+module.exports.GITHUB_MANIFEST = GITHUB_MANIFEST;
+module.exports.PLAY_MANIFEST = PLAY_MANIFEST;
+
+

@@ -238,6 +238,12 @@ jobs:
               echo "::error::jarsigner could not verify $(basename "$bundle")." >&2
               exit 1
             fi
+            BUNDLE_SHA1=$(keytool -printcert -jarfile "$bundle" | awk -F': ' '/SHA1:/{print $2; exit}' | tr '[:lower:]' '[:upper:]' | tr -d '[:space:]')
+            if [ "$BUNDLE_SHA1" != "${{ steps.cert.outputs.sha1 }}" ]; then
+              echo "::error::$(basename "$bundle") was signed with $BUNDLE_SHA1 instead of expected ${{ steps.cert.outputs.sha1 }}" >&2
+              exit 1
+            fi
+            echo "✅ $(basename "$bundle") signature matches Play upload key ($BUNDLE_SHA1)."
           done
 
       - name: Upload bundles and deobfuscation artefacts

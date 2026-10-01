@@ -131,7 +131,6 @@ object AlarmNotifier {
       .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
       .setAutoCancel(true)
       .setContentIntent(contentPendingIntent)
-      .setFullScreenIntent(contentPendingIntent, true)
       .addAction(0, "Snooze 10 min", snoozeIntent)
       .addAction(0, "Dismiss", dismissIntent)
 

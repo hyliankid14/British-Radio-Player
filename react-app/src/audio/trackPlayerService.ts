@@ -15,6 +15,22 @@ export async function playbackService(): Promise<void> {
     usePlayerStore.getState().stop();
   });
 
+  TrackPlayer.addEventListener(Event.RemoteNext, () => {
+    void usePlayerStore.getState().playNext();
+  });
+
+  TrackPlayer.addEventListener(Event.RemotePrevious, () => {
+    void usePlayerStore.getState().playPrevious();
+  });
+
+  TrackPlayer.addEventListener(Event.RemoteJumpForward, (event) => {
+    void usePlayerStore.getState().seekBy(event.interval || 30);
+  });
+
+  TrackPlayer.addEventListener(Event.RemoteJumpBackward, (event) => {
+    void usePlayerStore.getState().seekBy(-(event.interval || 10));
+  });
+
   TrackPlayer.addEventListener(Event.RemoteSeek, (event) => {
     TrackPlayer.seekTo(event.position);
   });
@@ -70,7 +86,11 @@ export async function setupPlayer(): Promise<boolean> {
         Capability.Play,
         Capability.Pause,
         Capability.Stop,
-        Capability.SeekTo
+        Capability.SeekTo,
+        Capability.SkipToNext,
+        Capability.SkipToPrevious,
+        Capability.JumpForward,
+        Capability.JumpBackward
       ],
       compactCapabilities: [
         Capability.Play,
@@ -80,8 +100,12 @@ export async function setupPlayer(): Promise<boolean> {
       notificationCapabilities: [
         Capability.Play,
         Capability.Pause,
-        Capability.Stop
+        Capability.Stop,
+        Capability.SkipToNext,
+        Capability.SkipToPrevious
       ],
+      forwardJumpInterval: 30,
+      backwardJumpInterval: 10,
       progressUpdateEventInterval: 5
     });
 

@@ -11,7 +11,7 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.hyliankid14.bbcradioplayer",
       "appleTeamId": "8ZAZCKQ9LV",
-      "buildNumber": "2",
+      "buildNumber": "3",
       "privacyManifests": {
         "NSPrivacyAccessedAPITypes": [
           {
@@ -83,7 +83,7 @@
     },
     "android": {
       "package": "com.hyliankid14.bbcradioplayer",
-      "versionCode": 105,
+      "versionCode": 106,
       "adaptiveIcon": {
         "backgroundColor": "#1E1B2E",
         "foregroundImage": "./assets/android-icon-foreground.png",

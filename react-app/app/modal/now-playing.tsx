@@ -205,7 +205,7 @@ export default function NowPlayingModal() {
     []
   );
 
-  const isPodcast = !!activeEpisode && !!activePodcast;
+  const isPodcast = !currentStation && (!!activeEpisode || !!activePodcast);
 
   const cleanDescription = React.useMemo(() => {
     if (!isPodcast || !activeEpisode?.description) return "";
@@ -716,8 +716,9 @@ export default function NowPlayingModal() {
           style={[styles.controlIconButton, { backgroundColor: outlineColour }]}
           onPress={handlePrevious}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityLabel={isPodcast ? "Rewind 10 seconds" : "Previous station"}
         >
-          <MaterialIcons name="skip-previous" size={26} color={buttonIconColor} />
+          <MaterialIcons name={isPodcast ? "replay-10" : "skip-previous"} size={26} color={buttonIconColor} />
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -740,8 +741,9 @@ export default function NowPlayingModal() {
           style={[styles.controlIconButton, { backgroundColor: outlineColour }]}
           onPress={handleNext}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityLabel={isPodcast ? "Skip forward 30 seconds" : "Next station"}
         >
-          <MaterialIcons name="skip-next" size={26} color={buttonIconColor} />
+          <MaterialIcons name={isPodcast ? "forward-30" : "skip-next"} size={26} color={buttonIconColor} />
         </TouchableOpacity>
 
         <TouchableOpacity

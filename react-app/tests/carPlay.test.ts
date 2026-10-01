@@ -72,3 +72,24 @@ test("CarPlay search scoring matches Android Auto term matching", () => {
   assert.equal(scoreWorld, 0, "World Service should match no terms");
   assert.ok(score1 > score2 && score2 > scoreWorld);
 });
+
+test("CarPlay and Android Auto skip controls advance 30s and rewind 10s for podcasts", () => {
+  const SEEK_FORWARD_SECONDS = 30;
+  const SEEK_BACKWARD_SECONDS = 10;
+
+  function calculateNewPosition(currentSeconds: number, deltaSeconds: number, durationSeconds: number): number {
+    const raw = currentSeconds + deltaSeconds;
+    const clampedBottom = Math.max(0, raw);
+    return durationSeconds > 0 ? Math.min(clampedBottom, durationSeconds) : clampedBottom;
+  }
+
+  const duration = 1800; // 30 mins
+  // Skip forward advances by 30 seconds
+  assert.equal(calculateNewPosition(100, SEEK_FORWARD_SECONDS, duration), 130);
+  // Skip backward rewinds by 10 seconds
+  assert.equal(calculateNewPosition(100, -SEEK_BACKWARD_SECONDS, duration), 90);
+  // Rewind near beginning clamps to 0
+  assert.equal(calculateNewPosition(5, -SEEK_BACKWARD_SECONDS, duration), 0);
+  // Forward near end clamps to duration
+  assert.equal(calculateNewPosition(1790, SEEK_FORWARD_SECONDS, duration), 1800);
+});

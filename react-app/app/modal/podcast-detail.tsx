@@ -546,7 +546,15 @@ export default function PodcastDetailModal() {
     return (
       <View>
         {/* Podcast Header matching fragment_podcast_detail.xml */}
-        <View style={[styles.headerCard, { backgroundColor: theme.surfaceContainer }]}>
+        <View
+          style={[
+            styles.headerCard,
+            {
+              backgroundColor: theme.surfaceContainer,
+              borderBottomColor: theme.outlineVariant
+            }
+          ]}
+        >
           <View style={styles.headerTopRow}>
             {podcast.imageUrl ? (
               <Image source={{ uri: podcast.imageUrl }} style={styles.artwork} resizeMode="cover" />
@@ -696,13 +704,7 @@ export default function PodcastDetailModal() {
             styles.episodeItem,
             {
               borderBottomColor: theme.outlineVariant,
-              backgroundColor: isSelected
-                ? theme.surfaceVariant
-                : isNotified
-                ? theme.surfaceContainer
-                : theme.surface,
-              borderLeftWidth: isNotified ? 4 : 0,
-              borderLeftColor: theme.primary
+              backgroundColor: isSelected ? theme.surfaceVariant : theme.surface
             }
           ]}
         >
@@ -886,6 +888,7 @@ export default function PodcastDetailModal() {
 
       <FlatList
         keyExtractor={(item) => item.id}
+        style={[styles.list, { backgroundColor: theme.surface }]}
         renderItem={renderEpisodeItem}
         ListHeaderComponent={renderHeader}
         ListEmptyComponent={renderEmpty}
@@ -1244,8 +1247,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center"
   },
+  list: {
+    flex: 1
+  },
   headerCard: {
-    padding: 16
+    padding: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth
   },
   headerTopRow: {
     flexDirection: "row",

@@ -809,7 +809,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   playNext: async () => {
-    const { currentStation } = get();
+    const { currentStation, currentEpisode } = get();
+    if (currentEpisode) {
+      await get().seekBy(30);
+      return;
+    }
     const stations = stationRotation();
     if (!stations.length) return;
     const currentIndex = currentStation ? stations.findIndex(s => s.id === currentStation.id) : -1;
@@ -818,7 +822,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   playPrevious: async () => {
-    const { currentStation } = get();
+    const { currentStation, currentEpisode } = get();
+    if (currentEpisode) {
+      await get().seekBy(-10);
+      return;
+    }
     const stations = stationRotation();
     if (!stations.length) return;
     const currentIndex = currentStation ? stations.findIndex(s => s.id === currentStation.id) : 0;
