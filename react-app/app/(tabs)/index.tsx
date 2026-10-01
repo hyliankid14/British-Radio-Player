@@ -11,7 +11,7 @@ import {
   StyleSheet,
   ActivityIndicator
 } from "react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FontAwesome5, MaterialIcons } from "@expo/vector-icons";
 import { useRouter, useFocusEffect } from "expo-router";
 import { Station, StationCategory, StationRepository } from "../../src/data/stations";
@@ -225,9 +225,8 @@ export default function AllStationsScreen() {
   };
 
   return (
-    <SafeAreaView
+    <View
       style={[styles.container, { backgroundColor: theme.surfaceContainer }]}
-      edges={["top"]}
     >
       <ScreenHeader
         title="All Stations"
@@ -404,7 +403,7 @@ export default function AllStationsScreen() {
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 

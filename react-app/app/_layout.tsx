@@ -2,9 +2,9 @@ import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { Stack, useRouter, useNavigationContainerRef } from "expo-router";
 import * as Linking from "expo-linking";
 import { StatusBar } from "expo-status-bar";
-import { SafeAreaProvider } from "react-native-safe-area-context";
+import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-context";
 import TrackPlayer from "react-native-track-player";
-import { Alert, AppState, LogBox } from "react-native";
+import { Alert, AppState, LogBox, Platform, StatusBar as RNStatusBar, Dimensions } from "react-native";
 import { setupPlayer, playbackService } from "../src/audio/trackPlayerService";
 import { usePlayerStore } from "../src/store/playerStore";
 import { initAutoSync } from "../src/auto/autoSync";
@@ -396,8 +396,29 @@ export default function RootLayout() {
     return usePlayerStore.subscribe(push);
   }, []);
 
+  const initialMetrics = useMemo(
+    () => ({
+      insets: {
+        top: Math.max(
+          initialWindowMetrics?.insets?.top ?? 0,
+          Platform.OS === "android" ? (RNStatusBar.currentHeight ?? 0) : 0
+        ),
+        bottom: initialWindowMetrics?.insets?.bottom ?? 0,
+        left: initialWindowMetrics?.insets?.left ?? 0,
+        right: initialWindowMetrics?.insets?.right ?? 0
+      },
+      frame: initialWindowMetrics?.frame ?? {
+        x: 0,
+        y: 0,
+        width: Dimensions.get("window").width,
+        height: Dimensions.get("window").height
+      }
+    }),
+    []
+  );
+
   return (
-    <SafeAreaProvider>
+    <SafeAreaProvider initialMetrics={initialMetrics}>
       <StatusBar style={isDark ? "light" : "dark"} />
       <Stack
         screenOptions={{

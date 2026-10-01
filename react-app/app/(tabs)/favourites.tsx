@@ -17,7 +17,7 @@ import {
   TextInput,
   Switch
 } from "react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { MaterialIcons } from "@expo/vector-icons";
 import { Station, StationRepository } from "../../src/data/stations";
@@ -1164,9 +1164,8 @@ export default function FavouritesScreen() {
   );
 
   return (
-    <SafeAreaView
+    <View
       style={[styles.container, { backgroundColor: theme.surfaceContainer }]}
-      edges={["top"]}
     >
       <ScreenHeader
         title={
@@ -2277,7 +2276,7 @@ export default function FavouritesScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 

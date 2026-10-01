@@ -11,7 +11,7 @@ import {
   NativeSyntheticEvent,
   NativeScrollEvent
 } from "react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useAppTheme } from "../../src/theme/colors";
@@ -351,7 +351,7 @@ export default function PodcastsScreen() {
 
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.surfaceContainer }]} edges={["top"]}>
+    <View style={[styles.container, { backgroundColor: theme.surfaceContainer }]}>
       <ScreenHeader
         title="Podcasts"
         rightActions={
@@ -487,7 +487,7 @@ export default function PodcastsScreen() {
           <MaterialIcons name="arrow-upward" size={24} color={theme.onPrimary} />
         </TouchableOpacity>
       )}
-    </SafeAreaView>
+    </View>
   );
 
   // Render individual podcast card matching item_podcast.xml (80x80 artwork)

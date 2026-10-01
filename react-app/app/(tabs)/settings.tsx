@@ -7,7 +7,7 @@ import {
   ScrollView,
   StyleSheet
 } from "react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useAppTheme } from "../../src/theme/colors";
@@ -24,9 +24,8 @@ export default function SettingsScreen() {
     router.push({ pathname: "/modal/settings-detail", params: { section } });
 
   return (
-    <SafeAreaView
+    <View
       style={[styles.container, { backgroundColor: theme.surfaceContainer }]}
-      edges={["top"]}
     >
       <ScreenHeader title="Settings" />
 
@@ -141,7 +140,7 @@ export default function SettingsScreen() {
           onPress={() => open("about")}
         />
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 

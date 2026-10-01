@@ -6,7 +6,6 @@ import {
   ScrollView,
   StyleSheet
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { ScreenHeader } from "../../src/components/ScreenHeader";
 
@@ -16,7 +15,7 @@ export default function LibraryScreen() {
   const [activeSection, setActiveSection] = useState<LibrarySection>("DOWNLOADS");
 
   return (
-    <SafeAreaView style={styles.container} edges={["top"]}>
+    <View style={styles.container}>
       <ScreenHeader title="Library" />
 
       {/* Section Filter Pills */}
@@ -100,7 +99,7 @@ export default function LibraryScreen() {
           </View>
         )}
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 

@@ -9,6 +9,8 @@ import {
   TextStyle
 } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Platform, StatusBar as RNStatusBar } from "react-native";
 import { useAppTheme } from "../theme/colors";
 
 export interface HeaderIconButtonProps {
@@ -57,6 +59,7 @@ export interface ScreenHeaderProps {
   rightActions?: React.ReactNode;
   style?: StyleProp<ViewStyle>;
   titleStyle?: StyleProp<TextStyle>;
+  safeArea?: boolean;
 }
 
 export function ScreenHeader({
@@ -64,12 +67,30 @@ export function ScreenHeader({
   navigationAction,
   rightActions,
   style,
-  titleStyle
+  titleStyle,
+  safeArea = true
 }: ScreenHeaderProps) {
   const theme = useAppTheme();
+  const insets = useSafeAreaInsets();
+  const topInset = safeArea
+    ? Math.max(
+        insets.top,
+        Platform.OS === "android" ? (RNStatusBar.currentHeight ?? 0) : 0
+      )
+    : 0;
 
   return (
-    <View style={[styles.header, { backgroundColor: theme.surfaceContainer }, style]}>
+    <View
+      style={[
+        styles.header,
+        {
+          backgroundColor: theme.surfaceContainer,
+          paddingTop: topInset,
+          height: 56 + topInset
+        },
+        style
+      ]}
+    >
       <View style={styles.titleContainer}>
         {navigationAction ? (
           <TouchableOpacity
