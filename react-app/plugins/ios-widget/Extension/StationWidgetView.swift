@@ -54,7 +54,7 @@ struct StationWidgetView: View {
         }
         .padding(padding)
         .shadow(color: .black.opacity(0.6), radius: 2, y: 1)
-        .widgetURL(StationWidgetView.playURL(for: entry))
+        .widgetURL(StationWidgetView.playURL(for: entry, family: family))
     }
 
     /// The same ladder the Android widget uses, so a station reads the same on both:
@@ -100,9 +100,12 @@ struct StationWidgetView: View {
 
     private var liveNow: String { "Live now" }
 
-    private static func playURL(for entry: StationEntry) -> URL? {
-        guard let stationId = entry.station?.id else { return nil }
-        return URL(string: "bbcradioplayer://widget/play?station=\(stationId)")
+    private static func playURL(for entry: StationEntry, family: WidgetFamily) -> URL? {
+        let action = (family == .systemSmall && entry.isPlaying) ? "stop" : "play"
+        if let stationId = entry.station?.id, !stationId.isEmpty {
+            return URL(string: "bbcradioplayer://widget/\(action)?station=\(stationId)")
+        }
+        return URL(string: "bbcradioplayer://widget/\(action)")
     }
 }
 
@@ -115,7 +118,14 @@ private struct PlayStopButton: View {
     let size: CGFloat
 
     var body: some View {
-        if let url = URL(string: "bbcradioplayer://widget/\(entry.isPlaying ? "stop" : "play")?station=\(entry.station?.id ?? "")") {
+        let action = entry.isPlaying ? "stop" : "play"
+        let urlString: String = {
+            if let stationId = entry.station?.id, !stationId.isEmpty {
+                return "bbcradioplayer://widget/\(action)?station=\(stationId)"
+            }
+            return "bbcradioplayer://widget/\(action)"
+        }()
+        if let url = URL(string: urlString) {
             Link(destination: url) {
                 Image(systemName: entry.isPlaying ? "stop.fill" : "play.fill")
                     .font(.system(size: size * 0.42, weight: .bold))

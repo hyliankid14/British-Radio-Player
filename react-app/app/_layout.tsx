@@ -400,6 +400,14 @@ export default function RootLayout() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="lastfm-auth" options={{ headerShown: false }} />
         <Stack.Screen
+          name="widget/[action]"
+          options={{ headerShown: false, animation: "none" }}
+        />
+        <Stack.Screen
+          name="widget/index"
+          options={{ headerShown: false, animation: "none" }}
+        />
+        <Stack.Screen
           name="modal/now-playing"
           options={{
             presentation: "modal",

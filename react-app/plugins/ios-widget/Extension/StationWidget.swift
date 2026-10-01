@@ -25,16 +25,47 @@ struct WidgetStationEntity: AppEntity, Hashable {
     }
 }
 
-struct WidgetStationQuery: EntityQuery {
+enum StationDefaults {
+    static let fallbackStations: [WidgetSharedState.Station] = [
+        .init(id: "radio1", title: "Radio 1", category: "National"),
+        .init(id: "1xtra", title: "Radio 1Xtra", category: "National"),
+        .init(id: "radio1dance", title: "Radio 1 Dance", category: "National"),
+        .init(id: "radio1anthems", title: "Radio 1 Anthems", category: "National"),
+        .init(id: "radio2", title: "Radio 2", category: "National"),
+        .init(id: "radio3", title: "Radio 3", category: "National"),
+        .init(id: "radio3unwind", title: "Radio 3 Unwind", category: "National"),
+        .init(id: "radio4", title: "Radio 4", category: "National"),
+        .init(id: "radio4extra", title: "Radio 4 Extra", category: "National"),
+        .init(id: "radio5live", title: "Radio 5 Live", category: "National"),
+        .init(id: "radio5livesportsextra", title: "Radio 5 Sports Extra", category: "National"),
+        .init(id: "6music", title: "Radio 6 Music", category: "National"),
+        .init(id: "asiannetwork", title: "Asian Network", category: "National"),
+        .init(id: "worldservice", title: "World Service", category: "National")
+    ]
+}
+
+struct WidgetStationQuery: EntityStringQuery {
+    private func resolveStations() -> [WidgetSharedState.Station] {
+        let loaded = WidgetSharedState.loadStations()
+        return loaded.isEmpty ? StationDefaults.fallbackStations : loaded
+    }
+
+    func entities(matching string: String) async throws -> [WidgetStationEntity] {
+        let query = string.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return resolveStations()
+            .filter { $0.title.lowercased().contains(query) || $0.category.lowercased().contains(query) }
+            .map(WidgetStationEntity.init)
+    }
+
     func entities(for identifiers: [String]) async throws -> [WidgetStationEntity] {
         let wanted = Set(identifiers)
-        return WidgetSharedState.loadStations()
+        return resolveStations()
             .filter { wanted.contains($0.id) }
             .map(WidgetStationEntity.init)
     }
 
     func suggestedEntities() async throws -> [WidgetStationEntity] {
-        WidgetSharedState.loadStations().map(WidgetStationEntity.init)
+        resolveStations().map(WidgetStationEntity.init)
     }
 
     func defaultResult() async -> WidgetStationEntity? {

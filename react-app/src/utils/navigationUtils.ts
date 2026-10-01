@@ -69,6 +69,14 @@ export function resolveAppNavigation(rawUrl: string): AppNavigationTarget | null
     };
   }
 
+  // Route widget deep links to main tabs
+  if (pathname.startsWith("/widget")) {
+    return {
+      pathname: "/(tabs)",
+      params
+    };
+  }
+
   // Route podcast searches to dedicated podcast search screen
   if (
     pathname === "/modal/podcast-search" ||

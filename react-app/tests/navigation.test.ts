@@ -55,6 +55,18 @@ test("resolveAppNavigation handles Last.fm auth links", () => {
   assert.equal(target.params.token, "auth-tok-123");
 });
 
+test("resolveAppNavigation handles widget action links", () => {
+  const playTarget = resolveAppNavigation("bbcradioplayer://widget/play?station=radio1");
+  assert.ok(playTarget);
+  assert.equal(playTarget.pathname, "/(tabs)");
+  assert.equal(playTarget.params.station, "radio1");
+
+  const stopTarget = resolveAppNavigation("bbcradioplayer://widget/stop?station=radio2");
+  assert.ok(stopTarget);
+  assert.equal(stopTarget.pathname, "/(tabs)");
+  assert.equal(stopTarget.params.station, "radio2");
+});
+
 test("resolveAppNavigation handles new podcast episode notification URL", () => {
   const target = resolveAppNavigation("/modal/podcast-detail?podcastId=p086w16s&episodeId=p086w200");
   assert.ok(target);
