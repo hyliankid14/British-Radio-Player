@@ -18,7 +18,7 @@ import java.io.File
 object PodcastDownloads {
 
   private const val FOLDER_NAME = "British Radio Player"
-  private const val RELATIVE_PATH = "Podcasts/$FOLDER_NAME"
+  private const val RELATIVE_PATH = "Podcasts/$FOLDER_NAME/"
 
   fun folderPath(): String =
     File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PODCASTS), FOLDER_NAME)
@@ -59,11 +59,18 @@ object PodcastDownloads {
     val name = safeName(fileName)
     try {
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-        resolver.delete(
-          collection(),
-          "${MediaStore.Audio.Media.DISPLAY_NAME} = ? AND ${MediaStore.Audio.Media.RELATIVE_PATH} LIKE ?",
-          arrayOf(name, "$RELATIVE_PATH%")
-        )
+        val bundle = android.os.Bundle().apply {
+          putInt(MediaStore.QUERY_ARG_MATCH_PENDING, MediaStore.MATCH_INCLUDE)
+          putString(
+            android.content.ContentResolver.QUERY_ARG_SQL_SELECTION,
+            "${MediaStore.Audio.Media.DISPLAY_NAME} = ? AND ${MediaStore.Audio.Media.RELATIVE_PATH} LIKE ?"
+          )
+          putStringArray(
+            android.content.ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS,
+            arrayOf(name, "$RELATIVE_PATH%")
+          )
+        }
+        resolver.delete(collection(), bundle)
       } else {
         resolver.delete(
           collection(),
@@ -71,7 +78,15 @@ object PodcastDownloads {
           arrayOf(name)
         )
       }
-    } catch (_: Exception) {}
+    } catch (_: Exception) {
+      try {
+        resolver.delete(
+          collection(),
+          "${MediaStore.Audio.Media.DISPLAY_NAME} = ?",
+          arrayOf(name)
+        )
+      } catch (_: Exception) {}
+    }
     try {
       File(folderPath(), name).delete()
     } catch (_: Exception) {}
@@ -80,14 +95,30 @@ object PodcastDownloads {
       put(MediaStore.Audio.Media.TITLE, title)
       put(MediaStore.Audio.Media.MIME_TYPE, mimeType(name))
       put(MediaStore.Audio.Media.IS_MUSIC, 0)
+      put(MediaStore.Audio.Media.IS_PODCAST, 1)
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
         put(MediaStore.Audio.Media.RELATIVE_PATH, RELATIVE_PATH)
         put(MediaStore.Audio.Media.IS_PENDING, 1)
       }
     }
-    val uri = resolver.insert(collection(), values) ?: return null
+    val uri = try {
+      resolver.insert(collection(), values)
+    } catch (_: Exception) {
+      null
+    } ?: return null
     return try {
-      resolver.openInputStream(Uri.parse(sourceUri))?.use { input ->
+      val inputStream = if (sourceUri.startsWith("content://")) {
+        resolver.openInputStream(Uri.parse(sourceUri))
+      } else {
+        val path = when {
+          sourceUri.startsWith("file://") -> Uri.parse(sourceUri).path ?: sourceUri.substring(7)
+          sourceUri.startsWith("file:") -> sourceUri.substring(5)
+          else -> sourceUri
+        }
+        val file = File(path)
+        if (file.exists()) file.inputStream() else resolver.openInputStream(Uri.parse(sourceUri))
+      }
+      inputStream?.use { input ->
         resolver.openOutputStream(uri)?.use { output -> input.copyTo(output) }
       } ?: return null
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -158,7 +189,7 @@ object PodcastDownloads {
     } catch (_: Exception) {
     }
 
-    val docId = "primary:$RELATIVE_PATH"
+    val docId = "primary:${RELATIVE_PATH.trimEnd('/')}"
 
     // 1. Try DocumentsContract buildDocumentUri with ACTION_VIEW directly (no restrictive MIME, no chooser)
     try {

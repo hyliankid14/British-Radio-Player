@@ -262,5 +262,19 @@ test("buildDownloadDisplayName creates safe, bounded display names", () => {
   const longTitle = "A".repeat(200);
   const nameLong = buildDownloadDisplayName(longTitle, "ep123", ".mp3");
   assert.equal(nameLong, `${"A".repeat(100)} - ep123.mp3`);
+
+  const nameWorldCup = buildDownloadDisplayName(
+    "How much luck do you need to win the World Cup?",
+    "w3ct998z",
+    ".mp3"
+  );
+  assert.equal(nameWorldCup, "How much luck do you need to win the World Cup_ - w3ct998z.mp3");
+
+  const nameWithColonsInId = buildDownloadDisplayName(
+    "Episode Title",
+    "urn:bbc:podcast:w3ct998z",
+    ".mp3"
+  );
+  assert.equal(nameWithColonsInId, "Episode Title - urn_bbc_podcast_w3ct998z.mp3");
 });
 

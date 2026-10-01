@@ -55,8 +55,9 @@ export function sanitizeFileName(name: string): string {
 
 /** Builds a safe public displayName for MediaStore / file system. */
 export function buildDownloadDisplayName(title: string | undefined, id: string, extension: string): string {
+  const safeId = sanitizeFileName(id);
   const baseTitle = sanitizeFileName(title || id).slice(0, 100).trim();
-  return `${baseTitle || id} - ${id}${extension}`;
+  return `${baseTitle || safeId} - ${safeId}${extension}`;
 }
 
 export interface DownloadedRecordLike {

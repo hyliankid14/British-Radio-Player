@@ -59,8 +59,12 @@ export function getDownloadInUseEpisode(): string | null {
 /** Temp directory used while a file is being fetched (both platforms). */
 function cacheDirectory(): Directory {
   const directory = new Directory(Paths.cache, DOWNLOAD_DIRECTORY);
-  if (!directory.exists) {
-    directory.create({ intermediates: true, idempotent: true });
+  try {
+    if (!directory.exists) {
+      directory.create({ intermediates: true, idempotent: true });
+    }
+  } catch {
+    // Directory may already exist.
   }
   return directory;
 }
@@ -68,8 +72,12 @@ function cacheDirectory(): Directory {
 /** On iOS downloads live in the app Documents folder, exposed via Files app file sharing. */
 function documentsDirectory(): Directory {
   const directory = new Directory(Paths.document, DOWNLOAD_DIRECTORY);
-  if (!directory.exists) {
-    directory.create({ intermediates: true, idempotent: true });
+  try {
+    if (!directory.exists) {
+      directory.create({ intermediates: true, idempotent: true });
+    }
+  } catch {
+    // Directory may already exist.
   }
   return directory;
 }
@@ -206,7 +214,7 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
         // Fetch to a temp file, then publish it into the public Podcasts folder so it is
         // visible to (and removable by) the user via the device file manager.
         const temp = new File(cacheDirectory(), tempName);
-        if (temp.exists) temp.delete();
+        deleteFileQuietly(temp.uri);
         const downloaded = await File.downloadFileAsync(targetUrl, temp, {
           idempotent: true,
           onProgress,
@@ -229,12 +237,21 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
           // so the file is not discarded and offline playback still works seamlessly.
           console.warn("[Download] MediaStore publish failed, falling back to internal storage for:", entry.id);
           const internalDest = new File(documentsDirectory(), tempName);
-          if (internalDest.exists) internalDest.delete();
-          temp.moveSync(internalDest);
-          localUri = internalDest.uri;
+          try {
+            deleteFileQuietly(internalDest.uri);
+            downloaded.moveSync(internalDest, { overwrite: true });
+            localUri = internalDest.uri;
+          } catch (moveErr) {
+            console.warn("[Download] moveSync fallback failed, trying copySync:", moveErr);
+            deleteFileQuietly(internalDest.uri);
+            downloaded.copySync(internalDest, { overwrite: true });
+            deleteFileQuietly(downloaded.uri);
+            localUri = internalDest.uri;
+          }
         }
       } else {
         const destination = new File(documentsDirectory(), tempName);
+        deleteFileQuietly(destination.uri);
         const file = await File.downloadFileAsync(targetUrl, destination, {
           idempotent: true,
           onProgress,
