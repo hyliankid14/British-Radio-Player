@@ -7,6 +7,7 @@ import {
   isAutomaticDownload,
   newestEpisodeIds,
   normaliseAutoDownloadLimit,
+  normalizeEpisodeId,
   pickStaleAutomaticDownloads,
   sortEpisodesNewestFirst
 } from "./downloadLimits";
@@ -45,9 +46,27 @@ export async function runAutoDownload(): Promise<void> {
 
     // One parse of the download records, shared by every check below.
     const downloaded = Preferences.getDownloadedEntries();
-    const isDownloaded = (episodeId: string) => {
-      if (handled.has(episodeId)) return true;
-      return !!downloaded[episodeId];
+    const isDownloaded = (episodeId: string, candidate?: SavedEpisodeEntry) => {
+      const norm = normalizeEpisodeId(episodeId) || episodeId;
+      if (handled.has(episodeId) || handled.has(norm)) return true;
+      if (downloaded[episodeId] || downloaded[norm]) return true;
+      for (const [recId, rec] of Object.entries(downloaded)) {
+        if (!rec) continue;
+        if (recId === episodeId || recId === norm || normalizeEpisodeId(recId) === norm) return true;
+        if (rec.entry?.id && (rec.entry.id === episodeId || normalizeEpisodeId(rec.entry.id) === norm)) return true;
+        if (
+          candidate &&
+          rec.entry?.podcastId &&
+          candidate.podcastId &&
+          rec.entry.podcastId === candidate.podcastId &&
+          rec.entry.title &&
+          candidate.title &&
+          rec.entry.title.trim().toLowerCase() === candidate.title.trim().toLowerCase()
+        ) {
+          return true;
+        }
+      }
+      return false;
     };
 
     // Automatic downloads already on the device, per podcast. Reserved as we enqueue so
@@ -67,15 +86,23 @@ export async function runAutoDownload(): Promise<void> {
     }
 
     const enqueue = (entry: SavedEpisodeEntry, podcast?: { id: string; title: string; imageUrl?: string }) => {
-      if (isDownloaded(entry.id)) return;
+      const normId = normalizeEpisodeId(entry.id) || entry.id;
+      if (isDownloaded(normId, entry)) return;
       const resolved: SavedEpisodeEntry = podcast
-        ? { ...entry, podcastId: entry.podcastId || podcast.id, podcastTitle: entry.podcastTitle || podcast.title, imageUrl: entry.imageUrl || podcast.imageUrl || "" }
-        : entry;
+        ? {
+            ...entry,
+            id: normId,
+            podcastId: entry.podcastId || podcast.id,
+            podcastTitle: entry.podcastTitle || podcast.title,
+            imageUrl: entry.imageUrl || podcast.imageUrl || ""
+          }
+        : { ...entry, id: normId };
       const podcastId = resolved.podcastId;
-      if (!podcastId) return;
+      if (!podcastId || !resolved.audioUrl) return;
       const used = reserved.get(podcastId) ?? 0;
       if (used >= limit) return;
       reserved.set(podcastId, used + 1);
+      handled.add(normId);
       handled.add(entry.id);
       void store.download(resolved, { auto: true });
     };
@@ -116,10 +143,11 @@ export async function runAutoDownload(): Promise<void> {
           }
 
           for (const episodeId of windowIds) {
-            if (isDownloaded(episodeId)) continue;
             const episode = byId.get(episodeId);
             if (!episode) continue;
-            enqueue(toSavedEpisodeEntry(podcast, episode), podcast);
+            const entry = toSavedEpisodeEntry(podcast, episode);
+            if (isDownloaded(episodeId, entry)) continue;
+            enqueue(entry, podcast);
           }
         }
       }
@@ -135,9 +163,41 @@ export async function runAutoDownload(): Promise<void> {
         if (group) group.push(entry);
         else byPodcast.set(entry.podcastId, [entry]);
       }
-      for (const group of byPodcast.values()) {
+      for (const [podcastId, group] of byPodcast.entries()) {
         for (const entry of sortEpisodesNewestFirst(group).slice(0, limit)) {
-          enqueue(entry);
+          if (isDownloaded(entry.id, entry)) continue;
+          let entryToDownload = entry;
+          if (!entryToDownload.audioUrl) {
+            let episodes = PodcastApi.getEpisodesFromCache(podcastId);
+            if (!episodes || episodes.length === 0) {
+              const catalog = await PodcastApi.fetchLiveCatalog();
+              const p = catalog.find((item) => item.id === podcastId);
+              if (p) {
+                try {
+                  episodes = await PodcastApi.fetchEpisodes(p.rssUrl, p.id);
+                } catch {}
+              }
+            }
+            if (episodes && episodes.length > 0) {
+              const normId = normalizeEpisodeId(entry.id);
+              const matched = episodes.find(
+                (e) =>
+                  normalizeEpisodeId(e.id) === normId ||
+                  e.title.trim().toLowerCase() === entry.title.trim().toLowerCase()
+              );
+              if (matched && matched.audioUrl) {
+                entryToDownload = {
+                  ...entry,
+                  id: normId || entry.id,
+                  audioUrl: matched.audioUrl
+                };
+                Preferences.addPodcastPlaylistEntry("saved", entryToDownload);
+              }
+            }
+          }
+          if (entryToDownload.audioUrl) {
+            enqueue(entryToDownload);
+          }
         }
       }
     }

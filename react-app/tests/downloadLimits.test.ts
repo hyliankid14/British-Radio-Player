@@ -12,6 +12,7 @@ import {
   newestEpisodeIds,
   normaliseAutoDownloadLimit,
   normaliseMaxDownloads,
+  normalizeEpisodeId,
   pickDownloadsToRemove,
   pickPerPodcastDownloadsToRemove,
   pickStaleAutomaticDownloads,
@@ -275,6 +276,19 @@ test("buildDownloadDisplayName creates safe, bounded display names", () => {
     "urn:bbc:podcast:w3ct998z",
     ".mp3"
   );
-  assert.equal(nameWithColonsInId, "Episode Title - urn_bbc_podcast_w3ct998z.mp3");
+  assert.equal(nameWithColonsInId, "Episode Title - w3ct998z.mp3");
+});
+
+test("normalizeEpisodeId extracts canonical episode IDs and handles various formats", () => {
+  assert.equal(normalizeEpisodeId("w3ct998z"), "w3ct998z");
+  assert.equal(normalizeEpisodeId("urn:bbc:podcast:w3ct998z"), "w3ct998z");
+  assert.equal(normalizeEpisodeId("urn%3Abbc%3Apodcast%3Aw3ct998z"), "w3ct998z");
+  assert.equal(normalizeEpisodeId("https://www.bbc.co.uk/programmes/w3ct998z"), "w3ct998z");
+  assert.equal(normalizeEpisodeId("http://www.bbc.co.uk/programmes/w3ct998z"), "w3ct998z");
+  assert.equal(normalizeEpisodeId("/programmes/w3ct998z"), "w3ct998z");
+  assert.equal(normalizeEpisodeId("urn:bbc:podcast:p02nq0lx-0"), "p02nq0lx-0");
+  assert.equal(normalizeEpisodeId(""), "");
+  assert.equal(normalizeEpisodeId(undefined), "");
+  assert.equal(normalizeEpisodeId(null), "");
 });
 

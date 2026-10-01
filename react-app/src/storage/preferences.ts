@@ -6,6 +6,7 @@ import { LastPlayed, normalizeLastPlayed, parseLastPlayed } from "./lastPlayed";
 import { configureGeoBlockedStorage } from "../utils/geoBlock";
 import type { QueuedScrobble } from "../audio/scrobbleQueue";
 import { sanitizeScrobbleQueue } from "../audio/scrobbleQueue";
+import { normalizeEpisodeId } from "../downloads/downloadLimits";
 
 export type { LastPlayed };
 
@@ -998,28 +999,48 @@ export const Preferences = {
     try {
       const parsed = JSON.parse(raw) as Record<string, SavedEpisodeEntry[]>;
       const entries = parsed?.[playlistId];
-      return Array.isArray(entries) ? entries.filter((entry) => entry && typeof entry.id === "string") : [];
+      if (!Array.isArray(entries)) return [];
+      return entries
+        .filter((entry) => entry && typeof entry.id === "string")
+        .map((entry) => {
+          const normId = normalizeEpisodeId(entry.id);
+          return normId && normId !== entry.id ? { ...entry, id: normId } : entry;
+        });
     } catch {
       return [];
     }
   },
 
   isEpisodeSaved(episodeId: string): boolean {
-    return this.getPodcastPlaylistEntries("saved").some((entry) => entry.id === episodeId);
+    const norm = normalizeEpisodeId(episodeId);
+    return this.getPodcastPlaylistEntries("saved").some(
+      (entry) => entry.id === episodeId || (norm && normalizeEpisodeId(entry.id) === norm)
+    );
   },
 
   addPodcastPlaylistEntry(playlistId: string, entry: SavedEpisodeEntry): void {
     if (!entry?.id) return;
+    const normId = normalizeEpisodeId(entry.id) || entry.id;
+    const normalizedEntry: SavedEpisodeEntry = {
+      ...entry,
+      id: normId,
+      savedAtMs: entry.savedAtMs ?? Date.now()
+    };
     const all = this.getPlaylistEntryMap();
-    const existing = (all[playlistId] || []).filter((item) => item.id !== entry.id);
-    all[playlistId] = [{ ...entry, savedAtMs: entry.savedAtMs ?? Date.now() }, ...existing];
+    const existing = (all[playlistId] || []).filter(
+      (item) => item && item.id !== normId && normalizeEpisodeId(item.id) !== normId
+    );
+    all[playlistId] = [normalizedEntry, ...existing];
     storage.set(KEYS.PLAYLIST_ENTRIES, JSON.stringify(all));
     this.refreshPlaylistCounts(all);
   },
 
   removePodcastPlaylistEntry(playlistId: string, episodeId: string): void {
+    const normId = normalizeEpisodeId(episodeId);
     const all = this.getPlaylistEntryMap();
-    all[playlistId] = (all[playlistId] || []).filter((item) => item.id !== episodeId);
+    all[playlistId] = (all[playlistId] || []).filter(
+      (item) => item && item.id !== episodeId && (!normId || normalizeEpisodeId(item.id) !== normId)
+    );
     storage.set(KEYS.PLAYLIST_ENTRIES, JSON.stringify(all));
     this.refreshPlaylistCounts(all);
   },
@@ -1068,24 +1089,53 @@ export const Preferences = {
   },
 
   getDownloadedEntry(episodeId: string): DownloadedEpisodeRecord | undefined {
-    return this.getDownloadedEntries()[episodeId];
+    if (!episodeId) return undefined;
+    const all = this.getDownloadedEntries();
+    if (all[episodeId]) return all[episodeId];
+    const norm = normalizeEpisodeId(episodeId);
+    if (norm && all[norm]) return all[norm];
+    for (const [id, rec] of Object.entries(all)) {
+      if (!rec) continue;
+      if (normalizeEpisodeId(id) === norm || (rec.entry?.id && normalizeEpisodeId(rec.entry.id) === norm)) {
+        return rec;
+      }
+    }
+    return undefined;
   },
 
   isEpisodeDownloaded(episodeId: string): boolean {
-    return !!this.getDownloadedEntries()[episodeId];
+    return !!this.getDownloadedEntry(episodeId);
   },
 
   setDownloadedEntry(episodeId: string, record: DownloadedEpisodeRecord): void {
     if (!episodeId) return;
+    const normId = normalizeEpisodeId(episodeId) || episodeId;
     const all = this.getDownloadedEntries();
-    all[episodeId] = record;
+    for (const id of Object.keys(all)) {
+      if (id !== normId && normalizeEpisodeId(id) === normId) {
+        delete all[id];
+      }
+    }
+    all[normId] = {
+      ...record,
+      entry: record.entry
+        ? { ...record.entry, id: normalizeEpisodeId(record.entry.id) || record.entry.id }
+        : record.entry
+    };
     storage.set(KEYS.DOWNLOADED_EPISODES, JSON.stringify(all));
   },
 
   removeDownloadedEntry(episodeId: string): void {
     const all = this.getDownloadedEntries();
-    if (all[episodeId]) {
-      delete all[episodeId];
+    const normId = normalizeEpisodeId(episodeId);
+    let changed = false;
+    for (const id of Object.keys(all)) {
+      if (id === episodeId || (normId && normalizeEpisodeId(id) === normId)) {
+        delete all[id];
+        changed = true;
+      }
+    }
+    if (changed) {
       storage.set(KEYS.DOWNLOADED_EPISODES, JSON.stringify(all));
     }
   },

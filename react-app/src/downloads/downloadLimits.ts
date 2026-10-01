@@ -53,9 +53,28 @@ export function sanitizeFileName(name: string): string {
     .trim();
 }
 
+/**
+ * Normalizes an episode ID or GUID to its canonical BBC PID / short ID.
+ * Strips URN schemes (urn:bbc:podcast:w3ct998z -> w3ct998z) and URL paths
+ * (https://www.bbc.co.uk/programmes/w3ct998z -> w3ct998z).
+ */
+export function normalizeEpisodeId(rawId: string | undefined | null): string {
+  if (!rawId) return "";
+  let decoded = rawId.trim();
+  try {
+    if (decoded.includes("%")) decoded = decodeURIComponent(decoded);
+  } catch {}
+  const lastDelimiter = Math.max(decoded.lastIndexOf("/"), decoded.lastIndexOf(":"));
+  if (lastDelimiter !== -1 && lastDelimiter < decoded.length - 1) {
+    const candidate = decoded.slice(lastDelimiter + 1).trim();
+    if (/^[a-z0-9_-]+$/i.test(candidate)) return candidate;
+  }
+  return decoded;
+}
+
 /** Builds a safe public displayName for MediaStore / file system. */
 export function buildDownloadDisplayName(title: string | undefined, id: string, extension: string): string {
-  const safeId = sanitizeFileName(id);
+  const safeId = sanitizeFileName(normalizeEpisodeId(id) || id);
   const baseTitle = sanitizeFileName(title || id).slice(0, 100).trim();
   return `${baseTitle || safeId} - ${safeId}${extension}`;
 }
@@ -197,14 +216,15 @@ export function pickStaleAutomaticDownloads(
   windowIds: Iterable<string>,
   protectedIds: Iterable<string> = []
 ): string[] {
-  const window = new Set(windowIds);
-  const keep = new Set(protectedIds);
+  const normWindow = new Set(Array.from(windowIds).map((id) => normalizeEpisodeId(id) || id));
+  const keep = new Set(Array.from(protectedIds).map((id) => normalizeEpisodeId(id) || id));
   const stale: string[] = [];
 
   for (const [id, record] of Object.entries(records)) {
     if (!isAutomaticDownload(record)) continue;
     if (record?.entry?.podcastId !== podcastId) continue;
-    if (window.has(id) || keep.has(id)) continue;
+    const normId = normalizeEpisodeId(id) || id;
+    if (normWindow.has(normId) || keep.has(normId) || normWindow.has(id) || keep.has(id)) continue;
     stale.push(id);
   }
   return stale;

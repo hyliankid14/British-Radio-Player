@@ -1,6 +1,7 @@
 import { Preferences } from "../storage/preferences";
 import { normalizeBbcAudioUrl } from "../utils/shareLinks";
 import { harvestFeedLanguage } from "../podcasts/languageResolver";
+import { normalizeEpisodeId } from "../downloads/downloadLimits";
 
 export const PI_BASE_URL = "https://bbc-radio.shai.website";
 export const BBC_OPML_URL = "https://www.bbc.co.uk/radio/opml/bbc_podcast_opml.xml";
@@ -703,13 +704,9 @@ export const PodcastApi = {
           const durationMins = parseDurationSeconds(durationStr);
 
           // GUID / PID extraction
-          let guid = extractTagFast(itemContent, "guid");
-          let epId = guid;
-          const lastDelimiter = Math.max(guid.lastIndexOf("/"), guid.lastIndexOf(":"));
-          if (lastDelimiter !== -1 && lastDelimiter < guid.length - 1) {
-            const candidate = guid.slice(lastDelimiter + 1).trim();
-            if (/^[a-z0-9]+$/i.test(candidate)) epId = candidate;
-          } else if (!epId) {
+          const guid = extractTagFast(itemContent, "guid");
+          let epId = normalizeEpisodeId(guid);
+          if (!epId) {
             epId = `${podcastId}-${episodes.length}`;
           }
 

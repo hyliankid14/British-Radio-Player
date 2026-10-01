@@ -343,8 +343,9 @@ object LegacyMigration {
           val entry = JSONObject(raw)
           val id = entry.optString("id", "")
           if (id.isBlank()) continue
+          val normId = normaliseEpisodeId(id).ifBlank { id }
           val localPath = entry.optString("localFilePath", "")
-          map.put(id, JSONObject().apply {
+          map.put(normId, JSONObject().apply {
             put("localUri", if (localPath.isBlank()) "" else "file://$localPath")
             put("sizeBytes", entry.optLong("fileSizeBytes", 0L))
             put("downloadedAtMs", entry.optLong("downloadedAtMs", 0L))
@@ -374,11 +375,23 @@ object LegacyMigration {
     return array
   }
 
+  private fun normaliseEpisodeId(rawId: String): String {
+    if (rawId.isBlank()) return ""
+    val delimiter = maxOf(rawId.lastIndexOf('/'), rawId.lastIndexOf(':'))
+    if (delimiter != -1 && delimiter < rawId.length - 1) {
+      val candidate = rawId.substring(delimiter + 1).trim()
+      if (candidate.matches(Regex("^[a-z0-9_-]+$", RegexOption.IGNORE_CASE))) return candidate
+    }
+    return rawId
+  }
+
   /** Converts a legacy playlist/download entry into the React `SavedEpisodeEntry` shape. */
   private fun convertSavedEntry(entry: JSONObject): JSONObject {
+    val rawId = entry.optString("id", "")
+    val normId = normaliseEpisodeId(rawId).ifBlank { rawId }
     val savedAt = entry.optLong("savedAtMs", entry.optLong("downloadedAtMs", 0L))
     return JSONObject().apply {
-      put("id", entry.optString("id", ""))
+      put("id", normId)
       put("title", entry.optString("title", ""))
       put("description", entry.optString("description", ""))
       put("imageUrl", entry.optString("imageUrl", ""))

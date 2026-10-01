@@ -11,8 +11,10 @@ import {
   MAX_DOWNLOADS_PREF_KEY,
   buildDownloadDisplayName,
   normaliseMaxDownloads,
+  normalizeEpisodeId,
   pickDownloadsToRemove,
-  pickPerPodcastDownloadsToRemove
+  pickPerPodcastDownloadsToRemove,
+  sanitizeFileName
 } from "./downloadLimits";
 
 export type DownloadStatus = "downloading" | "downloaded" | "error";
@@ -101,9 +103,11 @@ function storedDownloads(): Record<string, DownloadEntryState> {
   const downloads: Record<string, DownloadEntryState> = {};
   for (const [id, record] of Object.entries(Preferences.getDownloadedEntries())) {
     if (!record?.localUri) continue;
-    downloads[id] = {
+    const normId = normalizeEpisodeId(id) || id;
+    const entry = record.entry ? { ...record.entry, id: normId } : record.entry;
+    downloads[normId] = {
       status: "downloaded",
-      entry: record.entry,
+      entry,
       localUri: record.localUri
     };
   }
@@ -177,14 +181,18 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
 
   download: async (entry, options) => {
     if (!entry?.id || !entry.audioUrl) return;
-    if (get().downloads[entry.id]?.status === "downloading") return;
+    const normId = normalizeEpisodeId(entry.id) || entry.id;
+    const activeDownload = get().downloads[normId] || get().downloads[entry.id];
+    if (activeDownload?.status === "downloading") return;
 
     notifyDownloadStarted(options?.auto === true, entry.title);
+
+    const normalizedEntry = { ...entry, id: normId };
 
     set((state) => ({
       downloads: {
         ...state.downloads,
-        [entry.id]: { status: "downloading", entry, progress: 0 }
+        [normId]: { status: "downloading", entry: normalizedEntry, progress: 0 }
       }
     }));
 
@@ -192,13 +200,13 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
       if (totalBytes <= 0) return;
       const progress = Math.min(1, bytesWritten / totalBytes);
       set((state) => {
-        const current = state.downloads[entry.id];
+        const current = state.downloads[normId];
         if (!current || current.status !== "downloading") return state;
         if (Math.abs((current.progress ?? 0) - progress) < 0.02) return state;
         return {
           downloads: {
             ...state.downloads,
-            [entry.id]: { ...current, progress }
+            [normId]: { ...current, progress }
           }
         };
       });
@@ -207,7 +215,8 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
     try {
       const targetUrl = normalizeBbcAudioUrl(entry.audioUrl) || entry.audioUrl;
       const extension = fileExtension(targetUrl);
-      const tempName = `${entry.id}${extension}`;
+      const safeId = sanitizeFileName(normId);
+      const tempName = `${safeId}${extension}`;
       let localUri: string;
 
       if (Platform.OS === "android") {
@@ -220,7 +229,7 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
           onProgress,
           headers: { "User-Agent": DOWNLOAD_USER_AGENT }
         });
-        const displayName = buildDownloadDisplayName(entry.title, entry.id, extension);
+        const displayName = buildDownloadDisplayName(entry.title, normId, extension);
         let published: string | null = null;
         try {
           published = await NativeAndroid.publishDownload(downloaded.uri, displayName, entry.title);
@@ -235,7 +244,7 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
           // If publishing to public MediaStore fails (e.g. storage permission, OEM MediaStore quirk,
           // or un-recompiled native module), fall back to saving in app-internal documents directory
           // so the file is not discarded and offline playback still works seamlessly.
-          console.warn("[Download] MediaStore publish failed, falling back to internal storage for:", entry.id);
+          console.warn("[Download] MediaStore publish failed, falling back to internal storage for:", normId);
           const internalDest = new File(documentsDirectory(), tempName);
           try {
             deleteFileQuietly(internalDest.uri);
@@ -260,21 +269,21 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
         localUri = file.uri;
       }
 
-      Preferences.setDownloadedEntry(entry.id, {
+      Preferences.setDownloadedEntry(normId, {
         localUri,
         downloadedAtMs: Date.now(),
         isAutoDownloaded: options?.auto === true,
-        entry
+        entry: normalizedEntry
       });
       // Mirror the episode into the built-in "Downloaded Files" playlist so counts match.
-      Preferences.addPodcastPlaylistEntry("downloaded", entry);
+      Preferences.addPodcastPlaylistEntry("downloaded", normalizedEntry);
 
-      set((state) => ({
-        downloads: {
-          ...state.downloads,
-          [entry.id]: { status: "downloaded", entry, localUri, progress: 1 }
-        }
-      }));
+      set((state) => {
+        const next = { ...state.downloads };
+        if (entry.id !== normId) delete next[entry.id];
+        next[normId] = { status: "downloaded", entry: normalizedEntry, localUri, progress: 1 };
+        return { downloads: next };
+      });
 
       // Make room straight away so the caps are honoured even before the next
       // app start; the newest downloads are the ones kept.
@@ -285,24 +294,25 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
     } catch (error) {
       const message = error instanceof Error ? error.message : "Download failed";
       console.error(
-        `[Download] Failed — "${entry.title}" (${entry.id}): ${message}\n  url: ${entry.audioUrl}`
+        `[Download] Failed — "${entry.title}" (${normId}): ${message}\n  url: ${entry.audioUrl}`
       );
-      set((state) => ({
-        downloads: {
-          ...state.downloads,
-          [entry.id]: {
-            status: "error",
-            entry,
-            error: message
-          }
-        }
-      }));
+      set((state) => {
+        const next = { ...state.downloads };
+        if (entry.id !== normId) delete next[entry.id];
+        next[normId] = {
+          status: "error",
+          entry: normalizedEntry,
+          error: message
+        };
+        return { downloads: next };
+      });
       notifyDownloadFinished(false, entry.title);
     }
   },
 
   remove: (episodeId) => {
-    const existing = get().downloads[episodeId];
+    const normId = normalizeEpisodeId(episodeId) || episodeId;
+    const existing = get().downloads[normId] || get().downloads[episodeId];
     if (existing?.localUri) {
       if (existing.localUri.startsWith("content://")) {
         NativeAndroid.deleteDownload(existing.localUri);
@@ -310,12 +320,16 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
         deleteFileQuietly(existing.localUri);
       }
     }
+    deleteFileQuietly(Preferences.getDownloadedEntry(normId)?.localUri);
     deleteFileQuietly(Preferences.getDownloadedEntry(episodeId)?.localUri);
     Preferences.removeDownloadedEntry(episodeId);
+    Preferences.removeDownloadedEntry(normId);
     Preferences.removePodcastPlaylistEntry("downloaded", episodeId);
+    Preferences.removePodcastPlaylistEntry("downloaded", normId);
     set((state) => {
       const downloads = { ...state.downloads };
       delete downloads[episodeId];
+      delete downloads[normId];
       return { downloads };
     });
   },
