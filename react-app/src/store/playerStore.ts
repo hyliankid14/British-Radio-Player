@@ -37,12 +37,14 @@ interface PlayerState {
   currentEpisode: Episode | null;
   isPlaying: boolean;
   isBuffering: boolean;
+  isRestoring: boolean;
   audioQuality: AudioQuality;
   favorites: string[];
   positionSeconds: number;
   durationSeconds: number;
   playbackError: string | null;
   init: () => Promise<void>;
+  syncWithTrackPlayer: () => Promise<boolean>;
   playStation: (station: Station) => Promise<void>;
   playEpisode: (podcast: Podcast, episode: Episode) => Promise<void>;
   playRandomPodcast: () => Promise<void>;
@@ -315,21 +317,142 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   currentEpisode: null,
   isPlaying: false,
   isBuffering: false,
+  isRestoring: true,
   audioQuality: Preferences.getAudioQuality(),
   favorites: Preferences.getFavorites(),
   positionSeconds: 0,
   durationSeconds: 0,
   playbackError: null,
 
+  syncWithTrackPlayer: async (): Promise<boolean> => {
+    try {
+      const activeTrack = (await TrackPlayer.getActiveTrack()) || (await TrackPlayer.getQueue())[0];
+      const playbackState = await TrackPlayer.getPlaybackState();
+      const state = (playbackState as any)?.state ?? playbackState;
+      const isPlaying = state === State.Playing;
+      const isBuffering = state === State.Buffering || state === State.Loading;
+
+      if (!activeTrack?.id) {
+        set({ isRestoring: false });
+        return false;
+      }
+
+      // Check if active track is a radio station
+      let station = StationRepository.getById(activeTrack.id);
+      if (!station) {
+        const lastPlayed = Preferences.getLastPlayed();
+        if (lastPlayed?.kind === "station" && lastPlayed.id) {
+          station = StationRepository.getById(lastPlayed.id);
+        }
+      }
+
+      if (station) {
+        stationBeingPlayed = station;
+        stationPlaybackSessionId += 1;
+        const quality = resolvePlaybackQuality(get().audioQuality);
+        currentStationQuality = quality;
+        stationCandidates = getStreamCandidates(station, quality, Preferences.getGeoBlocked());
+        stationCandidateIndex = 0;
+
+        let restoredShow: CurrentShow | null = null;
+        if (
+          activeTrack.title &&
+          activeTrack.title !== station.title &&
+          activeTrack.title !== `BBC ${station.title}`
+        ) {
+          restoredShow = {
+            title: activeTrack.title,
+            artist: activeTrack.artist && activeTrack.artist !== "BBC Radio" ? activeTrack.artist : undefined,
+            imageUrl: typeof activeTrack.artwork === "string" ? activeTrack.artwork : undefined
+          };
+        }
+
+        set({
+          currentStation: station,
+          currentShow: restoredShow,
+          currentEpisode: null,
+          currentPodcast: null,
+          isPlaying,
+          isBuffering,
+          isRestoring: false
+        });
+
+        if (isPlaying) {
+          startShowInfoInterval();
+        }
+        void get().refreshShowInfo(true);
+        return true;
+      }
+
+      // Check if active track is a podcast episode
+      const history = Preferences.getPodcastHistory();
+      const historyMatch = history.find((h) => h.id === activeTrack.id);
+      const lastPlayed = Preferences.getLastPlayed();
+      const podId = historyMatch?.podcastId || (lastPlayed?.kind === "episode" ? lastPlayed.podcastId : "");
+      const epId = activeTrack.id;
+
+      const episode: Episode = {
+        id: epId,
+        title: activeTrack.title || historyMatch?.title || "",
+        description: historyMatch?.description || "",
+        audioUrl: activeTrack.url || historyMatch?.audioUrl || "",
+        imageUrl: (typeof activeTrack.artwork === "string" ? activeTrack.artwork : "") || historyMatch?.imageUrl || "",
+        pubDate: historyMatch?.pubDate || "",
+        durationMins: historyMatch?.durationMins || Math.round((activeTrack.duration || 0) / 60),
+        podcastId: podId
+      };
+
+      const podcast: Podcast = {
+        id: podId,
+        title: activeTrack.artist || historyMatch?.podcastTitle || "Podcast",
+        description: "",
+        rssUrl: podId ? `https://podcasts.files.bbci.co.uk/${podId}.rss` : "",
+        htmlUrl: "",
+        imageUrl: (typeof activeTrack.artwork === "string" ? activeTrack.artwork : "") || historyMatch?.imageUrl || "",
+        genres: [],
+        typicalDurationMins: episode.durationMins
+      };
+
+      try {
+        const progress = await TrackPlayer.getProgress();
+        if (progress) {
+          set({
+            positionSeconds: progress.position || 0,
+            durationSeconds: progress.duration || 0
+          });
+        }
+      } catch {
+        // Non-critical
+      }
+
+      set({
+        currentStation: null,
+        currentShow: null,
+        currentEpisode: episode,
+        currentPodcast: podcast,
+        isPlaying,
+        isBuffering,
+        isRestoring: false
+      });
+      return true;
+    } catch (err) {
+      console.warn("Failed to sync with TrackPlayer:", err);
+      set({ isRestoring: false });
+      return false;
+    }
+  },
+
   init: async () => {
     set({
-      currentStation: null,
       audioQuality: Preferences.getAudioQuality(),
       favorites: Preferences.getFavorites(),
       playbackError: null
     });
     // Deliver anything left queued by a previous run before a new scrobble is added.
     ScrobbleOutbox.flush();
+
+    // Check if TrackPlayer was already playing in the background
+    await get().syncWithTrackPlayer();
   },
 
   playStation: async (station: Station) => {

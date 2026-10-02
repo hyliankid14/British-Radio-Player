@@ -156,6 +156,7 @@ export default function NowPlayingModal() {
   const currentEpisode = usePlayerStore((s) => s.currentEpisode);
   const isPlaying = usePlayerStore((s) => s.isPlaying);
   const isBuffering = usePlayerStore((s) => s.isBuffering);
+  const isRestoring = usePlayerStore((s) => s.isRestoring);
   const positionSeconds = usePlayerStore((s) => s.positionSeconds);
   const durationSeconds = usePlayerStore((s) => s.durationSeconds);
   const favorites = usePlayerStore((s) => s.favorites);
@@ -435,7 +436,30 @@ export default function NowPlayingModal() {
     }
   }, [params.autoplay, params.action, params.stationId, currentStation, resume, handleStop, playStation]);
 
+  React.useEffect(() => {
+    if (!currentStation && !isPodcast) {
+      void usePlayerStore.getState().syncWithTrackPlayer();
+    }
+  }, [currentStation, isPodcast]);
+
   if (!currentStation && !isPodcast) {
+    if (isRestoring) {
+      return (
+        <View
+          style={[
+            styles.container,
+            {
+              backgroundColor: theme.surfaceContainer,
+              paddingTop: topInset,
+              justifyContent: "center",
+              alignItems: "center"
+            }
+          ]}
+        >
+          <ActivityIndicator size="large" color={theme.primary} />
+        </View>
+      );
+    }
     return (
       <View style={[styles.container, { backgroundColor: theme.surfaceContainer, paddingTop: topInset }]}>
         <View style={styles.emptyContainer}>

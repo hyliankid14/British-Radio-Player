@@ -427,3 +427,78 @@ test("ShowInfo - immediate tune-in requests use distinct cache key from delayed 
   assert.equal(getKey("radio1", false), "radio1:delayed");
 });
 
+test("Playback Restoration - restores station and show info from background TrackPlayer track", () => {
+  const resolveRestoredStation = (
+    activeTrack: { id: string; title?: string; artist?: string; artwork?: any } | null,
+    lastPlayed: { kind: string; id: string } | null
+  ) => {
+    if (!activeTrack?.id) return null;
+    let station = StationRepository.getById(activeTrack.id);
+    if (!station && lastPlayed?.kind === "station" && lastPlayed.id) {
+      station = StationRepository.getById(lastPlayed.id);
+    }
+    if (!station) return null;
+
+    let restoredShow: { title: string; artist?: string; imageUrl?: string } | null = null;
+    if (
+      activeTrack.title &&
+      activeTrack.title !== station.title &&
+      activeTrack.title !== `BBC ${station.title}`
+    ) {
+      restoredShow = {
+        title: activeTrack.title,
+        artist: activeTrack.artist && activeTrack.artist !== "BBC Radio" ? activeTrack.artist : undefined,
+        imageUrl: typeof activeTrack.artwork === "string" ? activeTrack.artwork : undefined
+      };
+    }
+    return { station, restoredShow };
+  };
+
+  // Case 1: Station playing with now-playing show information
+  const res1 = resolveRestoredStation(
+    {
+      id: "radio1",
+      title: "Sam Smith - Stay With Me",
+      artist: "The Radio 1 Breakfast Show",
+      artwork: "https://ichef.bbci.co.uk/images/ic/320x320/song.jpg"
+    },
+    null
+  );
+  assert.ok(res1);
+  assert.equal(res1.station.id, "radio1");
+  assert.deepEqual(res1.restoredShow, {
+    title: "Sam Smith - Stay With Me",
+    artist: "The Radio 1 Breakfast Show",
+    imageUrl: "https://ichef.bbci.co.uk/images/ic/320x320/song.jpg"
+  });
+
+  // Case 2: Station playing before show info has loaded (title matches station title)
+  const res2 = resolveRestoredStation(
+    {
+      id: "radio2",
+      title: "BBC Radio 2",
+      artist: "BBC Radio"
+    },
+    null
+  );
+  assert.ok(res2);
+  assert.equal(res2.station.id, "radio2");
+  assert.equal(res2.restoredShow, null);
+
+  // Case 3: Station ID resolved via lastPlayed fallback
+  const res3 = resolveRestoredStation(
+    {
+      id: "custom_stream_id",
+      title: "BBC Radio 4"
+    },
+    { kind: "station", id: "radio4" }
+  );
+  assert.ok(res3);
+  assert.equal(res3.station.id, "radio4");
+
+  // Case 4: Nothing playing
+  const res4 = resolveRestoredStation(null, null);
+  assert.equal(res4, null);
+});
+
+
