@@ -910,6 +910,7 @@ export const Preferences = {
     if (index >= 0) {
       subscribed.splice(index, 1);
       isSub = false;
+      this.setPodcastNotificationsEnabled(podcastId, false);
     } else {
       subscribed.push(podcastId);
       isSub = true;
@@ -926,6 +927,7 @@ export const Preferences = {
       this.setSubscribedPodcasts(subscribed);
     } else if (!subscribedState && index >= 0) {
       subscribed.splice(index, 1);
+      this.setPodcastNotificationsEnabled(podcastId, false);
       this.setSubscribedPodcasts(subscribed);
     }
   },

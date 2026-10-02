@@ -9,20 +9,29 @@ import { PodcastApi } from "../api/podcasts";
 export async function syncBackgroundSync(): Promise<void> {
   if (!NativeAndroid.isAvailable()) return;
   try {
-    const subscribedIds = Preferences.getSubscribedPodcasts();
+    const notifyIds = Preferences.getSubscribedPodcasts().filter((id) =>
+      Preferences.isPodcastNotificationsEnabled(id)
+    );
     const interval = Number(Preferences.getSetting("pref_subscription_refresh", 60)) || 0;
     const wifiOnly = Boolean(Preferences.getSetting("pref_index_wifi_only", false));
 
-    if (subscribedIds.length === 0) {
+    if (notifyIds.length === 0) {
       NativeAndroid.syncBackgroundSubscriptions("[]");
-      NativeAndroid.scheduleBackgroundSync(interval, wifiOnly);
+      NativeAndroid.scheduleBackgroundSync(0, wifiOnly);
       return;
     }
 
     const catalog = await PodcastApi.fetchLiveCatalog();
-    const subscriptions = catalog
-      .filter((podcast) => subscribedIds.includes(podcast.id))
-      .map((podcast) => ({ id: podcast.id, title: podcast.title, rssUrl: podcast.rssUrl }));
+    const catalogMap = new Map(catalog.map((podcast) => [podcast.id, podcast]));
+    const subscriptions = notifyIds.map((id) => {
+      const podcast = catalogMap.get(id);
+      const meta = Preferences.getPodcastMetadata(id);
+      return {
+        id,
+        title: podcast?.title || meta?.title || "BBC Podcast",
+        rssUrl: podcast?.rssUrl || `https://podcasts.files.bbci.co.uk/${id}.rss`
+      };
+    });
 
     NativeAndroid.syncBackgroundSubscriptions(JSON.stringify(subscriptions));
     NativeAndroid.scheduleBackgroundSync(interval, wifiOnly);

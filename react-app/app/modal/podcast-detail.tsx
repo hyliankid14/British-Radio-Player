@@ -30,6 +30,7 @@ import {
   checkSubscriptionsForNewEpisodes,
   ensureNotificationPermissions
 } from "../../src/notifications/notifications";
+import { syncBackgroundSync } from "../../src/background/backgroundSync";
 
 function parseEpisodeEpoch(pubDate?: string): number {
   if (!pubDate) return 0;
@@ -570,7 +571,11 @@ export default function PodcastDetailModal() {
     if (!podcast) return;
     const newState = Preferences.togglePodcastSubscription(podcast.id);
     setIsSubscribed(newState);
-    if (!newState) setNotificationsEnabled(false);
+    if (!newState) {
+      setNotificationsEnabled(false);
+      Preferences.setPodcastNotificationsEnabled(podcast.id, false);
+    }
+    void syncBackgroundSync();
   };
 
   const handleToggleNotifications = async () => {
@@ -588,6 +593,7 @@ export default function PodcastDetailModal() {
     setNotificationsEnabled(enabled);
     showToast(enabled ? "Notifications enabled" : "Notifications disabled");
     if (enabled) void checkSubscriptionsForNewEpisodes(true);
+    void syncBackgroundSync();
   };
 
   useEffect(() => () => {

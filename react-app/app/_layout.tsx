@@ -107,7 +107,7 @@ Preferences.onChanged((key) => {
     key === "pref_download_wifi" ||
     key === "pref_subscribed_podcasts" ||
     key === "pref_index_notifications" ||
-    key.startsWith("pref_podcast_notif_")
+    key.startsWith("pref_podcast_notifications_")
   ) {
     if (backgroundSyncTimer) clearTimeout(backgroundSyncTimer);
     backgroundSyncTimer = setTimeout(() => void syncBackgroundSync(), 1500);
@@ -130,7 +130,7 @@ Preferences.onChanged((key) => {
     key === "pref_played_episode_ids" ||
     key === "pref_podcast_playlist_entries" ||
     key === "pref_saved_searches" ||
-    key.startsWith("pref_podcast_notif_");
+    key.startsWith("pref_podcast_notifications_");
 
   if (isAutoCheckTrigger) {
     if (autoCheckTimer) clearTimeout(autoCheckTimer);
