@@ -91,7 +91,7 @@ Preferences.onChanged((key) => {
   if (key.includes("refresh")) {
     void registerBackgroundTask();
   }
-  if (key.includes("subscrib") || key.includes("download") || key.includes("notif") || key.includes("search")) {
+  if (key.includes("subscrib") || key.includes("download") || key.includes("notif") || key.includes("search") || key.includes("sort")) {
     void runAutoDownload();
     void pruneDownloads();
     void checkSubscriptionsForNewEpisodes();

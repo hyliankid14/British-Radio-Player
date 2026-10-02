@@ -90,8 +90,8 @@ export const STATION_IDENT_ASSETS: Record<string, () => any> = {
 
 /**
  * Resolves the custom ident artwork for a station to be used in playback notifications.
- * On Android, prefers the native on-device rendered file:// URI to guarantee crisp rendering
- * and full offline/headless support without Metro.
+ * On Android, prefers the native on-device content:// URI served via StationIdentProvider
+ * to allow SystemUI (Samsung One UI, Pixel) and media notification to access the bitmap across processes.
  * Falls back to bundled image assets.
  */
 export function getStationIdentArtwork(stationId: string): any {

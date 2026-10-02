@@ -26,7 +26,8 @@ import {
   matchesBooleanSearch,
   filterSuggestions,
   extractPositiveQuery,
-  episodeMatchesQuery
+  episodeMatchesQuery,
+  formatRatingValue
 } from "../../src/api/podcasts";
 import { Preferences } from "../../src/storage/preferences";
 import { applyLanguageFilter } from "../../src/podcasts/languageFilter";
@@ -166,6 +167,8 @@ export default function PodcastSearchScreen() {
         setPlayedIds(new Set(Preferences.getPlayedEpisodeIds()));
       } else if (key === "episode_progress" || key === "last_podcast_positions") {
         setProgressMap(Preferences.getEpisodeProgressMap());
+      } else if (key === "cache_podcast_ratings_data") {
+        setPodcastRatings(Preferences.getCachedPodcastRatings());
       }
     });
     return () => sub.remove();
@@ -742,7 +745,7 @@ export default function PodcastSearchScreen() {
           <View style={styles.cardBottomRow}>
             {ratingSummary && ratingSummary.count > 0 && ratingSummary.average > 0 ? (
               <Text style={[styles.ratingBadge, { color: theme.onSurfaceVariant }]}>
-                {`★ ${ratingSummary.average.toFixed(1)}`}
+                {`★ ${formatRatingValue(ratingSummary.average)}`}
               </Text>
             ) : null}
 

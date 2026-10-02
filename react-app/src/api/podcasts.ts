@@ -2,6 +2,9 @@ import { Preferences } from "../storage/preferences";
 import { normalizeBbcAudioUrl } from "../utils/shareLinks";
 import { harvestFeedLanguage } from "../podcasts/languageResolver";
 import { normalizeEpisodeId } from "../downloads/downloadLimits";
+import { calculateUpdatedRating, formatRatingValue } from "../podcasts/ratingUtils";
+
+export { calculateUpdatedRating, formatRatingValue };
 
 export const PI_BASE_URL = "https://bbc-radio.shai.website";
 export const BBC_OPML_URL = "https://www.bbc.co.uk/radio/opml/bbc_podcast_opml.xml";
@@ -278,6 +281,12 @@ export const PodcastApi = {
   async submitRating(podcastId: string, rating: number, podcastTitle?: string): Promise<boolean> {
     if (!podcastId || rating < 1 || rating > 5) return false;
     const installId = Preferences.getAnonymousInstallId();
+
+    // Immediately update cache optimistically so listeners reflect the new rating
+    const current = Preferences.getCachedPodcastRatings()[podcastId];
+    const optimistic = calculateUpdatedRating(current, rating);
+    Preferences.updateCachedPodcastRating(podcastId, optimistic);
+
     try {
       const res = await fetch(`${PI_BASE_URL}/rating`, {
         method: "POST",
@@ -291,16 +300,6 @@ export const PodcastApi = {
         })
       });
       if (res.ok) {
-        const current = Preferences.getCachedPodcastRatings()[podcastId] || { average: rating, count: 0 };
-        const newCount = current.mine ? current.count : current.count + 1;
-        const newAvg = current.mine
-          ? rating
-          : (current.average * current.count + rating) / newCount;
-        Preferences.updateCachedPodcastRating(podcastId, {
-          average: Math.round(newAvg * 10) / 10,
-          count: newCount,
-          mine: rating
-        });
         return true;
       }
     } catch (err) {

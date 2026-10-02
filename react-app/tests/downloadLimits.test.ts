@@ -13,11 +13,13 @@ import {
   normaliseAutoDownloadLimit,
   normaliseMaxDownloads,
   normalizeEpisodeId,
+  oldestEpisodeIds,
   pickDownloadsToRemove,
   pickPerPodcastDownloadsToRemove,
   pickStaleAutomaticDownloads,
   sanitizeFileName,
-  sortEpisodesNewestFirst
+  sortEpisodesNewestFirst,
+  sortEpisodesOldestFirst
 } from "../src/downloads/downloadLimits.ts";
 
 test("download preference keys stay stable for backup compatibility", () => {
@@ -196,6 +198,30 @@ test("sortEpisodesNewestFirst puts undated episodes last", () => {
   );
 });
 
+test("sortEpisodesOldestFirst orders oldest first without mutating the input", () => {
+  const episodes = [
+    { id: "new", pubDate: "2026-03-01T00:00:00Z" },
+    { id: "old", pubDate: "2026-01-01T00:00:00Z" },
+    { id: "mid", pubDate: "2026-02-01T00:00:00Z" }
+  ];
+  assert.deepEqual(
+    sortEpisodesOldestFirst(episodes).map((episode) => episode.id),
+    ["old", "mid", "new"]
+  );
+  assert.deepEqual(episodes.map((episode) => episode.id), ["new", "old", "mid"]);
+});
+
+test("sortEpisodesOldestFirst puts undated episodes last", () => {
+  const episodes = [
+    { id: "undated" },
+    { id: "dated", pubDate: "2026-02-01T00:00:00Z" }
+  ];
+  assert.deepEqual(
+    sortEpisodesOldestFirst(episodes).map((episode) => episode.id),
+    ["dated", "undated"]
+  );
+});
+
 test("newestEpisodeIds selects the rolling window over every episode, not just missing ones", () => {
   // The bug this guards against: with a limit of 3, a podcast holding the three
   // newest episodes (e10, e9, e8) receives e11. Selecting from the missing episodes
@@ -207,6 +233,23 @@ test("newestEpisodeIds selects the rolling window over every episode, not just m
     pubDate: `2026-01-${String(index + 1).padStart(2, "0")}T00:00:00Z`
   }));
   assert.deepEqual(newestEpisodeIds(episodes, 3), ["e11", "e10", "e9"]);
+});
+
+test("oldestEpisodeIds selects the rolling window from oldest episodes", () => {
+  const episodes = Array.from({ length: 11 }, (_, index) => ({
+    id: `e${index + 1}`,
+    pubDate: `2026-01-${String(index + 1).padStart(2, "0")}T00:00:00Z`
+  }));
+  assert.deepEqual(oldestEpisodeIds(episodes, 3), ["e1", "e2", "e3"]);
+});
+
+test("oldestEpisodeIds caps the window at the available episode count", () => {
+  const episodes = [
+    { id: "b", pubDate: "2026-01-02T00:00:00Z" },
+    { id: "a", pubDate: "2026-01-01T00:00:00Z" }
+  ];
+  assert.deepEqual(oldestEpisodeIds(episodes, 5), ["a", "b"]);
+  assert.deepEqual(oldestEpisodeIds([], 3), []);
 });
 
 test("newestEpisodeIds caps the window at the available episode count", () => {

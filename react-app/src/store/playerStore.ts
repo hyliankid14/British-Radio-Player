@@ -117,6 +117,26 @@ let stationBeingPlayed: Station | null = null;
 let stationPlaybackSessionId = 0;
 let currentStationQuality: AudioQuality | null = null;
 let endingEpisodeId: string | null = null;
+let lastTrackMetadata: { title: string; artist?: string; album?: string; artwork?: any } | null = null;
+
+async function updateTrack0Metadata(metadata: {
+  title: string;
+  artist?: string;
+  album?: string;
+  artwork?: any;
+}): Promise<void> {
+  if (
+    lastTrackMetadata &&
+    lastTrackMetadata.title === metadata.title &&
+    lastTrackMetadata.artist === metadata.artist &&
+    lastTrackMetadata.album === metadata.album &&
+    lastTrackMetadata.artwork === metadata.artwork
+  ) {
+    return;
+  }
+  lastTrackMetadata = metadata;
+  await TrackPlayer.updateMetadataForTrack(0, metadata);
+}
 
 async function tryNextStationCandidate(sessionId: number, reason: string): Promise<boolean> {
   if (sessionId !== stationPlaybackSessionId) return false;
@@ -161,6 +181,7 @@ async function tryNextStationCandidate(sessionId: number, reason: string): Promi
   console.error(`All stream candidates failed for ${station.title}: ${reason}`);
   ScrobbleManager.onPlaybackStopped();
   stopShowInfoInterval();
+  lastTrackMetadata = null;
   await TrackPlayer.reset().catch(() => {});
 
   const isGeo = Preferences.getGeoBlocked();
@@ -187,15 +208,21 @@ async function startStationCandidate(index: number, sessionId: number): Promise<
   try {
     ScrobbleManager.onPlaybackStopped();
     await TrackPlayer.reset();
+    const artwork = getStationIdentArtwork(station.id);
     await TrackPlayer.add({
       id: station.id,
       url: streamUrl,
       type: streamUrl.includes(".m3u8") ? TrackType.HLS : TrackType.Default,
       title: station.title,
       artist: "BBC Radio",
-      artwork: getStationIdentArtwork(station.id),
+      artwork,
       isLiveStream: true
     });
+    lastTrackMetadata = {
+      title: station.title,
+      artist: "BBC Radio",
+      artwork
+    };
     await TrackPlayer.play();
     if (sessionId === stationPlaybackSessionId) {
       usePlayerStore.setState({ isPlaying: true, isBuffering: false, playbackError: null });
@@ -382,7 +409,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         ? rawArt
         : undefined;
 
-      await TrackPlayer.updateMetadataForTrack(0, {
+      await updateTrack0Metadata({
         title: station.title,
         artist: subtitleText,
         album: showTitle,
@@ -457,6 +484,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
     try {
       ScrobbleManager.onPlaybackStopped();
+      lastTrackMetadata = null;
       await TrackPlayer.reset();
       await TrackPlayer.add({
         id: epId || episode.id,
@@ -581,6 +609,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       stopShowInfoInterval();
       ScrobbleManager.onPlaybackStopped();
       notifyCarPlayPhonePlaybackStopped();
+      lastTrackMetadata = null;
       await TrackPlayer.reset();
       set({
         currentStation: null,
@@ -877,7 +906,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
           ? rawArt
           : undefined;
 
-        await TrackPlayer.updateMetadataForTrack(0, {
+        await updateTrack0Metadata({
           title: currentStation.title,
           artist: subtitleText,
           album: showTitle,

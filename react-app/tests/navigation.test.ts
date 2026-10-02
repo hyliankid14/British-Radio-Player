@@ -75,6 +75,20 @@ test("resolveAppNavigation handles new podcast episode notification URL", () => 
   assert.equal(target.params.episodeId, "p086w200");
 });
 
+test("resolveAppNavigation handles media playback notification click URLs", () => {
+  const tpTarget = resolveAppNavigation("trackplayer://notification.click");
+  assert.ok(tpTarget);
+  assert.equal(tpTarget.pathname, "/modal/now-playing");
+
+  const bbcTarget = resolveAppNavigation("bbcradioplayer://notification.click");
+  assert.ok(bbcTarget);
+  assert.equal(bbcTarget.pathname, "/modal/now-playing");
+
+  const relativeTarget = resolveAppNavigation("/notification.click");
+  assert.ok(relativeTarget);
+  assert.equal(relativeTarget.pathname, "/modal/now-playing");
+});
+
 test("resolveAppNavigation handles empty or invalid URLs safely", () => {
   assert.equal(resolveAppNavigation(""), null);
   assert.equal(resolveAppNavigation("   "), null);

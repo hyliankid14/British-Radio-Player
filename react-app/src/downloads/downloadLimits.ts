@@ -133,6 +133,18 @@ export function sortEpisodesNewestFirst<T extends { pubDate?: string }>(episodes
   return [...episodes].sort((a, b) => episodeEpoch(b.pubDate) - episodeEpoch(a.pubDate));
 }
 
+/** An oldest-first copy of the episodes; entries without a usable date sort last. */
+export function sortEpisodesOldestFirst<T extends { pubDate?: string }>(episodes: T[]): T[] {
+  return [...episodes].sort((a, b) => {
+    const aEpoch = episodeEpoch(a.pubDate);
+    const bEpoch = episodeEpoch(b.pubDate);
+    if (!aEpoch && !bEpoch) return 0;
+    if (!aEpoch) return 1;
+    if (!bEpoch) return -1;
+    return aEpoch - bEpoch;
+  });
+}
+
 /**
  * Ids of the newest `limit` episodes — the rolling window automatic downloading
  * keeps on the device. The window is taken over every episode rather than only the
@@ -145,6 +157,18 @@ export function newestEpisodeIds(episodes: DatedEpisodeLike[], limit: unknown): 
     .slice(0, max)
     .map((episode) => episode.id);
 }
+
+/**
+ * Ids of the oldest `limit` episodes — the rolling window automatic downloading
+ * keeps on the device when a podcast is sorted oldest to newest.
+ */
+export function oldestEpisodeIds(episodes: DatedEpisodeLike[], limit: unknown): string[] {
+  const max = normaliseAutoDownloadLimit(limit);
+  return sortEpisodesOldestFirst(episodes)
+    .slice(0, max)
+    .map((episode) => episode.id);
+}
+
 
 export interface PerPodcastRecordLike extends DownloadedRecordLike {
   /**

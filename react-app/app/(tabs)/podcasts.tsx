@@ -22,7 +22,8 @@ import {
   NewPodcastEntry,
   PodcastRatingSummary,
   PodcastApi,
-  decodeXmlEntities
+  decodeXmlEntities,
+  formatRatingValue
 } from "../../src/api/podcasts";
 import { Preferences } from "../../src/storage/preferences";
 import { applyLanguageFilter } from "../../src/podcasts/languageFilter";
@@ -232,12 +233,16 @@ export default function PodcastsScreen() {
     };
   }, []);
 
-  // Re-apply the language filter live when the Indexing preference changes.
+  // Re-apply the language filter live when the Indexing preference changes,
+  // and update ratings live when a user rates a podcast.
   useEffect(() => {
     const subscription = Preferences.onChanged((key) => {
-      if (key !== "pref_exclude_non_english") return;
-      const raw = rawCatalogRef.current;
-      if (raw.length > 0) setCatalog(applyLanguageFilter(raw));
+      if (key === "pref_exclude_non_english") {
+        const raw = rawCatalogRef.current;
+        if (raw.length > 0) setCatalog(applyLanguageFilter(raw));
+      } else if (key === "cache_podcast_ratings_data") {
+        setPodcastRatings(Preferences.getCachedPodcastRatings());
+      }
     });
     return () => subscription.remove();
   }, []);
@@ -526,7 +531,7 @@ export default function PodcastsScreen() {
           <View style={styles.cardBottomRow}>
             {ratingSummary && ratingSummary.count > 0 && ratingSummary.average > 0 ? (
               <Text style={[styles.ratingBadge, { color: theme.onSurfaceVariant }]}>
-                {`★ ${ratingSummary.average.toFixed(1)}`}
+                {`★ ${formatRatingValue(ratingSummary.average)}`}
               </Text>
             ) : null}
 

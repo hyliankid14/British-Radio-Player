@@ -15,7 +15,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useAppTheme } from "../../src/theme/colors";
-import { Podcast, Episode, PodcastApi, decodeXmlEntities } from "../../src/api/podcasts";
+import { Podcast, Episode, PodcastApi, decodeXmlEntities, calculateUpdatedRating, formatRatingValue } from "../../src/api/podcasts";
 import { usePlayerStore } from "../../src/store/playerStore";
 import { Preferences } from "../../src/storage/preferences";
 import { toSavedEpisodeEntry, useDownloadStore } from "../../src/downloads/downloadStore";
@@ -390,10 +390,22 @@ export default function PodcastDetailModal() {
         setPlayedIds(new Set(Preferences.getPlayedEpisodeIds()));
       } else if (key === "episode_progress" || key === "last_podcast_positions") {
         setProgressMap(Preferences.getEpisodeProgressMap());
+      } else if (key === "cache_podcast_ratings_data") {
+        const pid = podcast?.id || params.podcastId;
+        if (pid) {
+          const cached = Preferences.getCachedPodcastRatings()[pid];
+          if (cached) {
+            setRating({
+              average: cached.average,
+              count: cached.count,
+              mine: cached.mine || 0
+            });
+          }
+        }
       }
     });
     return () => sub.remove();
-  }, []);
+  }, [podcast?.id, params.podcastId]);
 
   useEffect(() => {
     if (params.podcastId && podcast?.id !== params.podcastId) {
@@ -520,8 +532,33 @@ export default function PodcastDetailModal() {
       return;
     }
     setRatingModalVisible(false);
-    setRating((current) => ({ ...current, mine: value }));
-    await PodcastApi.submitRating(podcast.id, value, podcast.title);
+
+    // Immediately update ratings in component state and cache
+    const cached = Preferences.getCachedPodcastRatings()[podcast.id];
+    const current = {
+      average: cached?.average ?? rating.average,
+      count: cached?.count ?? rating.count,
+      mine: (cached?.mine && cached.mine > 0) ? cached.mine : (rating.mine > 0 ? rating.mine : undefined)
+    };
+    const optimistic = calculateUpdatedRating(current, value);
+    setRating(optimistic);
+    Preferences.updateCachedPodcastRating(podcast.id, optimistic);
+
+    try {
+      const ok = await PodcastApi.submitRating(podcast.id, value, podcast.title);
+      if (ok) {
+        const refreshed = await PodcastApi.fetchRating(podcast.id);
+        if (refreshed) {
+          setRating({
+            average: refreshed.average,
+            count: refreshed.count,
+            mine: refreshed.mine ?? value
+          });
+        }
+      }
+    } catch (err) {
+      console.warn("submitRating failed:", err);
+    }
   };
 
   const handleToggleSubscribe = () => {
@@ -638,7 +675,7 @@ export default function PodcastDetailModal() {
                 ))}
               </View>
               <Text style={[styles.ratingSummary, { color: theme.onSurfaceVariant }]}>
-                {rating.average > 0 ? `${rating.average.toFixed(1)}/5 (${rating.count})` : "No ratings yet"}
+                {rating.average > 0 ? `${formatRatingValue(rating.average)}/5 (${rating.count})` : "No ratings yet"}
               </Text>
             </TouchableOpacity>
 

@@ -25,6 +25,12 @@
       android:exported="false"
       android:foregroundServiceType="mediaPlayback" />
 
+    <provider
+      android:name=".StationIdentProvider"
+      android:authorities="${applicationId}.stationident"
+      android:exported="true"
+      android:grantUriPermissions="true" />
+
     <receiver
       android:name=".StationWidgetProvider"
       android:exported="true">

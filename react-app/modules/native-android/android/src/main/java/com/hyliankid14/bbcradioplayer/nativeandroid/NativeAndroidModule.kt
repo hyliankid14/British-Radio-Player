@@ -249,21 +249,28 @@ class NativeAndroidModule : Module() {
 
     /**
      * Renders and caches the custom station ident as a PNG file in internal storage,
-     * returning the file:// URI for use in media notifications.
+     * returning the content:// URI for use in media notifications and SystemUI.
      */
     Function("getStationIdentUri") { stationId: String ->
       val ctx = context ?: return@Function null
       try {
+        val sanitizedId = stationId.replace(Regex("[^a-zA-Z0-9_-]"), "")
+        if (sanitizedId.isEmpty()) return@Function null
         val dir = java.io.File(ctx.filesDir, "idents")
         if (!dir.exists()) dir.mkdirs()
-        val file = java.io.File(dir, "$stationId.png")
+        val file = java.io.File(dir, "$sanitizedId.png")
         if (!file.exists()) {
-          val bitmap = com.hyliankid14.bbcradioplayer.nativeandroid.widget.StationArtwork.createBitmap(stationId, 512)
-          java.io.FileOutputStream(file).use { out ->
+          val bitmap = com.hyliankid14.bbcradioplayer.nativeandroid.widget.StationArtwork.createBitmap(sanitizedId, 512)
+          val tempFile = java.io.File(dir, "$sanitizedId.tmp")
+          java.io.FileOutputStream(tempFile).use { out ->
             bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
           }
+          if (!tempFile.renameTo(file)) {
+            tempFile.copyTo(file, overwrite = true)
+            tempFile.delete()
+          }
         }
-        android.net.Uri.fromFile(file).toString()
+        "content://${ctx.packageName}.stationident/$sanitizedId.png"
       } catch (_: Exception) {
         null
       }
@@ -465,7 +472,7 @@ class NativeAndroidModule : Module() {
           java.net.URLEncoder.encode(podcastId, "UTF-8") + episodeParam
       }
       val dataUri = intent.dataString
-      if (dataUri != null && dataUri.startsWith("bbcradioplayer://")) {
+      if (dataUri != null && (dataUri.startsWith("bbcradioplayer://") || dataUri.startsWith("trackplayer://"))) {
         intent.data = null
         return dataUri
       }

@@ -8,8 +8,10 @@ import {
   newestEpisodeIds,
   normaliseAutoDownloadLimit,
   normalizeEpisodeId,
+  oldestEpisodeIds,
   pickStaleAutomaticDownloads,
-  sortEpisodesNewestFirst
+  sortEpisodesNewestFirst,
+  sortEpisodesOldestFirst
 } from "./downloadLimits";
 
 let running = false;
@@ -125,11 +127,15 @@ export async function runAutoDownload(): Promise<void> {
           }
           if (episodes.length === 0) continue;
 
-          // The rolling window is the newest `limit` episodes, selected over the whole
-          // list so an episode already on the device still holds its slot. Filtering the
-          // downloaded episodes out first and then slicing would instead pick
-          // back-catalogue episodes and evict newer downloads of an existing podcast.
-          const windowIds = newestEpisodeIds(episodes, limit);
+          // The rolling window is the newest or oldest `limit` episodes (matching the
+          // podcast's sort order), selected over the whole list so an episode already
+          // on the device still holds its slot. Filtering the downloaded episodes out
+          // first and then slicing would instead pick back-catalogue episodes and evict
+          // retained downloads of an existing podcast.
+          const isOldestFirst = Preferences.getPodcastEpisodeSort(id) === "oldest_first";
+          const windowIds = isOldestFirst
+            ? oldestEpisodeIds(episodes, limit)
+            : newestEpisodeIds(episodes, limit);
           const byId = new Map(episodes.map((episode) => [episode.id, episode]));
 
           // Automatic downloads that have fallen out of the window are no longer part of
@@ -165,7 +171,11 @@ export async function runAutoDownload(): Promise<void> {
         else byPodcast.set(entry.podcastId, [entry]);
       }
       for (const [podcastId, group] of byPodcast.entries()) {
-        for (const entry of sortEpisodesNewestFirst(group).slice(0, limit)) {
+        const isOldestFirst = Preferences.getPodcastEpisodeSort(podcastId) === "oldest_first";
+        const sorted = isOldestFirst
+          ? sortEpisodesOldestFirst(group)
+          : sortEpisodesNewestFirst(group);
+        for (const entry of sorted.slice(0, limit)) {
           const normId = normalizeEpisodeId(entry.id) || entry.id;
           if (isDownloaded(normId, entry)) continue;
           if (Preferences.isAutoDownloadBlocked(normId)) continue;

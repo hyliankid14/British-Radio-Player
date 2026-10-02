@@ -69,6 +69,14 @@ export function resolveAppNavigation(rawUrl: string): AppNavigationTarget | null
     };
   }
 
+  // Handle media playback notification click (trackplayer://notification.click or bbcradioplayer://notification.click)
+  if (pathname.includes("notification.click")) {
+    return {
+      pathname: "/modal/now-playing",
+      params
+    };
+  }
+
   // Route widget deep links to main tabs
   if (pathname.startsWith("/widget")) {
     return {

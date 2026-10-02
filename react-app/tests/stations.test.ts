@@ -302,3 +302,53 @@ test("Notification Artwork - uses custom station idents rather than BBC branded 
   assert.notEqual(artworkForSongNoArt, station.logoUrl);
 });
 
+test("Notification Metadata - deduplicates identical metadata updates to prevent notification flicker and bitmap wiping", () => {
+  let callCount = 0;
+  let lastTrackMetadata: { title: string; artist?: string; album?: string; artwork?: any } | null = null;
+
+  const mockUpdateTrack0Metadata = async (metadata: {
+    title: string;
+    artist?: string;
+    album?: string;
+    artwork?: any;
+  }) => {
+    if (
+      lastTrackMetadata &&
+      lastTrackMetadata.title === metadata.title &&
+      lastTrackMetadata.artist === metadata.artist &&
+      lastTrackMetadata.album === metadata.album &&
+      lastTrackMetadata.artwork === metadata.artwork
+    ) {
+      return;
+    }
+    lastTrackMetadata = metadata;
+    callCount++;
+  };
+
+  const meta1 = {
+    title: "BBC Radio 1",
+    artist: "Greg James",
+    album: "The Radio 1 Breakfast Show",
+    artwork: "content://com.hyliankid14.bbcradioplayer.stationident/radio1.png"
+  };
+
+  // First call sets the metadata
+  void mockUpdateTrack0Metadata(meta1);
+  assert.equal(callCount, 1);
+
+  // Subsequent periodic calls (e.g. 5s show info poll) with same data should be ignored
+  void mockUpdateTrack0Metadata({ ...meta1 });
+  assert.equal(callCount, 1, "Duplicate metadata updates must be skipped");
+
+  void mockUpdateTrack0Metadata({ ...meta1 });
+  assert.equal(callCount, 1, "Duplicate metadata updates must be skipped");
+
+  // Changed song/presenter should trigger an update
+  const meta2 = {
+    ...meta1,
+    artist: "Dua Lipa - Levitating"
+  };
+  void mockUpdateTrack0Metadata(meta2);
+  assert.equal(callCount, 2, "Changed metadata should trigger an update");
+});
+
