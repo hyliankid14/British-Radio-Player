@@ -251,15 +251,16 @@ export async function fetchShowInfo(stationId: string, skipDelay: boolean = fals
   const station = StationRepository.getById(stationId);
   if (!station) return { title: "BBC Radio" };
 
-  // Without this guard a slow round lets each poll tick start another pair of requests, and
-  // they accumulate: tune-in, the 5s poll and each delayed RMS promotion all call in here.
-  const existing = inFlightShowInfo.get(stationId);
+  // Key by stationId and skipDelay so immediate tune-in/refresh requests aren't coalesced
+  // into an earlier delayed poll request.
+  const key = `${stationId}:${skipDelay ? "immediate" : "delayed"}`;
+  const existing = inFlightShowInfo.get(key);
   if (existing) return existing;
 
   const request = fetchShowInfoUncached(station, skipDelay).finally(() => {
-    inFlightShowInfo.delete(stationId);
+    inFlightShowInfo.delete(key);
   });
-  inFlightShowInfo.set(stationId, request);
+  inFlightShowInfo.set(key, request);
   return request;
 }
 
@@ -282,11 +283,13 @@ async function fetchShowInfoUncached(
   try {
     // 1. Live song/segment from RMS. Only a currently-playing music segment supplies
     // artist/song details; speech, news, or a finished song fall back to the programme.
+    let rmsFetchSucceeded = false;
     try {
       const rmsData = await fetchJsonConditional(
         `https://rms.api.bbc.co.uk/v2/services/${serviceId}/segments/latest`,
         abort.signal
       );
+      rmsFetchSucceeded = true;
       if (rmsData) {
         const data = rmsData as { data?: any[] };
         const segment = data?.data?.[0];
@@ -319,6 +322,16 @@ async function fetchShowInfoUncached(
       }
     } catch (err) {
       // Non-critical, RMS segment might be absent or 404
+    }
+
+    if (!rmsFetchSucceeded) {
+      const existingState = stationRmsDelayMap.get(stationId);
+      if (existingState?.applied?.artist || existingState?.applied?.track) {
+        rawArtist = existingState.applied.artist;
+        rawTrack = existingState.applied.track;
+        rawRmsImageUrl = existingState.applied.imageUrl;
+        rawDurationSec = existingState.applied.durationSec;
+      }
     }
 
   // Delay RMS track/artist/artwork updates by 20 seconds to match the audio stream buffer latency,

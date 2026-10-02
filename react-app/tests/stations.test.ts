@@ -352,3 +352,78 @@ test("Notification Metadata - deduplicates identical metadata updates to prevent
   assert.equal(callCount, 2, "Changed metadata should trigger an update");
 });
 
+test("Notification Metadata - dispatches to both queue and now playing notification, retrying if earlier update failed", async () => {
+  let queueUpdateCount = 0;
+  let notificationUpdateCount = 0;
+  let shouldFail = true;
+  let lastTrackMetadata: { title: string; artist?: string; album?: string; artwork?: any } | null = null;
+
+  const mockTrackPlayer = {
+    updateMetadataForTrack: async (_index: number, _metadata: any) => {
+      if (shouldFail) throw new Error("Native player temporarily unready");
+      queueUpdateCount++;
+    },
+    updateNowPlayingMetadata: async (_metadata: any) => {
+      if (shouldFail) throw new Error("Native player temporarily unready");
+      notificationUpdateCount++;
+    }
+  };
+
+  const updateTrack0 = async (metadata: {
+    title: string;
+    artist?: string;
+    album?: string;
+    artwork?: any;
+  }) => {
+    if (
+      lastTrackMetadata &&
+      lastTrackMetadata.title === metadata.title &&
+      lastTrackMetadata.artist === metadata.artist &&
+      lastTrackMetadata.album === metadata.album &&
+      lastTrackMetadata.artwork === metadata.artwork
+    ) {
+      return;
+    }
+    const results = await Promise.allSettled([
+      mockTrackPlayer.updateMetadataForTrack(0, metadata),
+      mockTrackPlayer.updateNowPlayingMetadata(metadata)
+    ]);
+    const anySucceeded = results.some((r) => r.status === "fulfilled");
+    if (anySucceeded) {
+      lastTrackMetadata = metadata;
+    }
+  };
+
+  const meta = {
+    title: "BBC Radio 1",
+    artist: "Sam Smith - Stay With Me",
+    album: "The Radio 1 Breakfast Show",
+    artwork: "https://ichef.bbci.co.uk/images/ic/320x320/song.jpg"
+  };
+
+  // When native update fails initially, lastTrackMetadata should NOT be cached
+  await updateTrack0(meta);
+  assert.equal(queueUpdateCount, 0);
+  assert.equal(notificationUpdateCount, 0);
+  assert.equal(lastTrackMetadata, null, "Failed update must not poison cache");
+
+  // Subsequent call with the same metadata must retry rather than being falsely deduplicated
+  shouldFail = false;
+  await updateTrack0(meta);
+  assert.equal(queueUpdateCount, 1, "Queue track metadata must be updated on retry");
+  assert.equal(notificationUpdateCount, 1, "Now playing notification must be updated on retry");
+  assert.deepEqual(lastTrackMetadata, meta, "Successful update must populate cache");
+
+  // Third call with identical metadata should now be deduplicated
+  await updateTrack0(meta);
+  assert.equal(queueUpdateCount, 1, "Duplicate call must be skipped");
+  assert.equal(notificationUpdateCount, 1, "Duplicate call must be skipped");
+});
+
+test("ShowInfo - immediate tune-in requests use distinct cache key from delayed poll requests", () => {
+  const getKey = (stationId: string, skipDelay: boolean) => `${stationId}:${skipDelay ? "immediate" : "delayed"}`;
+  assert.notEqual(getKey("radio1", true), getKey("radio1", false));
+  assert.equal(getKey("radio1", true), "radio1:immediate");
+  assert.equal(getKey("radio1", false), "radio1:delayed");
+});
+

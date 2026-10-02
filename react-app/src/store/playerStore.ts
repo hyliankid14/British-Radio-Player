@@ -117,12 +117,18 @@ export function flushActiveListeningTime(): number {
   return elapsedSec;
 }
 
+let lastShowInfoPollMs = 0;
+
 function startShowInfoInterval() {
   if (showInfoInterval) clearInterval(showInfoInterval);
   showInfoInterval = setInterval(async () => {
     const { currentStation, isPlaying } = usePlayerStore.getState();
     if (currentStation && isPlaying) {
-      await usePlayerStore.getState().refreshShowInfo();
+      const now = Date.now();
+      if (now - lastShowInfoPollMs >= 4000) {
+        lastShowInfoPollMs = now;
+        await usePlayerStore.getState().refreshShowInfo();
+      }
     }
   }, 5000);
 }
@@ -189,8 +195,18 @@ async function updateTrack0Metadata(metadata: {
   ) {
     return;
   }
-  lastTrackMetadata = metadata;
-  await TrackPlayer.updateMetadataForTrack(0, metadata);
+  try {
+    const results = await Promise.allSettled([
+      TrackPlayer.updateMetadataForTrack(0, metadata),
+      TrackPlayer.updateNowPlayingMetadata(metadata)
+    ]);
+    const anySucceeded = results.some((r) => r.status === "fulfilled");
+    if (anySucceeded) {
+      lastTrackMetadata = metadata;
+    }
+  } catch (err) {
+    console.warn("Error updating track metadata:", err);
+  }
 }
 
 async function tryNextStationCandidate(sessionId: number, reason: string): Promise<boolean> {
@@ -489,6 +505,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     stationCandidateIndex = 0;
     resetStationRmsDelay();
     stopShowInfoInterval();
+    lastTrackMetadata = null;
     // The previous episode's position belongs to the previous episode.
     discardPendingProgress();
     const podId = (podcast?.id || episode?.podcastId || "").trim();
@@ -795,7 +812,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   handleEpisodeProgress: (positionSeconds: number, durationSeconds: number) => {
-    const { currentEpisode } = get();
+    const { currentEpisode, currentStation, isPlaying, isBuffering } = get();
     const effectiveDuration = resolveEffectiveDuration(
       durationSeconds,
       get().durationSeconds,
@@ -805,7 +822,21 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       positionSeconds,
       durationSeconds: effectiveDuration > 0 ? effectiveDuration : get().durationSeconds
     });
-    if (!currentEpisode) return;
+
+    if (!currentEpisode) {
+      // While a live station plays, TrackPlayer's native service emits PlaybackProgressUpdated
+      // every second in both foreground and background. Standard JS setInterval is throttled or
+      // completely suspended by mobile OSes in the background, so use progress ticks to drive
+      // periodic show-info polling and keep notification metadata fresh.
+      if (currentStation && (isPlaying || isBuffering || stationBeingPlayed?.id === currentStation.id)) {
+        const now = Date.now();
+        if (now - lastShowInfoPollMs >= 5000) {
+          lastShowInfoPollMs = now;
+          void get().refreshShowInfo();
+        }
+      }
+      return;
+    }
 
     const alreadyPlayed = Preferences.isEpisodePlayed(currentEpisode.id);
     if (shouldMarkEpisodePlayed(positionSeconds, effectiveDuration)) {
@@ -979,9 +1010,13 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   refreshShowInfo: async (skipDelay: boolean = false) => {
-    const { currentStation, isPlaying } = get();
+    const { currentStation } = get();
     if (currentStation) {
       const show = await fetchShowInfo(currentStation.id, skipDelay);
+      const latestStation = get().currentStation;
+      if (!latestStation || latestStation.id !== currentStation.id) {
+        return;
+      }
       set({ currentShow: show });
       if (show.title && show.title !== "BBC Radio") {
         useStationShowStore.getState().updateShow(currentStation.id, {
@@ -1017,7 +1052,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
           stationName: currentStation.title
         });
       }
-      if (isPlaying) {
+
+      // Re-read current playback state from the store rather than stale closure
+      const { isPlaying, isBuffering } = get();
+      if (isPlaying || isBuffering || stationBeingPlayed?.id === currentStation.id) {
         const hasSong = !!(show.artist || show.track);
         const songTitle = show.track
           ? (show.artist ? `${show.artist} - ${show.track}` : show.track)
@@ -1106,9 +1144,14 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       }
       PlaybackAnalytics.onPlaybackStateChanged(true);
       set({ isPlaying: true, isBuffering: false, playbackError: null });
+      if (get().currentStation) {
+        startShowInfoInterval();
+        void get().refreshShowInfo();
+      }
     } else if (state === State.Buffering || state === State.Loading) {
       set({ isBuffering: true });
     } else if (state === State.Ended) {
+      stopShowInfoInterval();
       if (listeningFlushTimer) {
         clearInterval(listeningFlushTimer);
         listeningFlushTimer = null;
@@ -1126,6 +1169,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         // Ignore transient stopped state while TrackPlayer resets and buffers a new track/candidate
         return;
       }
+      stopShowInfoInterval();
       if (listeningFlushTimer) {
         clearInterval(listeningFlushTimer);
         listeningFlushTimer = null;
@@ -1147,6 +1191,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         setTimeout(() => void requestReviewIfEligible("long_playback_paused"), 1500);
       }
     } else if (state === State.Error) {
+      stopShowInfoInterval();
       if (listeningFlushTimer) {
         clearInterval(listeningFlushTimer);
         listeningFlushTimer = null;
@@ -1166,8 +1211,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 }));
 
 onRmsDelayedUpdate((stationId) => {
-  const { currentStation, isPlaying, refreshShowInfo } = usePlayerStore.getState();
-  if (currentStation?.id === stationId && isPlaying) {
+  const { currentStation, refreshShowInfo } = usePlayerStore.getState();
+  if (currentStation?.id === stationId && (stationBeingPlayed?.id === stationId || currentStation)) {
     void refreshShowInfo();
   }
 });
