@@ -247,6 +247,28 @@ class NativeAndroidModule : Module() {
       null
     }
 
+    /**
+     * Renders and caches the custom station ident as a PNG file in internal storage,
+     * returning the file:// URI for use in media notifications.
+     */
+    Function("getStationIdentUri") { stationId: String ->
+      val ctx = context ?: return@Function null
+      try {
+        val dir = java.io.File(ctx.filesDir, "idents")
+        if (!dir.exists()) dir.mkdirs()
+        val file = java.io.File(dir, "$stationId.png")
+        if (!file.exists()) {
+          val bitmap = com.hyliankid14.bbcradioplayer.nativeandroid.widget.StationArtwork.createBitmap(stationId, 512)
+          java.io.FileOutputStream(file).use { out ->
+            bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+          }
+        }
+        android.net.Uri.fromFile(file).toString()
+      } catch (_: Exception) {
+        null
+      }
+    }
+
     /** Pushes what the player is doing, so the widget for that station can show it. */
     Function("updateWidgetState") {
         stationId: String, stationTitle: String, showLine: String, isPlaying: Boolean, artworkUrl: String ->

@@ -8,6 +8,7 @@ import {
   getStationUri
 } from "../src/data/stations.ts";
 import { formatShowDisplayTitle, isPlaceholderArtwork } from "../src/api/showInfo.ts";
+import { getStationIdentArtwork } from "../src/utils/stationIdents.ts";
 
 test("StationRepository - catalogue integrity", () => {
   const stations = StationRepository.getAll();
@@ -248,3 +249,56 @@ test("isPlaceholderArtwork - correctly filters placeholder and logo URLs", () =>
   assert.equal(isPlaceholderArtwork("https://ichef.bbci.co.uk/images/ic/320x320/p0customalbum123.jpg", stationLogo), false);
   assert.equal(isPlaceholderArtwork("https://lastfm.freetls.fastly.net/i/u/300x300/abc12345.jpg", stationLogo), false);
 });
+
+test("Notification Artwork - uses custom station idents rather than BBC branded artwork", () => {
+  const station = StationRepository.getById("radio4")!;
+  assert.ok(station);
+
+  // Custom ident is available for the station
+  const identArtwork = getStationIdentArtwork(station.id);
+  assert.ok(identArtwork, "Custom ident must be defined for station");
+  // Must NOT be the BBC branded logo URL
+  assert.notEqual(identArtwork, station.logoUrl);
+
+  const resolveNotificationArtwork = (
+    currentShow: { artist?: string; track?: string; songImageUrl?: string; rawImageUrl?: string } | null,
+    stationObj: typeof station
+  ): any => {
+    const hasSong = !!(currentShow?.artist || currentShow?.track);
+    const rawArt = currentShow?.songImageUrl || currentShow?.rawImageUrl;
+    const songArtwork =
+      hasSong && rawArt && !isPlaceholderArtwork(rawArt, stationObj.logoUrl)
+        ? rawArt
+        : undefined;
+
+    return songArtwork || getStationIdentArtwork(stationObj.id);
+  };
+
+  // Case 1: Speech / no song playing -> returns custom ident artwork, NEVER station.logoUrl
+  const speechShow = { title: "Today", artist: undefined, track: undefined };
+  const artworkForSpeech = resolveNotificationArtwork(speechShow, station);
+  assert.equal(artworkForSpeech, identArtwork);
+  assert.notEqual(artworkForSpeech, station.logoUrl);
+
+  // Case 2: Song playing with song artwork -> uses song artwork
+  const songWithArt = {
+    artist: "Artist Name",
+    track: "Track Title",
+    songImageUrl: "https://ichef.bbci.co.uk/images/ic/320x320/p0customsong.jpg"
+  };
+  assert.equal(
+    resolveNotificationArtwork(songWithArt, station),
+    "https://ichef.bbci.co.uk/images/ic/320x320/p0customsong.jpg"
+  );
+
+  // Case 3: Song without artwork or with BBC official logo as image -> falls back to custom ident, NEVER station.logoUrl
+  const songWithOfficialLogo = {
+    artist: "Artist Name",
+    track: "Track Title",
+    songImageUrl: station.logoUrl
+  };
+  const artworkForSongNoArt = resolveNotificationArtwork(songWithOfficialLogo, station);
+  assert.equal(artworkForSongNoArt, identArtwork);
+  assert.notEqual(artworkForSongNoArt, station.logoUrl);
+});
+

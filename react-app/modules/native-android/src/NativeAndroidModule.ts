@@ -46,6 +46,8 @@ declare class NativeAndroidModule extends NativeModule<{}> {
   checkForUpdate(currentVersion: string): Promise<string>;
   /** Downloads the update APK and opens the system installer when complete. */
   downloadAndInstallUpdate(apkUrl: string, apkName: string): void;
+  /** Returns the file:// URI of the cached custom station ident PNG, or null. */
+  getStationIdentUri(stationId: string): string | null;
   /** Pushes the current station/show/playing state to the home screen widgets. */
   updateWidgetState(
     stationId: string,

@@ -1,4 +1,10 @@
-import { Platform } from "react-native";
+let platformOS: string = "unknown";
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  platformOS = require("react-native").Platform?.OS ?? "unknown";
+} catch {
+  // Pure node / test environment
+}
 import { parseWidgetAction, type WidgetAction } from "../widgets/widgetSync";
 
 interface NativeAndroidBridge {
@@ -34,6 +40,7 @@ interface NativeAndroidBridge {
   ): { remove(): void };
   checkForUpdate(currentVersion: string): Promise<string>;
   downloadAndInstallUpdate(apkUrl: string, apkName: string): void;
+  getStationIdentUri(stationId: string): string | null;
   updateWidgetState(
     stationId: string,
     stationTitle: string,
@@ -100,7 +107,7 @@ let loaded = false;
 function load(): NativeAndroidBridge | null {
   if (loaded) return bridge;
   loaded = true;
-  if (Platform.OS !== "android") return null;
+  if (platformOS !== "android") return null;
   try {
     // The native module only exists on Android; require lazily so other platforms
     // (and Jest) never evaluate it.
@@ -335,6 +342,16 @@ export const NativeAndroid = {
       load()?.downloadAndInstallUpdate(apkUrl, apkName);
     } catch {
       // Ignore.
+    }
+  },
+
+  /** Returns the file:// URI of the cached custom station ident PNG, or null. */
+  getStationIdentUri(stationId: string): string | null {
+    if (platformOS !== "android") return null;
+    try {
+      return load()?.getStationIdentUri(stationId) ?? null;
+    } catch {
+      return null;
     }
   },
 

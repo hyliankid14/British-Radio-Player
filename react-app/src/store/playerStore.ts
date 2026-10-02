@@ -20,6 +20,7 @@ import { getDownloadedUri } from "../downloads/downloadStore";
 import { deleteDownloadWhenPlayed, pruneDownloads, setDownloadInUseEpisode } from "../downloads/downloadCleanup";
 import { getNetworkStatus, subscribeNetwork } from "./networkStore";
 import { trackEpisodePlay, trackStationPlay } from "../analytics/analytics";
+import { getStationIdentArtwork } from "../utils/stationIdents";
 
 import { probeGeoBlock, isStationUkOnly } from "../utils/geoBlock";
 
@@ -192,7 +193,7 @@ async function startStationCandidate(index: number, sessionId: number): Promise<
       type: streamUrl.includes(".m3u8") ? TrackType.HLS : TrackType.Default,
       title: station.title,
       artist: "BBC Radio",
-      artwork: station.logoUrl,
+      artwork: getStationIdentArtwork(station.id),
       isLiveStream: true
     });
     await TrackPlayer.play();
@@ -385,7 +386,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         title: station.title,
         artist: subtitleText,
         album: showTitle,
-        artwork: songArtwork || station.logoUrl
+        artwork: songArtwork || getStationIdentArtwork(station.id)
       });
 
       // Poll show info every 5s (delayed RMS promotion triggers immediate refresh)
@@ -880,7 +881,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
           title: currentStation.title,
           artist: subtitleText,
           album: showTitle,
-          artwork: songArtwork || currentStation.logoUrl
+          artwork: songArtwork || getStationIdentArtwork(currentStation.id)
         });
       }
     }
