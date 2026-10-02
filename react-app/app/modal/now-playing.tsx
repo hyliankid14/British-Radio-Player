@@ -10,7 +10,8 @@ import {
   ScrollView,
   Modal,
   Platform,
-  StatusBar as RNStatusBar
+  StatusBar as RNStatusBar,
+  BackHandler
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -394,14 +395,39 @@ export default function NowPlayingModal() {
     }
   }, [activePodcast?.id]);
 
+  const navigateBack = React.useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace("/(tabs)");
+    }
+  }, [router]);
+
+  React.useEffect(() => {
+    const onBackPress = () => {
+      if (menuVisible) {
+        setMenuVisible(false);
+        return true;
+      }
+      navigateBack();
+      return true;
+    };
+    const sub = BackHandler.addEventListener("hardwareBackPress", onBackPress);
+    return () => sub.remove();
+  }, [navigateBack, menuVisible]);
+
   const handleStop = React.useCallback(async () => {
     if (isPreview) {
-      router.back();
+      navigateBack();
       return;
     }
-    await stop();
-    router.back();
-  }, [isPreview, stop, router]);
+    navigateBack();
+    try {
+      await stop();
+    } catch (err) {
+      console.warn("Failed to stop playback:", err);
+    }
+  }, [isPreview, stop, navigateBack]);
 
   const handlePlayPause = React.useCallback(async () => {
     // Keyed on previewEpisode alone. Requiring previewPodcast as well meant a
@@ -462,11 +488,21 @@ export default function NowPlayingModal() {
     }
     return (
       <View style={[styles.container, { backgroundColor: theme.surfaceContainer, paddingTop: topInset }]}>
+        <ScreenHeader
+          title="Now Playing"
+          style={{ backgroundColor: theme.surfaceContainer }}
+          navigationAction={{
+            label: "Back",
+            onPress: navigateBack,
+            icon: "arrow-back",
+            color: theme.onSurface
+          }}
+        />
         <View style={styles.emptyContainer}>
           <Text style={[styles.emptyText, { color: theme.onSurface }]}>Nothing playing</Text>
           <TouchableOpacity
             style={[styles.closeButton, { backgroundColor: theme.primary }]}
-            onPress={() => router.back()}
+            onPress={navigateBack}
           >
             <Text style={styles.closeButtonText}>Close</Text>
           </TouchableOpacity>
@@ -577,7 +613,7 @@ export default function NowPlayingModal() {
         titleStyle={{ color: screenTextColor }}
         navigationAction={{
           label: "Back",
-          onPress: () => router.back(),
+          onPress: navigateBack,
           icon: "arrow-back",
           color: screenTextColor
         }}

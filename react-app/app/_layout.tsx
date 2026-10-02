@@ -191,11 +191,18 @@ export default function RootLayout() {
         // under it: back from the screen then lands on the list the episode came from
         // instead of somewhere unrelated.
         prepare: (target) => {
-          if (!LAUNCH_PODCAST_SCREENS.includes(target.pathname)) return;
-          try {
-            router.navigate({ pathname: "/(tabs)/favourites", params: { category: "Subscribed" } });
-          } catch (e) {
-            console.warn("Failed to open the subscribed podcasts list:", e);
+          if (LAUNCH_PODCAST_SCREENS.includes(target.pathname)) {
+            try {
+              router.navigate({ pathname: "/(tabs)/favourites", params: { category: "Subscribed" } });
+            } catch (e) {
+              console.warn("Failed to open the subscribed podcasts list:", e);
+            }
+          } else if (target.pathname === "/modal/now-playing") {
+            try {
+              router.navigate("/(tabs)");
+            } catch (e) {
+              console.warn("Failed to open the main screen under now playing:", e);
+            }
           }
         },
         apply: (target) => {

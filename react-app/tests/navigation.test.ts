@@ -146,3 +146,116 @@ test("saved search notification URL keeps the episode and podcast that triggered
   assert.equal(target.params.episodeId, "p01xyz");
   assert.equal(target.params.podcastId, "p02abc");
 });
+
+test("now playing navigation fallback returns to main tabs when no history exists", () => {
+  let wentBack = false;
+  let replacedWith: string | null = null;
+
+  const mockRouter = {
+    canGoBack: () => false,
+    back: () => {
+      wentBack = true;
+    },
+    replace: (route: string) => {
+      replacedWith = route;
+    }
+  };
+
+  const navigateBack = (router: typeof mockRouter) => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace("/(tabs)");
+    }
+  };
+
+  // When canGoBack is false (cold launch from notification), replace with /(tabs)
+  navigateBack(mockRouter);
+  assert.equal(wentBack, false);
+  assert.equal(replacedWith, "/(tabs)");
+
+  // When canGoBack is true (opened from within app), call router.back()
+  wentBack = false;
+  replacedWith = null;
+  const mockRouterWithHistory = {
+    ...mockRouter,
+    canGoBack: () => true
+  };
+  navigateBack(mockRouterWithHistory);
+  assert.equal(wentBack, true);
+  assert.equal(replacedWith, null);
+});
+
+test("prepare launch navigation sets up root tabs for now playing modal", () => {
+  const preparedRoutes: any[] = [];
+  const mockRouter = {
+    navigate: (route: any) => {
+      preparedRoutes.push(route);
+    }
+  };
+
+  const LAUNCH_PODCAST_SCREENS = ["/modal/podcast-detail", "/modal/podcast-search"];
+  const prepare = (target: { pathname: string }) => {
+    if (LAUNCH_PODCAST_SCREENS.includes(target.pathname)) {
+      mockRouter.navigate({ pathname: "/(tabs)/favourites", params: { category: "Subscribed" } });
+    } else if (target.pathname === "/modal/now-playing") {
+      mockRouter.navigate("/(tabs)");
+    }
+  };
+
+  prepare({ pathname: "/modal/now-playing" });
+  assert.deepEqual(preparedRoutes, ["/(tabs)"]);
+
+  prepare({ pathname: "/modal/podcast-detail" });
+  assert.deepEqual(preparedRoutes, [
+    "/(tabs)",
+    { pathname: "/(tabs)/favourites", params: { category: "Subscribed" } }
+  ]);
+});
+
+test("redirectSystemPath normalizes custom schemes and notification links without unmatched route errors", async () => {
+  const { redirectSystemPath } = await import("../app/+native-intent.ts");
+
+  // Episode notification double-slash and triple-slash deep links
+  assert.equal(
+    redirectSystemPath({
+      path: "bbcradioplayer://modal/podcast-detail?podcastId=p086w16s&episodeId=p086w200",
+      initial: true
+    }),
+    "/modal/podcast-detail?podcastId=p086w16s&episodeId=p086w200"
+  );
+  assert.equal(
+    redirectSystemPath({
+      path: "bbcradioplayer:///modal/podcast-detail?podcastId=p086w16s",
+      initial: false
+    }),
+    "/modal/podcast-detail?podcastId=p086w16s"
+  );
+
+  // Fallback root custom scheme links route to /(tabs)
+  assert.equal(redirectSystemPath({ path: "bbcradioplayer:///", initial: true }), "/(tabs)");
+  assert.equal(redirectSystemPath({ path: "bbcradioplayer://", initial: false }), "/(tabs)");
+  assert.equal(redirectSystemPath({ path: "/", initial: true }), "/(tabs)");
+  assert.equal(redirectSystemPath({ path: "", initial: true }), "/(tabs)");
+
+  // Media notification click
+  assert.equal(
+    redirectSystemPath({ path: "trackplayer://notification.click", initial: true }),
+    "/modal/now-playing"
+  );
+  assert.equal(
+    redirectSystemPath({ path: "bbcradioplayer://notification.click", initial: true }),
+    "/modal/now-playing"
+  );
+
+  // Search notification
+  assert.equal(
+    redirectSystemPath({
+      path: "bbcradioplayer://podcasts?search=comedy&savedSearchId=search-1",
+      initial: true
+    }),
+    "/modal/podcast-search?search=comedy&savedSearchId=search-1"
+  );
+});
+
+

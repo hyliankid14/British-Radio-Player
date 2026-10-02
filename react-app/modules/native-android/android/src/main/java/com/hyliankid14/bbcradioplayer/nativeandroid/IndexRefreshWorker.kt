@@ -102,7 +102,7 @@ class IndexRefreshWorker(context: Context, params: WorkerParameters) : Worker(co
     val encodedPodcastId = java.net.URLEncoder.encode(podcastId, "UTF-8")
     val encodedEpisodeId = java.net.URLEncoder.encode(episodeId, "UTF-8")
     val detailUrl = "/modal/podcast-detail?podcastId=$encodedPodcastId&episodeId=$encodedEpisodeId"
-    val targetUri = Uri.parse("bbcradioplayer://modal/podcast-detail?podcastId=$encodedPodcastId&episodeId=$encodedEpisodeId")
+    val targetUri = Uri.parse("bbcradioplayer:///modal/podcast-detail?podcastId=$encodedPodcastId&episodeId=$encodedEpisodeId")
     val launchIntent = Intent(Intent.ACTION_VIEW, targetUri).apply {
       setClassName(context.packageName, "com.hyliankid14.bbcradioplayer.MainActivity")
       flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
