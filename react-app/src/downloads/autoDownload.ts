@@ -87,6 +87,7 @@ export async function runAutoDownload(): Promise<void> {
       if (pending.status === "downloading") reserve(pending.entry.podcastId);
     }
 
+    const downloadQueue: SavedEpisodeEntry[] = [];
     const enqueue = (entry: SavedEpisodeEntry, podcast?: { id: string; title: string; imageUrl?: string }) => {
       const normId = normalizeEpisodeId(entry.id) || entry.id;
       if (isDownloaded(normId, entry)) return;
@@ -108,7 +109,7 @@ export async function runAutoDownload(): Promise<void> {
       reserved.set(podcastId, used + 1);
       handled.add(normId);
       handled.add(entry.id);
-      void store.download(resolved, { auto: true });
+      downloadQueue.push(resolved);
     };
 
     if (autoSubscribed) {
@@ -220,6 +221,18 @@ export async function runAutoDownload(): Promise<void> {
             enqueue(entryToDownload);
           }
         }
+      }
+    }
+
+    for (const item of downloadQueue) {
+      const net = getNetworkStatus();
+      if (!net.isOnline || (wifiOnly && !net.isWifi)) {
+        break;
+      }
+      try {
+        await store.download(item, { auto: true });
+      } catch (err) {
+        console.warn(`[AutoDownload] Failed downloading ${item.title}:`, err);
       }
     }
   } catch (error) {

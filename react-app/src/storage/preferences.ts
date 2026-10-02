@@ -7,6 +7,11 @@ import { configureGeoBlockedStorage } from "../utils/geoBlock";
 import type { QueuedScrobble } from "../audio/scrobbleQueue";
 import { sanitizeScrobbleQueue } from "../audio/scrobbleQueue";
 import { normalizeEpisodeId } from "../downloads/downloadLimits";
+import {
+  createPlayedIdLookup,
+  isPlayedId,
+  type PlayedIdLookup
+} from "./playedIdLookup";
 import { savePersistentRecentScrobbles, readPersistentRecentScrobbles } from "./persistentScrobbles";
 
 export type { LastPlayed };
@@ -57,6 +62,30 @@ export interface LastFmScrobbleEntry {
   timestampMs: number;
 }
 
+export interface ReviewPromptState {
+  firstLaunchMs: number;
+  sessionCount: number;
+  activeDays: string[];
+  totalListeningSeconds: number;
+  completedEpisodesCount: number;
+  lastPromptMs: number;
+  lastPromptVersion: string;
+  promptCount: number;
+  hasReviewed: boolean;
+}
+
+export const DEFAULT_REVIEW_PROMPT_STATE: ReviewPromptState = {
+  firstLaunchMs: 0,
+  sessionCount: 0,
+  activeDays: [],
+  totalListeningSeconds: 0,
+  completedEpisodesCount: 0,
+  lastPromptMs: 0,
+  lastPromptVersion: "",
+  promptCount: 0,
+  hasReviewed: false
+};
+
 let storage: {
   getString: (key: string) => string | undefined;
   set: (key: string, value: string | boolean | number) => void;
@@ -65,6 +94,8 @@ let storage: {
   contains: (key: string) => boolean;
   remove: (key: string) => boolean;
   clearAll: () => void;
+  getAllKeys: () => string[];
+  trim: () => void;
   addOnValueChangedListener: (listener: (key: string) => void) => { remove: () => void };
 };
 
@@ -92,6 +123,8 @@ try {
       memoryStore.clear();
       memoryListeners.forEach((listener) => listener(""));
     },
+    getAllKeys: () => Array.from(memoryStore.keys()),
+    trim: () => {},
     addOnValueChangedListener: (listener: (key: string) => void) => {
       memoryListeners.add(listener);
       return { remove: () => memoryListeners.delete(listener) };
@@ -110,6 +143,80 @@ function tryObject(raw: string | undefined): Record<string, unknown> {
   } catch {
     return {};
   }
+}
+
+/**
+ * Cache of parsed JSON blobs, keyed by the raw string each value was parsed from.
+ *
+ * Several preference values are whole objects or arrays that grow with use and get re-read
+ * many times per render — once per list row in favourites, podcast-search and
+ * playlist-detail, and once per second on the playback path. `storage.getString` is a
+ * memory-mapped lookup, but `JSON.parse` of a growing map is not, so the parse dominated
+ * the JS thread. Comparing the raw string means a blob is parsed once per actual change
+ * rather than once per read.
+ *
+ * Cached values are treated as **immutable**. Writers must build a new value and pass it to
+ * `writeJson` rather than mutating what a getter handed out, or the cached object and the
+ * stored string would drift apart.
+ */
+const jsonCache = new Map<string, { raw: string | undefined; value: unknown }>();
+
+/** Played-ids derived structures, rebuilt only when that key's stored string changes. */
+let playedIdCache: {
+  sourceRaw: string | undefined;
+  ids: string[];
+  lookup: PlayedIdLookup;
+} | null = null;
+
+/** Per-podcast tag lists, re-filtered only when that key's stored string changes. */
+const podcastTagsCache = new Map<string, { raw: string; tags: string[] }>();
+
+/** Reads a JSON object, reusing the cached parse while the stored string is unchanged. */
+function readJsonObject<T>(key: string): Record<string, T> {
+  const raw = storage.getString(key);
+  const cached = jsonCache.get(key);
+  if (cached && cached.raw === raw) return cached.value as Record<string, T>;
+  const value = tryObject(raw) as Record<string, T>;
+  jsonCache.set(key, { raw, value });
+  return value;
+}
+
+/** Reads a JSON array, reusing the cached parse while the stored string is unchanged. */
+function readJsonArray<T>(key: string): T[] {
+  const raw = storage.getString(key);
+  const cached = jsonCache.get(key);
+  if (cached && cached.raw === raw) return cached.value as T[];
+  let value: T[] = [];
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) value = parsed as T[];
+    } catch {
+      value = [];
+    }
+  }
+  jsonCache.set(key, { raw, value });
+  return value;
+}
+
+/** Writes a JSON value and keeps the cached parse in step with it. */
+function writeJson(key: string, value: unknown): void {
+  const raw = JSON.stringify(value);
+  storage.set(key, raw);
+  jsonCache.set(key, { raw, value });
+}
+
+/**
+ * Drops every cached parse.
+ *
+ * The store is opened in `multi-process` mode, so the native background worker can write
+ * behind our back. Clearing on foreground is what keeps the cache honest without paying a
+ * `checkContentChanged` on every read.
+ */
+export function invalidatePreferencesCache(): void {
+  jsonCache.clear();
+  podcastTagsCache.clear();
+  playedIdCache = null;
 }
 
 const KEYS = {
@@ -171,6 +278,7 @@ const KEYS = {
   ,PODCAST_SERVICES_CACHE: "cache_podcast_services_data"
   ,PODCAST_LANGUAGES_CACHE: "cache_podcast_languages_data"
   ,FAILED_AUTO_DOWNLOADS: "pref_failed_auto_downloads"
+  ,REVIEW_PROMPT_STATE: "pref_review_prompt_state"
 };
 
 /** Callbacks fired whenever an episode is marked as played. See `onEpisodePlayed`. */
@@ -579,16 +687,23 @@ export const Preferences = {
     if (!raw) {
       return defaultTags.filter((tag) => !/^podcasts?$/i.test(tag));
     }
+    // Tag lists are re-read once per row on the favourites and search screens, so the
+    // parse plus the two regex filters are cached against the exact stored string.
+    const cached = podcastTagsCache.get(podcastId);
+    if (cached && cached.raw === raw) return cached.tags;
+    let tags: string[] = [];
     try {
-      const tags = JSON.parse(raw);
-      return Array.isArray(tags)
-        ? tags
-            .filter((tag): tag is string => typeof tag === "string" && tag.trim().length > 0)
-            .filter((tag) => !/^podcasts?$/i.test(tag.trim()))
-        : [];
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        tags = parsed
+          .filter((tag): tag is string => typeof tag === "string" && tag.trim().length > 0)
+          .filter((tag) => !/^podcasts?$/i.test(tag.trim()));
+      }
     } catch {
-      return [];
+      tags = [];
     }
+    podcastTagsCache.set(podcastId, { raw, tags });
+    return tags;
   },
 
   setPodcastTags(podcastId: string, tags: string[]): void {
@@ -599,7 +714,7 @@ export const Preferences = {
           .filter((tag) => Boolean(tag) && !/^podcasts?$/i.test(tag))
       )
     );
-    storage.set(`pref_podcast_tags_${podcastId}`, JSON.stringify(normalised));
+    writeJson(`pref_podcast_tags_${podcastId}`, normalised);
   },
 
   addPodcastTag(podcastId: string, defaultTags: string[], tag: string): void {
@@ -832,27 +947,37 @@ export const Preferences = {
 
   // ── Episode state (played / progress / history) ─────────────────────────────
 
+  /**
+   * Everything derived from the played-ids list, built once per actual change to it.
+   *
+   * `isEpisodePlayed` used to re-parse the whole list and walk every entry on each call,
+   * which on the once-per-second playback path was O(episodes ever played) work per second
+   * that only ever grew. `normalizeEpisodeId` is idempotent, so storing both the raw ids
+   * and their normalised forms in Sets covers the previous `includes` plus
+   * `normalizeEpisodeId(id) === (norm || episodeId)` scan exactly.
+   */
+  _playedIdCache(): {
+    sourceRaw: string | undefined;
+    ids: string[];
+    lookup: PlayedIdLookup;
+  } {
+    const sourceRaw = storage.getString(KEYS.PLAYED_EPISODE_IDS);
+    const cached = playedIdCache;
+    if (cached && cached.sourceRaw === sourceRaw) return cached;
+    const ids = readJsonArray<unknown>(KEYS.PLAYED_EPISODE_IDS).filter(
+      (id): id is string => typeof id === "string"
+    );
+    const next = { sourceRaw, ids, lookup: createPlayedIdLookup(ids) };
+    playedIdCache = next;
+    return next;
+  },
+
   getPlayedEpisodeIds(): string[] {
-    const raw = storage.getString(KEYS.PLAYED_EPISODE_IDS);
-    if (!raw) return [];
-    try {
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [];
-    } catch {
-      return [];
-    }
+    return this._playedIdCache().ids;
   },
 
   isEpisodePlayed(episodeId: string): boolean {
-    if (!episodeId) return false;
-    const played = this.getPlayedEpisodeIds();
-    if (played.includes(episodeId)) return true;
-    const norm = normalizeEpisodeId(episodeId);
-    if (norm && played.includes(norm)) return true;
-    for (const id of played) {
-      if (normalizeEpisodeId(id) === (norm || episodeId)) return true;
-    }
-    return false;
+    return isPlayedId(this._playedIdCache().lookup, episodeId);
   },
 
   /**
@@ -860,7 +985,7 @@ export const Preferences = {
    * membership checks with a single MMKV read instead of one parse per row.
    */
   getPlayedEpisodeIdSet(): Set<string> {
-    return new Set(this.getPlayedEpisodeIds());
+    return new Set(this._playedIdCache().ids);
   },
 
   markEpisodePlayed(
@@ -872,15 +997,16 @@ export const Preferences = {
     if (!episodeId) return;
     const played = this.getPlayedEpisodeIds();
     if (!played.includes(episodeId)) {
-      storage.set(KEYS.PLAYED_EPISODE_IDS, JSON.stringify([...played, episodeId]));
+      writeJson(KEYS.PLAYED_EPISODE_IDS, [...played, episodeId]);
     }
     this.removeEpisodeProgress(episodeId);
     if (podcastId && pubDateEpochMs && pubDateEpochMs > 0) {
       const existing = this.getLastPlayedEpoch(podcastId);
       if (pubDateEpochMs > existing) {
-        const map = this.getMap(KEYS.LAST_PLAYED_EPOCH);
-        map[podcastId] = pubDateEpochMs;
-        storage.set(KEYS.LAST_PLAYED_EPOCH, JSON.stringify(map));
+        writeJson(KEYS.LAST_PLAYED_EPOCH, {
+          ...this.getMap(KEYS.LAST_PLAYED_EPOCH),
+          [podcastId]: pubDateEpochMs
+        });
       }
     }
     // `keepDownload` marks the episode played while it is still playing, so the
@@ -897,8 +1023,10 @@ export const Preferences = {
   },
 
   markEpisodeUnplayed(episodeId: string): void {
-    const played = this.getPlayedEpisodeIds().filter((id) => id !== episodeId);
-    storage.set(KEYS.PLAYED_EPISODE_IDS, JSON.stringify(played));
+    writeJson(
+      KEYS.PLAYED_EPISODE_IDS,
+      this.getPlayedEpisodeIds().filter((id) => id !== episodeId)
+    );
   },
 
   getEpisodeProgress(episodeId: string): number {
@@ -919,16 +1047,18 @@ export const Preferences = {
 
   setEpisodeProgress(episodeId: string, positionSeconds: number): void {
     if (!episodeId || positionSeconds <= 0) return;
-    const map = this.getMap(KEYS.EPISODE_PROGRESS);
-    map[episodeId] = Math.floor(positionSeconds);
-    storage.set(KEYS.EPISODE_PROGRESS, JSON.stringify(map));
+    writeJson(KEYS.EPISODE_PROGRESS, {
+      ...this.getMap(KEYS.EPISODE_PROGRESS),
+      [episodeId]: Math.floor(positionSeconds)
+    });
   },
 
   removeEpisodeProgress(episodeId: string): void {
     const map = this.getMap(KEYS.EPISODE_PROGRESS);
     if (map[episodeId] !== undefined) {
-      delete map[episodeId];
-      storage.set(KEYS.EPISODE_PROGRESS, JSON.stringify(map));
+      const next = { ...map };
+      delete next[episodeId];
+      writeJson(KEYS.EPISODE_PROGRESS, next);
     }
   },
 
@@ -940,16 +1070,15 @@ export const Preferences = {
     if (!podcastId || epochMs <= 0) return;
     const map = this.getMap(KEYS.LAST_PLAYED_EPOCH);
     if (epochMs > (map[podcastId] || 0)) {
-      map[podcastId] = epochMs;
-      storage.set(KEYS.LAST_PLAYED_EPOCH, JSON.stringify(map));
+      writeJson(KEYS.LAST_PLAYED_EPOCH, { ...map, [podcastId]: epochMs });
     }
   },
 
   markEpisodesPlayed(episodes: { id: string; podcastId?: string; pubDateEpochMs?: number }[]): void {
     if (!episodes || episodes.length === 0) return;
     const played = new Set(this.getPlayedEpisodeIds());
-    const progressMap = this.getMap(KEYS.EPISODE_PROGRESS);
-    const epochMap = this.getMap(KEYS.LAST_PLAYED_EPOCH);
+    const progressMap = { ...this.getMap(KEYS.EPISODE_PROGRESS) };
+    const epochMap = { ...this.getMap(KEYS.LAST_PLAYED_EPOCH) };
 
     for (const ep of episodes) {
       if (!ep.id) continue;
@@ -962,9 +1091,9 @@ export const Preferences = {
       }
     }
 
-    storage.set(KEYS.PLAYED_EPISODE_IDS, JSON.stringify(Array.from(played)));
-    storage.set(KEYS.EPISODE_PROGRESS, JSON.stringify(progressMap));
-    storage.set(KEYS.LAST_PLAYED_EPOCH, JSON.stringify(epochMap));
+    writeJson(KEYS.PLAYED_EPISODE_IDS, Array.from(played));
+    writeJson(KEYS.EPISODE_PROGRESS, progressMap);
+    writeJson(KEYS.LAST_PLAYED_EPOCH, epochMap);
   },
 
   getPodcastEpisodeSort(podcastId: string): "newest_first" | "oldest_first" {
@@ -973,9 +1102,7 @@ export const Preferences = {
   },
 
   setPodcastEpisodeSort(podcastId: string, order: "newest_first" | "oldest_first"): void {
-    const map = this.getStringMap(KEYS.EPISODE_SORT);
-    map[podcastId] = order;
-    storage.set(KEYS.EPISODE_SORT, JSON.stringify(map));
+    writeJson(KEYS.EPISODE_SORT, { ...this.getStringMap(KEYS.EPISODE_SORT), [podcastId]: order });
   },
 
   getPodcastHistory(): PodcastHistoryEntry[] {
@@ -1062,19 +1189,22 @@ export const Preferences = {
     const existing = (all[playlistId] || []).filter(
       (item) => item && item.id !== normId && normalizeEpisodeId(item.id) !== normId
     );
-    all[playlistId] = [normalizedEntry, ...existing];
-    storage.set(KEYS.PLAYLIST_ENTRIES, JSON.stringify(all));
-    this.refreshPlaylistCounts(all);
+    const next = { ...all, [playlistId]: [normalizedEntry, ...existing] };
+    writeJson(KEYS.PLAYLIST_ENTRIES, next);
+    this.refreshPlaylistCounts(next);
   },
 
   removePodcastPlaylistEntry(playlistId: string, episodeId: string): void {
     const normId = normalizeEpisodeId(episodeId);
     const all = this.getPlaylistEntryMap();
-    all[playlistId] = (all[playlistId] || []).filter(
-      (item) => item && item.id !== episodeId && (!normId || normalizeEpisodeId(item.id) !== normId)
-    );
-    storage.set(KEYS.PLAYLIST_ENTRIES, JSON.stringify(all));
-    this.refreshPlaylistCounts(all);
+    const next = {
+      ...all,
+      [playlistId]: (all[playlistId] || []).filter(
+        (item) => item && item.id !== episodeId && (!normId || normalizeEpisodeId(item.id) !== normId)
+      )
+    };
+    writeJson(KEYS.PLAYLIST_ENTRIES, next);
+    this.refreshPlaylistCounts(next);
   },
 
   toggleSavedEpisode(entry: SavedEpisodeEntry): boolean {
@@ -1086,15 +1216,72 @@ export const Preferences = {
     return true;
   },
 
-  getPlaylistEntryMap(): Record<string, SavedEpisodeEntry[]> {
-    const raw = storage.getString(KEYS.PLAYLIST_ENTRIES);
-    if (!raw) return {};
-    try {
-      const parsed = JSON.parse(raw);
-      return parsed && typeof parsed === "object" ? parsed as Record<string, SavedEpisodeEntry[]> : {};
-    } catch {
-      return {};
+  /**
+   * Startup housekeeping for the per-episode keys, which otherwise only ever grow.
+   *
+   * `pref_notified_ep_<id>` gets a key per notification and its seven-day expiry only ran if
+   * that exact episode was read again, so nothing ever swept them and the key table grew by
+   * one entry per notification for the life of the install. In `multi-process` mode every key
+   * is also an entry in the interprocess lock table, so this is the part that really does get
+   * expensive over time.
+   *
+   * Deliberately *not* swept: resume positions for episodes that were simply abandoned. They
+   * are genuinely useful — someone who paused an episode expects to resume it — and with the
+   * parsed-value cache plus bucketed writes, retaining them is cheap. Only positions for
+   * already-played episodes are removed, which are leftovers that `markEpisodePlayed` is
+   * supposed to delete anyway.
+   *
+   * @returns how many keys were removed
+   */
+pruneStalePerEpisodeKeys(): number {
+    const NOTIFIED_PREFIX = "pref_notified_ep_";
+    const NOTIFIED_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    let removed = 0;
+
+    for (const key of storage.getAllKeys()) {
+      if (!key.startsWith(NOTIFIED_PREFIX)) continue;
+      const raw = storage.getString(key);
+      if (!raw) continue;
+      let storedAt = 0;
+      try {
+        storedAt = (JSON.parse(raw) as { storedAt?: number })?.storedAt ?? 0;
+      } catch {
+        // Unparseable, so it cannot be judged in use. Drop it: the only writer is
+        // `setNotifiedEpisode`, and the same data is recoverable from the RSS feed.
+        storage.remove(key);
+        removed += 1;
+        continue;
+      }
+      if (now - storedAt > NOTIFIED_TTL_MS) {
+        storage.remove(key);
+        removed += 1;
+      }
     }
+
+    const played = this.getPlayedEpisodeIdSet();
+    const progress = this.getMap(KEYS.EPISODE_PROGRESS);
+    const staleProgress = Object.keys(progress).filter((episodeId) => {
+      if (played.has(episodeId)) return true;
+      const norm = normalizeEpisodeId(episodeId);
+      return !!norm && played.has(norm);
+    });
+    if (staleProgress.length > 0) {
+      const next = { ...progress };
+      for (const episodeId of staleProgress) delete next[episodeId];
+      writeJson(KEYS.EPISODE_PROGRESS, next);
+    }
+
+    if (removed > 0 || staleProgress.length > 0) {
+      // MMKV does not shrink its file after deletes, so reclaim the space.
+      storage.trim();
+    }
+    invalidatePreferencesCache();
+    return removed + staleProgress.length;
+  },
+
+  getPlaylistEntryMap(): Record<string, SavedEpisodeEntry[]> {
+    return readJsonObject<SavedEpisodeEntry[]>(KEYS.PLAYLIST_ENTRIES);
   },
 
   refreshPlaylistCounts(all: Record<string, SavedEpisodeEntry[]>): void {
@@ -1108,16 +1295,7 @@ export const Preferences = {
   // ── Offline downloads ───────────────────────────────────────────────────────
 
   getDownloadedEntries(): Record<string, DownloadedEpisodeRecord> {
-    const raw = storage.getString(KEYS.DOWNLOADED_EPISODES);
-    if (!raw) return {};
-    try {
-      const parsed = JSON.parse(raw);
-      return parsed && typeof parsed === "object"
-        ? parsed as Record<string, DownloadedEpisodeRecord>
-        : {};
-    } catch {
-      return {};
-    }
+    return readJsonObject<DownloadedEpisodeRecord>(KEYS.DOWNLOADED_EPISODES);
   },
 
   getDownloadedEntry(episodeId: string): DownloadedEpisodeRecord | undefined {
@@ -1142,52 +1320,44 @@ export const Preferences = {
   setDownloadedEntry(episodeId: string, record: DownloadedEpisodeRecord): void {
     if (!episodeId) return;
     const normId = normalizeEpisodeId(episodeId) || episodeId;
-    const all = this.getDownloadedEntries();
-    for (const id of Object.keys(all)) {
-      if (id !== normId && normalizeEpisodeId(id) === normId) {
-        delete all[id];
-      }
+    const next: Record<string, DownloadedEpisodeRecord> = {};
+    for (const [id, value] of Object.entries(this.getDownloadedEntries())) {
+      if (id !== normId && normalizeEpisodeId(id) === normId) continue;
+      next[id] = value;
     }
-    all[normId] = {
+    next[normId] = {
       ...record,
       entry: record.entry
         ? { ...record.entry, id: normalizeEpisodeId(record.entry.id) || record.entry.id }
         : record.entry
     };
-    storage.set(KEYS.DOWNLOADED_EPISODES, JSON.stringify(all));
+    writeJson(KEYS.DOWNLOADED_EPISODES, next);
   },
 
   removeDownloadedEntry(episodeId: string): void {
     const all = this.getDownloadedEntries();
     const normId = normalizeEpisodeId(episodeId);
+    const next: Record<string, DownloadedEpisodeRecord> = {};
     let changed = false;
-    for (const id of Object.keys(all)) {
+    for (const [id, value] of Object.entries(all)) {
       if (id === episodeId || (normId && normalizeEpisodeId(id) === normId)) {
-        delete all[id];
         changed = true;
+        continue;
       }
+      next[id] = value;
     }
     if (changed) {
-      storage.set(KEYS.DOWNLOADED_EPISODES, JSON.stringify(all));
+      writeJson(KEYS.DOWNLOADED_EPISODES, next);
     }
   },
 
   /** Removes every downloaded-episode record. */
   clearDownloadedEntries(): void {
-    storage.set(KEYS.DOWNLOADED_EPISODES, JSON.stringify({}));
+    writeJson(KEYS.DOWNLOADED_EPISODES, {});
   },
 
   getFailedAutoDownloads(): Record<string, { timestampMs: number; count: number }> {
-    const raw = storage.getString(KEYS.FAILED_AUTO_DOWNLOADS);
-    if (!raw) return {};
-    try {
-      const parsed = JSON.parse(raw);
-      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-        ? (parsed as Record<string, { timestampMs: number; count: number }>)
-        : {};
-    } catch {
-      return {};
-    }
+    return readJsonObject<{ timestampMs: number; count: number }>(KEYS.FAILED_AUTO_DOWNLOADS);
   },
 
   recordFailedAutoDownload(episodeId: string): void {
@@ -1195,27 +1365,29 @@ export const Preferences = {
     const norm = normalizeEpisodeId(episodeId) || episodeId;
     const records = this.getFailedAutoDownloads();
     const existing = records[norm] || records[episodeId] || { count: 0, timestampMs: 0 };
-    records[norm] = {
+    const next = { ...records };
+    next[norm] = {
       count: existing.count + 1,
       timestampMs: Date.now()
     };
-    if (episodeId !== norm) delete records[episodeId];
-    storage.set(KEYS.FAILED_AUTO_DOWNLOADS, JSON.stringify(records));
+    if (episodeId !== norm) delete next[episodeId];
+    writeJson(KEYS.FAILED_AUTO_DOWNLOADS, next);
   },
 
   clearFailedAutoDownload(episodeId: string): void {
     if (!episodeId) return;
     const norm = normalizeEpisodeId(episodeId) || episodeId;
     const records = this.getFailedAutoDownloads();
+    const next = { ...records };
     let changed = false;
-    for (const key of Object.keys(records)) {
+    for (const key of Object.keys(next)) {
       if (key === episodeId || normalizeEpisodeId(key) === norm) {
-        delete records[key];
+        delete next[key];
         changed = true;
       }
     }
     if (changed) {
-      storage.set(KEYS.FAILED_AUTO_DOWNLOADS, JSON.stringify(records));
+      writeJson(KEYS.FAILED_AUTO_DOWNLOADS, next);
     }
   },
 
@@ -1246,25 +1418,11 @@ export const Preferences = {
   },
 
   getMap(key: string): Record<string, number> {
-    const raw = storage.getString(key);
-    if (!raw) return {};
-    try {
-      const parsed = JSON.parse(raw);
-      return parsed && typeof parsed === "object" ? parsed : {};
-    } catch {
-      return {};
-    }
+    return readJsonObject<number>(key);
   },
 
   getStringMap(key: string): Record<string, string> {
-    const raw = storage.getString(key);
-    if (!raw) return {};
-    try {
-      const parsed = JSON.parse(raw);
-      return parsed && typeof parsed === "object" ? parsed : {};
-    } catch {
-      return {};
-    }
+    return readJsonObject<string>(key);
   },
 
   // ── Snapshot caches (Popular & New Podcasts — 6-hour TTL, mirrors Kotlin) ──
@@ -1327,19 +1485,19 @@ export const Preferences = {
    */
   _mergePodcastServices(entries: Record<string, string>): void {
     if (Object.keys(entries).length === 0) return;
-    storage.set(
-      KEYS.PODCAST_SERVICES_CACHE,
-      JSON.stringify({ ...this.getPodcastServiceMap(), ...entries })
-    );
+    writeJson(KEYS.PODCAST_SERVICES_CACHE, {
+      ...this.getPodcastServiceMap(),
+      ...entries
+    });
   },
 
   /** @internal Merge freshly resolved feed language tags. Batched, like the service map. */
   _mergePodcastLanguages(entries: Record<string, string>): void {
     if (Object.keys(entries).length === 0) return;
-    storage.set(
-      KEYS.PODCAST_LANGUAGES_CACHE,
-      JSON.stringify({ ...this.getPodcastLanguageMap(), ...entries })
-    );
+    writeJson(KEYS.PODCAST_LANGUAGES_CACHE, {
+      ...this.getPodcastLanguageMap(),
+      ...entries
+    });
   },
 
   /**
@@ -1727,8 +1885,9 @@ export const Preferences = {
 
   getCachedPodcastRatings(): Record<string, { average: number; count: number; mine?: number }> {
     try {
-      const raw = storage.getString(KEYS.PODCAST_RATINGS_CACHE);
-      return raw ? JSON.parse(raw) : {};
+      return readJsonObject<{ average: number; count: number; mine?: number }>(
+        KEYS.PODCAST_RATINGS_CACHE
+      );
     } catch {
       return {};
     }
@@ -1736,15 +1895,44 @@ export const Preferences = {
 
   setCachedPodcastRatings(ratings: Record<string, { average: number; count: number; mine?: number }>): void {
     try {
-      storage.set(KEYS.PODCAST_RATINGS_CACHE, JSON.stringify(ratings));
+      writeJson(KEYS.PODCAST_RATINGS_CACHE, ratings);
     } catch {}
   },
 
   updateCachedPodcastRating(podcastId: string, rating: { average: number; count: number; mine?: number }): void {
     try {
-      const all = this.getCachedPodcastRatings();
-      all[podcastId] = rating;
-      this.setCachedPodcastRatings(all);
+      this.setCachedPodcastRatings({
+        ...this.getCachedPodcastRatings(),
+        [podcastId]: rating
+      });
+    } catch {}
+  },
+
+  getReviewPromptState(): ReviewPromptState {
+    const raw = storage.getString(KEYS.REVIEW_PROMPT_STATE);
+    if (!raw) return { ...DEFAULT_REVIEW_PROMPT_STATE };
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object") return { ...DEFAULT_REVIEW_PROMPT_STATE };
+      return {
+        firstLaunchMs: typeof parsed.firstLaunchMs === "number" ? parsed.firstLaunchMs : 0,
+        sessionCount: typeof parsed.sessionCount === "number" ? parsed.sessionCount : 0,
+        activeDays: Array.isArray(parsed.activeDays) ? parsed.activeDays : [],
+        totalListeningSeconds: typeof parsed.totalListeningSeconds === "number" ? parsed.totalListeningSeconds : 0,
+        completedEpisodesCount: typeof parsed.completedEpisodesCount === "number" ? parsed.completedEpisodesCount : 0,
+        lastPromptMs: typeof parsed.lastPromptMs === "number" ? parsed.lastPromptMs : 0,
+        lastPromptVersion: typeof parsed.lastPromptVersion === "string" ? parsed.lastPromptVersion : "",
+        promptCount: typeof parsed.promptCount === "number" ? parsed.promptCount : 0,
+        hasReviewed: typeof parsed.hasReviewed === "boolean" ? parsed.hasReviewed : false
+      };
+    } catch {
+      return { ...DEFAULT_REVIEW_PROMPT_STATE };
+    }
+  },
+
+  setReviewPromptState(state: ReviewPromptState): void {
+    try {
+      writeJson(KEYS.REVIEW_PROMPT_STATE, state);
     } catch {}
   },
 };

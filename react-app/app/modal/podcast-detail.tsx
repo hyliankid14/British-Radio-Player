@@ -12,8 +12,9 @@ import {
   TextInput
 } from "react-native";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
+import { ScreenHeader } from "../../src/components/ScreenHeader";
 import { useAppTheme } from "../../src/theme/colors";
 import { Podcast, Episode, PodcastApi, decodeXmlEntities, calculateUpdatedRating, formatRatingValue } from "../../src/api/podcasts";
 import { usePlayerStore } from "../../src/store/playerStore";
@@ -130,7 +131,11 @@ export default function PodcastDetailModal() {
   const [toastMessage, setToastMessage] = useState("");
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const { playEpisode, pause, resume, currentEpisode, isPlaying } = usePlayerStore();
+  const playEpisode = usePlayerStore((s) => s.playEpisode);
+  const pause = usePlayerStore((s) => s.pause);
+  const resume = usePlayerStore((s) => s.resume);
+  const currentEpisode = usePlayerStore((s) => s.currentEpisode);
+  const isPlaying = usePlayerStore((s) => s.isPlaying);
   const positionSeconds = usePlayerStore((state) => state.positionSeconds);
   const downloads = useDownloadStore((state) => state.downloads);
   const { isOnline } = useNetworkStatus();
@@ -929,37 +934,31 @@ export default function PodcastDetailModal() {
 
   if (!podcast) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.surfaceContainer }]}>
-        <View style={styles.appBar}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <MaterialIcons name="arrow-back" size={24} color={theme.onSurface} />
-          </TouchableOpacity>
-        </View>
+      <View style={[styles.container, { backgroundColor: theme.surfaceContainer }]}>
+        <ScreenHeader
+          title=""
+          navigationAction={{ label: "Back", onPress: () => router.back() }}
+        />
         <View style={styles.centerBox}>
           <ActivityIndicator size="large" color={theme.primary} />
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.surfaceContainer }]} edges={["top"]}>
-      {/* 56dp Top App Bar with back button, title, and overflow menu */}
-      <View style={[styles.appBar, { borderBottomColor: theme.outlineVariant }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <MaterialIcons name="arrow-back" size={24} color={theme.onSurface} />
-        </TouchableOpacity>
-        <Text style={[styles.appBarTitle, { color: theme.onSurface }]} numberOfLines={1}>
-          {decodeXmlEntities(podcast.title)}
-        </Text>
-        <TouchableOpacity
-          onPress={() => setOverflowMenuVisible(true)}
-          style={styles.moreButton}
-          accessibilityLabel="More options"
-        >
-          <MaterialIcons name="more-vert" size={24} color={theme.onSurface} />
-        </TouchableOpacity>
-      </View>
+    <View style={[styles.container, { backgroundColor: theme.surfaceContainer }]}>
+      <ScreenHeader
+        title={decodeXmlEntities(podcast.title)}
+        navigationAction={{ label: "Back", onPress: () => router.back() }}
+        actions={[
+          {
+            icon: "more-vert",
+            label: "More options",
+            onPress: () => setOverflowMenuVisible(true)
+          }
+        ]}
+      />
 
       <FlatList
         keyExtractor={(item) => item.id}
@@ -1272,7 +1271,7 @@ export default function PodcastDetailModal() {
       <View style={[styles.navigationWrapper, { bottom: 0, backgroundColor: theme.surfaceContainer }]}>
         <AppNavigation />
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -1280,36 +1279,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1
   },
-  appBar: {
-    height: 56,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth
-  },
-  backButton: {
-    width: 48,
-    height: 48,
-    alignItems: "center",
-    justifyContent: "center"
-  },
-  moreButton: {
-    width: 48,
-    height: 48,
-    alignItems: "center",
-    justifyContent: "center"
-  },
   miniPlayerWrapper: {
     position: "absolute",
     left: 0,
     right: 0
-  },
-  appBarTitle: {
-    flex: 1,
-    fontSize: 18,
-    fontWeight: "700",
-    marginLeft: 8,
-    marginRight: 16
   },
   navigationWrapper: {
     position: "absolute",

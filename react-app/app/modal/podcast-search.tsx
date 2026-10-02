@@ -9,9 +9,11 @@ import {
   StyleSheet,
   ActivityIndicator,
   Modal,
-  Switch
+  Switch,
+  Platform,
+  StatusBar as RNStatusBar
 } from "react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useAppTheme, useIsDarkTheme } from "../../src/theme/colors";
@@ -27,6 +29,7 @@ import {
   filterSuggestions,
   extractPositiveQuery,
   episodeMatchesQuery,
+  isAdvancedBooleanQuery,
   formatRatingValue
 } from "../../src/api/podcasts";
 import { Preferences } from "../../src/storage/preferences";
@@ -74,6 +77,10 @@ export default function PodcastSearchScreen() {
   const theme = useAppTheme();
   const isDark = useIsDarkTheme();
   const insets = useSafeAreaInsets();
+  const topInset = Math.max(
+    insets.top,
+    Platform.OS === "android" ? (RNStatusBar.currentHeight ?? 0) : 0
+  );
 
   const [catalog, setCatalog] = useState<Podcast[]>([]);
   const [subscribedIds, setSubscribedIds] = useState<string[]>([]);
@@ -139,7 +146,7 @@ export default function PodcastSearchScreen() {
   const [saveSearchName, setSaveSearchName] = useState("");
   const [saveSearchNotify, setSaveSearchNotify] = useState(true);
 
-  const { playEpisode } = usePlayerStore();
+  const playEpisode = usePlayerStore((state) => state.playEpisode);
   const currentEpisode = usePlayerStore((state) => state.currentEpisode);
   const positionSeconds = usePlayerStore((state) => state.positionSeconds);
   const [playedIds, setPlayedIds] = useState<Set<string>>(
@@ -653,6 +660,15 @@ export default function PodcastSearchScreen() {
   const showEpisodesSection =
     totalEpisodeCount !== null || isSearchingEpisodes || visibleEpisodes.length > 0;
 
+  // The backend total counts the query it was actually sent, and quotes, OR,
+  // grouping and exclusions are all stripped before that request. So it is only
+  // the number of results on screen for a plain query. A boolean query is
+  // decided by the local filter, and reporting the pre-filter total would show
+  // "Episodes (38)" above a list that had been narrowed to a handful.
+  const episodeCount = isAdvancedBooleanQuery(searchQuery)
+    ? searchEpisodeMatches.length
+    : totalEpisodeCount ?? searchEpisodeMatches.length;
+
   // Podcast rows first, then the episodes section. Keeping both in one
   // virtualized list means a long result set never mounts thousands of views
   // inside a single ScrollView.
@@ -873,7 +889,6 @@ export default function PodcastSearchScreen() {
         case "podcast":
           return renderPodcastRow(item.podcast);
         case "episodesHeading": {
-          const episodeCount = totalEpisodeCount ?? searchEpisodeMatches.length;
           return (
             <View>
               <Text style={[styles.sectionHeading, { color: theme.onSurface, marginTop: 24 }]}>
@@ -950,9 +965,9 @@ export default function PodcastSearchScreen() {
   );
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.surfaceContainer }]} edges={["top"]}>
+    <View style={[styles.container, { backgroundColor: theme.surfaceContainer }]}>
       {/* Search Header Bar matching Material search toolbar with back navigation */}
-      <View style={[styles.headerBar, { backgroundColor: theme.surfaceContainer }]}>
+      <View style={[styles.headerBar, { backgroundColor: theme.surfaceContainer, paddingTop: 8 + topInset }]}>
         <TouchableOpacity
           onPress={handleBack}
           style={styles.backButton}
@@ -1234,7 +1249,7 @@ export default function PodcastSearchScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 

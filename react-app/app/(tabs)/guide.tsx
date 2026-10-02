@@ -57,13 +57,13 @@ export default function GuideScreen() {
   const insets = useSafeAreaInsets();
   const windowWidth = Dimensions.get("window").width;
 
-  const {
-    currentStation,
-    isPlaying,
-    playStation,
-    favorites,
-    toggleFavorite
-  } = usePlayerStore();
+  // Per-field selectors: this screen mounts every station row and every schedule block, so a
+  // whole-store subscription rebuilt the entire grid on every store write.
+  const currentStation = usePlayerStore((s) => s.currentStation);
+  const isPlaying = usePlayerStore((s) => s.isPlaying);
+  const favorites = usePlayerStore((s) => s.favorites);
+  const playStation = usePlayerStore((s) => s.playStation);
+  const toggleFavorite = usePlayerStore((s) => s.toggleFavorite);
 
   // 15 date tabs (-7 ... Today ... +7)
   const { tabs, todayIndex } = useMemo(() => {
@@ -150,6 +150,56 @@ export default function GuideScreen() {
     }
     return all;
   }, [activeCategory, favorites]);
+
+  /**
+   * Everything about a schedule block that does not depend on scroll position, theme or the
+   * play state, resolved once per schedule load instead of once per render.
+   *
+   * This was the grid's dominant cost. `matchShowToPodcast` falls back to scanning the whole
+   * podcast catalogue, so the render was doing O(blocks × catalogue) work on every single
+   * render — and the grid renders on every store write and every 30s clock tick. It also
+   * allocated a fresh `Animated` interpolation node per block per render, churning the
+   * animated-node graph that the horizontal scroll drives.
+   */
+  const guideRows = useMemo(() => {
+    return filteredStations.map((station) => {
+      const scheduleKey = `${station.id}_${selectedTab.dateStr}`;
+      const entries = stationSchedules[scheduleKey] || [];
+      return {
+        station,
+        scheduleKey,
+        blocks: entries.map((entry, index) => {
+          const { left, width } = calculateScheduleBlockLayout(
+            entry.startTimeMs,
+            entry.endTimeMs,
+            dayStartMs,
+            PIXELS_PER_MINUTE
+          );
+          const blockWidth = Math.max(20, width - 2);
+          // Keep long titles in view as the user scrolls horizontally.
+          const stickyContentWidth = Math.min(blockWidth - 8, blockWidth < 80 ? 70 : 160);
+          const maxStickyOffset = Math.max(0, blockWidth - stickyContentWidth - 8);
+          const stickyTranslateX =
+            maxStickyOffset > 0
+              ? scrollX.interpolate({
+                  inputRange: [left, left + maxStickyOffset],
+                  outputRange: [0, maxStickyOffset],
+                  extrapolate: "clamp"
+                })
+              : 0;
+          return {
+            entry,
+            index,
+            left,
+            blockWidth,
+            stickyContentWidth,
+            stickyTranslateX,
+            matchedPodcast: matchShowToPodcast(entry.title, entry.episodeTitle, podcastMap)
+          };
+        })
+      };
+    });
+  }, [filteredStations, stationSchedules, selectedTab.dateStr, dayStartMs, podcastMap, scrollX]);
 
   // Fetch podcast catalog once on mount
   useEffect(() => {
@@ -639,9 +689,8 @@ export default function GuideScreen() {
               style={styles.timelineHorizontalScroll}
             >
               <View style={{ width: TIMELINE_WIDTH }}>
-                {filteredStations.map((station) => {
-                  const scheduleKey = `${station.id}_${selectedTab.dateStr}`;
-                  const entries = stationSchedules[scheduleKey] || [];
+                {guideRows.map((row) => {
+                  const { station, blocks } = row;
                   const isLoading = loadingStations[station.id];
                   const isStationPlaying = currentStation?.id === station.id && isPlaying;
 
@@ -671,43 +720,18 @@ export default function GuideScreen() {
                       ))}
 
                       {/* Schedule Blocks */}
-                      {entries.map((entry, index) => {
-                        const { left, width } = calculateScheduleBlockLayout(
-                          entry.startTimeMs,
-                          entry.endTimeMs,
-                          dayStartMs,
-                          PIXELS_PER_MINUTE
-                        );
-
+                      {blocks.map((block) => {
+                        const { entry, index, left, blockWidth, matchedPodcast } = block;
                         const isNow =
                           isSelectedDateToday &&
                           nowMs >= entry.startTimeMs &&
                           nowMs < entry.endTimeMs;
 
-                        const matchedPodcast = matchShowToPodcast(
-                          entry.title,
-                          entry.episodeTitle,
-                          podcastMap
-                        );
-
-                        const blockWidth = Math.max(20, width - 2);
                         const isVeryNarrow = blockWidth < 50;
                         const isNarrow = blockWidth < 80;
                         const showPodcastBadge = Boolean(matchedPodcast) && blockWidth >= 60;
                         const showTime = !isVeryNarrow;
-
-                        // Ensure titles of long shows remain in view as the user scrolls
-                        const stickyContentWidth = Math.min(blockWidth - 8, isNarrow ? 70 : 160);
-                        const maxStickyOffset = Math.max(0, blockWidth - stickyContentWidth - 8);
-
-                        const stickyTranslateX =
-                          maxStickyOffset > 0
-                            ? scrollX.interpolate({
-                                inputRange: [left, left + maxStickyOffset],
-                                outputRange: [0, maxStickyOffset],
-                                extrapolate: "clamp"
-                              })
-                            : 0;
+                        const { stickyContentWidth, stickyTranslateX } = block;
 
                         return (
                           <TouchableOpacity
@@ -828,7 +852,7 @@ export default function GuideScreen() {
                       })}
 
                       {/* Loading placeholder if station schedule is in-flight */}
-                      {isLoading && entries.length === 0 && (
+                      {isLoading && blocks.length === 0 && (
                         <View style={styles.loadingRowContainer}>
                           <ActivityIndicator size="small" color={theme.primary} />
                           <Text
@@ -843,7 +867,7 @@ export default function GuideScreen() {
                       )}
 
                       {/* Retry row if station schedule failed to load */}
-                      {!isLoading && entries.length === 0 && (
+                      {!isLoading && blocks.length === 0 && (
                         <TouchableOpacity
                           style={styles.retryRowContainer}
                           onPress={() => void retryStation(station.id)}

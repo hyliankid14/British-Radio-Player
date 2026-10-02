@@ -94,6 +94,28 @@ export function parseBooleanSearch(query: string): BooleanSearchNode | null {
       const child = parsePrimary();
       return child ? { type: "not", child } : null;
     }
+    // `-term` is the shorthand every mainstream search engine accepts for
+    // exclusion. Unhandled, the dash stayed inside the term and the term became
+    // a required literal, so "podcast -nfl" matched nothing at all rather than
+    // every episode that is not about NFL.
+    //
+    // Only an attached dash is an operator. A dash with spaces around it is
+    // punctuation — "Top 40 - The Countdown Show" is a title, not an exclusion —
+    // and keeps working as the literal query the user typed.
+    if (peek() && peek().length > 1 && peek().startsWith("-")) {
+      let negated = peek().slice(1);
+      index++;
+      // The dash sticks to whatever follows, so `-"a phrase"` arrives as the
+      // token `-"a` plus the rest of the phrase. Rejoin it before negating.
+      if (negated.startsWith('"')) {
+        const parts = [negated];
+        while (index < tokens.length && !parts[parts.length - 1].endsWith('"')) {
+          parts.push(tokens[index++]);
+        }
+        negated = parts.join(" ").replace(/^"|"$/g, "");
+      }
+      return { type: "not", child: { type: "term", value: negated.toLowerCase() } };
+    }
     if (tokens[index] === "(") {
       index++;
       const expression = parseOr();
@@ -138,7 +160,11 @@ export function parseBooleanSearch(query: string): BooleanSearchNode | null {
  */
 export function isAdvancedBooleanQuery(query: string): boolean {
   if (/[“”"()]/.test(query)) return true;
-  return /(^|\s)(AND|OR|NOT)(\s|$)/.test(query);
+  if (/(^|\s)(AND|OR|NOT)(\s|$)/.test(query)) return true;
+  // An attached `-term` is an exclusion, which the plain multi-term path cannot
+  // express. A spaced dash ("Top 40 - Countdown") is title punctuation and stays
+  // an ordinary query.
+  return /(^|\s)-\S/.test(query);
 }
 
 /**
@@ -172,9 +198,20 @@ export function passesNotFilter(text: string, notTerms: string[]): boolean {
 
 /**
  * Unified episode match check, mirroring the Kotlin `episodeMatchesQuery`.
- * For advanced queries: enforce NOT terms against title, description and
- * podcast name. For simple queries: normalised word-boundary match on title
- * OR description.
+ *
+ * For advanced queries the parsed expression is evaluated against title and
+ * description, and NOT terms are additionally checked against the podcast name.
+ * For simple queries: normalised word-boundary match on title OR description.
+ *
+ * The expression must be evaluated for advanced queries too, not just its NOT
+ * terms. The episode index tokenises and ANDs every token, so it cannot honour
+ * quotes, OR or grouping — it hands back a superset. Returning `true` for the
+ * positive part made every candidate pass, so `"Public Service Broadcasting"`
+ * reported its count but listed unfiltered results.
+ *
+ * Title and description are concatenated rather than tested separately: a
+ * phrase must not have to fit inside one field, and an exclusion has to see
+ * both fields the way `passesNotFilter` does.
  */
 export function episodeMatchesQuery(
   episodeTitle: string,
@@ -189,7 +226,7 @@ export function episodeMatchesQuery(
       if (!passesNotFilter(episodeDesc, notTerms)) return false;
       if (!passesNotFilter(podcastName, notTerms)) return false;
     }
-    return true;
+    return matchesBooleanSearch(query, `${episodeTitle} ${episodeDesc}`);
   }
   return containsPhraseOrAllTokens(episodeTitle, query) ||
          containsPhraseOrAllTokens(episodeDesc, query);
@@ -249,27 +286,73 @@ export function matchesBooleanSearch(query: string, text: string): boolean {
     return containsPhraseOrAllTokens(text, query);
   }
 
-  // Advanced: strip HTML and collapse whitespace like before, but also
-  // normalise so the local filter aligns with the server's normalisation.
-  const haystack = text
-    .replace(/<[^>]*>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
+  // Advanced: strip HTML and normalise so the local filter aligns with the
+  // server's normalisation. Normalising once up front matters — a long
+  // description was being re-normalised for every leaf term in the expression.
+  const haystack = normaliseText(
+    text
+      .replace(/<[^>]*>/g, " ")
+      .replace(/&nbsp;/gi, " ")
+  );
 
   const evaluate = (node: BooleanSearchNode): boolean => {
     if (node.type === "term") {
-      const term = node.value.replace(/\s+/g, " ").trim();
+      const normTerm = normaliseText(node.value);
+      // An empty term matches nothing rather than every word boundary.
+      if (!normTerm) return false;
       // Use normalised matching even for AST terms so punctuation/diacritics
       // don't cause false drops.
-      const normHaystack = normaliseText(haystack);
-      const normTerm = normaliseText(term);
-      return new RegExp(`\\b${escapeRegex(normTerm)}`).test(normHaystack);
+      return new RegExp(`\\b${escapeRegex(normTerm)}`).test(haystack);
     }
     if (node.type === "not") return !evaluate(node.child);
     if (node.type === "and") return evaluate(node.left) && evaluate(node.right);
     return evaluate(node.left) || evaluate(node.right);
   };
   return evaluate(expression);
+}
+
+/**
+ * Backend-ready queries that between them cover everything a boolean
+ * expression can match.
+ *
+ * The episode index tokenises its query and ANDs the tokens: it has no notion
+ * of quotes, OR, grouping or exclusion, so it always answers with a superset.
+ * Asking for the positive leaves one at a time and unioning the pages keeps
+ * that superset intact for the operators the index cannot express; the
+ * client-side evaluator then narrows it to what was actually typed.
+ *
+ * A multi-word leaf is a phrase. The index ranks its words individually, so one
+ * small page can rank out exact-phrase matches — asking per word reaches them.
+ *
+ * Excluded leaves are never requested. `maxCandidates` bounds how many extra
+ * requests one keystroke can fan out to.
+ */
+export function booleanSearchCandidateQueries(
+  query: string,
+  maxCandidates: number = 6
+): string[] {
+  const positives: string[] = [];
+  const collect = (node: BooleanSearchNode): void => {
+    if (node.type === "term") {
+      const value = node.value.replace(/\s+/g, " ").trim();
+      if (value && !positives.includes(value)) positives.push(value);
+      return;
+    }
+    if (node.type === "not") return;
+    collect(node.left);
+    collect(node.right);
+  };
+  const expression = parseBooleanSearch(query);
+  if (expression) collect(expression);
+
+  const candidates: string[] = [];
+  const add = (value: string) => {
+    const clean = value.replace(/[“”"]/g, "").replace(/\s+/g, " ").trim();
+    if (clean && !candidates.includes(clean)) candidates.push(clean);
+  };
+  for (const leaf of positives) {
+    add(leaf);
+    for (const word of leaf.split(" ")) add(word);
+  }
+  return candidates.slice(0, Math.max(1, maxCandidates));
 }

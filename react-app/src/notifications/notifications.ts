@@ -349,6 +349,14 @@ const SEEN_NEW_PODCASTS_KEY = "pref_seen_new_podcasts";
 const MAX_SEEN_PODCASTS = 500;
 
 /**
+ * Guards against overlapping runs. The interval check below only stops a *second* run once
+ * the first has written its timestamp, so the startup timer, each AppState `active` and the
+ * auto-check debounce could otherwise all be in flight together, duplicating the Pi request
+ * and the seen-set write.
+ */
+let checkingNewPodcasts = false;
+
+/**
  * Notifies about newly indexed podcasts when the user has enabled new-podcast
  * notifications. The first run records a baseline without notifying.
  */
@@ -356,6 +364,7 @@ export async function checkForNewPodcasts(force = false): Promise<void> {
   const Notifications = getNotifications();
   if (!Notifications) return;
   if (!Preferences.getSetting("pref_n_notifications", false)) return;
+  if (checkingNewPodcasts) return;
 
   const intervalDays = Math.max(1, Number(Preferences.getSetting("pref_n_interval_days", 1)) || 1);
   const lastCheck = Number(Preferences.getSetting(LAST_NEW_PODCAST_KEY, 0)) || 0;
@@ -363,6 +372,7 @@ export async function checkForNewPodcasts(force = false): Promise<void> {
 
   if (!(await hasNotificationPermission())) return;
 
+  checkingNewPodcasts = true;
   try {
     const entries = await PodcastApi.getNewPodcastsFromPi();
     Preferences.setSetting(LAST_NEW_PODCAST_KEY, Date.now());
@@ -392,6 +402,8 @@ export async function checkForNewPodcasts(force = false): Promise<void> {
     Preferences.setSetting(SEEN_NEW_PODCASTS_KEY, Array.from(seen).slice(-MAX_SEEN_PODCASTS).join(","));
   } catch (error) {
     console.warn("New podcast notification check failed:", error);
+  } finally {
+    checkingNewPodcasts = false;
   }
 }
 

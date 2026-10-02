@@ -1,4 +1,5 @@
-import { StationRepository } from "../data/stations.ts";
+import { StationRepository, type Station } from "../data/stations.ts";
+import { BoundedCache } from "../utils/boundedCache.ts";
 
 export interface CurrentShow {
   title: string;
@@ -218,61 +219,107 @@ export function resolveDelayedRmsTrack(
   return state.applied;
 }
 
+/** One in-flight `fetchShowInfo` per station, so overlapping callers share a single request. */
+const inFlightShowInfo = new Map<string, Promise<CurrentShow>>();
+/** Abort the two upstream calls if they hang, so a dead network cannot pile requests up. */
+const SHOW_INFO_TIMEOUT_MS = 10_000;
+
+/**
+ * Last body and validator for each show-info endpoint.
+ *
+ * A station's show info is polled every 5s while it plays, far more often than either
+ * upstream endpoint changes. Sending `If-None-Match` lets the CDN answer 304 and keep the poll
+ * cheap; the previous cache-busting `?t=` query parameter together with `cache: "no-store"`
+ * forced a full payload download every single time. The body has to be kept, because a 304
+ * means "the copy you already have is still current".
+ */
+const conditionalCache = new Map<string, { etag?: string; json: unknown }>();
+
+async function fetchJsonConditional(url: string, signal: AbortSignal): Promise<unknown | undefined> {
+  const cached = conditionalCache.get(url);
+  const headers: Record<string, string> = { "User-Agent": "BritishRadioPlayer/1.0" };
+  if (cached?.etag) headers["If-None-Match"] = cached.etag;
+  const res = await fetch(url, { headers, signal });
+  if (res.status === 304 && cached) return cached.json;
+  if (!res.ok) return undefined;
+  const json = await res.json();
+  conditionalCache.set(url, { etag: res.headers.get("ETag") || undefined, json });
+  return json;
+}
+
 export async function fetchShowInfo(stationId: string, skipDelay: boolean = false): Promise<CurrentShow> {
   const station = StationRepository.getById(stationId);
   if (!station) return { title: "BBC Radio" };
 
+  // Without this guard a slow round lets each poll tick start another pair of requests, and
+  // they accumulate: tune-in, the 5s poll and each delayed RMS promotion all call in here.
+  const existing = inFlightShowInfo.get(stationId);
+  if (existing) return existing;
+
+  const request = fetchShowInfoUncached(station, skipDelay).finally(() => {
+    inFlightShowInfo.delete(stationId);
+  });
+  inFlightShowInfo.set(stationId, request);
+  return request;
+}
+
+async function fetchShowInfoUncached(
+  station: Station,
+  skipDelay: boolean
+): Promise<CurrentShow> {
+  const stationId = station.id;
   const serviceId = station.serviceId;
   let rawArtist: string | undefined;
   let rawTrack: string | undefined;
   let rawRmsImageUrl: string | undefined;
   let rawDurationSec: number | undefined;
 
-  // 1. Fetch live song/segment from RMS API immediately with cache-busting headers.
-  // Only a currently-playing music segment supplies artist/song details; speech, news,
-  // or a finished song fall back to the programme (show) details from the schedule below.
-  try {
-    const rmsRes = await fetch(`https://rms.api.bbc.co.uk/v2/services/${serviceId}/segments/latest?t=${Date.now()}`, {
-      headers: {
-        "User-Agent": "BritishRadioPlayer/1.0",
-        "Cache-Control": "no-cache, no-store, must-revalidate",
-        "Pragma": "no-cache"
-      },
-      cache: "no-store"
-    });
-    if (rmsRes.ok) {
-      const data = await rmsRes.json();
-      const segment = data?.data?.[0];
-      const isMusic = String(segment?.segment_type || "").toLowerCase() === "music";
-      const offset = segment?.offset;
-      const label = String(offset?.label || "").toLowerCase();
-      // BBC RMS sets now_playing: true and label: "Now Playing" while track is on air.
-      // Once ended, now_playing is false and label indicates e.g. "X Minutes Ago".
-      const isNowPlaying = (offset?.now_playing === true || label === "now playing") &&
-        offset?.now_playing !== false &&
-        !label.includes("ago");
+  const abort = new AbortController();
+  const timeout = setTimeout(() => abort.abort(), SHOW_INFO_TIMEOUT_MS);
 
-      if (segment && isMusic && isNowPlaying) {
-        rawArtist = segment.titles?.primary?.trim() || undefined;
-        rawTrack = (segment.titles?.secondary || segment.titles?.tertiary)?.trim() || undefined;
-        if (typeof offset?.end === "number" && typeof offset?.start === "number" && offset.end > offset.start) {
-          rawDurationSec = offset.end - offset.start;
-        } else if (segment.duration) {
-          const parsed = Number(segment.duration);
-          if (!Number.isNaN(parsed) && parsed > 0) rawDurationSec = parsed;
-        }
-        const imgTemplate = segment.image_url;
-        if (
-          imgTemplate &&
-          !isPlaceholderArtwork(imgTemplate, station.logoUrl)
-        ) {
-          rawRmsImageUrl = imgTemplate.replace("{recipe}", "320x320");
+  // Both upstream calls share one abort signal, so a hung endpoint cannot hold the caller
+  // open past the timeout. Each section still degrades independently below.
+  try {
+    // 1. Live song/segment from RMS. Only a currently-playing music segment supplies
+    // artist/song details; speech, news, or a finished song fall back to the programme.
+    try {
+      const rmsData = await fetchJsonConditional(
+        `https://rms.api.bbc.co.uk/v2/services/${serviceId}/segments/latest`,
+        abort.signal
+      );
+      if (rmsData) {
+        const data = rmsData as { data?: any[] };
+        const segment = data?.data?.[0];
+        const isMusic = String(segment?.segment_type || "").toLowerCase() === "music";
+        const offset = segment?.offset;
+        const label = String(offset?.label || "").toLowerCase();
+        // BBC RMS sets now_playing: true and label: "Now Playing" while track is on air.
+        // Once ended, now_playing is false and label indicates e.g. "X Minutes Ago".
+        const isNowPlaying = (offset?.now_playing === true || label === "now playing") &&
+          offset?.now_playing !== false &&
+          !label.includes("ago");
+
+        if (segment && isMusic && isNowPlaying) {
+          rawArtist = segment.titles?.primary?.trim() || undefined;
+          rawTrack = (segment.titles?.secondary || segment.titles?.tertiary)?.trim() || undefined;
+          if (typeof offset?.end === "number" && typeof offset?.start === "number" && offset.end > offset.start) {
+            rawDurationSec = offset.end - offset.start;
+          } else if (segment.duration) {
+            const parsed = Number(segment.duration);
+            if (!Number.isNaN(parsed) && parsed > 0) rawDurationSec = parsed;
+          }
+          const imgTemplate = segment.image_url;
+          if (
+            imgTemplate &&
+            !isPlaceholderArtwork(imgTemplate, station.logoUrl)
+          ) {
+            rawRmsImageUrl = imgTemplate.replace("{recipe}", "320x320");
+          }
         }
       }
+    } catch (err) {
+      // Non-critical, RMS segment might be absent or 404
     }
-  } catch (err) {
-    // Non-critical, RMS segment might be absent or 404
-  }
 
   // Delay RMS track/artist/artwork updates by 20 seconds to match the audio stream buffer latency,
   // or apply immediately when tuning in (skipDelay=true).
@@ -302,18 +349,12 @@ export async function fetchShowInfo(stationId: string, skipDelay: boolean = fals
   let nextShowStartTimeMs: number | undefined;
 
   try {
-    const essRes = await fetch(
-      `https://ess.api.bbci.co.uk/schedules?serviceId=${serviceId}&mediatypes=audio&t=${Date.now()}`,
-      {
-        headers: {
-          "User-Agent": "BritishRadioPlayer/1.0",
-          "Cache-Control": "no-cache"
-        }
-      }
-    );
-    if (essRes.ok) {
-      const essData = await essRes.json();
-      const items = essData?.items || [];
+    const essData = (await fetchJsonConditional(
+      `https://ess.api.bbci.co.uk/schedules?serviceId=${serviceId}&mediatypes=audio`,
+      abort.signal
+    )) as { items?: any[] } | undefined;
+    if (essData) {
+      const items = essData.items || [];
       const now = Date.now() - RMS_DELAY_MS;
       const entries = parseEssSchedule(items);
 
@@ -384,9 +425,14 @@ export async function fetchShowInfo(stationId: string, skipDelay: boolean = fals
     rawTrack,
     rawImageUrl: rawRmsImageUrl
   };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
-const scheduleCache = new Map<string, ScheduleEntry[]>();
+// Bounded: keyed by station and date, so browsing the guide across days grew it without limit.
+const MAX_CACHED_SCHEDULES = 300;
+const scheduleCache = new BoundedCache<string, ScheduleEntry[]>(MAX_CACHED_SCHEDULES);
 
 /**
  * Find the scheduled show for a station at a given timestamp using the cached schedule.

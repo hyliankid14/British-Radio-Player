@@ -23,6 +23,19 @@ let boundaryTimer: ReturnType<typeof setTimeout> | null = null;
 let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
 const inFlightFetches = new Set<string>();
 
+/** Compares the fields a consumer actually renders, ignoring `fetchedAtMs`. */
+function isSameShow(a: StationShowItem, b: StationShowItem): boolean {
+  return (
+    a.stationId === b.stationId &&
+    a.title === b.title &&
+    a.episodeTitle === b.episodeTitle &&
+    a.startTimeMs === b.startTimeMs &&
+    a.endTimeMs === b.endTimeMs &&
+    a.nextShowTitle === b.nextShowTitle &&
+    a.imageUrl === b.imageUrl
+  );
+}
+
 export const useStationShowStore = create<StationShowState>((set, get) => ({
   shows: {},
 
@@ -38,6 +51,10 @@ export const useStationShowStore = create<StationShowState>((set, get) => ({
       imageUrl: partial.imageUrl ?? existing?.imageUrl,
       fetchedAtMs: Date.now()
     };
+    // The 5s poll calls this on every tick, so without this check every subscriber — the
+    // station list, the favourites list, the guide grid — re-rendered every five seconds
+    // with an identical payload. Only `fetchedAtMs` is expected to differ.
+    if (existing && isSameShow(existing, updated)) return;
     set((state) => ({
       shows: { ...state.shows, [stationId]: updated }
     }));
@@ -77,6 +94,12 @@ export const useStationShowStore = create<StationShowState>((set, get) => ({
             fetchedAtMs: now
           };
           hasChanges = true;
+        } else {
+          // Nothing to advance to, so there is nothing to re-fetch either. Queuing this
+          // station anyway made `fetchShowsForStations(expiredIds, true)` force-refresh it
+          // every 15s for the rest of the process — an endless refresh loop whenever the
+          // cached schedule has no match, e.g. across a day rollover.
+          continue;
         }
         expiredIds.push(stationId);
       }
@@ -175,9 +198,25 @@ function scheduleNextBoundaryCheck() {
   }
 }
 
-// Global 15s heartbeat to catch device wake-ups and missed timers
-if (!heartbeatInterval) {
+// Global 15s heartbeat to catch device wake-ups and missed timers. Registered at import so
+// a show can still advance after the screen that registered it has gone, and exposed a
+// teardown so it is not pinned for the process lifetime when nothing is watching.
+export function startStationShowHeartbeat(): void {
+  if (heartbeatInterval) return;
   heartbeatInterval = setInterval(() => {
     useStationShowStore.getState().checkAndAdvanceShows();
   }, 15000);
 }
+
+export function stopStationShowHeartbeat(): void {
+  if (heartbeatInterval) {
+    clearInterval(heartbeatInterval);
+    heartbeatInterval = null;
+  }
+  if (boundaryTimer) {
+    clearTimeout(boundaryTimer);
+    boundaryTimer = null;
+  }
+}
+
+startStationShowHeartbeat();

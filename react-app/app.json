@@ -8,6 +8,7 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "ios": {
+      "appStoreUrl": "https://apps.apple.com/app/british-radio-player/id6740921477",
       "supportsTablet": false,
       "bundleIdentifier": "com.hyliankid14.bbcradioplayer",
       "appleTeamId": "8ZAZCKQ9LV",
@@ -82,6 +83,7 @@
       }
     },
     "android": {
+      "playStoreUrl": "https://play.google.com/store/apps/details?id=com.hyliankid14.bbcradioplayer",
       "package": "com.hyliankid14.bbcradioplayer",
       "versionCode": 106,
       "adaptiveIcon": {

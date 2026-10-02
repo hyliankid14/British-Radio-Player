@@ -13,8 +13,9 @@ import {
   View
 } from "react-native";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
+import { ScreenHeader } from "../../src/components/ScreenHeader";
 import { Episode, Podcast, decodeXmlEntities } from "../../src/api/podcasts";
 import { Preferences, SavedEpisodeEntry } from "../../src/storage/preferences";
 import { useDownloadStore, toSavedEpisodeEntry } from "../../src/downloads/downloadStore";
@@ -715,77 +716,42 @@ export default function PlaylistDetailModal() {
   };
 
   return (
-    <SafeAreaView
-      style={[styles.container, { backgroundColor: theme.surfaceContainer }]}
-      edges={["top"]}
-    >
-      <View
-        style={[
-          styles.appBar,
-          { borderBottomColor: theme.outlineVariant, backgroundColor: theme.surfaceContainer }
-        ]}
-      >
-        <TouchableOpacity
-          onPress={() => (selectionMode ? exitSelection() : router.back())}
-          style={styles.backButton}
-          accessibilityLabel={selectionMode ? "Clear selection" : "Back"}
-        >
-          <MaterialIcons
-            name={selectionMode ? "close" : "arrow-back"}
-            size={24}
-            color={theme.onSurface}
-          />
-        </TouchableOpacity>
-        <Text style={[styles.appBarTitle, { color: theme.onSurface }]} numberOfLines={1}>
-          {selectionMode ? `${selected.size} selected` : playlistName}
-        </Text>
-
-        {selectionMode ? (
-          <View style={styles.selectionActions}>
-            <TouchableOpacity
-              onPress={toggleSelectAll}
-              style={styles.headerIconButton}
-              accessibilityLabel={allSelected ? "Clear selection" : "Select all"}
-            >
-              <MaterialIcons
-                name={allSelected ? "playlist-remove" : "playlist-add-check"}
-                size={22}
-                color={theme.onSurface}
-              />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={removeSelected}
-              style={styles.headerIconButton}
-              accessibilityLabel={
-                playlistId === "downloaded" ? "Delete downloads" : "Remove from playlist"
-              }
-            >
-              <MaterialIcons
-                name={playlistId === "downloaded" ? "delete-outline" : "remove-circle-outline"}
-                size={22}
-                color={theme.onSurface}
-              />
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <View style={styles.headerActions}>
-            <TouchableOpacity
-              style={styles.headerIconButton}
-              onPress={() => setSortModalVisible(true)}
-              accessibilityLabel="Sort playlist"
-            >
-              <MaterialIcons name="sort" size={24} color={theme.onSurface} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.headerIconButton}
-              onPress={() => setOptionsModalVisible(true)}
-              accessibilityLabel="Playlist options"
-            >
-              <MaterialIcons name="more-vert" size={24} color={theme.onSurface} />
-            </TouchableOpacity>
-          </View>
-        )}
-      </View>
+    <View style={[styles.container, { backgroundColor: theme.surfaceContainer }]}>
+      <ScreenHeader
+        title={selectionMode ? `${selected.size} selected` : playlistName}
+        navigationAction={{
+          icon: selectionMode ? "close" : "arrow-back",
+          label: selectionMode ? "Clear selection" : "Back",
+          onPress: () => (selectionMode ? exitSelection() : router.back())
+        }}
+        actions={
+          selectionMode
+            ? [
+                {
+                  icon: allSelected ? "playlist-remove" : "playlist-add-check",
+                  label: allSelected ? "Clear selection" : "Select all",
+                  onPress: toggleSelectAll
+                },
+                {
+                  icon: playlistId === "downloaded" ? "delete-outline" : "remove-circle-outline",
+                  label: playlistId === "downloaded" ? "Delete downloads" : "Remove from playlist",
+                  onPress: removeSelected
+                }
+              ]
+            : [
+                {
+                  icon: "sort",
+                  label: "Sort playlist",
+                  onPress: () => setSortModalVisible(true)
+                },
+                {
+                  icon: "more-vert",
+                  label: "Playlist options",
+                  onPress: () => setOptionsModalVisible(true)
+                }
+              ]
+        }
+      />
 
       <FlatList
         data={displayEntries}
@@ -978,23 +944,12 @@ export default function PlaylistDetailModal() {
       <View style={[styles.navigationWrapper, { bottom: 0, backgroundColor: theme.surfaceContainer }]}>
         <AppNavigation />
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  appBar: {
-    height: 56,
-    flexDirection: "row",
-    alignItems: "center",
-    borderBottomWidth: StyleSheet.hairlineWidth
-  },
-  backButton: { width: 56, height: 56, alignItems: "center", justifyContent: "center" },
-  appBarTitle: { flex: 1, fontSize: 18, fontWeight: "700", marginRight: 8 },
-  headerActions: { flexDirection: "row", alignItems: "center", paddingRight: 4 },
-  headerIconButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
-  selectionActions: { flexDirection: "row", alignItems: "center", paddingRight: 4 },
   listContent: { flexGrow: 1 },
   row: {
     flexDirection: "row",

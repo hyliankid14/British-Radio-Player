@@ -1,8 +1,9 @@
 import React, { useState } from "react";
 import { Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
+import { ScreenHeader } from "../../src/components/ScreenHeader";
 import { Podcast, Episode, decodeXmlEntities } from "../../src/api/podcasts";
 import { useAppTheme } from "../../src/theme/colors";
 import { usePlayerStore } from "../../src/store/playerStore";
@@ -30,7 +31,12 @@ export default function EpisodeDetailModal() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ podcastData?: string; episodeData?: string }>();
   const [descriptionModalVisible, setDescriptionModalVisible] = useState(false);
-  const { playEpisode, pause, resume, stop, isPlaying, currentEpisode } = usePlayerStore();
+  const playEpisode = usePlayerStore((s) => s.playEpisode);
+  const pause = usePlayerStore((s) => s.pause);
+  const resume = usePlayerStore((s) => s.resume);
+  const stop = usePlayerStore((s) => s.stop);
+  const isPlaying = usePlayerStore((s) => s.isPlaying);
+  const currentEpisode = usePlayerStore((s) => s.currentEpisode);
 
   let podcast: Podcast | null = null;
   let episode: Episode | null = null;
@@ -56,11 +62,12 @@ export default function EpisodeDetailModal() {
 
   if (!podcast || !episode) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.surfaceContainer }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <MaterialIcons name="arrow-back" size={24} color={theme.onSurface} />
-        </TouchableOpacity>
-      </SafeAreaView>
+      <View style={[styles.container, { backgroundColor: theme.surfaceContainer }]}>
+        <ScreenHeader
+          title=""
+          navigationAction={{ label: "Back", onPress: () => router.back() }}
+        />
+      </View>
     );
   }
 
@@ -91,15 +98,11 @@ export default function EpisodeDetailModal() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.surfaceContainer }]} edges={["top"]}>
-      <View style={[styles.appBar, { borderBottomColor: theme.outlineVariant }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton} accessibilityLabel="Back">
-          <MaterialIcons name="arrow-back" size={24} color={theme.onSurface} />
-        </TouchableOpacity>
-        <Text style={[styles.appBarTitle, { color: theme.onSurface }]} numberOfLines={1}>
-          {decodeXmlEntities(podcast.title)}
-        </Text>
-      </View>
+    <View style={[styles.container, { backgroundColor: theme.surfaceContainer }]}>
+      <ScreenHeader
+        title={decodeXmlEntities(podcast.title)}
+        navigationAction={{ label: "Back", onPress: () => router.back() }}
+      />
 
       <ScrollView
         contentContainerStyle={[styles.scrollContent, { paddingBottom: 192 + insets.bottom }]}
@@ -247,15 +250,12 @@ export default function EpisodeDetailModal() {
           </ScrollView>
         </View>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  appBar: { height: 56, flexDirection: "row", alignItems: "center", borderBottomWidth: StyleSheet.hairlineWidth },
-  backButton: { width: 56, height: 56, alignItems: "center", justifyContent: "center" },
-  appBarTitle: { flex: 1, fontSize: 18, fontWeight: "700", marginRight: 16 },
   scrollContent: { alignItems: "center", paddingTop: 16 },
   artwork: { width: "62%", aspectRatio: 1, maxWidth: 280, borderRadius: 2 },
   artworkFallback: { width: "62%", aspectRatio: 1, maxWidth: 280, alignItems: "center", justifyContent: "center" },

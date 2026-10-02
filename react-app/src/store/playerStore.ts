@@ -24,6 +24,11 @@ import { trackEpisodePlay, trackStationPlay } from "../analytics/analytics";
 import { getStationIdentArtwork } from "../utils/stationIdents";
 
 import { probeGeoBlock, isStationUkOnly } from "../utils/geoBlock";
+import {
+  recordListeningSeconds,
+  recordEpisodeCompleted,
+  requestReviewIfEligible
+} from "../reviews/reviewManager.ts";
 
 interface PlayerState {
   currentStation: Station | null;
@@ -62,6 +67,55 @@ interface PlayerState {
 }
 
 let showInfoInterval: any = null;
+
+/**
+ * Resume position is only useful to roughly the second, but persisting it on every
+ * `PlaybackProgressUpdated` meant a synchronous MMKV write once a second, each one firing
+ * every `Preferences.onChanged` listener. Writes are therefore bucketed to
+ * `PROGRESS_WRITE_INTERVAL_SECONDS`, and the in-store `positionSeconds` still updates every
+ * tick so the seek bar and time readouts stay smooth. Anything that ends or repositions
+ * playback flushes explicitly, so a normal pause, stop or seek always persists exactly.
+ */
+const PROGRESS_WRITE_INTERVAL_SECONDS = 5;
+let pendingProgress: { episodeId: string; seconds: number } | null = null;
+let lastProgressBucket = -1;
+
+function queueEpisodeProgressWrite(episodeId: string, positionSeconds: number): void {
+  pendingProgress = { episodeId, seconds: positionSeconds };
+  const bucket = Math.floor(positionSeconds / PROGRESS_WRITE_INTERVAL_SECONDS);
+  if (bucket === lastProgressBucket) return;
+  flushEpisodeProgress();
+}
+
+/** Persists any bucketed resume position immediately. */
+export function flushEpisodeProgress(): void {
+  const pending = pendingProgress;
+  if (!pending) return;
+  pendingProgress = null;
+  lastProgressBucket = Math.floor(pending.seconds / PROGRESS_WRITE_INTERVAL_SECONDS);
+  Preferences.setEpisodeProgress(pending.episodeId, pending.seconds);
+}
+
+/** Drops the bucketed position, for when the episode it belongs to no longer needs it. */
+function discardPendingProgress(): void {
+  pendingProgress = null;
+  lastProgressBucket = -1;
+}
+
+let activePlaybackSegmentStartMs = 0;
+let continuousPlaybackStartMs = 0;
+let listeningFlushTimer: ReturnType<typeof setInterval> | null = null;
+
+export function flushActiveListeningTime(): number {
+  if (activePlaybackSegmentStartMs === 0) return 0;
+  const now = Date.now();
+  const elapsedSec = Math.floor((now - activePlaybackSegmentStartMs) / 1000);
+  activePlaybackSegmentStartMs = now;
+  if (elapsedSec > 0) {
+    recordListeningSeconds(elapsedSec);
+  }
+  return elapsedSec;
+}
 
 function startShowInfoInterval() {
   if (showInfoInterval) clearInterval(showInfoInterval);
@@ -350,7 +404,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     }
 
     try {
-      // Station is loaded: perform a fresh check on RMS data immediately
+      // The stream is up, so prefer a fresh read here. `fetchShowInfo` de-duplicates
+      // per station, so when the tune-in fetch above is still in flight this joins it
+      // rather than issuing a second identical pair of requests and discarding the first.
       const show =
         (await fetchShowInfo(station.id, true).catch(() => null)) ||
         (await initialShowPromise) ||
@@ -432,6 +488,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     stationCandidateIndex = 0;
     resetStationRmsDelay();
     stopShowInfoInterval();
+    // The previous episode's position belongs to the previous episode.
+    discardPendingProgress();
     const podId = (podcast?.id || episode?.podcastId || "").trim();
     const epId = (episode?.id || "").trim();
     const podTitle = (podcast?.title || (episode as any)?.podcastTitle || "").trim();
@@ -566,12 +624,15 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
           currentEpisode.durationMins
         );
         if (shouldMarkEpisodePlayed(positionSeconds, effectiveDuration)) {
+          discardPendingProgress();
           Preferences.markEpisodePlayed(
             currentEpisode.id,
             currentEpisode.podcastId,
             parsePodcastDateEpoch(currentEpisode.pubDate),
             { keepDownload: true }
           );
+        } else {
+          flushEpisodeProgress();
         }
       }
     } catch (e) {
@@ -595,6 +656,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         currentEpisode.durationMins
       );
       if (shouldMarkEpisodePlayed(positionSeconds, effectiveDuration)) {
+        discardPendingProgress();
         Preferences.markEpisodePlayed(
           currentEpisode.id,
           currentEpisode.podcastId,
@@ -602,6 +664,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         );
         deleteDownloadWhenPlayed(currentEpisode.id);
         pruneDownloads();
+      } else {
+        flushEpisodeProgress();
       }
     }
 
@@ -710,8 +774,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   toggleFavorite: (stationId: string) => {
-    Preferences.toggleFavorite(stationId);
+    const isFav = Preferences.toggleFavorite(stationId);
     set({ favorites: Preferences.getFavorites() });
+    if (isFav) {
+      setTimeout(() => void requestReviewIfEligible("favorite_station_added"), 2000);
+    }
   },
 
   setFavoritesOrder: (orderedIds: string[]) => {
@@ -735,6 +802,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const alreadyPlayed = Preferences.isEpisodePlayed(currentEpisode.id);
     if (shouldMarkEpisodePlayed(positionSeconds, effectiveDuration)) {
       if (!alreadyPlayed) {
+        // Marking played deletes the stored progress, so a queued write for this episode
+        // must not resurrect it afterwards.
+        discardPendingProgress();
         Preferences.markEpisodePlayed(
           currentEpisode.id,
           currentEpisode.podcastId,
@@ -744,7 +814,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         );
       }
     } else if (!alreadyPlayed) {
-      Preferences.setEpisodeProgress(currentEpisode.id, positionSeconds);
+      queueEpisodeProgressWrite(currentEpisode.id, positionSeconds);
     }
   },
 
@@ -757,6 +827,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     );
     const target = Math.max(0, effectiveDuration > 0 ? Math.min(seconds, effectiveDuration) : seconds);
     set({ positionSeconds: target });
+    // A seek repositions playback, so the queued position is now wrong.
+    if (currentEpisode) flushEpisodeProgress();
     try {
       await TrackPlayer.seekTo(target);
     } catch (error) {
@@ -767,6 +839,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       if (target >= effectiveDuration - 1) {
         void get().handleEpisodeEnded();
       } else if (shouldMarkEpisodePlayed(target, effectiveDuration)) {
+        discardPendingProgress();
         Preferences.markEpisodePlayed(
           currentEpisode.id,
           currentEpisode.podcastId,
@@ -808,11 +881,14 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       ScrobbleManager.onPlaybackStopped();
       // Playback is over, so the file is free to go once the episode counts as played.
       setDownloadInUseEpisode(null);
+      discardPendingProgress();
       Preferences.markEpisodePlayed(
         currentEpisode.id,
         currentEpisode.podcastId,
         parsePodcastDateEpoch(currentEpisode.pubDate)
       );
+      recordEpisodeCompleted();
+      setTimeout(() => void requestReviewIfEligible("episode_ended"), 1500);
       set({ positionSeconds: 0, isPlaying: false, isBuffering: false });
 
       // Auto-delete the download once the episode finishes, mirroring the Kotlin app.
@@ -1009,10 +1085,28 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   handlePlaybackState: (state: State) => {
     if (state === State.Playing) {
+      if (activePlaybackSegmentStartMs === 0) {
+        activePlaybackSegmentStartMs = Date.now();
+        if (continuousPlaybackStartMs === 0) {
+          continuousPlaybackStartMs = activePlaybackSegmentStartMs;
+        }
+      }
+      if (!listeningFlushTimer) {
+        listeningFlushTimer = setInterval(() => {
+          flushActiveListeningTime();
+        }, 15000);
+      }
       set({ isPlaying: true, isBuffering: false, playbackError: null });
     } else if (state === State.Buffering || state === State.Loading) {
       set({ isBuffering: true });
     } else if (state === State.Ended) {
+      if (listeningFlushTimer) {
+        clearInterval(listeningFlushTimer);
+        listeningFlushTimer = null;
+      }
+      flushActiveListeningTime();
+      activePlaybackSegmentStartMs = 0;
+      continuousPlaybackStartMs = 0;
       set({ isPlaying: false, isBuffering: false });
       if (get().currentEpisode) {
         void get().handleEpisodeEnded();
@@ -1022,8 +1116,29 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         // Ignore transient stopped state while TrackPlayer resets and buffers a new track/candidate
         return;
       }
+      if (listeningFlushTimer) {
+        clearInterval(listeningFlushTimer);
+        listeningFlushTimer = null;
+      }
+      flushActiveListeningTime();
+      const continuousDurationSec =
+        continuousPlaybackStartMs > 0
+          ? Math.floor((Date.now() - continuousPlaybackStartMs) / 1000)
+          : 0;
+      activePlaybackSegmentStartMs = 0;
+      continuousPlaybackStartMs = 0;
       set({ isPlaying: false, isBuffering: false });
+      if (continuousDurationSec >= 1200) {
+        setTimeout(() => void requestReviewIfEligible("long_playback_paused"), 1500);
+      }
     } else if (state === State.Error) {
+      if (listeningFlushTimer) {
+        clearInterval(listeningFlushTimer);
+        listeningFlushTimer = null;
+      }
+      flushActiveListeningTime();
+      activePlaybackSegmentStartMs = 0;
+      continuousPlaybackStartMs = 0;
       const { currentStation } = get();
       if (currentStation && stationBeingPlayed?.id === currentStation.id) {
         void tryNextStationCandidate(stationPlaybackSessionId, "State.Error");

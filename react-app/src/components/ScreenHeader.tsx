@@ -49,13 +49,24 @@ export function HeaderIconButton({
   );
 }
 
+export interface ScreenHeaderAction {
+  icon: React.ComponentProps<typeof MaterialIcons>["name"];
+  label: string;
+  onPress: () => void;
+  disabled?: boolean;
+  color?: string;
+}
+
 export interface ScreenHeaderProps {
   title: string;
   navigationAction?: {
     icon?: React.ComponentProps<typeof MaterialIcons>["name"];
     label: string;
     onPress: () => void;
+    color?: string;
   };
+  /** Declarative trailing buttons. Ignored when `rightActions` is supplied. */
+  actions?: ScreenHeaderAction[];
   rightActions?: React.ReactNode;
   style?: StyleProp<ViewStyle>;
   titleStyle?: StyleProp<TextStyle>;
@@ -65,6 +76,7 @@ export interface ScreenHeaderProps {
 export function ScreenHeader({
   title,
   navigationAction,
+  actions,
   rightActions,
   style,
   titleStyle,
@@ -104,7 +116,7 @@ export function ScreenHeader({
             <MaterialIcons
               name={navigationAction.icon ?? "arrow-back"}
               size={24}
-              color={theme.onSurface}
+              color={navigationAction.color ?? theme.onSurface}
             />
           </TouchableOpacity>
         ) : null}
@@ -115,8 +127,20 @@ export function ScreenHeader({
           {title}
         </Text>
       </View>
-      {rightActions ? (
-        <View style={styles.actionsContainer}>{rightActions}</View>
+      {actions || rightActions ? (
+        <View style={styles.actionsContainer}>
+          {actions?.map((action) => (
+            <HeaderIconButton
+              key={action.label}
+              icon={action.icon}
+              onPress={action.onPress}
+              accessibilityLabel={action.label}
+              disabled={action.disabled}
+              color={action.color}
+            />
+          ))}
+          {rightActions}
+        </View>
       ) : null}
     </View>
   );

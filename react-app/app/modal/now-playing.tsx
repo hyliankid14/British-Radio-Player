@@ -8,17 +8,21 @@ import {
   ActivityIndicator,
   Share,
   ScrollView,
-  Modal
+  Modal,
+  Platform,
+  StatusBar as RNStatusBar
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import TrackPlayer from "react-native-track-player";
 import { MaterialIcons } from "@expo/vector-icons";
 import { usePlayerStore } from "../../src/store/playerStore";
 import { formatShowDisplayTitle, isPlaceholderArtwork } from "../../src/api/showInfo";
+import { resolveRadioNowPlayingTitles } from "../../src/utils/nowPlayingTitles";
 import { StationRepository } from "../../src/data/stations";
 import { Podcast, Episode, PodcastApi, decodeXmlEntities } from "../../src/api/podcasts";
 import { useAppTheme } from "../../src/theme/colors";
+import { ScreenHeader, HeaderIconButton } from "../../src/components/ScreenHeader";
 import { StationLogo, getStationTint } from "../../src/components/StationLogo";
 import { SeekBar } from "../../src/components/SeekBar";
 import { Preferences } from "../../src/storage/preferences";
@@ -121,6 +125,11 @@ export default function NowPlayingModal() {
     episodeData?: string;
   }>();
   const theme = useAppTheme();
+  const insets = useSafeAreaInsets();
+  const topInset = Math.max(
+    insets.top,
+    Platform.OS === "android" ? (RNStatusBar.currentHeight ?? 0) : 0
+  );
   const responsive = useResponsiveLayout();
   const [artworkViewportHeight, setArtworkViewportHeight] = React.useState(0);
   const [detailsBlockHeight, setDetailsBlockHeight] = React.useState(0);
@@ -138,28 +147,29 @@ export default function NowPlayingModal() {
       ),
     [responsive.nowPlayingArtworkSize, artworkViewportHeight, detailsBlockHeight]
   );
-  const {
-    currentStation,
-    currentShow,
-    currentPodcast,
-    currentEpisode,
-    isPlaying,
-    isBuffering,
-    togglePlayPause,
-    stop,
-    playNext,
-    playPrevious,
-    favorites,
-    toggleFavorite,
-    positionSeconds,
-    durationSeconds,
-    seekTo,
-    seekBy,
-    toggleEpisodePlayed,
-    resume,
-    playEpisode,
-    playStation
-  } = usePlayerStore();
+  // Per-field selectors. `positionSeconds` and `durationSeconds` are genuinely needed here —
+  // this screen owns the seek bar — but a whole-store subscription also made it rebuild on
+  // writes it never renders, such as `favorites` or `playbackError`.
+  const currentStation = usePlayerStore((s) => s.currentStation);
+  const currentShow = usePlayerStore((s) => s.currentShow);
+  const currentPodcast = usePlayerStore((s) => s.currentPodcast);
+  const currentEpisode = usePlayerStore((s) => s.currentEpisode);
+  const isPlaying = usePlayerStore((s) => s.isPlaying);
+  const isBuffering = usePlayerStore((s) => s.isBuffering);
+  const positionSeconds = usePlayerStore((s) => s.positionSeconds);
+  const durationSeconds = usePlayerStore((s) => s.durationSeconds);
+  const favorites = usePlayerStore((s) => s.favorites);
+  const togglePlayPause = usePlayerStore((s) => s.togglePlayPause);
+  const stop = usePlayerStore((s) => s.stop);
+  const playNext = usePlayerStore((s) => s.playNext);
+  const playPrevious = usePlayerStore((s) => s.playPrevious);
+  const toggleFavorite = usePlayerStore((s) => s.toggleFavorite);
+  const seekTo = usePlayerStore((s) => s.seekTo);
+  const seekBy = usePlayerStore((s) => s.seekBy);
+  const toggleEpisodePlayed = usePlayerStore((s) => s.toggleEpisodePlayed);
+  const resume = usePlayerStore((s) => s.resume);
+  const playEpisode = usePlayerStore((s) => s.playEpisode);
+  const playStation = usePlayerStore((s) => s.playStation);
 
   const previewPodcast = React.useMemo<Podcast | null>(() => {
     try {
@@ -192,7 +202,12 @@ export default function NowPlayingModal() {
   const [isPlayed, setIsPlayed] = React.useState(false);
   const [isSaved, setIsSaved] = React.useState(false);
   const [isSubscribed, setIsSubscribed] = React.useState(false);
-  const [localPosition, setLocalPosition] = React.useState(positionSeconds);
+  // Seeded from the store only when this screen is showing the live episode. A
+  // preview is a different episode, so inheriting the running episode's position
+  // made the scrubber open at wherever the previous episode had got to.
+  const [localPosition, setLocalPosition] = React.useState(
+    previewEpisode ? Preferences.getEpisodeProgress(previewEpisode.id) : positionSeconds
+  );
   const [dragging, setDragging] = React.useState(false);
   const seekingUntilRef = React.useRef(0);
   const seekCooldownTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -205,7 +220,12 @@ export default function NowPlayingModal() {
     []
   );
 
-  const isPodcast = !currentStation && (!!activeEpisode || !!activePodcast);
+  // A preview is an explicit choice the user just made on this screen — a search
+  // hit, a saved episode, a podcast-detail row. It outranks whatever happens to
+  // be playing: gating on `!currentStation` meant a live station masked the
+  // preview permanently, so tapping a search result during radio showed the
+  // station instead of the episode that was tapped.
+  const isPodcast = isPreview || (!currentStation && (!!activeEpisode || !!activePodcast));
 
   const cleanDescription = React.useMemo(() => {
     if (!isPodcast || !activeEpisode?.description) return "";
@@ -240,21 +260,21 @@ export default function NowPlayingModal() {
   const hasCustomArtwork = !!artworkUrl;
   const showTitle = currentShow ? formatShowDisplayTitle(currentShow) : "Radio";
 
-  const radioShowName =
-    currentShow?.title && currentShow.title !== "BBC Radio"
-      ? currentShow.title
-      : currentStation?.title || currentShow?.title || "Radio";
-
-  const artistTrack = isSongPlaying
-    ? [currentShow?.artist?.trim(), currentShow?.track?.trim()]
-        .filter(Boolean)
-        .join(" - ")
-    : "";
-  const radioSubtitle = isSongPlaying
-    ? artistTrack
-    : (currentShow?.episodeTitle && currentShow.episodeTitle !== radioShowName)
-      ? `${radioShowName} - ${currentShow.episodeTitle}`
-      : (radioShowName !== currentStation?.title ? radioShowName : undefined);
+  const radioTitles = React.useMemo(() => {
+    return resolveRadioNowPlayingTitles({
+      stationTitle: currentStation?.title,
+      showTitle: currentShow?.title,
+      episodeTitle: currentShow?.episodeTitle,
+      artist: currentShow?.artist,
+      track: currentShow?.track
+    });
+  }, [
+    currentStation?.title,
+    currentShow?.title,
+    currentShow?.episodeTitle,
+    currentShow?.artist,
+    currentShow?.track
+  ]);
 
   React.useEffect(() => {
     setImageError(false);
@@ -383,8 +403,24 @@ export default function NowPlayingModal() {
   }, [isPreview, stop, router]);
 
   const handlePlayPause = React.useCallback(async () => {
-    if (isPreview && previewPodcast && previewEpisode) {
-      await playEpisode(previewPodcast, previewEpisode);
+    // Keyed on previewEpisode alone. Requiring previewPodcast as well meant a
+    // missing podcast payload fell through to togglePlayPause(), which resumed
+    // whatever was already playing — the wrong episode, from its own saved
+    // position. playEpisode copes with a sparse podcast, so supply the minimum
+    // it needs rather than playing the wrong thing.
+    if (isPreview && previewEpisode) {
+      const podcast: Podcast =
+        previewPodcast ?? {
+          id: previewEpisode.podcastId || "",
+          title: "",
+          description: "",
+          rssUrl: "",
+          htmlUrl: "",
+          imageUrl: previewEpisode.imageUrl || "",
+          genres: [],
+          typicalDurationMins: previewEpisode.durationMins || 0
+        };
+      await playEpisode(podcast, previewEpisode);
     } else {
       await togglePlayPause();
     }
@@ -401,7 +437,7 @@ export default function NowPlayingModal() {
 
   if (!currentStation && !isPodcast) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.surfaceContainer }]}>
+      <View style={[styles.container, { backgroundColor: theme.surfaceContainer, paddingTop: topInset }]}>
         <View style={styles.emptyContainer}>
           <Text style={[styles.emptyText, { color: theme.onSurface }]}>Nothing playing</Text>
           <TouchableOpacity
@@ -411,16 +447,14 @@ export default function NowPlayingModal() {
             <Text style={styles.closeButtonText}>Close</Text>
           </TouchableOpacity>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   const isFav = currentStation ? favorites.includes(currentStation.id) : false;
   const headerTitle = isPodcast
     ? activePodcast?.title || "Podcast"
-    : currentStation
-    ? currentStation.title
-    : "Radio";
+    : radioTitles.headerTitle;
   const background = palette?.subtle || theme.surfaceContainer;
   const outlineColour = palette?.buttonOutline || theme.surfaceVariant;
   const playPauseColour = palette?.playPause || theme.primary;
@@ -512,32 +546,28 @@ export default function NowPlayingModal() {
   );
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: background }]}>
-      <View style={[styles.topAppBar, { backgroundColor: background }]}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={styles.navButton}
-          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-        >
-          <MaterialIcons name="arrow-back" size={24} color={screenTextColor} />
-        </TouchableOpacity>
-
-        <Text style={[styles.appBarTitle, { color: screenTextColor }]} numberOfLines={1}>
-          {headerTitle}
-        </Text>
-
-        <View style={styles.appBarActions}>
-          {isPodcast ? (
-            <TouchableOpacity
-              onPress={() => setMenuVisible(true)}
-              style={styles.navButton}
+    <View style={[styles.container, { backgroundColor: background }]}>
+      <ScreenHeader
+        title={headerTitle}
+        style={{ backgroundColor: background }}
+        titleStyle={{ color: screenTextColor }}
+        navigationAction={{
+          label: "Back",
+          onPress: () => router.back(),
+          icon: "arrow-back",
+          color: screenTextColor
+        }}
+        rightActions={
+          isPodcast ? (
+            <HeaderIconButton
+              icon="more-vert"
               accessibilityLabel="More options"
-            >
-              <MaterialIcons name="more-vert" size={24} color={screenTextColor} />
-            </TouchableOpacity>
-          ) : null}
-        </View>
-      </View>
+              color={screenTextColor}
+              onPress={() => setMenuVisible(true)}
+            />
+          ) : null
+        }
+      />
 
       <OfflineBanner />
       <VpnBanner />
@@ -574,7 +604,7 @@ export default function NowPlayingModal() {
           onLayout={(e) => setDetailsBlockHeight(e.nativeEvent.layout.height)}
         >
           <Text style={[styles.showName, { color: screenTextColor }]} numberOfLines={2}>
-            {isPodcast ? decodeXmlEntities(activeEpisode?.title || "") : (currentStation?.title || radioShowName)}
+            {isPodcast ? decodeXmlEntities(activeEpisode?.title || "") : radioTitles.primaryTitle}
           </Text>
 
           {isPodcast ? (
@@ -585,15 +615,15 @@ export default function NowPlayingModal() {
             ) : null
           ) : (
             <>
-              {currentShow?.nextShowTitle ? (
-                <Text style={[styles.nextShow, { color: screenSecondaryTextColor }]} numberOfLines={2}>
-                  Up next: {currentShow.nextShowTitle}
+              {radioTitles.secondaryTitle ? (
+                <Text style={[styles.episodeTitle, { color: screenTextColor }]} numberOfLines={2}>
+                  {radioTitles.secondaryTitle}
                 </Text>
               ) : null}
 
-              {radioSubtitle ? (
-                <Text style={[styles.episodeTitle, { color: screenTextColor }]} numberOfLines={2}>
-                  {radioSubtitle}
+              {currentShow?.nextShowTitle ? (
+                <Text style={[styles.nextShow, { color: screenSecondaryTextColor }]} numberOfLines={2}>
+                  Up next: {currentShow.nextShowTitle}
                 </Text>
               ) : null}
             </>
@@ -761,7 +791,10 @@ export default function NowPlayingModal() {
             if (isPodcast && activeEpisode && activePodcast) {
               const saved = Preferences.toggleSavedEpisode(toSavedEpisodeEntry(activePodcast, activeEpisode));
               setIsSaved(saved);
-            } else if (currentStation) {
+            } else if (currentStation && !isPreview) {
+              // Never reached while previewing an episode: a station is still
+              // loaded then, and toggling a station favourite from an episode
+              // screen would save the wrong thing.
               toggleFavorite(currentStation.id);
             }
           }}
@@ -926,7 +959,7 @@ export default function NowPlayingModal() {
           </View>
         </TouchableOpacity>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -934,28 +967,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1
   },
-  topAppBar: {
-    height: 56,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 4,
-    elevation: 4
-  },
-  appBarActions: {
-    flexDirection: "row",
-    alignItems: "center"
-  },
   navButton: {
     width: 44,
     height: 44,
     alignItems: "center",
     justifyContent: "center"
-  },
-  appBarTitle: {
-    flex: 1,
-    fontSize: 20,
-    fontWeight: "600",
-    marginHorizontal: 4
   },
   scrollContent: {
     alignItems: "center",

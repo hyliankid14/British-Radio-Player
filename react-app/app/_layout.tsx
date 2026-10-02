@@ -6,7 +6,7 @@ import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-c
 import TrackPlayer from "react-native-track-player";
 import { Alert, AppState, LogBox, Platform, StatusBar as RNStatusBar, Dimensions } from "react-native";
 import { setupPlayer, playbackService } from "../src/audio/trackPlayerService";
-import { usePlayerStore } from "../src/store/playerStore";
+import { usePlayerStore, flushEpisodeProgress } from "../src/store/playerStore";
 import { initAutoSync } from "../src/auto/autoSync";
 import { runLegacyMigration } from "../src/storage/legacyMigration";
 import { useAppTheme, useIsDarkTheme } from "../src/theme/colors";
@@ -34,7 +34,7 @@ import {
   LAUNCH_INTENT_DEDUPE_MS,
   type NavigationStateLike
 } from "../src/navigation/launchNavigation";
-import { Preferences } from "../src/storage/preferences";
+import { Preferences, invalidatePreferencesCache } from "../src/storage/preferences";
 import { readPersistentRecentScrobblesAsync } from "../src/storage/persistentScrobbles";
 import { NativeAndroid, AlarmLaunch } from "../src/native/nativeAndroid";
 import { StationRepository } from "../src/data/stations";
@@ -50,6 +50,7 @@ import {
   type WidgetLiveState
 } from "../src/widgets/widgetSync";
 import { syncIosWidgetState } from "../src/widgets/widgetIos";
+import { initReviewManager, recordSessionStart } from "../src/reviews/reviewManager";
 
 LogBox.ignoreAllLogs();
 
@@ -79,31 +80,67 @@ initAutoSync();
 // Sync favourites, subscriptions and progress with the Wear OS companion.
 initWearSync();
 
+// Initialize review prompt metrics and lifecycle monitoring.
+initReviewManager();
+
 // Re-push to the watch whenever preferences change, and reconfigure background sync when
 // subscription or refresh settings change.
 let backgroundSyncTimer: ReturnType<typeof setTimeout> | null = null;
+let autoCheckTimer: ReturnType<typeof setTimeout> | null = null;
+let wearSyncTimer: ReturnType<typeof setTimeout> | null = null;
+
 Preferences.onChanged((key) => {
-  pushWearState();
-  if (key.includes("subscrib") || key.includes("refresh") || key.includes("wifi") || key.includes("notif")) {
+  // Push wear state only for relevant keys, debounced to avoid thrashing the bridge
+  if (
+    key === "pref_favorite_stations" ||
+    key === "pref_subscribed_podcasts" ||
+    key === "pref_played_episode_ids" ||
+    key === "pref_podcast_history" ||
+    key.startsWith("pref_lastfm_")
+  ) {
+    if (wearSyncTimer) clearTimeout(wearSyncTimer);
+    wearSyncTimer = setTimeout(() => void pushWearState(), 1000);
+  }
+
+  if (
+    key === "pref_subscription_refresh" ||
+    key === "pref_download_wifi" ||
+    key === "pref_subscribed_podcasts" ||
+    key === "pref_index_notifications" ||
+    key.startsWith("pref_podcast_notif_")
+  ) {
     if (backgroundSyncTimer) clearTimeout(backgroundSyncTimer);
     backgroundSyncTimer = setTimeout(() => void syncBackgroundSync(), 1500);
   }
-  if (key.includes("refresh")) {
+  if (key === "pref_subscription_refresh") {
     void registerBackgroundTask();
   }
-  if (
-    key.includes("subscrib") ||
-    key.includes("download") ||
-    key.includes("notif") ||
-    key.includes("search") ||
-    key.includes("sort") ||
-    key.includes("played")
-  ) {
-    void runAutoDownload();
-    void pruneDownloads();
-    void checkSubscriptionsForNewEpisodes();
-    void checkForNewPodcasts();
-    void checkSavedSearchesForNewEpisodes();
+
+  // Trigger auto-download / catalogue check ONLY for configuration or content keys,
+  // never for internal timestamps, recorded downloads, playback progress, or notifications state.
+  const isAutoCheckTrigger =
+    key === "pref_auto_download" ||
+    key === "pref_auto_download_limit" ||
+    key === "pref_auto_download_saved" ||
+    key === "pref_max_downloads" ||
+    key === "pref_delete_played" ||
+    key === "pref_download_wifi" ||
+    key === "pref_subscribed_podcasts" ||
+    key === "pref_podcast_episode_sort" ||
+    key === "pref_played_episode_ids" ||
+    key === "pref_podcast_playlist_entries" ||
+    key === "pref_saved_searches" ||
+    key.startsWith("pref_podcast_notif_");
+
+  if (isAutoCheckTrigger) {
+    if (autoCheckTimer) clearTimeout(autoCheckTimer);
+    autoCheckTimer = setTimeout(() => {
+      void runAutoDownload();
+      void pruneDownloads();
+      void checkSubscriptionsForNewEpisodes();
+      void checkForNewPodcasts();
+      void checkSavedSearchesForNewEpisodes();
+    }, 2000);
   }
 });
 
@@ -303,16 +340,50 @@ export default function RootLayout() {
     return () => clearTimeout(timer);
   }, []);
 
-  // Run auto-download, new-episode check, and saved-search check while the app is open,
-  // and whenever it returns to the foreground.
-  useEffect(() => {
-    void runAutoDownload();
-    void checkSubscriptionsForNewEpisodes();
-    void checkForNewPodcasts();
-    void checkSavedSearchesForNewEpisodes();
-    void registerBackgroundTask();
+/**
+ * Minimum gap between foreground sweeps. iOS also reports `active` for notification-centre
+ * and control-centre interactions, so without this the five sweeps below could run many
+ * times a minute, each fetching RSS feeds.
+ */
+const FOREGROUND_SWEEP_MIN_INTERVAL_MS = 60_000;
+let lastForegroundSweepAtMs = 0;
+
+// Run auto-download, new-episode check, and saved-search check while the app is open,
+// and whenever it returns to the foreground.
+useEffect(() => {
+    // Defer the first background sync so app mount, initial navigation,
+    // and player initialization are completely unhindered on launch. This one is not
+    // rate-limited: it is the cold-start sweep, and it sets the clock for later ones.
+    const startupTimer = setTimeout(() => {
+      lastForegroundSweepAtMs = Date.now();
+      void runAutoDownload();
+      void checkSubscriptionsForNewEpisodes();
+      void checkForNewPodcasts();
+      void checkSavedSearchesForNewEpisodes();
+      void registerBackgroundTask();
+    }, 2500);
+
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") {
+        // The native background worker runs in its own process against the same
+        // multi-process store, so drop the parsed-value caches before reading anything:
+        // they were built from a snapshot taken before the app went to the background.
+        invalidatePreferencesCache();
+        recordSessionStart();
+        const now = Date.now();
+        if (now - lastForegroundSweepAtMs < FOREGROUND_SWEEP_MIN_INTERVAL_MS) {
+          // Too soon for the content sweeps, but still drain anything the native side
+          // queued while we were away.
+          const recentWidgetAction = NativeAndroid.consumeWidgetAction();
+          if (recentWidgetAction) void handleWidgetAction(recentWidgetAction);
+          const recentAlarm = NativeAndroid.consumeAlarmLaunch();
+          if (recentAlarm) void handleAlarmPlayback(recentAlarm);
+          const recentNotifUrl = NativeAndroid.consumeNotificationLaunch();
+          if (recentNotifUrl) navigateToTarget(recentNotifUrl);
+          return;
+        }
+        lastForegroundSweepAtMs = now;
+
         const widgetAction = NativeAndroid.consumeWidgetAction();
         if (widgetAction) {
           void handleWidgetAction(widgetAction);
@@ -330,15 +401,31 @@ export default function RootLayout() {
         void checkSubscriptionsForNewEpisodes();
         void checkForNewPodcasts();
         void checkSavedSearchesForNewEpisodes();
+      } else {
+        // Leaving the foreground is the last safe moment to persist a bucketed resume
+        // position, since the process can be killed while suspended.
+        flushEpisodeProgress();
       }
     });
-    return () => subscription.remove();
+    return () => {
+      clearTimeout(startupTimer);
+      subscription.remove();
+    };
   }, [navigateToTarget, handleAlarmPlayback, handleWidgetAction]);
 
   useEffect(() => {
     async function start() {
       await setupPlayer();
       await initStore();
+
+      // Reclaim the per-episode MMKV keys that only ever accumulate. Deferred until here so
+      // it never competes with app mount, and so the store is ready if playback is restored.
+      try {
+        const pruned = Preferences.pruneStalePerEpisodeKeys();
+        if (pruned > 0) console.log(`Pruned ${pruned} stale preference entries`);
+      } catch (err) {
+        console.warn("Preference prune failed:", err);
+      }
 
       // Ensure radio alarm is scheduled from preferences (especially on iOS)
       void RadioAlarm.scheduleFromPreferences();

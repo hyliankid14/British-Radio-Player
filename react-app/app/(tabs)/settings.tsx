@@ -13,7 +13,9 @@ import { useRouter } from "expo-router";
 import { useAppTheme } from "../../src/theme/colors";
 import { ScreenHeader } from "../../src/components/ScreenHeader";
 import { IS_DEBUG_BUILD, appVersion } from "../../src/config/buildInfo";
+import { DISTRIBUTION_CHANNEL } from "../../src/config/distribution";
 import { OfflineBanner, VpnBanner } from "../../src/components/NetworkBanners";
+import { isStoreReviewSupported, requestManualReview } from "../../src/reviews/reviewManager";
 
 export default function SettingsScreen() {
   const theme = useAppTheme();
@@ -131,6 +133,19 @@ export default function SettingsScreen() {
         />
 
         <SectionTitle label="About" theme={theme} />
+
+        {isStoreReviewSupported() ? (
+          <>
+            <SettingsRow
+              theme={theme}
+              icon="star-rate"
+              title="Rate British Radio Player"
+              subtitle={DISTRIBUTION_CHANNEL === "ios" ? "Review on the App Store" : "Review on Google Play"}
+              onPress={() => void requestManualReview()}
+            />
+            <Divider theme={theme} />
+          </>
+        ) : null}
 
         <SettingsRow
           theme={theme}

@@ -33,22 +33,26 @@ export default function AllStationsScreen() {
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
   const [activeSubTab, setActiveSubTab] = useState<SubCategoryTab>("National");
-  const { shows, fetchShowsForStations, checkAndAdvanceShows } = useStationShowStore();
+  const shows = useStationShowStore((s) => s.shows);
+  const fetchShowsForStations = useStationShowStore((s) => s.fetchShowsForStations);
+  const checkAndAdvanceShows = useStationShowStore((s) => s.checkAndAdvanceShows);
   const [recentSongs, setRecentSongs] = useState(Preferences.getRecentSongs());
   const [selectedSong, setSelectedSong] = useState<(typeof recentSongs)[number] | null>(null);
   // Only the Songs list and the music sheet render relative times, so keep the
   // clock paused elsewhere rather than re-rendering the whole tab every minute.
   const now = useNow(60_000, activeSubTab === "Songs" || selectedSong !== null);
 
-  const {
-    currentStation,
-    currentShow,
-    isPlaying,
-    playStation,
-    togglePlayPause,
-    favorites,
-    toggleFavorite
-  } = usePlayerStore();
+  // Per-field selectors rather than one whole-store subscription: this screen renders a
+  // list of every station, so re-rendering it on every store write meant every mounted row
+  // was rebuilt once a second whenever a podcast was playing. None of the fields below
+  // change on the playback tick, so the tab now sits still while audio plays.
+  const currentStation = usePlayerStore((state) => state.currentStation);
+  const currentShow = usePlayerStore((state) => state.currentShow);
+  const isPlaying = usePlayerStore((state) => state.isPlaying);
+  const favorites = usePlayerStore((state) => state.favorites);
+  const playStation = usePlayerStore((state) => state.playStation);
+  const togglePlayPause = usePlayerStore((state) => state.togglePlayPause);
+  const toggleFavorite = usePlayerStore((state) => state.toggleFavorite);
 
   const allStations = useMemo(() => StationRepository.getAll(), []);
 
@@ -120,12 +124,10 @@ export default function AllStationsScreen() {
     return [];
   }, [allStations, activeSubTab]);
 
-  useEffect(() => {
-    if (filteredStations.length > 0) {
-      void fetchShowsForStations(filteredStations.map((s) => s.id));
-    }
-  }, [filteredStations, fetchShowsForStations]);
-
+  // One trigger, not two. Both a `useEffect` and a `useFocusEffect` keyed on the same station
+  // list used to fan out on open — and the Local category holds 44 stations, so that was 88
+  // show-info requests per visit. `fetchShowsForStations` already skips stations with a
+  // fresh cached show, so refetching on focus is what keeps returning data current.
   useFocusEffect(
     useCallback(() => {
       setRecentSongs(Preferences.getRecentSongs());

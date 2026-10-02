@@ -14,24 +14,27 @@ export function MiniPlayer() {
   const theme = useAppTheme();
   const responsive = useResponsiveLayout();
   const [, forceRefresh] = React.useState(0);
-  const {
-    currentStation,
-    currentShow,
-    currentPodcast,
-    currentEpisode,
-    isPlaying,
-    isBuffering,
-    togglePlayPause,
-    pause,
-    stop,
-    playNext,
-    playPrevious,
-    seekBy,
-    favorites,
-    toggleFavorite,
-    positionSeconds,
-    durationSeconds
-  } = usePlayerStore();
+  // Per-field selectors. This component is mounted above every tab, so a whole-store
+  // subscription made it re-render on writes that have nothing to do with what it shows —
+  // notably the `currentShow` refresh the 5s radio poll performs. It does still subscribe
+  // to `positionSeconds`, because its progress bar and time readouts are meant to move each
+  // tick.
+  const currentStation = usePlayerStore((s) => s.currentStation);
+  const currentShow = usePlayerStore((s) => s.currentShow);
+  const currentPodcast = usePlayerStore((s) => s.currentPodcast);
+  const currentEpisode = usePlayerStore((s) => s.currentEpisode);
+  const isPlaying = usePlayerStore((s) => s.isPlaying);
+  const isBuffering = usePlayerStore((s) => s.isBuffering);
+  const positionSeconds = usePlayerStore((s) => s.positionSeconds);
+  const durationSeconds = usePlayerStore((s) => s.durationSeconds);
+  const togglePlayPause = usePlayerStore((s) => s.togglePlayPause);
+  const pause = usePlayerStore((s) => s.pause);
+  const stop = usePlayerStore((s) => s.stop);
+  const playNext = usePlayerStore((s) => s.playNext);
+  const playPrevious = usePlayerStore((s) => s.playPrevious);
+  const seekBy = usePlayerStore((s) => s.seekBy);
+  const favorites = usePlayerStore((s) => s.favorites);
+  const toggleFavorite = usePlayerStore((s) => s.toggleFavorite);
 
   const isPodcast = !currentStation && (!!currentEpisode || !!currentPodcast);
   const isFav = currentStation ? favorites.includes(currentStation.id) : false;

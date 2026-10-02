@@ -14,8 +14,9 @@ import * as Linking from "expo-linking";
 import { File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
+import { ScreenHeader } from "../../src/components/ScreenHeader";
 import { Preferences, LastFmScrobbleEntry } from "../../src/storage/preferences";
 import { formatSongPlayedAt } from "../../src/utils/dateUtils";
 import { useNow } from "../../src/hooks/useNow";
@@ -41,8 +42,10 @@ import { fetchIndexStatus, IndexStatus } from "../../src/podcasts/indexStatus";
 import {
   distributionLabel,
   SHOW_GITHUB_LINK,
-  SHOW_UPDATE_BUTTON
+  SHOW_UPDATE_BUTTON,
+  DISTRIBUTION_CHANNEL
 } from "../../src/config/distribution";
+import { isStoreReviewSupported, requestManualReview } from "../../src/reviews/reviewManager";
 import { IS_DEBUG_BUILD, appVersion } from "../../src/config/buildInfo";
 import {
   checkForNewPodcasts,
@@ -146,19 +149,11 @@ export default function SettingsDetail() {
   const title = TITLES[String(section)] || "Settings";
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.surface }]} edges={["top"]}>
-      {/* Modern Material 3 / iOS Header */}
-      <View style={[styles.toolbar, { borderBottomColor: theme.outlineVariant + "25" }]}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={[styles.backButton, { backgroundColor: theme.surfaceVariant + "60" }]}
-          accessibilityLabel="Back"
-          activeOpacity={0.7}
-        >
-          <MaterialIcons name="arrow-back" size={22} color={theme.onSurface} />
-        </TouchableOpacity>
-        <Text style={[styles.toolbarTitle, { color: theme.onSurface }]}>{title}</Text>
-      </View>
+    <View style={[styles.container, { backgroundColor: theme.surface }]}>
+      <ScreenHeader
+        title={title}
+        navigationAction={{ label: "Back", onPress: () => router.back() }}
+      />
 
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: 60 + insets.bottom }]}
@@ -176,7 +171,7 @@ export default function SettingsDetail() {
         {section === "indexing" && <IndexingPage />}
         {section === "startup_page" && <StartupPage />}
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -261,7 +256,8 @@ function ThemePage() {
 
 function PlaybackPage() {
   const theme = useAppTheme();
-  const { audioQuality, setAudioQuality } = usePlayerStore();
+  const audioQuality = usePlayerStore((s) => s.audioQuality);
+  const setAudioQuality = usePlayerStore((s) => s.setAudioQuality);
   const [settings, setSettings] = useState<{
     auto: boolean;
     artwork: string;
@@ -1554,6 +1550,13 @@ function AboutPage() {
         </Text>
 
         <View style={styles.buttonGroup}>
+          {isStoreReviewSupported() ? (
+            <SecondaryButton
+              icon="star-rate"
+              label={DISTRIBUTION_CHANNEL === "ios" ? "Rate on App Store" : "Rate on Google Play"}
+              onPress={() => void requestManualReview()}
+            />
+          ) : null}
           {SHOW_GITHUB_LINK ? (
             <SecondaryButton
               icon="code"
@@ -1837,22 +1840,6 @@ function DestructiveButton({
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  toolbar: {
-    height: 60,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 12
-  },
-  toolbarTitle: { fontSize: 20, fontWeight: "700", letterSpacing: -0.2 },
   content: { paddingHorizontal: 16, paddingTop: 12 },
   sectionHeader: {
     fontSize: 12,

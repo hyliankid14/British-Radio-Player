@@ -7,6 +7,7 @@ import {
   extractPositiveQuery,
   episodeMatchesQuery,
   filterSuggestions,
+  booleanSearchCandidateQueries,
   type BooleanSearchNode
 } from "../src/utils/searchUtils.ts";
 
@@ -124,6 +125,145 @@ test("More or Less matches the show rather than anything containing more or less
   assert.equal(episodeMatchesQuery("Nothing to declare", "", "Some Show", query), false);
 });
 
+test("a lowercase or is a word, so 'More or Less' needs no boolean handling", () => {
+  const query = "More or Less";
+
+  // The operators are uppercase-only, so the phrase is an ordinary AND of three
+  // terms rather than `more OR less` — which would match nearly every podcast.
+  assert.equal(isAdvancedBooleanQuery(query), false);
+  assert.deepEqual(parseBooleanSearch(query), {
+    type: "and",
+    left: { type: "and", left: { type: "term", value: "more" }, right: { type: "term", value: "or" } },
+    right: { type: "term", value: "less" }
+  });
+
+  // Not an advanced query, so the search screen spends a single request on it
+  // and never fans out to per-alternative lookups.
+  assert.equal(extractPositiveQuery(query), query);
+
+  // All three words must be present for the show to match.
+  assert.equal(
+    episodeMatchesQuery("Is football a sport?", "Rhiannon on More or Less", "More or Less", query),
+    true
+  );
+  assert.equal(
+    episodeMatchesQuery("Less is more", "A philosophy show", "Some Show", query),
+    false
+  );
+  // Uppercase is still the operator, and does widen the query.
+  assert.equal(isAdvancedBooleanQuery("More OR Less"), true);
+});
+
+test("episodeMatchesQuery enforces quoted phrases instead of passing everything through", () => {
+  const query = '"public service broadcasting"';
+
+  // The regression: an advanced query used to enforce only its NOT terms and
+  // return true for every candidate, so the list was never filtered.
+  assert.equal(
+    episodeMatchesQuery("Bloodsports", "An unrelated episode about football.", "Some Show", query),
+    false
+  );
+  // Exact phrase in the description still matches, even when the title does not
+  // carry it — a phrase must fit across both fields.
+  assert.equal(
+    episodeMatchesQuery("Bloodsports", "A show by Public Service Broadcasting.", "Some Show", query),
+    true
+  );
+  // The words present but scattered is not a phrase match.
+  assert.equal(
+    episodeMatchesQuery(
+      "Daily",
+      "public transport and service industry broadcasting rules",
+      "News",
+      query
+    ),
+    false
+  );
+  // Quotes are narrower than the same query unquoted, which is the point.
+  const unquoted = "public service broadcasting";
+  const scattered = "Daily public transport and service industry broadcasting rules";
+  assert.equal(episodeMatchesQuery("Daily", scattered, "News", unquoted), true);
+  assert.equal(episodeMatchesQuery("Daily", scattered, "News", query), false);
+});
+
+test("episodeMatchesQuery enforces AND, OR, NOT and -term exclusions", () => {
+  // OR: either alternative satisfies the query, neither does not.
+  assert.equal(episodeMatchesQuery("Zelda", "", "S", "zelda OR link"), true);
+  assert.equal(episodeMatchesQuery("Link", "", "S", "zelda OR link"), true);
+  assert.equal(episodeMatchesQuery("Kirby", "", "S", "zelda OR link"), false);
+
+  // NOT: the excluded word is seen in the title, the description or the podcast
+  // name, whichever field it lands in.
+  assert.equal(episodeMatchesQuery("Football", "Match report", "Sport", "NOT news"), true);
+  assert.equal(episodeMatchesQuery("Football news", "Match report", "Sport", "NOT news"), false);
+  assert.equal(episodeMatchesQuery("Daily", "Match report", "News", "NOT news"), false);
+
+  // AND across a grouping: both alternatives and the trailing term are required.
+  assert.equal(
+    episodeMatchesQuery("Zelda and c", "", "S", "(zelda OR link) AND c"),
+    true
+  );
+  assert.equal(
+    episodeMatchesQuery("Zelda only", "", "S", "(zelda OR link) AND c"),
+    false
+  );
+
+  // `-term` is an exclusion operator, not a word to match.
+  assert.equal(isAdvancedBooleanQuery("football -nfl"), true);
+  assert.deepEqual(parseBooleanSearch("football -nfl"), {
+    type: "and",
+    left: { type: "term", value: "football" },
+    right: { type: "not", child: { type: "term", value: "nfl" } }
+  });
+  assert.equal(episodeMatchesQuery("Football transfer", "", "Sport", "football -nfl"), true);
+  assert.equal(episodeMatchesQuery("NFL transfer", "", "Sport", "football -nfl"), false);
+
+  // A dash with spaces around it is title punctuation, not an exclusion:
+  // "Top 40 - The Countdown Show" has to stay searchable as typed.
+  assert.equal(isAdvancedBooleanQuery("top 40 - countdown"), false);
+  assert.equal(parseBooleanSearch("top 40 - countdown")?.type, "and");
+  assert.equal(
+    episodeMatchesQuery("Top 40 - The Countdown Show", "", "Top 40", "top 40 - countdown"),
+    true
+  );
+
+  // An exclusion can still be attached to a quoted phrase.
+  assert.deepEqual(parseBooleanSearch('-"public service broadcasting"'), {
+    type: "not",
+    child: { type: "term", value: "public service broadcasting" }
+  });
+});
+
+test("booleanSearchCandidateQueries covers every alternative the index cannot express", () => {
+  // A phrase is one leaf, plus each of its words: the index ranks tokens
+  // individually and can rank the exact phrase out of a single page.
+  assert.deepEqual(booleanSearchCandidateQueries('"public service broadcasting"'), [
+    "public service broadcasting",
+    "public",
+    "service",
+    "broadcasting"
+  ]);
+
+  // OR alternatives must each be asked for, or the index ANDs them together and
+  // returns the intersection instead of the union.
+  assert.deepEqual(booleanSearchCandidateQueries("Public OR Newscast"), [
+    "public",
+    "newscast"
+  ]);
+  assert.deepEqual(booleanSearchCandidateQueries("(a OR b) AND c"), ["a", "b", "c"]);
+
+  // Excluded terms are never requested — they are subtracted on the client.
+  assert.deepEqual(booleanSearchCandidateQueries("NOT news"), []);
+  assert.deepEqual(booleanSearchCandidateQueries("news -sport"), ["news"]);
+
+  // Fan-out stays bounded so one keystroke cannot issue a request per word.
+  const many = booleanSearchCandidateQueries(
+    "alpha OR bravo OR charlie OR delta OR echo OR foxtrot OR golf OR hotel",
+    4
+  );
+  assert.equal(many.length, 4);
+});
+
 test("extractPositiveQuery strips uppercase NOT but keeps lowercase not", () => {
   assert.equal(extractPositiveQuery("andy burnham"), "andy burnham");
   assert.equal(extractPositiveQuery("andy -burnham"), "andy");
@@ -157,9 +297,14 @@ test("episodeMatchesQuery uses normalised word-boundary matching like Kotlin", (
     episodeMatchesQuery("Miranda", "Daily updates", "Podcast", "iran"),
     false
   );
-  // NOT term enforcement
+  // NOT term enforcement: `-term` excludes rather than being matched literally.
+  // It used to be read as a required word, so this query matched nothing at all.
   assert.equal(
     episodeMatchesQuery("football news", "Football daily", "Podcast", "football -nfl"),
+    true
+  );
+  assert.equal(
+    episodeMatchesQuery("Football and NFL preview", "", "Podcast", "football -nfl"),
     false
   );
 });

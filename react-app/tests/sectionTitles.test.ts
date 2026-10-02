@@ -51,3 +51,56 @@ test("top safe area calculation uses status bar fallback on initial Android rend
   assert.equal(calculateTopInset(47, "ios", 0), 47);
 });
 
+test("Now Playing radio titles do not duplicate the station name when show or song details are available", async () => {
+  const { resolveRadioNowPlayingTitles } = await import("../src/utils/nowPlayingTitles.ts");
+
+  // Radio 4 with talk show and date episode (Image 1 case)
+  const radio4 = resolveRadioNowPlayingTitles({
+    stationTitle: "Radio 4",
+    showTitle: "Woman's Hour",
+    episodeTitle: "02/10/2026"
+  });
+  assert.equal(radio4.headerTitle, "Radio 4");
+  assert.equal(radio4.primaryTitle, "Woman's Hour - 02/10/2026");
+  assert.equal(radio4.secondaryTitle, undefined);
+
+  // Radio 6 Music with song playing (Image 2 case)
+  const radio6 = resolveRadioNowPlayingTitles({
+    stationTitle: "Radio 6 Music",
+    artist: "Beck",
+    track: "Run Away"
+  });
+  assert.equal(radio6.headerTitle, "Radio 6 Music");
+  assert.equal(radio6.primaryTitle, "Beck - Run Away");
+  assert.equal(radio6.secondaryTitle, undefined);
+
+  // Music station with both song and distinct programme name
+  const radio2 = resolveRadioNowPlayingTitles({
+    stationTitle: "Radio 2",
+    showTitle: "The Zoe Ball Breakfast Show",
+    artist: "Dua Lipa",
+    track: "Training Season"
+  });
+  assert.equal(radio2.headerTitle, "Radio 2");
+  assert.equal(radio2.primaryTitle, "Dua Lipa - Training Season");
+  assert.equal(radio2.secondaryTitle, "The Zoe Ball Breakfast Show");
+
+  // Show without episode title
+  const radio3 = resolveRadioNowPlayingTitles({
+    stationTitle: "Radio 3",
+    showTitle: "Composer of the Week"
+  });
+  assert.equal(radio3.headerTitle, "Radio 3");
+  assert.equal(radio3.primaryTitle, "Composer of the Week");
+  assert.equal(radio3.secondaryTitle, undefined);
+
+  // Fallback when no show/song data is available (e.g. offline/loading)
+  const fallback = resolveRadioNowPlayingTitles({
+    stationTitle: "Radio 1"
+  });
+  assert.equal(fallback.headerTitle, "Radio 1");
+  assert.equal(fallback.primaryTitle, "Radio 1");
+  assert.equal(fallback.secondaryTitle, undefined);
+});
+
+

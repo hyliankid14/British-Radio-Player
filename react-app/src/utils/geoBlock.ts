@@ -72,6 +72,9 @@ export async function probeGeoBlock(force = false): Promise<boolean> {
   if (!force && lastProbeTime > 0 && now - lastProbeTime < PROBE_CACHE_TTL_MS) {
     return getGeoBlockedState();
   }
+  // A forced probe used to skip the in-flight guard, so two overlapping probes could race
+  // and the first to finish would clear `inFlightProbe` while the second was still running.
+  if (inFlightProbe) return inFlightProbe;
 
   inFlightProbe = (async () => {
     try {
@@ -118,6 +121,10 @@ export async function probeGeoBlock(force = false): Promise<boolean> {
         }
       }
 
+      // Stamp the attempt on every exit path, including failure. Leaving `lastProbeTime`
+      // unset on failure meant the TTL check never applied to a failing probe, so each
+      // NetInfo event while offline started two more requests with 2.5s and 2s timeouts.
+      lastProbeTime = Date.now();
       return getGeoBlockedState();
     } finally {
       inFlightProbe = null;

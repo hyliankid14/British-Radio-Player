@@ -3,6 +3,8 @@ import { normalizeBbcAudioUrl } from "../utils/shareLinks";
 import { harvestFeedLanguage } from "../podcasts/languageResolver";
 import { normalizeEpisodeId } from "../downloads/downloadLimits";
 import { calculateUpdatedRating, formatRatingValue } from "../podcasts/ratingUtils";
+import { isAdvancedBooleanQuery, booleanSearchCandidateQueries } from "../utils/searchUtils";
+import { BoundedCache } from "../utils/boundedCache.ts";
 
 export { calculateUpdatedRating, formatRatingValue };
 
@@ -68,13 +70,29 @@ export interface SearchEpisodeResult {
 let cachedCatalog: Podcast[] = [];
 let catalogFetchPromise: Promise<Podcast[]> | null = null;
 
-// In-memory episodes cache keyed by podcastId
-const episodesCache = new Map<string, Episode[]>();
+// In-memory episodes cache keyed by podcastId. Bounded: without a cap it grew for the whole
+// session, holding every parsed episode (descriptions included) for every feed ever opened.
+const MAX_CACHED_EPISODE_LISTS = 60;
+const episodesCache = new BoundedCache<string, Episode[]>(MAX_CACHED_EPISODE_LISTS);
 const episodeFetchPromises = new Map<string, Promise<Episode[]>>();
+
+/**
+ * Cache of decoded strings.
+ *
+ * `decodeXmlEntities` runs up to nine regex passes, and list screens call it for every
+ * visible row on every render — often several times per row for the title, podcast title and
+ * description. The same podcast and episode strings are decoded repeatedly, so memoising by
+ * input string removes almost all of that work.
+ */
+const DECODED_CACHE_MAX = 500;
+const decodedCache = new BoundedCache<string, string>(DECODED_CACHE_MAX);
 
 // XML Tag Parser helper for OPML & RSS
 export function decodeXmlEntities(str?: string): string {
   if (!str) return "";
+  const cached = decodedCache.get(str);
+  if (cached !== undefined) return cached;
+
   let res = str
     .replace(/<[^>]*>/g, "") // Strip HTML tags
     .replace(/&amp;/g, "&")
@@ -89,6 +107,7 @@ export function decodeXmlEntities(str?: string): string {
   if (res.includes("&amp;")) {
     res = res.replace(/&amp;/g, "&");
   }
+  decodedCache.set(str, res);
   return res;
 }
 
@@ -111,6 +130,12 @@ function parseDurationSeconds(durationStr: string): number {
 // surface to the user as "no results".
 const SEARCH_REQUEST_TIMEOUT_MS = 15000;
 const SEARCH_REQUEST_ATTEMPTS = 2;
+
+// How many rows to pull for each extra alternative of a boolean query. The
+// index ranks individual tokens, so a phrase's exact matches can sit well below
+// the first page of the phrase itself; a wider page per alternative recovers
+// them. Merged results are deduplicated, so overlap is cheap.
+const BOOLEAN_CANDIDATE_LIMIT = 100;
 
 function isAbortError(err: unknown): boolean {
   return err instanceof Error && err.name === "AbortError";
@@ -205,20 +230,29 @@ async function searchEpisodePage(
     };
 
     const main = await request(backendQuery, limit, includeTotal);
-    if (!query.includes('"')) return main;
+    if (!isAdvancedBooleanQuery(query)) return main;
 
-    // Phrase searches need a broad candidate set because the index ranks
-    // individual terms and may omit the exact phrase from a small page.
-    const terms = Array.from(
-      new Set((backendQuery.match(/[^\s()]+/g) || []).filter((term) => !/^(AND|OR|NOT)$/.test(term)))
+    // The index tokenises the query and ANDs the tokens, so it cannot honour
+    // quotes, OR, grouping or exclusion — it always answers with a superset.
+    // Union the pages for the positive alternatives so nothing is missed, then
+    // let episodeMatchesQuery apply the semantics that were actually typed.
+    const alternatives = booleanSearchCandidateQueries(query).filter(
+      (candidate) => candidate !== backendQuery
     );
+    if (alternatives.length === 0) return main;
+
     const broadened = await Promise.all(
-      terms.map((term) => request(term, Math.max(limit, 100), false).then((r) => r.results))
+      alternatives.map((candidate) =>
+        request(candidate, Math.max(limit, BOOLEAN_CANDIDATE_LIMIT), false).then(
+          (r) => r.results
+        )
+      )
     );
     const merged = [...main.results, ...broadened.flat()];
     return {
       results: Array.from(new Map(merged.map((episode) => [episode.episodeId, episode])).values()),
-      // Only the main query's total is meaningful for a phrase search.
+      // Only the main query's total is meaningful for a boolean search: the
+      // alternative pages are extra candidates, not extra answers.
       total: main.total
     };
   } catch (err) {
@@ -317,12 +351,27 @@ export const PodcastApi = {
   ): Promise<SearchPodcastResult[]> {
     if (!query.trim()) return [];
     try {
-      // The index endpoint tokenises terms but does not understand phrase
-      // delimiters; phrase matching is enforced by the client-side Boolean
-      // evaluator after the broad result set has been returned.
+      // The index endpoint tokenises terms and ANDs them, so it understands
+      // neither phrase delimiters nor OR; boolean matching is enforced by the
+      // client-side evaluator. For a boolean query the positive alternatives are
+      // fetched separately and unioned, so the evaluator has the superset it
+      // needs to narrow back down to what was typed.
       const backendQuery = query.trim().replace(/[“”"]/g, "");
-      const url = `${PI_BASE_URL}/search/podcasts?q=${encodeURIComponent(backendQuery)}&limit=${limit}`;
-      return (await fetchJsonArrayWithRetry(url, signal)) as SearchPodcastResult[];
+      const candidates = isAdvancedBooleanQuery(query)
+        ? Array.from(new Set([backendQuery, ...booleanSearchCandidateQueries(query)])).filter(
+            Boolean
+          )
+        : [backendQuery];
+      const pages = await Promise.all(
+        candidates.map((value) =>
+          fetchJsonArrayWithRetry(
+            `${PI_BASE_URL}/search/podcasts?q=${encodeURIComponent(value)}&limit=${limit}`,
+            signal
+          ).then((payload) => payload as SearchPodcastResult[])
+        )
+      );
+      const merged = pages.flat();
+      return Array.from(new Map(merged.map((podcast) => [podcast.podcastId, podcast])).values());
     } catch (err) {
       console.warn("Failed to search podcasts on Raspberry Pi:", err);
       return [];

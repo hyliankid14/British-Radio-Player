@@ -74,16 +74,20 @@ const FAVOURITE_SECTION_TITLES: Record<FavCategory, string> = {
   History: "Listening History"
 };
 
+// Built once at module scope. Constructing an `Intl.DateTimeFormat` is expensive, and this
+// runs once per history row per render.
+const EPISODE_DATE_FORMATTER = new Intl.DateTimeFormat("en-GB", {
+  weekday: "short",
+  day: "2-digit",
+  month: "short",
+  year: "numeric"
+});
+
 function formatEpisodeDate(raw?: string): string {
   if (!raw) return "";
   const parsed = new Date(raw);
   if (!Number.isNaN(parsed.getTime())) {
-    return new Intl.DateTimeFormat("en-GB", {
-      weekday: "short",
-      day: "2-digit",
-      month: "short",
-      year: "numeric"
-    }).format(parsed);
+    return EPISODE_DATE_FORMATTER.format(parsed);
   }
   return raw.includes(":") ? raw.split(":")[0].trim() : raw.trim();
 }
@@ -265,7 +269,9 @@ export default function FavouritesScreen() {
     () => parseFavCategory(params.category) ?? "Stations"
   );
   const [draggingStationId, setDraggingStationId] = useState<string | null>(null);
-  const { shows, fetchShowsForStations, checkAndAdvanceShows } = useStationShowStore();
+  const shows = useStationShowStore((s) => s.shows);
+  const fetchShowsForStations = useStationShowStore((s) => s.fetchShowsForStations);
+  const checkAndAdvanceShows = useStationShowStore((s) => s.checkAndAdvanceShows);
   const [subscribedPodcasts, setSubscribedPodcasts] = useState<Podcast[]>([]);
   const [newEpisodeIds, setNewEpisodeIds] = useState<Set<string>>(new Set());
   const [podcastSort, setPodcastSort] = useState<PodcastSort>(
@@ -280,6 +286,14 @@ export default function FavouritesScreen() {
   );
   const [podcastHistory, setPodcastHistory] = useState<PodcastHistoryEntry[]>(
     () => Preferences.getPodcastHistory()
+  );
+  // Read once for the whole history list rather than per row, so rendering N rows costs one
+  // lookup each instead of N.
+  const [historyProgress, setHistoryProgress] = useState<Record<string, number>>(
+    () => Preferences.getEpisodeProgressMap()
+  );
+  const [historyPlayed, setHistoryPlayed] = useState<Set<string>>(
+    () => Preferences.getPlayedEpisodeIdSet()
   );
   const [tagVersion, forceTagUpdate] = useState(0);
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
@@ -318,18 +332,19 @@ export default function FavouritesScreen() {
     if (requested) setActiveCategory(requested);
   }, [params.category]);
 
-  const {
-    currentStation,
-    currentShow,
-    playStation,
-    togglePlayPause,
-    toggleFavorite,
-    setFavoritesOrder,
-    playEpisode,
-    currentEpisode,
-    isPlaying,
-    positionSeconds
-  } = usePlayerStore();
+  // Per-field selectors. This screen hosts three long lists, so a whole-store subscription
+  // rebuilt every mounted row once a second while a podcast played. `positionSeconds` is only
+  // here to move the in-progress bar on the current episode's row.
+  const currentStation = usePlayerStore((state) => state.currentStation);
+  const currentShow = usePlayerStore((state) => state.currentShow);
+  const currentEpisode = usePlayerStore((state) => state.currentEpisode);
+  const isPlaying = usePlayerStore((state) => state.isPlaying);
+  const positionSeconds = usePlayerStore((state) => state.positionSeconds);
+  const playStation = usePlayerStore((state) => state.playStation);
+  const togglePlayPause = usePlayerStore((state) => state.togglePlayPause);
+  const toggleFavorite = usePlayerStore((state) => state.toggleFavorite);
+  const setFavoritesOrder = usePlayerStore((state) => state.setFavoritesOrder);
+  const playEpisode = usePlayerStore((state) => state.playEpisode);
   const favorites = usePlayerStore((state) => state.favorites);
 
   const allStations = useMemo(() => StationRepository.getAll(), []);
@@ -458,12 +473,17 @@ export default function FavouritesScreen() {
 
   useEffect(() => {
     const sub = Preferences.onChanged((key) => {
-      if (
-        key.includes("history") ||
-        key.includes("progress") ||
-        key.includes("played")
-      ) {
+      // Each concern is refreshed from its own key. Progress writes used to re-read the
+      // whole listening history, so every playback tick both re-parsed the history and
+      // rebuilt this screen to redraw one progress bar.
+      if (key.includes("history")) {
         setPodcastHistory(Preferences.getPodcastHistory());
+      }
+      if (key.includes("progress")) {
+        setHistoryProgress(Preferences.getEpisodeProgressMap());
+      }
+      if (key.includes("played")) {
+        setHistoryPlayed(Preferences.getPlayedEpisodeIdSet());
       }
       if (key.includes("saved_podcast_searches")) {
         setSavedSearches(Preferences.getSavedPodcastSearches());
@@ -1065,12 +1085,11 @@ export default function FavouritesScreen() {
   const renderHistoryItem = useCallback(
     ({ item }: { item: PodcastHistoryEntry }) => {
       const isCurrent = currentEpisode?.id === item.id;
+      const storedProgress = historyProgress[item.id] || 0;
       const progressSeconds =
-        isCurrent && positionSeconds > 0
-          ? positionSeconds
-          : Preferences.getEpisodeProgress(item.id);
+        isCurrent && positionSeconds > 0 ? positionSeconds : storedProgress;
       const totalSeconds = (item.durationMins > 0 ? item.durationMins : 0) * 60;
-      const isPlayed = Preferences.isEpisodePlayed(item.id);
+      const isPlayed = historyPlayed.has(item.id);
       const playbackStatus = computeEpisodePlaybackStatus(
         isPlayed,
         item.durationMins,
@@ -1158,7 +1177,16 @@ export default function FavouritesScreen() {
         </TouchableOpacity>
       );
     },
-    [currentEpisode?.id, isPlaying, positionSeconds, theme, handlePlayHistoryEntry]
+    [
+      currentEpisode?.id,
+      isPlaying,
+      positionSeconds,
+      theme,
+      handlePlayHistoryEntry,
+      handleOpenHistoryEntry,
+      historyProgress,
+      historyPlayed
+    ]
   );
 
   return (

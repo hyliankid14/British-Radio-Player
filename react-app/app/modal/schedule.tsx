@@ -9,9 +9,10 @@ import {
   ActivityIndicator
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useAppTheme } from "../../src/theme/colors";
+import { ScreenHeader } from "../../src/components/ScreenHeader";
 import { StationRepository } from "../../src/data/stations";
 import {
   ScheduleEntry,
@@ -251,23 +252,11 @@ export default function ScheduleModal() {
   );
 
   return (
-    <SafeAreaView
-      style={[styles.container, { backgroundColor: theme.surfaceContainer }]}
-      edges={["top"]}
-    >
-      {/* 56dp Top App Bar */}
-      <View style={[styles.appBar, { borderBottomColor: theme.outlineVariant }]}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={styles.backButton}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <MaterialIcons name="arrow-back" size={24} color={theme.onSurface} />
-        </TouchableOpacity>
-        <Text style={[styles.appBarTitle, { color: theme.onSurface }]} numberOfLines={1}>
-          {stationTitle} Schedule
-        </Text>
-      </View>
+    <View style={[styles.container, { backgroundColor: theme.surfaceContainer }]}>
+      <ScreenHeader
+        title={`${stationTitle} Schedule`}
+        navigationAction={{ label: "Back", onPress: () => router.back() }}
+      />
 
       {/* Horizontal Scrollable Date Tabs (-7 to +7 days) */}
       <View style={[styles.tabsContainer, { backgroundColor: theme.surfaceContainer }]}>
@@ -351,33 +340,13 @@ export default function ScheduleModal() {
           }}
         />
       )}
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1
-  },
-  appBar: {
-    height: 56,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth
-  },
-  backButton: {
-    width: 48,
-    height: 48,
-    alignItems: "center",
-    justifyContent: "center"
-  },
-  appBarTitle: {
-    flex: 1,
-    fontSize: 18,
-    fontWeight: "700",
-    marginLeft: 8,
-    marginRight: 16
   },
   tabsContainer: {
     height: 48,

@@ -235,13 +235,20 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
       }
     }));
 
+    let lastProgressTime = 0;
+    const minProgressIntervalMs = options?.auto ? 500 : 100;
+
     const onProgress = ({ bytesWritten, totalBytes }: { bytesWritten: number; totalBytes: number }) => {
       if (totalBytes <= 0) return;
       const progress = Math.min(1, bytesWritten / totalBytes);
+      const now = Date.now();
+      if (progress < 1 && now - lastProgressTime < minProgressIntervalMs) return;
+      lastProgressTime = now;
+
       set((state) => {
         const current = state.downloads[normId];
         if (!current || current.status !== "downloading") return state;
-        if (Math.abs((current.progress ?? 0) - progress) < 0.02) return state;
+        if (progress < 1 && Math.abs((current.progress ?? 0) - progress) < 0.02) return state;
         return {
           downloads: {
             ...state.downloads,
