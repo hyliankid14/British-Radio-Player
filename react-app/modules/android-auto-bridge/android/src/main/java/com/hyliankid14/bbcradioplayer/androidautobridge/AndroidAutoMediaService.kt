@@ -124,6 +124,7 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
   override fun onCreate() {
     super.onCreate()
     instance = this
+    lastTrackedEpisodeAnalyticsId = AutoState.getLastTrackedAnalyticsEpisodeId(this)
     createNotificationChannel()
     buildPlayer()
 
@@ -229,6 +230,7 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
 
   override fun onDestroy() {
     instance = null
+    cancelAnalyticsTimers()
     handler.removeCallbacks(progressTick)
     try { unregisterReceiver(stateReceiver) } catch (_: Exception) { }
     persistProgress()
@@ -273,11 +275,11 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
         if (isPlaying) {
           startProgressTicker()
           if (stationAnalyticsPending && !stationAnalyticsScheduled && stationAnalyticsRunnable != null) {
-            handler.postDelayed(stationAnalyticsRunnable!!, 10_000L)
+            handler.postDelayed(stationAnalyticsRunnable!!, ANALYTICS_MIN_PLAY_MS)
             stationAnalyticsScheduled = true
           }
           if (episodeAnalyticsPending && !episodeAnalyticsScheduled && episodeAnalyticsRunnable != null) {
-            handler.postDelayed(episodeAnalyticsRunnable!!, 10_000L)
+            handler.postDelayed(episodeAnalyticsRunnable!!, ANALYTICS_MIN_PLAY_MS)
             episodeAnalyticsScheduled = true
           }
         } else {
@@ -430,11 +432,19 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
       findPodcast(podId)?.optString("title").orEmpty()
     }
 
+    val resumeMs = AutoState.progress(this, epId)
+    val isResume = resumeMs > 5_000L && !AutoState.isPlayed(this, epId)
+    if (!isResume && lastTrackedEpisodeAnalyticsId == epId) {
+      lastTrackedEpisodeAnalyticsId = null
+      AutoState.setLastTrackedAnalyticsEpisodeId(this, null)
+    }
+
     if (lastTrackedEpisodeAnalyticsId != epId) {
       episodeAnalyticsRunnable = Runnable {
         io.execute {
           AutoAnalytics.trackEpisodePlay(this@AndroidAutoMediaService, podId, epId, epTitle, podTitle)
           lastTrackedEpisodeAnalyticsId = epId
+          AutoState.setLastTrackedAnalyticsEpisodeId(this@AndroidAutoMediaService, epId)
         }
         episodeAnalyticsPending = false
         episodeAnalyticsScheduled = false
@@ -2046,6 +2056,7 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
 
     const val SEEK_FORWARD_MS = 30_000L
     const val SEEK_BACK_MS = 10_000L
+    private const val ANALYTICS_MIN_PLAY_MS = 10_001L
 
     private val DATE_FORMAT = object : ThreadLocal<SimpleDateFormat>() {
       override fun initialValue(): SimpleDateFormat = SimpleDateFormat("EEE, dd MMM yyyy", Locale.US)

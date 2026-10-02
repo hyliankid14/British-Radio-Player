@@ -20,7 +20,7 @@ import { notifyCarPlayPhonePlaybackStopped } from "../auto/carPlayBridge";
 import { getDownloadedUri } from "../downloads/downloadStore";
 import { deleteDownloadWhenPlayed, pruneDownloads, setDownloadInUseEpisode } from "../downloads/downloadCleanup";
 import { getNetworkStatus, subscribeNetwork } from "./networkStore";
-import { trackEpisodePlay, trackStationPlay } from "../analytics/analytics";
+import { PlaybackAnalytics } from "../analytics/playbackAnalytics";
 import { getStationIdentArtwork } from "../utils/stationIdents";
 
 import { probeGeoBlock, isStationUkOnly } from "../utils/geoBlock";
@@ -282,7 +282,8 @@ async function startStationCandidate(index: number, sessionId: number): Promise<
     if (sessionId === stationPlaybackSessionId) {
       usePlayerStore.setState({ isPlaying: true, isBuffering: false, playbackError: null });
       notifyNativePhonePlaybackStarted();
-      void trackStationPlay(station.id, station.title);
+      PlaybackAnalytics.onStationPlaybackRequested(station.id, station.title);
+      PlaybackAnalytics.onPlaybackStateChanged(true);
     }
     return true;
   } catch (err) {
@@ -557,7 +558,6 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       await TrackPlayer.play();
       set({ isPlaying: true, isBuffering: false });
       notifyNativePhonePlaybackStarted();
-      void trackEpisodePlay(podId, epId, epTitle, podTitle);
 
       const durationSec = (episode.durationMins || 0) * 60;
       ScrobbleManager.onTrackStarted(
@@ -570,6 +570,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
       // Resume where the listener left off (mirrors the Kotlin app's position restore).
       const resumeSeconds = Preferences.getEpisodeProgress(epId || episode.id);
+      const isResume = resumeSeconds > 5 && !Preferences.isEpisodePlayed(epId || episode.id);
+      PlaybackAnalytics.onEpisodePlaybackRequested(podId, epId, epTitle, podTitle, isResume);
+      PlaybackAnalytics.onPlaybackStateChanged(true);
+
       if (resumeSeconds > 5) {
         try {
           await TrackPlayer.seekTo(resumeSeconds);
@@ -613,6 +617,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       currentStationQuality = null;
       stopShowInfoInterval();
       ScrobbleManager.onPlaybackPaused();
+      PlaybackAnalytics.onPlaybackStateChanged(false);
       await TrackPlayer.pause();
       set({ isPlaying: false });
 
@@ -647,6 +652,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     stationCandidateIndex = 0;
     currentStationQuality = null;
     setDownloadInUseEpisode(null);
+    PlaybackAnalytics.onPlaybackStopped();
 
     const { currentEpisode, positionSeconds, durationSeconds } = get();
     if (currentEpisode) {
@@ -711,6 +717,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         await TrackPlayer.play();
         set({ isPlaying: true });
         ScrobbleManager.onPlaybackResumed();
+        PlaybackAnalytics.onPlaybackStateChanged(true);
         return;
       } catch (e) {
         const pod: Podcast = currentPodcast || {
@@ -741,6 +748,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       await TrackPlayer.play();
       set({ isPlaying: true });
       ScrobbleManager.onPlaybackResumed();
+      PlaybackAnalytics.onPlaybackStateChanged(true);
       startShowInfoInterval();
       void get().refreshShowInfo(true);
     } catch (e) {
@@ -1096,6 +1104,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
           flushActiveListeningTime();
         }, 15000);
       }
+      PlaybackAnalytics.onPlaybackStateChanged(true);
       set({ isPlaying: true, isBuffering: false, playbackError: null });
     } else if (state === State.Buffering || state === State.Loading) {
       set({ isBuffering: true });
@@ -1107,6 +1116,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       flushActiveListeningTime();
       activePlaybackSegmentStartMs = 0;
       continuousPlaybackStartMs = 0;
+      PlaybackAnalytics.onPlaybackStopped();
       set({ isPlaying: false, isBuffering: false });
       if (get().currentEpisode) {
         void get().handleEpisodeEnded();
@@ -1127,6 +1137,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
           : 0;
       activePlaybackSegmentStartMs = 0;
       continuousPlaybackStartMs = 0;
+      if (state === State.Paused) {
+        PlaybackAnalytics.onPlaybackStateChanged(false);
+      } else {
+        PlaybackAnalytics.onPlaybackStopped();
+      }
       set({ isPlaying: false, isBuffering: false });
       if (continuousDurationSec >= 1200) {
         setTimeout(() => void requestReviewIfEligible("long_playback_paused"), 1500);
@@ -1139,6 +1154,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       flushActiveListeningTime();
       activePlaybackSegmentStartMs = 0;
       continuousPlaybackStartMs = 0;
+      PlaybackAnalytics.onPlaybackStopped();
       const { currentStation } = get();
       if (currentStation && stationBeingPlayed?.id === currentStation.id) {
         void tryNextStationCandidate(stationPlaybackSessionId, "State.Error");

@@ -280,6 +280,7 @@ object LegacyMigration {
     // ── Playback preferences ────────────────────────────────────────────────
     val playback = try { prefs(context, "playback_prefs").all } catch (_: Exception) { emptyMap<String, Any?>() }
     copyString(playback, "last_station_id", out, "pref_last_station_id")
+    copyString(playback, "last_tracked_analytics_episode_id", out, "pref_last_tracked_analytics_episode_id")
     copyBoolean(playback, "auto_resume_android_auto", out, "pref_carplay_auto_resume")
     copyBoolean(playback, "hide_played_android_auto", out, "pref_carplay_hide_played")
     copyBoolean(playback, "hide_played_playlists", out, "pref_hide_played_episodes_in_playlists")

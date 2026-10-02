@@ -279,6 +279,7 @@ const KEYS = {
   ,PODCAST_LANGUAGES_CACHE: "cache_podcast_languages_data"
   ,FAILED_AUTO_DOWNLOADS: "pref_failed_auto_downloads"
   ,REVIEW_PROMPT_STATE: "pref_review_prompt_state"
+  ,LAST_TRACKED_ANALYTICS_EPISODE_ID: "pref_last_tracked_analytics_episode_id"
 };
 
 /** Callbacks fired whenever an episode is marked as played. See `onEpisodePlayed`. */
@@ -1935,6 +1936,19 @@ pruneStalePerEpisodeKeys(): number {
       writeJson(KEYS.REVIEW_PROMPT_STATE, state);
     } catch {}
   },
+
+  getLastTrackedAnalyticsEpisodeId(): string | null {
+    const raw = storage.getString(KEYS.LAST_TRACKED_ANALYTICS_EPISODE_ID);
+    return raw || null;
+  },
+
+  setLastTrackedAnalyticsEpisodeId(episodeId: string | null): void {
+    if (episodeId) {
+      storage.set(KEYS.LAST_TRACKED_ANALYTICS_EPISODE_ID, episodeId);
+    } else {
+      storage.remove(KEYS.LAST_TRACKED_ANALYTICS_EPISODE_ID);
+    }
+  }
 };
 
 configureGeoBlockedStorage({

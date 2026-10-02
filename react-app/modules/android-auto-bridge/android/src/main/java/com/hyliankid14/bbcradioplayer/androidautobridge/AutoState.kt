@@ -443,6 +443,21 @@ object AutoState {
   fun settingInt(context: Context, key: String, fallback: Int = 0): Int =
     if (snapshot(context).has(key)) snapshot(context).optInt(key, fallback) else fallback
 
+  private const val KEY_LAST_TRACKED_ANALYTICS_EPISODE_ID = "last_tracked_analytics_episode_id"
+
+  fun getLastTrackedAnalyticsEpisodeId(context: Context): String? =
+    prefs(context).getString(KEY_LAST_TRACKED_ANALYTICS_EPISODE_ID, null)
+
+  fun setLastTrackedAnalyticsEpisodeId(context: Context, episodeId: String?) {
+    val editor = prefs(context).edit()
+    if (episodeId != null) {
+      editor.putString(KEY_LAST_TRACKED_ANALYTICS_EPISODE_ID, episodeId)
+    } else {
+      editor.remove(KEY_LAST_TRACKED_ANALYTICS_EPISODE_ID)
+    }
+    editor.apply()
+  }
+
   // ── Stream candidates (parity with StationRepository.getStreamCandidates) ───
 
   fun bitrateFor(quality: String): String = when (quality.uppercase()) {

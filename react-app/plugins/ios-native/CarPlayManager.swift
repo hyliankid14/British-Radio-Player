@@ -52,8 +52,94 @@ final class CarPlayManager: NSObject {
     /// root template without throwing the driver out of the list they are reading.
     private weak var visibleTemplate: CPTemplate?
 
+    private static let analyticsMinPlaySeconds: Double = 10.001
+    private static let lastTrackedEpisodeAnalyticsKey = "last_tracked_analytics_episode_id"
+
+    private var stationAnalyticsTask: Task<Void, Never>?
+    private var stationAnalyticsPending = false
+    private var stationAnalyticsScheduled = false
+    private var pendingStationAnalytics: (id: String, name: String)?
+
+    private var episodeAnalyticsTask: Task<Void, Never>?
+    private var episodeAnalyticsPending = false
+    private var episodeAnalyticsScheduled = false
+    private var pendingEpisodeAnalytics: (podcastId: String, episodeId: String, episodeTitle: String, podcastTitle: String)?
+
     private override init() {
         super.init()
+        lastTrackedEpisodeAnalyticsId = UserDefaults.standard.string(forKey: Self.lastTrackedEpisodeAnalyticsKey) ?? ""
+    }
+
+    private func cancelAnalyticsTimers() {
+        stationAnalyticsTask?.cancel()
+        stationAnalyticsTask = nil
+        stationAnalyticsPending = false
+        stationAnalyticsScheduled = false
+        pendingStationAnalytics = nil
+
+        episodeAnalyticsTask?.cancel()
+        episodeAnalyticsTask = nil
+        episodeAnalyticsPending = false
+        episodeAnalyticsScheduled = false
+        pendingEpisodeAnalytics = nil
+    }
+
+    private func onPlaybackStatusChanged(_ status: AVPlayer.TimeControlStatus) {
+        if status == .playing {
+            if stationAnalyticsPending && !stationAnalyticsScheduled, let pending = pendingStationAnalytics {
+                stationAnalyticsScheduled = true
+                stationAnalyticsTask = Task { [weak self] in
+                    try? await Task.sleep(nanoseconds: 10_001_000_000)
+                    guard !Task.isCancelled else { return }
+                    await MainActor.run {
+                        guard let self = self else { return }
+                        guard self.player?.timeControlStatus == .playing else { return }
+                        if case .station(let currentStation) = self.kind, currentStation.id == pending.id {
+                            self.stationAnalyticsPending = false
+                            self.stationAnalyticsScheduled = false
+                            self.pendingStationAnalytics = nil
+                            CarPlayAnalytics.trackStationPlay(stationId: pending.id, stationName: pending.name)
+                        }
+                    }
+                }
+            }
+
+            if episodeAnalyticsPending && !episodeAnalyticsScheduled, let pending = pendingEpisodeAnalytics {
+                episodeAnalyticsScheduled = true
+                episodeAnalyticsTask = Task { [weak self] in
+                    try? await Task.sleep(nanoseconds: 10_001_000_000)
+                    guard !Task.isCancelled else { return }
+                    await MainActor.run {
+                        guard let self = self else { return }
+                        guard self.player?.timeControlStatus == .playing else { return }
+                        if case .episode(let currentEpisode, _) = self.kind, currentEpisode.id == pending.episodeId {
+                            self.episodeAnalyticsPending = false
+                            self.episodeAnalyticsScheduled = false
+                            self.pendingEpisodeAnalytics = nil
+                            self.lastTrackedEpisodeAnalyticsId = pending.episodeId
+                            UserDefaults.standard.set(pending.episodeId, forKey: Self.lastTrackedEpisodeAnalyticsKey)
+                            CarPlayAnalytics.trackEpisodePlay(
+                                podcastId: pending.podcastId,
+                                episodeId: pending.episodeId,
+                                episodeTitle: pending.episodeTitle,
+                                podcastTitle: pending.podcastTitle
+                            )
+                        }
+                    }
+                }
+            }
+        } else {
+            if stationAnalyticsScheduled {
+                stationAnalyticsTask?.cancel()
+                stationAnalyticsTask = nil
+                stationAnalyticsScheduled = false
+            }
+            if episodeAnalyticsScheduled {
+                episodeAnalyticsTask?.cancel()
+                episodeAnalyticsTask = nil
+                episodeAnalyticsScheduled = false
+            }
+        }
     }
 
     // MARK: - Scene lifecycle
@@ -737,12 +823,16 @@ final class CarPlayManager: NSObject {
             geoBlocked: CarPlayState.shared.settingBool("geoBlocked"))
         candidateIndex = 0
 
+        cancelAnalyticsTimers()
+        stationAnalyticsPending = true
+        stationAnalyticsScheduled = false
+        pendingStationAnalytics = (id: station.id, name: station.title)
+
         guard !candidates.isEmpty, startCandidate() else {
             stopPlayback()
             return
         }
 
-        CarPlayAnalytics.trackStationPlay(stationId: station.id, stationName: station.title)
         CarPlayState.shared.addMutation(
             type: "playbackStarted",
             payload: [
@@ -768,11 +858,7 @@ final class CarPlayManager: NSObject {
         candidates = [url.absoluteString]
         candidateIndex = 0
 
-        guard startCandidate() else {
-            stopPlayback()
-            return
-        }
-
+        cancelAnalyticsTimers()
         let state = CarPlayState.shared
         let podcastId = episode.podcastId
         let podcastTitle =
@@ -780,12 +866,27 @@ final class CarPlayManager: NSObject {
             ? (state.findPodcast(podcastId: podcastId)?.title ?? podcastId)
             : episode.podcastTitle
 
+        let savedProgressMs = state.progress(for: episode.id)
+        let isResume = savedProgressMs > Self.resumeThresholdMs && !state.isPlayed(episodeId: episode.id)
+        if !isResume && lastTrackedEpisodeAnalyticsId == episode.id {
+            lastTrackedEpisodeAnalyticsId = ""
+            UserDefaults.standard.removeObject(forKey: Self.lastTrackedEpisodeAnalyticsKey)
+        }
+
         if lastTrackedEpisodeAnalyticsId != episode.id {
-            lastTrackedEpisodeAnalyticsId = episode.id
-            CarPlayAnalytics.trackEpisodePlay(
-                podcastId: podcastId, episodeId: episode.id, episodeTitle: episode.title,
+            episodeAnalyticsPending = true
+            episodeAnalyticsScheduled = false
+            pendingEpisodeAnalytics = (
+                podcastId: podcastId,
+                episodeId: episode.id,
+                episodeTitle: episode.title,
                 podcastTitle: podcastTitle
             )
+        }
+
+        guard startCandidate() else {
+            stopPlayback()
+            return
         }
 
         var imageUrl = episode.imageUrl
@@ -849,6 +950,7 @@ final class CarPlayManager: NSObject {
 
         observe(newPlayer, item: item)
         newPlayer.play()
+        onPlaybackStatusChanged(newPlayer.timeControlStatus)
 
         if case .episode(let episode, _) = kind {
             let resumeMs = CarPlayState.shared.progress(episodeId: episode.id)
@@ -869,7 +971,11 @@ final class CarPlayManager: NSObject {
     private func observe(_ player: AVPlayer, item: AVPlayerItem) {
         statusObservation = player.observe(\.timeControlStatus, options: [.new]) {
             [weak self] player, _ in
-            Task { @MainActor in self?.updateNowPlayingInfo() }
+            let status = player.timeControlStatus
+            Task { @MainActor in
+                self?.onPlaybackStatusChanged(status)
+                self?.updateNowPlayingInfo()
+            }
         }
 
         itemStatusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
@@ -916,6 +1022,7 @@ final class CarPlayManager: NSObject {
 
     private func stopPlayback() {
         guard !isIdle else { return }
+        cancelAnalyticsTimers()
         persistProgress()
         kind = .none
         candidates = []
@@ -961,6 +1068,7 @@ final class CarPlayManager: NSObject {
             // progress timer and now-playing state below must not be torn down.
             if maybeAutoplayNextEpisode() { return }
         }
+        cancelAnalyticsTimers()
         progressTimer?.invalidate()
         progressTimer = nil
         updateNowPlayingInfo()
