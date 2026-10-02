@@ -12,6 +12,7 @@ import { CurrentShow, fetchShowInfo, onRmsDelayedUpdate, resetStationRmsDelay, i
 import { useStationShowStore } from "./stationShowStore";
 import { Podcast, Episode, PodcastApi } from "../api/podcasts";
 import { shouldMarkEpisodePlayed, resolveEffectiveDuration } from "../podcasts/episodePlaybackStatus";
+import { findNextEpisodeToPlay } from "../podcasts/autoplayNext";
 import { ScrobbleManager } from "../audio/scrobbleManager";
 import { ScrobbleOutbox } from "../audio/scrobbleOutbox";
 import { notifyNativePhonePlaybackStarted } from "../auto/autoBridge";
@@ -819,28 +820,71 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       // The finished file was exempt from earlier pruning, so trim again now.
       pruneDownloads();
 
-      const autoplayNext = Preferences.getSetting("pref_autoplay_next", "none");
-      if (autoplayNext === "none" || !currentPodcast) return;
-      if (
-        autoplayNext === "subscriptions" &&
-        !Preferences.getSubscribedPodcasts().includes(currentPodcast.id)
-      ) {
-        return;
-      }
+      const podId = currentPodcast?.id || currentEpisode.podcastId;
+      if (!podId) return;
 
-      const cached = PodcastApi.getEpisodesFromCache(currentPodcast.id) || [];
-      if (!cached.length) return;
-      const oldestFirst = Preferences.getPodcastEpisodeSort(currentPodcast.id) === "oldest_first";
-      const sorted = [...cached].sort((a, b) => {
-        const aEpoch = parsePodcastDateEpoch(a.pubDate);
-        const bEpoch = parsePodcastDateEpoch(b.pubDate);
-        return oldestFirst ? aEpoch - bEpoch : bEpoch - aEpoch;
-      });
-      const index = sorted.findIndex((episode) => episode.id === currentEpisode.id);
-      const next = sorted
-        .slice(index + 1)
-        .find((episode) => !Preferences.isEpisodePlayed(episode.id));
-      if (next) await get().playEpisode(currentPodcast, next);
+      const isOldestFirst = Preferences.getPodcastEpisodeSort(podId) === "oldest_first";
+      const autoplayPref = Preferences.getSetting<string>("pref_autoplay_next", "none");
+      const isSubscribed = Preferences.getSubscribedPodcasts().includes(podId);
+
+      // Advance automatically for podcasts sorted oldest to newest, or when autoplay
+      // is configured ("all" or "subscriptions" for subscribed podcasts).
+      const shouldAdvance =
+        isOldestFirst ||
+        autoplayPref === "all" ||
+        (autoplayPref === "subscriptions" && isSubscribed);
+
+      if (!shouldAdvance) return;
+
+      const podcast: Podcast =
+        currentPodcast || {
+          id: podId,
+          title: (currentEpisode as any).podcastTitle || "",
+          description: "",
+          rssUrl: `https://podcasts.files.bbci.co.uk/${podId}.rss`,
+          htmlUrl: "",
+          imageUrl: currentEpisode.imageUrl || "",
+          genres: [],
+          typicalDurationMins: currentEpisode.durationMins || 0
+        };
+
+      // Retrieve episodes from memory cache, network RSS, or downloaded records
+      let episodes = PodcastApi.getEpisodesFromCache(podId);
+      if (!episodes || episodes.length === 0) {
+        const rssUrl = podcast.rssUrl || `https://podcasts.files.bbci.co.uk/${podId}.rss`;
+        try {
+          episodes = await PodcastApi.fetchEpisodes(rssUrl, podId);
+        } catch {
+          episodes = [];
+        }
+      }
+      if (!episodes || episodes.length === 0) {
+        const downloaded = Preferences.getDownloadedEntries();
+        const fromDownloads: Episode[] = [];
+        for (const [id, rec] of Object.entries(downloaded)) {
+          if (rec?.entry?.podcastId === podId && rec.entry.audioUrl) {
+            fromDownloads.push({
+              id: rec.entry.id || id,
+              title: rec.entry.title || "",
+              description: rec.entry.description || "",
+              audioUrl: rec.entry.audioUrl,
+              imageUrl: rec.entry.imageUrl || podcast.imageUrl || "",
+              pubDate: rec.entry.pubDate,
+              durationMins: rec.entry.durationMins || 0,
+              podcastId: podId
+            });
+          }
+        }
+        episodes = fromDownloads;
+      }
+      if (!episodes || episodes.length === 0) return;
+
+      const order = isOldestFirst ? "oldest_first" : "newest_first";
+      const isPlayed = (epId: string) => Preferences.isEpisodePlayed(epId);
+      const next = findNextEpisodeToPlay(episodes, currentEpisode, order, isPlayed);
+      if (next) {
+        await get().playEpisode(podcast, next);
+      }
     } finally {
       setTimeout(() => {
         if (endingEpisodeId === currentEpisode.id) {
