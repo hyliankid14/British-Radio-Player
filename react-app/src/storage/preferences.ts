@@ -844,7 +844,15 @@ export const Preferences = {
   },
 
   isEpisodePlayed(episodeId: string): boolean {
-    return this.getPlayedEpisodeIds().includes(episodeId);
+    if (!episodeId) return false;
+    const played = this.getPlayedEpisodeIds();
+    if (played.includes(episodeId)) return true;
+    const norm = normalizeEpisodeId(episodeId);
+    if (norm && played.includes(norm)) return true;
+    for (const id of played) {
+      if (normalizeEpisodeId(id) === (norm || episodeId)) return true;
+    }
+    return false;
   },
 
   /**

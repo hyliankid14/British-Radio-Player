@@ -91,6 +91,7 @@ export async function runAutoDownload(): Promise<void> {
       const normId = normalizeEpisodeId(entry.id) || entry.id;
       if (isDownloaded(normId, entry)) return;
       if (Preferences.isAutoDownloadBlocked(normId)) return;
+      if (Preferences.isEpisodePlayed(normId) || Preferences.isEpisodePlayed(entry.id)) return;
       const resolved: SavedEpisodeEntry = podcast
         ? {
             ...entry,
@@ -127,20 +128,22 @@ export async function runAutoDownload(): Promise<void> {
           }
           if (episodes.length === 0) continue;
 
-          // The rolling window is the newest or oldest `limit` episodes (matching the
-          // podcast's sort order), selected over the whole list so an episode already
-          // on the device still holds its slot. Filtering the downloaded episodes out
-          // first and then slicing would instead pick back-catalogue episodes and evict
-          // retained downloads of an existing podcast.
+          // The rolling window is selected over unplayed episodes matching the podcast's
+          // sort order (oldest unplayed first when sorted oldest to newest, newest unplayed
+          // first otherwise). Played episodes are never automatically downloaded.
+          const unplayedEpisodes = episodes.filter((ep) => {
+            const normId = normalizeEpisodeId(ep.id) || ep.id;
+            return !Preferences.isEpisodePlayed(ep.id) && !Preferences.isEpisodePlayed(normId);
+          });
           const isOldestFirst = Preferences.getPodcastEpisodeSort(id) === "oldest_first";
           const windowIds = isOldestFirst
-            ? oldestEpisodeIds(episodes, limit)
-            : newestEpisodeIds(episodes, limit);
+            ? oldestEpisodeIds(unplayedEpisodes, limit)
+            : newestEpisodeIds(unplayedEpisodes, limit);
           const byId = new Map(episodes.map((episode) => [episode.id, episode]));
 
-          // Automatic downloads that have fallen out of the window are no longer part of
-          // the rolling window, so remove them (never manual downloads, and never the
-          // episode currently streaming).
+          // Automatic downloads that have fallen out of the window (including played
+          // episodes) are no longer part of the rolling window, so remove them (never
+          // manual downloads, and never the episode currently streaming).
           const allRecords = Preferences.getDownloadedEntries();
           const inUse = getDownloadInUseEpisode();
           const stale = pickStaleAutomaticDownloads(allRecords, id, windowIds, inUse ? [inUse] : []);
@@ -172,13 +175,18 @@ export async function runAutoDownload(): Promise<void> {
       }
       for (const [podcastId, group] of byPodcast.entries()) {
         const isOldestFirst = Preferences.getPodcastEpisodeSort(podcastId) === "oldest_first";
+        const unplayedGroup = group.filter((entry) => {
+          const normId = normalizeEpisodeId(entry.id) || entry.id;
+          return !Preferences.isEpisodePlayed(entry.id) && !Preferences.isEpisodePlayed(normId);
+        });
         const sorted = isOldestFirst
-          ? sortEpisodesOldestFirst(group)
-          : sortEpisodesNewestFirst(group);
+          ? sortEpisodesOldestFirst(unplayedGroup)
+          : sortEpisodesNewestFirst(unplayedGroup);
         for (const entry of sorted.slice(0, limit)) {
           const normId = normalizeEpisodeId(entry.id) || entry.id;
           if (isDownloaded(normId, entry)) continue;
           if (Preferences.isAutoDownloadBlocked(normId)) continue;
+          if (Preferences.isEpisodePlayed(normId) || Preferences.isEpisodePlayed(entry.id)) continue;
           let entryToDownload = entry;
           if (!entryToDownload.audioUrl) {
             let episodes = PodcastApi.getEpisodesFromCache(podcastId);

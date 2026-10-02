@@ -299,6 +299,34 @@ function createMockPreferences() {
       const cooldownMs = entry.count >= 2 ? 24 * 60 * 60 * 1000 : 12 * 60 * 60 * 1000;
       return Date.now() - entry.timestampMs < cooldownMs;
     },
+    getPlayedEpisodeIds(): string[] {
+      const raw = storage.getString("pref_played_episode_ids");
+      if (!raw) return [];
+      try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [];
+      } catch {
+        return [];
+      }
+    },
+    markEpisodePlayed(episodeId: string): void {
+      if (!episodeId) return;
+      const played = this.getPlayedEpisodeIds();
+      if (!played.includes(episodeId)) {
+        storage.set("pref_played_episode_ids", JSON.stringify([...played, episodeId]));
+      }
+    },
+    isEpisodePlayed(episodeId: string): boolean {
+      if (!episodeId) return false;
+      const played = this.getPlayedEpisodeIds();
+      if (played.includes(episodeId)) return true;
+      const norm = normalizeEpisodeId(episodeId);
+      if (norm && played.includes(norm)) return true;
+      for (const id of played) {
+        if (normalizeEpisodeId(id) === (norm || episodeId)) return true;
+      }
+      return false;
+    },
     storage
   };
 }
@@ -517,6 +545,25 @@ test("Preferences - failed auto-download tracking and cooldown blocking", () => 
   prefs.clearFailedAutoDownload(canonicalId);
   assert.equal(prefs.isAutoDownloadBlocked(rawId), false);
   assert.equal(prefs.isAutoDownloadBlocked(canonicalId), false);
+});
+
+test("Preferences - isEpisodePlayed matches canonical and URN ID formats", () => {
+  const prefs = createMockPreferences();
+  const rawUrn = "urn:bbc:podcast:w3ct998z";
+  const canonical = "w3ct998z";
+
+  assert.equal(prefs.isEpisodePlayed(rawUrn), false);
+  assert.equal(prefs.isEpisodePlayed(canonical), false);
+
+  // Mark using URN format
+  prefs.markEpisodePlayed(rawUrn);
+  assert.equal(prefs.isEpisodePlayed(rawUrn), true);
+  assert.equal(prefs.isEpisodePlayed(canonical), true);
+
+  // Another episode marked with canonical format
+  prefs.markEpisodePlayed("p02nq0lx");
+  assert.equal(prefs.isEpisodePlayed("p02nq0lx"), true);
+  assert.equal(prefs.isEpisodePlayed("urn:bbc:podcast:p02nq0lx"), true);
 });
 
 test("Preferences - Last.fm recent scrobbles and session preserved in backup export and restore", () => {
