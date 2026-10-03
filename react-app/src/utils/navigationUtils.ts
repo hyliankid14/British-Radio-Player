@@ -4,6 +4,45 @@ export interface AppNavigationTarget {
 }
 
 /**
+ * Every pathname {@link resolveAppNavigation} is allowed to hand to the navigator, mirroring
+ * the screens in `app/`.
+ *
+ * A notification or deep link can only ever reach a route that exists. When one does not,
+ * expo-router resolves it to its `*not-found` slot and paints the "Unmatched Route" screen,
+ * which is a dead end for the user: they asked to open something and got a 404. Rejecting
+ * the URL at the edge instead lets the caller fall back to the tabs.
+ *
+ * `tests/navigation.test.ts` walks `app/` and asserts every route appears here, so a new
+ * screen cannot be added without this list catching up.
+ */
+export const KNOWN_APP_ROUTES: readonly string[] = [
+  "/",
+  "/(tabs)",
+  "/(tabs)/favourites",
+  "/(tabs)/guide",
+  "/(tabs)/index",
+  "/(tabs)/library",
+  "/(tabs)/podcasts",
+  "/(tabs)/settings",
+  "/lastfm-auth",
+  "/modal/episode-detail",
+  "/modal/now-playing",
+  "/modal/playlist-detail",
+  "/modal/podcast-detail",
+  "/modal/podcast-search",
+  "/modal/schedule",
+  "/modal/settings-detail",
+  "/notification.click",
+  "/widget/[action]",
+  "/widget/index"
+];
+
+/** True when `pathname` names a screen that exists in `app/`. */
+export function isKnownAppRoute(pathname: string): boolean {
+  return KNOWN_APP_ROUTES.includes(pathname);
+}
+
+/**
  * Builds the in-app URL a podcast notification should open. Passing `episodeId`
  * deep-links past the episode list straight to the notified episode.
  */
@@ -11,6 +50,11 @@ export function buildPodcastDetailUrl(podcastId: string, episodeId?: string): st
   const base = `/modal/podcast-detail?podcastId=${encodeURIComponent(podcastId)}`;
   if (!episodeId) return base;
   return `${base}&episodeId=${encodeURIComponent(episodeId)}`;
+}
+
+/** Builds the in-app URL a finished download should open — the library's Downloads section. */
+export function buildLibraryUrl(): string {
+  return "/(tabs)/library";
 }
 
 /** Builds the in-app URL a saved-search notification should open. */
@@ -30,6 +74,9 @@ export function buildPodcastSearchUrl(
  * Parses deep links (e.g. bbcradioplayer://modal/podcast-detail?podcastId=123,
  * bbcradioplayer://podcasts?search=comedy&savedSearchId=abc), relative URLs (/modal/podcast-detail...),
  * and external deep links (such as /lastfm-auth), correctly preserving hostname and path segments.
+ *
+ * Returns null when the input is unusable or names no screen in the app, so callers can fall
+ * back rather than navigate into a route that would render the "Unmatched Route" screen.
  */
 export function resolveAppNavigation(rawUrl: string): AppNavigationTarget | null {
   if (!rawUrl || typeof rawUrl !== "string") return null;
@@ -100,6 +147,10 @@ export function resolveAppNavigation(rawUrl: string): AppNavigationTarget | null
   if (pathname === "" || pathname === "/") {
     pathname = "/";
   }
+
+  // Nothing in the app answers to this path. Returning null lets the caller drop the
+  // navigation rather than land the user on expo-router's "Unmatched Route" screen.
+  if (!isKnownAppRoute(pathname)) return null;
 
   return {
     pathname,

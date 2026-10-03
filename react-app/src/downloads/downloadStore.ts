@@ -4,7 +4,6 @@ import { Directory, File, Paths } from "expo-file-system";
 import { Podcast, Episode, PodcastApi } from "../api/podcasts";
 import { Preferences, SavedEpisodeEntry } from "../storage/preferences";
 import { NativeAndroid } from "../native/nativeAndroid";
-import { notifyDownloadFinished, notifyDownloadStarted } from "../notifications/downloadNotifications";
 import { normalizeBbcAudioUrl } from "../utils/shareLinks";
 import {
   AUTO_DOWNLOAD_LIMIT_PREF_KEY,
@@ -219,13 +218,6 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
     const activeDownload = get().downloads[normId] || get().downloads[entry.id];
     if (activeDownload?.status === "downloading") return;
 
-    notifyDownloadStarted(options?.auto === true, {
-      title: entry.title,
-      podcastTitle: entry.podcastTitle,
-      podcastId: entry.podcastId,
-      episodeId: normId
-    });
-
     const normalizedEntry = { ...entry, id: normId };
 
     set((state) => ({
@@ -383,12 +375,6 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
       const removeOne = (id: string) => get().remove(id);
       enforcePerPodcastDownloadLimit(removeOne);
       enforceMaxDownloads(removeOne);
-      notifyDownloadFinished(true, {
-        title: entry.title,
-        podcastTitle: entry.podcastTitle,
-        podcastId: entry.podcastId,
-        episodeId: normId
-      });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Download failed";
       console.error(
@@ -406,12 +392,6 @@ export const useDownloadStore = create<DownloadStoreState>((set, get) => ({
           error: message
         };
         return { downloads: next };
-      });
-      notifyDownloadFinished(false, {
-        title: entry.title,
-        podcastTitle: entry.podcastTitle,
-        podcastId: entry.podcastId,
-        episodeId: normId
       });
     }
   },

@@ -13,7 +13,11 @@ export async function syncBackgroundSync(): Promise<void> {
       Preferences.isPodcastNotificationsEnabled(id)
     );
     const interval = Number(Preferences.getSetting("pref_subscription_refresh", 60)) || 0;
-    const wifiOnly = Boolean(Preferences.getSetting("pref_index_wifi_only", false));
+    // "Download on Wi-Fi only" is the only network preference this app writes, and
+    // app/_layout.tsx re-syncs background sync when it changes. This used to read
+    // `pref_index_wifi_only`, which nothing ever set, so the worker's unmetered constraint
+    // was permanently off regardless of the user's choice.
+    const wifiOnly = Boolean(Preferences.getSetting("pref_download_wifi", true));
 
     if (notifyIds.length === 0) {
       NativeAndroid.syncBackgroundSubscriptions("[]");

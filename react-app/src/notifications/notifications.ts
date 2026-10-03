@@ -1,6 +1,7 @@
 import { Platform } from "react-native";
 import type * as ExpoNotifications from "expo-notifications";
 import { Preferences } from "../storage/preferences";
+import { latestEpisodeEpoch, parseEpisodeDateEpoch } from "../podcasts/episodeDates";
 import { PodcastApi, matchesBooleanSearch } from "../api/podcasts";
 import { buildPodcastDetailUrl, buildPodcastSearchUrl } from "../utils/navigationUtils";
 
@@ -148,12 +149,6 @@ export async function sendTestNotification(): Promise<boolean> {
   return true;
 }
 
-function episodeEpoch(pubDate?: string): number {
-  if (!pubDate) return 0;
-  const parsed = Date.parse(pubDate);
-  return Number.isNaN(parsed) ? 0 : parsed;
-}
-
 /**
  * Checks subscribed podcasts with notifications enabled for episodes published since the
  * last check and posts a local notification for each new one. Only notifies when the user
@@ -192,7 +187,7 @@ export async function checkSubscriptionsForNewEpisodes(force = false): Promise<v
       }
       if (!episodes.length) continue;
 
-      const newestEpoch = episodes.reduce((max, ep) => Math.max(max, episodeEpoch(ep.pubDate)), 0);
+      const newestEpoch = latestEpisodeEpoch(episodes.map((ep) => ep.pubDate));
       const lastNotified = Number(Preferences.getSetting(lastNotifiedKey(id), 0)) || 0;
 
       // First observation establishes the baseline without flooding the user.
@@ -202,8 +197,8 @@ export async function checkSubscriptionsForNewEpisodes(force = false): Promise<v
       }
 
       const fresh = episodes
-        .filter((ep) => episodeEpoch(ep.pubDate) > lastNotified)
-        .sort((a, b) => episodeEpoch(a.pubDate) - episodeEpoch(b.pubDate));
+        .filter((ep) => parseEpisodeDateEpoch(ep.pubDate) > lastNotified)
+        .sort((a, b) => parseEpisodeDateEpoch(a.pubDate) - parseEpisodeDateEpoch(b.pubDate));
 
       for (const episode of fresh.slice(-MAX_NOTIFICATIONS_PER_PODCAST)) {
         Preferences.setNotifiedEpisode(episode.id, {
@@ -226,7 +221,7 @@ export async function checkSubscriptionsForNewEpisodes(force = false): Promise<v
       if (fresh.length > 0) {
         Preferences.setSetting(
           lastNotifiedKey(id),
-          fresh.reduce((max, ep) => Math.max(max, episodeEpoch(ep.pubDate)), lastNotified)
+          Math.max(lastNotified, latestEpisodeEpoch(fresh.map((ep) => ep.pubDate)))
         );
       }
     }
@@ -275,7 +270,7 @@ export async function checkSavedSearchesForNewEpisodes(force = false): Promise<v
         if (matching.length === 0) continue;
 
         const sorted = matching
-          .map((ep) => ({ ...ep, epoch: episodeEpoch(ep.pubDate) }))
+          .map((ep) => ({ ...ep, epoch: parseEpisodeDateEpoch(ep.pubDate) }))
           .filter((ep) => ep.epoch > 0)
           .sort((a, b) => a.epoch - b.epoch);
 

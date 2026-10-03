@@ -2,6 +2,7 @@ import { createMMKV } from "react-native-mmkv";
 import { NativeAndroid } from "../native/nativeAndroid";
 import { AudioQuality } from "../data/stations";
 import { mergeEpisodeProgress } from "./episodeProgress";
+import { mergeLatestEpisodeDates } from "../podcasts/episodeDates";
 import { LastPlayed, normalizeLastPlayed, parseLastPlayed } from "./lastPlayed";
 import { configureGeoBlockedStorage } from "../utils/geoBlock";
 import type { QueuedScrobble } from "../audio/scrobbleQueue";
@@ -206,6 +207,11 @@ function writeJson(key: string, value: unknown): void {
   jsonCache.set(key, { raw, value });
 }
 
+/** Reads a hand-ordered id list, ignoring anything that is not a string. */
+function readIdOrder(key: string): string[] {
+  return readJsonArray<unknown>(key).filter((id): id is string => typeof id === "string");
+}
+
 /**
  * Drops every cached parse.
  *
@@ -277,6 +283,9 @@ const KEYS = {
   // so these are written once per podcast and never expire.
   ,PODCAST_SERVICES_CACHE: "cache_podcast_services_data"
   ,PODCAST_LANGUAGES_CACHE: "cache_podcast_languages_data"
+  // Latest episode date per podcast, backing the "Last Updated" catalogue tab. A
+  // podcast's newest episode only moves forwards, so an entry is only ever raised.
+  ,PODCAST_LATEST_EPISODE_CACHE: "cache_podcast_latest_episode_data"
   ,FAILED_AUTO_DOWNLOADS: "pref_failed_auto_downloads"
   ,REVIEW_PROMPT_STATE: "pref_review_prompt_state"
   ,LAST_TRACKED_ANALYTICS_EPISODE_ID: "pref_last_tracked_analytics_episode_id"
@@ -739,14 +748,7 @@ export const Preferences = {
   },
 
   getSubscribedPodcastManualOrder(): string[] {
-    const raw = storage.getString("pref_subscribed_podcast_manual_order");
-    if (!raw) return [];
-    try {
-      const order = JSON.parse(raw);
-      return Array.isArray(order) ? order.filter((id): id is string => typeof id === "string") : [];
-    } catch {
-      return [];
-    }
+    return readIdOrder("pref_subscribed_podcast_manual_order");
   },
 
   setSubscribedPodcastManualOrder(ids: string[]): void {
@@ -901,6 +903,22 @@ export const Preferences = {
       "pref_saved_podcast_searches",
       JSON.stringify(this.getSavedPodcastSearches().filter((search) => search.id !== id))
     );
+  },
+
+  getSavedSearchSort(): string {
+    return storage.getString("pref_saved_podcast_search_sort") || "most_recently_updated";
+  },
+
+  setSavedSearchSort(sort: string): void {
+    storage.set("pref_saved_podcast_search_sort", sort);
+  },
+
+  getSavedSearchManualOrder(): string[] {
+    return readIdOrder("pref_saved_podcast_search_manual_order");
+  },
+
+  setSavedSearchManualOrder(ids: string[]): void {
+    writeJson("pref_saved_podcast_search_manual_order", ids);
   },
 
   togglePodcastSubscription(podcastId: string): boolean {
@@ -1501,6 +1519,33 @@ pruneStalePerEpisodeKeys(): number {
       ...this.getPodcastLanguageMap(),
       ...entries
     });
+  },
+
+  /** Podcast PID to the epoch ms of its newest known episode. */
+  getPodcastLatestEpisodeMap(): Record<string, number> {
+    const raw = storage.getString(KEYS.PODCAST_LATEST_EPISODE_CACHE);
+    if (!raw) return {};
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+      const out: Record<string, number> = {};
+      for (const [pid, value] of Object.entries(parsed as Record<string, unknown>)) {
+        if (typeof value === "number" && Number.isFinite(value) && value > 0) out[pid] = value;
+      }
+      return out;
+    } catch {
+      return {};
+    }
+  },
+
+  /**
+   * @internal Record the newest episode date for a batch of podcasts. Only ever raises a
+   * stored value; see `mergeLatestEpisodeDates` for why a stale read must not demote one.
+   */
+  _mergePodcastLatestEpisodes(entries: Record<string, number>): void {
+    if (Object.keys(entries).length === 0) return;
+    const current = mergeLatestEpisodeDates(this.getPodcastLatestEpisodeMap(), entries);
+    writeJson(KEYS.PODCAST_LATEST_EPISODE_CACHE, current);
   },
 
   /**

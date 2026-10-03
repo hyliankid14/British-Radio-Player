@@ -906,7 +906,10 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
           PlaybackStateCompat.CustomAction.Builder(
             CUSTOM_ACTION_SUBSCRIBE,
             if (subscribed) "Unsubscribe" else "Subscribe",
-            if (subscribed) R.drawable.ic_bookmark else R.drawable.ic_bookmark_outline
+            // Podcast glyphs, as in the legacy Android Auto app. Episode save already claims the
+            // bookmark drawables and Auto renders custom actions icon-only, so sharing them here
+            // showed two identical bookmarks while a podcast played.
+            if (subscribed) R.drawable.ic_subscribe else R.drawable.ic_subscribe_outline
           ).build()
         )
       }

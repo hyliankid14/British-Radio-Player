@@ -83,11 +83,38 @@ test("an English service key keeps a podcast without a feed fetch", () => {
   assert.equal(isEnglishPodcast(podcast({ title: "In Our Time" }), undefined, "radio4"), true);
 });
 
-test("an English feed language wins over a non-Latin title", () => {
-  // These are English World Service shows the text heuristic used to hide.
-  const hindiTitle = podcast({ id: "p055260j", title: "बीबीसी संगीत समीक्षा" });
-  assert.equal(looksNonEnglishByText(hindiTitle), true, "text alone wrongly flags this");
-  assert.equal(isEnglishPodcast(hindiTitle, "en", "hindiradio"), true);
+test("an English feed language wins over a non-Latin title on an English service", () => {
+  // An English service with a non-Latin title is still English: the tag is authoritative
+  // and there is no foreign service to contradict it.
+  const nonLatinTitle = podcast({ id: "p055260j", title: "बीबीसी संगीत समीक्षा" });
+  assert.equal(looksNonEnglishByText(nonLatinTitle), true, "text alone would wrongly flag this");
+  assert.equal(isEnglishPodcast(nonLatinTitle, "en", "worldserviceradio"), true);
+});
+
+test("a foreign service and a non-Latin title outrank a wrong en feed tag", () => {
+  // The reported bug: these BBC Hindi feeds all declare <language>en</language> while
+  // being Hindi shows, so the tag alone let dormant non-English podcasts through the
+  // filter. Verified live — all three sit on the hindiradio service and are dormant
+  // (last episodes 2023, 2022 and 2019).
+  const stale = [
+    { id: "p0fmrg25", title: "छोटी उम्र बड़ी ज़िंदगी", genres: ["Life Stories", "Podcasts"] },
+    { id: "p055260j", title: "बीबीसी एक मुलाक़ात", genres: ["Factual", "Entertainment"] },
+    { id: "p05527ds", title: "बीबीसी संगीत समीक्षा", genres: ["Music", "Entertainment"] }
+  ];
+  for (const show of stale) {
+    const p = podcast(show);
+    assert.equal(isEnglishPodcast(p, "en", "hindiradio"), false, show.id);
+    assert.equal(isEnglishPodcast(p, "hi", "hindiradio"), false, show.id);
+    // Even with nothing known but the wrong tag, the script check still catches it.
+    assert.equal(isEnglishPodcast(p, "en"), true, `${show.id} needs the service key`);
+  }
+});
+
+test("a foreign service with a Latin-script title still trusts its language tag", () => {
+  // Welsh and Gaelic shows write in Latin script, so the tag is the only usable signal.
+  const welsh = podcast({ id: "p0nrm70f", title: "Y Fangre Hon gyda Trystan ac Emma" });
+  assert.equal(isEnglishPodcast(welsh, "en", "radiocymru"), true);
+  assert.equal(isEnglishPodcast(welsh, "cy", "radiocymru"), false);
 });
 
 test("unresolved podcasts still fall back to the text heuristic", () => {

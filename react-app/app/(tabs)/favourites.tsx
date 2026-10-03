@@ -34,6 +34,14 @@ import { useResponsiveLayout } from "../../src/theme/responsive";
 import { ensureNotificationPermissions } from "../../src/notifications/notifications";
 import { EpisodePlaybackIndicator, EpisodeProgressBar } from "../../src/components/EpisodeIndicators";
 import { computeEpisodePlaybackStatus } from "../../src/podcasts/episodePlaybackStatus";
+import { latestEpisodeEpoch } from "../../src/podcasts/episodeDates";
+import {
+  SAVED_SEARCH_SORT_OPTIONS,
+  SavedSearchSort,
+  parseSavedSearchSort,
+  sortSavedSearches
+} from "../../src/podcasts/savedSearchSort";
+import { useDragReorder } from "../../src/hooks/useDragReorder";
 
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -56,6 +64,14 @@ type PodcastSort = "most_recently_updated" | "least_recently_updated" | "alphabe
 type PlaylistSummary = { id: string; name: string; isDefault: boolean; itemCount: number };
 type SavedPodcastSearch = { id: string; name: string; query: string; notificationsEnabled: boolean; latestResultDate?: string };
 
+const PODCAST_SORT_OPTIONS: ReadonlyArray<readonly [string, PodcastSort]> = [
+  ["Most recently updated", "most_recently_updated"],
+  ["Least recently updated", "least_recently_updated"],
+  ["Alphabetical (A-Z)", "alphabetical"],
+  ["Manual sort", "manual"],
+  ["Sort by tags", "tags"]
+];
+
 const CATEGORY_ITEMS: { id: FavCategory; label: string; icon: string }[] = [
   { id: "Stations", label: "Stations", icon: "star" },
   { id: "Subscribed", label: "Subscribed", icon: "podcasts" },
@@ -66,6 +82,7 @@ const CATEGORY_ITEMS: { id: FavCategory; label: string; icon: string }[] = [
 
 const ITEM_HEIGHT = 72;
 const PODCAST_ITEM_HEIGHT = 104;
+const SAVED_SEARCH_ITEM_HEIGHT = 72;
 const FAVOURITE_SECTION_TITLES: Record<FavCategory, string> = {
   Stations: "Favourites",
   Subscribed: "Subscribed Podcasts",
@@ -284,6 +301,9 @@ export default function FavouritesScreen() {
   const [savedSearches, setSavedSearches] = useState<SavedPodcastSearch[]>(
     () => Preferences.getSavedPodcastSearches()
   );
+  const [savedSearchSort, setSavedSearchSort] = useState<SavedSearchSort>(
+    () => parseSavedSearchSort(Preferences.getSavedSearchSort())
+  );
   const [podcastHistory, setPodcastHistory] = useState<PodcastHistoryEntry[]>(
     () => Preferences.getPodcastHistory()
   );
@@ -296,14 +316,13 @@ export default function FavouritesScreen() {
     () => Preferences.getPlayedEpisodeIdSet()
   );
   const [tagVersion, forceTagUpdate] = useState(0);
+  const [savedSearchSortVersion, forceSavedSearchSortUpdate] = useState(0);
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [, refreshFromStore] = useState(0);
 
-  // Drag and drop state for subscribed podcasts in manual sort mode
-  const [draggingPodcastId, setDraggingPodcastId] = useState<string | null>(null);
-
   // Modern Material 3 dialog modal states
   const [sortMenuVisible, setSortMenuVisible] = useState(false);
+  const [searchSortMenuVisible, setSearchSortMenuVisible] = useState(false);
   const [createPlaylistVisible, setCreatePlaylistVisible] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState("");
 
@@ -415,11 +434,14 @@ export default function FavouritesScreen() {
         Promise.all(
           subscribedPodcastsList.map(async (podcast) => {
             const episodes = await PodcastApi.fetchEpisodes(podcast.rssUrl, podcast.id);
-            const latestEpisode = episodes[0];
-            if (latestEpisode) {
+            // Scans for the newest date rather than trusting episodes[0]: the feed sort
+            // pushes undated items last, so a podcast with no usable pubDate would
+            // otherwise record the date of whichever episode happened to sort first.
+            const latestMs = latestEpisodeEpoch(episodes.map((episode) => episode.pubDate));
+            if (latestMs > 0) {
               setLatestEpisodeTimes((current) => ({
                 ...current,
-                [podcast.id]: new Date(latestEpisode.pubDate).getTime() || 0
+                [podcast.id]: latestMs
               }));
             }
             return checkPodcastHasNewEpisodes(podcast.id, episodes, currentPlayed)
@@ -638,16 +660,24 @@ export default function FavouritesScreen() {
     if (podcastSort !== "tags" || activeCategory !== "Subscribed") setSelectedTag(null);
   }, [podcastSort, activeCategory]);
 
-  const PODCAST_SORT_OPTIONS: Array<[string, PodcastSort]> = [
-    ["Most recently updated", "most_recently_updated"],
-    ["Least recently updated", "least_recently_updated"],
-    ["Alphabetical (A-Z)", "alphabetical"],
-    ["Manual sort", "manual"],
-    ["Sort by tags", "tags"]
-  ];
+  const sortedSavedSearches = useMemo(
+    () =>
+      sortSavedSearches(
+        savedSearches,
+        savedSearchSort,
+        Preferences.getSavedSearchManualOrder()
+      ),
+    // The manual order lives outside React state, so the version counter is what
+    // tells us it changed.
+    [savedSearches, savedSearchSort, savedSearchSortVersion]
+  );
 
   const selectPodcastSort = useCallback(() => {
     setSortMenuVisible(true);
+  }, []);
+
+  const selectSavedSearchSort = useCallback(() => {
+    setSearchSortMenuVisible(true);
   }, []);
 
   const handleCreatePlaylist = useCallback(() => {
@@ -714,153 +744,27 @@ export default function FavouritesScreen() {
     setDeleteSearchTarget(search);
   }, []);
 
-  const moveSubscribedPodcast = useCallback(
-    (fromIndex: number, toIndex: number) => {
-      const list = [...sortedSubscribedPodcasts];
-      if (toIndex < 0 || toIndex >= list.length) return;
-      const [item] = list.splice(fromIndex, 1);
-      list.splice(toIndex, 0, item);
-      const newOrder = list.map((p) => p.id);
-      Preferences.setSubscribedPodcastManualOrder(newOrder);
+  // Manual sort drag-and-drop, shared by the two sortable lists on this screen.
+  const podcastDrag = useDragReorder({
+    ids: sortedSubscribedPodcasts.map((podcast) => podcast.id),
+    itemHeight: PODCAST_ITEM_HEIGHT,
+    enabled: podcastSort === "manual",
+    onCommit: (ids) => {
+      Preferences.setSubscribedPodcastManualOrder(ids);
       forceTagUpdate((v) => v + 1);
-    },
-    [sortedSubscribedPodcasts]
-  );
-
-  // Subscribed podcasts drag-and-drop state & callbacks for manual sort mode
-  const podcastPanY = useRef(new Animated.Value(0)).current;
-  const podcastScaleAnim = useRef(new Animated.Value(1.0)).current;
-  const podcastDragStartIndexRef = useRef<number>(0);
-  const podcastCurrentTargetIndexRef = useRef<number>(0);
-  const podcastIsDraggingRef = useRef<boolean>(false);
-  const podcastOrderedListRef = useRef<Podcast[]>([]);
-  podcastOrderedListRef.current = sortedSubscribedPodcasts;
-
-  const podcastNeighborTranslations = useRef<Record<string, Animated.Value>>({});
-  const getPodcastTranslation = useCallback((id: string) => {
-    if (!podcastNeighborTranslations.current[id]) {
-      podcastNeighborTranslations.current[id] = new Animated.Value(0);
     }
-    return podcastNeighborTranslations.current[id];
-  }, []);
+  });
+  const draggingPodcastId = podcastDrag.draggingId;
 
-  const createPodcastPanResponder = useCallback(
-    (index: number, podcast: Podcast) =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dy) > 4,
-        onPanResponderGrant: () => {
-          podcastIsDraggingRef.current = true;
-          setDraggingPodcastId(podcast.id);
-          podcastDragStartIndexRef.current = index;
-          podcastCurrentTargetIndexRef.current = index;
-          podcastPanY.setValue(0);
-
-          Animated.spring(podcastScaleAnim, {
-            toValue: 1.03,
-            friction: 8,
-            tension: 110,
-            useNativeDriver: true
-          }).start();
-        },
-        onPanResponderMove: (_, gestureState) => {
-          podcastPanY.setValue(gestureState.dy);
-
-          const fromIdx = podcastDragStartIndexRef.current;
-          const currentList = podcastOrderedListRef.current;
-          const target = Math.max(
-            0,
-            Math.min(
-              currentList.length - 1,
-              fromIdx + Math.round(gestureState.dy / PODCAST_ITEM_HEIGHT)
-            )
-          );
-
-          if (target !== podcastCurrentTargetIndexRef.current) {
-            podcastCurrentTargetIndexRef.current = target;
-
-            currentList.forEach((item, j) => {
-              if (item.id === podcast.id) return;
-              let shift = 0;
-              if (target > fromIdx) {
-                if (j > fromIdx && j <= target) {
-                  shift = -PODCAST_ITEM_HEIGHT;
-                }
-              } else if (target < fromIdx) {
-                if (j >= target && j < fromIdx) {
-                  shift = PODCAST_ITEM_HEIGHT;
-                }
-              }
-              Animated.spring(getPodcastTranslation(item.id), {
-                toValue: shift,
-                friction: 9,
-                tension: 140,
-                useNativeDriver: true
-              }).start();
-            });
-          }
-        },
-        onPanResponderRelease: () => {
-          const fromIdx = podcastDragStartIndexRef.current;
-          const finalTarget = podcastCurrentTargetIndexRef.current;
-          const landingY = (finalTarget - fromIdx) * PODCAST_ITEM_HEIGHT;
-          const currentList = podcastOrderedListRef.current;
-
-          Animated.parallel([
-            Animated.spring(podcastPanY, {
-              toValue: landingY,
-              friction: 8,
-              tension: 110,
-              useNativeDriver: true
-            }),
-            Animated.spring(podcastScaleAnim, {
-              toValue: 1.0,
-              friction: 8,
-              tension: 110,
-              useNativeDriver: true
-            })
-          ]).start(() => {
-            currentList.forEach((p) => {
-              getPodcastTranslation(p.id).setValue(0);
-            });
-            podcastPanY.setValue(0);
-            podcastIsDraggingRef.current = false;
-            setDraggingPodcastId(null);
-
-            if (finalTarget !== fromIdx) {
-              const updated = [...currentList];
-              const [moved] = updated.splice(fromIdx, 1);
-              if (moved) {
-                updated.splice(finalTarget, 0, moved);
-                const newIds = updated.map((p) => p.id);
-                Preferences.setSubscribedPodcastManualOrder(newIds);
-                forceTagUpdate((v) => v + 1);
-              }
-            }
-          });
-        },
-        onPanResponderTerminate: () => {
-          Animated.parallel([
-            Animated.spring(podcastPanY, {
-              toValue: 0,
-              useNativeDriver: true
-            }),
-            Animated.spring(podcastScaleAnim, {
-              toValue: 1.0,
-              useNativeDriver: true
-            })
-          ]).start(() => {
-            podcastOrderedListRef.current.forEach((p) => {
-              getPodcastTranslation(p.id).setValue(0);
-            });
-            podcastPanY.setValue(0);
-            podcastIsDraggingRef.current = false;
-            setDraggingPodcastId(null);
-          });
-        }
-      }),
-    [getPodcastTranslation, podcastPanY, podcastScaleAnim]
-  );
+  const savedSearchDrag = useDragReorder({
+    ids: sortedSavedSearches.map((search) => search.id),
+    itemHeight: SAVED_SEARCH_ITEM_HEIGHT,
+    enabled: savedSearchSort === "manual",
+    onCommit: (ids) => {
+      Preferences.setSavedSearchManualOrder(ids);
+      forceSavedSearchSortUpdate((v) => v + 1);
+    }
+  });
 
   // Keep a ref to the latest orderedList for panResponder callbacks
   const orderedListRef = useRef<Station[]>([]);
@@ -1214,6 +1118,12 @@ export default function FavouritesScreen() {
               accessibilityLabel="Sort subscribed podcasts"
               onPress={selectPodcastSort}
             />
+          ) : activeCategory === "Searches" ? (
+            <HeaderIconButton
+              icon="sort"
+              accessibilityLabel="Sort saved searches"
+              onPress={selectSavedSearchSort}
+            />
           ) : activeCategory === "Playlists" ? (
             <HeaderIconButton
               icon="add"
@@ -1390,11 +1300,8 @@ export default function FavouritesScreen() {
             ) : null
           }
           renderItem={({ item, index }: { item: Podcast; index: number }) => {
-            const isDraggingThis = draggingPodcastId === item.id;
-            const podcastPanResponder = createPodcastPanResponder(index, item);
-            const transform = isDraggingThis
-              ? [{ translateY: podcastPanY }, { scale: podcastScaleAnim }]
-              : [{ translateY: getPodcastTranslation(item.id) }];
+            const { isDragging: isDraggingThis, panHandlers, transform } =
+              podcastDrag.getRowDrag(index, item.id);
 
             return (
               <Animated.View
@@ -1490,7 +1397,7 @@ export default function FavouritesScreen() {
 
               {podcastSort === "manual" ? (
                 <View
-                  {...podcastPanResponder.panHandlers}
+                  {...panHandlers}
                   style={styles.dragHandleContainer}
                   hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}
                 >
@@ -1583,70 +1490,104 @@ export default function FavouritesScreen() {
       ) : activeCategory === "Searches" ? (
         <FlatList
           key="searches"
-          data={savedSearches}
+          data={sortedSavedSearches}
           keyExtractor={(item) => item.id}
+          scrollEnabled={!savedSearchDrag.draggingId}
+          removeClippedSubviews={false}
           contentContainerStyle={[styles.listContent, { paddingBottom: 170 + insets.bottom }]}
           style={{ backgroundColor: theme.surface }}
-          renderItem={({ item }) => (
-            <View style={[styles.savedSearchRow, { backgroundColor: theme.surface, borderBottomColor: theme.outlineVariant }]}>
-              <TouchableOpacity
-                style={styles.savedSearchMain}
-                onPress={() =>
-                  router.push({
-                    pathname: "/modal/podcast-search",
-                    params: { search: item.query, savedSearchId: item.id }
-                  })
-                }
-              >
-                <MaterialIcons name="search" size={26} color={theme.primary} />
-                <View style={styles.savedSearchInfo}>
-                  <Text style={[styles.savedSearchName, { color: theme.onSurface }]}>{item.name}</Text>
-                  {item.latestResultDate ? (
-                    <Text style={[styles.savedSearchQuery, { color: theme.onSurfaceVariant }]}>
-                      Latest: {new Date(item.latestResultDate).toLocaleDateString()}
-                    </Text>
-                  ) : null}
-                </View>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.savedSearchAction}
-                onPress={async () => {
-                  const enabling = !item.notificationsEnabled;
-                  if (enabling) {
-                    await ensureNotificationPermissions();
+          renderItem={({ item, index }: { item: SavedPodcastSearch; index: number }) => {
+            const { isDragging, panHandlers, transform } = savedSearchDrag.getRowDrag(index, item.id);
+            return (
+              <Animated.View
+                style={[
+                  styles.savedSearchRow,
+                  {
+                    backgroundColor: isDragging ? theme.surfaceContainer : theme.surface,
+                    borderBottomColor: theme.outlineVariant,
+                    transform,
+                    zIndex: isDragging ? 999 : 1,
+                    elevation: isDragging ? 8 : 0,
+                    shadowColor: "#000",
+                    shadowOffset: { width: 0, height: isDragging ? 6 : 0 },
+                    shadowOpacity: isDragging ? 0.25 : 0,
+                    shadowRadius: isDragging ? 8 : 0
                   }
-                  Preferences.updatePodcastSearchNotifications(item.id, enabling);
-                  setSavedSearches(Preferences.getSavedPodcastSearches());
-                }}
-                accessibilityLabel={item.notificationsEnabled ? "Disable search alerts" : "Enable search alerts"}
+                ]}
               >
-                <MaterialIcons
-                  name={item.notificationsEnabled ? "notifications-active" : "notifications-none"}
-                  size={22}
-                  color={item.notificationsEnabled ? theme.primary : theme.onSurfaceVariant}
-                />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.savedSearchAction}
-                onPress={() => {
-                  setEditSearchTarget(item);
-                  setEditSearchName(item.name);
-                  setEditSearchQuery(item.query);
-                  setEditSearchNotify(item.notificationsEnabled);
-                }}
-                accessibilityLabel="Edit saved search"
-              >
-                <MaterialIcons name="edit" size={20} color={theme.onSurfaceVariant} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.savedSearchAction}
-                onPress={() => confirmDeleteSearch(item)}
-                accessibilityLabel="Remove saved search"
-              >
-                <MaterialIcons name="delete-outline" size={22} color={theme.onSurfaceVariant} />
-              </TouchableOpacity>
-            </View>
-          )}
+                {savedSearchSort === "manual" ? (
+                  <View
+                    {...panHandlers}
+                    style={styles.dragHandleContainer}
+                    hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}
+                    accessibilityLabel="Reorder saved search"
+                  >
+                    <MaterialIcons
+                      name="drag-indicator"
+                      size={24}
+                      color={isDragging ? theme.primary : theme.onSurfaceVariant}
+                    />
+                  </View>
+                ) : null}
+                <TouchableOpacity
+                  style={styles.savedSearchMain}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/modal/podcast-search",
+                      params: { search: item.query, savedSearchId: item.id }
+                    })
+                  }
+                >
+                  <MaterialIcons name="search" size={26} color={theme.primary} />
+                  <View style={styles.savedSearchInfo}>
+                    <Text style={[styles.savedSearchName, { color: theme.onSurface }]}>{item.name}</Text>
+                    {item.latestResultDate ? (
+                      <Text style={[styles.savedSearchQuery, { color: theme.onSurfaceVariant }]}>
+                        Latest: {new Date(item.latestResultDate).toLocaleDateString()}
+                      </Text>
+                    ) : null}
+                  </View>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.savedSearchAction}
+                  onPress={async () => {
+                    const enabling = !item.notificationsEnabled;
+                    if (enabling) {
+                      await ensureNotificationPermissions();
+                    }
+                    Preferences.updatePodcastSearchNotifications(item.id, enabling);
+                    setSavedSearches(Preferences.getSavedPodcastSearches());
+                  }}
+                  accessibilityLabel={item.notificationsEnabled ? "Disable search alerts" : "Enable search alerts"}
+                >
+                  <MaterialIcons
+                    name={item.notificationsEnabled ? "notifications-active" : "notifications-none"}
+                    size={22}
+                    color={item.notificationsEnabled ? theme.primary : theme.onSurfaceVariant}
+                  />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.savedSearchAction}
+                  onPress={() => {
+                    setEditSearchTarget(item);
+                    setEditSearchName(item.name);
+                    setEditSearchQuery(item.query);
+                    setEditSearchNotify(item.notificationsEnabled);
+                  }}
+                  accessibilityLabel="Edit saved search"
+                >
+                  <MaterialIcons name="edit" size={20} color={theme.onSurfaceVariant} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.savedSearchAction}
+                  onPress={() => confirmDeleteSearch(item)}
+                  accessibilityLabel="Remove saved search"
+                >
+                  <MaterialIcons name="delete-outline" size={22} color={theme.onSurfaceVariant} />
+                </TouchableOpacity>
+              </Animated.View>
+            );
+          }}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Text style={[styles.emptyText, { color: theme.onSurfaceVariant }]}>No saved searches yet</Text>
@@ -1748,6 +1689,80 @@ export default function FavouritesScreen() {
             <View style={styles.dialogActions}>
               <TouchableOpacity
                 onPress={() => setSortMenuVisible(false)}
+                style={styles.dialogButton}
+              >
+                <Text style={{ color: theme.primary, fontWeight: "600" }}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Saved Search Sort Modal */}
+      <Modal
+        visible={searchSortMenuVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSearchSortMenuVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.dialogBackdrop}
+          activeOpacity={1}
+          onPress={() => setSearchSortMenuVisible(false)}
+        >
+          <View
+            style={[styles.dialogCard, { backgroundColor: theme.surfaceContainer }]}
+            onStartShouldSetResponder={() => true}
+          >
+            <Text style={[styles.dialogTitle, { color: theme.onSurface }]}>
+              Sort saved searches
+            </Text>
+            {SAVED_SEARCH_SORT_OPTIONS.map(([label, value]) => {
+              const isSelected = savedSearchSort === value;
+              return (
+                <TouchableOpacity
+                  key={value}
+                  style={styles.sortOptionRow}
+                  activeOpacity={0.7}
+                  onPress={() => {
+                    if (
+                      value === "manual" &&
+                      Preferences.getSavedSearchManualOrder().length === 0
+                    ) {
+                      // Seed from what is on screen, so switching to manual sort
+                      // does not reshuffle the list under the user.
+                      Preferences.setSavedSearchManualOrder(
+                        sortedSavedSearches.map((search) => search.id)
+                      );
+                    }
+                    Preferences.setSavedSearchSort(value);
+                    setSavedSearchSort(value);
+                    forceSavedSearchSortUpdate((v) => v + 1);
+                    setSearchSortMenuVisible(false);
+                  }}
+                >
+                  <MaterialIcons
+                    name={isSelected ? "radio-button-checked" : "radio-button-unchecked"}
+                    size={22}
+                    color={isSelected ? theme.primary : theme.onSurfaceVariant}
+                  />
+                  <Text
+                    style={[
+                      styles.sortOptionLabel,
+                      {
+                        color: isSelected ? theme.primary : theme.onSurface,
+                        fontWeight: isSelected ? "700" : "400"
+                      }
+                    ]}
+                  >
+                    {label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+            <View style={styles.dialogActions}>
+              <TouchableOpacity
+                onPress={() => setSearchSortMenuVisible(false)}
                 style={styles.dialogButton}
               >
                 <Text style={{ color: theme.primary, fontWeight: "600" }}>Cancel</Text>

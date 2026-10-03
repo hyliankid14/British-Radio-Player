@@ -1,6 +1,7 @@
 import { Preferences } from "../storage/preferences";
 import { normalizeBbcAudioUrl } from "../utils/shareLinks";
 import { harvestFeedLanguage } from "../podcasts/languageResolver";
+import { byEpisodePubDate, parseEpisodeDateEpoch } from "../podcasts/episodeDates.ts";
 import { normalizeEpisodeId } from "../downloads/downloadLimits";
 import { calculateUpdatedRating, formatRatingValue } from "../podcasts/ratingUtils";
 import { isAdvancedBooleanQuery, booleanSearchCandidateQueries } from "../utils/searchUtils";
@@ -601,6 +602,51 @@ export const PodcastApi = {
   },
 
   /**
+   * Reads only the newest `pubDate` from a feed, without parsing or caching the episode
+   * list.
+   *
+   * The catalogue-wide "Last Updated" index needs one date per podcast, and `fetchEpisodes`
+   * would fill the 60-entry bounded cache with all ~840 crawls, evicting the popular
+   * episodes `prefetchEpisodes` deliberately warms so opening them is instant. Returns `0`
+   * when the feed cannot be read.
+   */
+  async fetchLatestEpisodeMs(rssUrl: string, podcastId: string): Promise<number> {
+    try {
+      const res = await fetch(rssUrl.replace("http://", "https://"), {
+        headers: {
+          "User-Agent": "British Radio Player/1.0",
+          Accept: "application/rss+xml,application/xml,text/xml,*/*"
+        }
+      });
+      if (!res.ok) return 0;
+      const xmlText = await res.text();
+      harvestFeedLanguage(podcastId, xmlText);
+
+      // Feeds are not reliably ordered, so every pubDate is read rather than the first.
+      let max = 0;
+      const openTag = "<pubDate";
+      const closeTag = "</pubDate>";
+      let cursor = 0;
+      for (;;) {
+        const start = xmlText.indexOf(openTag, cursor);
+        if (start === -1) break;
+        const openEnd = xmlText.indexOf(">", start + openTag.length);
+        if (openEnd === -1) break;
+        const end = xmlText.indexOf(closeTag, openEnd + 1);
+        if (end === -1) break;
+        cursor = end + closeTag.length;
+        const epoch = parseEpisodeDateEpoch(
+          xmlText.slice(openEnd + 1, end).replace(/<!\[CDATA\[|\]\]>/g, "").trim()
+        );
+        if (epoch > max) max = epoch;
+      }
+      return max;
+    } catch {
+      return 0;
+    }
+  },
+
+  /**
    * Fetch and parse episodes from a podcast's BBC RSS feed.
    * Cached in-memory so subsequent views return immediately (0ms).
    */
@@ -773,11 +819,7 @@ export const PodcastApi = {
         }
 
         // Ensure episodes are sorted by default with the newest episode first
-        episodes.sort((a, b) => {
-          const timeA = a.pubDate ? Date.parse(a.pubDate) || 0 : 0;
-          const timeB = b.pubDate ? Date.parse(b.pubDate) || 0 : 0;
-          return timeB - timeA;
-        });
+        episodes.sort(byEpisodePubDate);
 
         episodesCache.set(podcastId, episodes);
         return episodes;

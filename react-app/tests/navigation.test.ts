@@ -1,9 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
 import {
   resolveAppNavigation,
   buildPodcastDetailUrl,
-  buildPodcastSearchUrl
+  buildPodcastSearchUrl,
+  buildLibraryUrl,
+  isKnownAppRoute,
+  KNOWN_APP_ROUTES
 } from "../src/utils/navigationUtils.ts";
 
 test("resolveAppNavigation handles custom scheme podcast detail deep links", () => {
@@ -94,6 +99,65 @@ test("resolveAppNavigation handles empty or invalid URLs safely", () => {
   assert.equal(resolveAppNavigation("   "), null);
   // @ts-expect-error test non-string
   assert.equal(resolveAppNavigation(null), null);
+});
+
+test("resolveAppNavigation rejects links that name no screen", () => {
+  // "/downloads" was the download notifications' target and matched no route, so tapping
+  // one rendered expo-router's "Unmatched Route" screen instead of the library.
+  assert.equal(resolveAppNavigation("/downloads"), null);
+  assert.equal(resolveAppNavigation("bbcradioplayer:///downloads"), null);
+  assert.equal(resolveAppNavigation("/modal/podcasts"), null);
+  assert.equal(isKnownAppRoute("/downloads"), false);
+  assert.equal(isKnownAppRoute("/modal/podcast-detail"), true);
+});
+
+test("redirectSystemPath falls back to the tabs instead of the unmatched route screen", async () => {
+  const { redirectSystemPath } = await import("../app/+native-intent.ts");
+
+  assert.equal(redirectSystemPath({ path: "/downloads", initial: true }), "/(tabs)");
+  assert.equal(
+    redirectSystemPath({ path: "bbcradioplayer:///downloads", initial: false }),
+    "/(tabs)"
+  );
+  assert.equal(
+    redirectSystemPath({ path: "bbcradioplayer://downloads", initial: true }),
+    "/(tabs)"
+  );
+});
+
+test("buildLibraryUrl targets the library screen a download notice should open", () => {
+  const target = resolveAppNavigation(buildLibraryUrl());
+  assert.ok(target);
+  assert.equal(target.pathname, "/(tabs)/library");
+});
+
+test("KNOWN_APP_ROUTES covers every screen in app/", () => {
+  const appRoot = join(import.meta.dirname, "..", "app");
+  const missing: string[] = [];
+
+  const walk = (dir: string, prefix: string) => {
+    const entries = readdirSync(dir, { withFileTypes: true });
+    // Without a layout, expo-router hoists the directory's screens to the nearest layout
+    // above it, so `index` only collapses onto the directory path when one is present.
+    const hasLayout = entries.some(
+      (e) => e.isFile() && e.name.startsWith("_layout")
+    );
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        walk(join(dir, entry.name), `${prefix}/${entry.name}`);
+        continue;
+      }
+      // `+native-intent`/`+html`/API files are not routes, and `_layout` has no pathname.
+      if (entry.name.startsWith("+") || entry.name.startsWith("_")) continue;
+      const name = entry.name.replace(/\.(t|j)sx?$/, "");
+      if (name.endsWith(".d")) continue;
+      const route = name === "index" && hasLayout ? prefix || "/" : `${prefix}/${name}`;
+      if (!KNOWN_APP_ROUTES.includes(route)) missing.push(route);
+    }
+  };
+
+  walk(appRoot, "");
+  assert.deepEqual(missing, [], `Add these to KNOWN_APP_ROUTES: ${missing.join(", ")}`);
 });
 
 test("buildPodcastDetailUrl targets a podcast and optionally the notified episode", () => {

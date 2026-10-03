@@ -26,6 +26,9 @@ export function redirectSystemPath({
     return queryString ? `${target.pathname}?${queryString}` : target.pathname;
   }
 
-  return path;
+  // The link names no screen in the app. Handing the raw path back would resolve to
+  // expo-router's `*not-found` slot and paint the "Unmatched Route" screen, so land on the
+  // tabs instead and treat the deep link as undeliverable.
+  return "/(tabs)";
 }
 

@@ -89,8 +89,15 @@ export function looksNonEnglishByText(podcast: Podcast): boolean {
 /**
  * Whether a podcast is English, given whatever the language index knows about it.
  *
- * The feed's `<language>` tag is authoritative when present, so an English podcast
- * whose title is set in a non-Latin script stays visible. Failing that, a podcast on a
+ * A foreign-language service *and* a non-Latin title together outrank the feed's
+ * `<language>` tag. Some BBC Hindi feeds ship a wrong `<language>en</language>` —
+ * `p0fmrg25`, `p055260j` and `p05527ds` all do, and all three are dormant Hindi shows
+ * (last episodes 2023, 2022 and 2019) rather than the English shows the tag implies. The
+ * conjunction is deliberately narrow: a Latin-script show on a foreign service keeps its
+ * tag, so English programmes in Welsh or Gaelic are unaffected.
+ *
+ * Failing that, the feed's `<language>` tag is authoritative when present, so an English
+ * podcast whose title is set in a non-Latin script stays visible. Then a podcast on a
  * known English BBC service is English, and only a podcast the index has not placed at
  * all falls back to the text guess.
  */
@@ -99,6 +106,9 @@ export function isEnglishPodcast(
   languageTag?: string,
   serviceKey?: string
 ): boolean {
+  if (serviceKey && isForeignLanguageService(serviceKey) && looksNonEnglishByText(podcast)) {
+    return false;
+  }
   if (languageTag) return isEnglishLanguageTag(languageTag);
   if (serviceKey && !isForeignLanguageService(serviceKey)) return true;
   return !looksNonEnglishByText(podcast);

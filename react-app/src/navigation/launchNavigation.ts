@@ -185,7 +185,12 @@ export function createLaunchNavigation(options: LaunchNavigationOptions) {
   function request(rawUrl: string, dedupeWindowMs: number = LAUNCH_DEDUPE_MS): boolean {
     if (!rawUrl) return false;
     const target = resolveAppNavigation(rawUrl);
-    if (!target) return false;
+    if (!target) {
+      // Nothing in the app answers to this link. Navigating anyway would push expo-router's
+      // "Unmatched Route" screen, so stay where we are.
+      console.warn("Ignoring a link that names no app route:", rawUrl);
+      return false;
+    }
     const key = targetKey(target);
 
     // A request already in flight owns the destination; re-requesting it just means

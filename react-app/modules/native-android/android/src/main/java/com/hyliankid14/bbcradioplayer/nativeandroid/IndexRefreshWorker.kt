@@ -110,9 +110,14 @@ class IndexRefreshWorker(context: Context, params: WorkerParameters) : Worker(co
       putExtra("podcastId", podcastId)
       putExtra("episodeId", episodeId)
     }
+    // Key the notification and its PendingIntent on the episode rather than the podcast.
+    // A podcast-keyed request code gave every alert for one show the same PendingIntent, so
+    // FLAG_UPDATE_CURRENT rewrote the older notification's extras: tapping it then opened the
+    // newest episode instead of the one that was advertised.
+    val notificationId = stableNotificationId(podcastId, episodeId)
     val pendingIntent = PendingIntent.getActivity(
       context,
-      kotlin.math.abs(podcastId.hashCode()),
+      notificationId,
       launchIntent,
       PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
@@ -139,10 +144,19 @@ class IndexRefreshWorker(context: Context, params: WorkerParameters) : Worker(co
       }
       .build()
     try {
-      NotificationManagerCompat.from(context).notify((podcastTitle + episodeTitle).hashCode(), notification)
+      NotificationManagerCompat.from(context).notify(notificationId, notification)
     } catch (_: SecurityException) {
     }
   }
+
+  /**
+   * Stable per-episode notification id, used both as the `notify()` id and as the
+   * `PendingIntent` request code so each alert owns its own launch target while re-notifying
+   * the same episode replaces the previous alert. The sign bit is masked off rather than
+   * taking an absolute value, which leaves [Int.MIN_VALUE] negative.
+   */
+  private fun stableNotificationId(podcastId: String, episodeId: String): Int =
+    "$podcastId|$episodeId".hashCode() and 0x7FFFFFFF
 
   private fun ensureChannel(context: Context) {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return

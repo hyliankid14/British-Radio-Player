@@ -1,5 +1,6 @@
 import { isAnalyticsEnabled } from "../analytics/analytics";
 import { Episode, Podcast, PodcastApi } from "../api/podcasts";
+import { latestEpisodeEpoch, parseEpisodeDateEpoch } from "../podcasts/episodeDates.ts";
 import { AudioQuality, StationRepository } from "../data/stations";
 import {
   DownloadedEpisodeRecord,
@@ -100,11 +101,8 @@ export interface AutoSnapshot {
   phonePlaybackActive: boolean;
 }
 
-export function parseEpisodeDateEpoch(pubDate?: string): number {
-  if (!pubDate) return 0;
-  const parsed = Date.parse(pubDate);
-  return Number.isNaN(parsed) ? 0 : parsed;
-}
+/** @internal Re-exported so existing callers keep one canonical implementation. */
+export { parseEpisodeDateEpoch };
 
 function sortEpisodes(episodes: Episode[], podcastId: string): Episode[] {
   const order = Preferences.getPodcastEpisodeSort(podcastId);
@@ -266,7 +264,7 @@ export async function buildAutoSnapshot(includePodcastData = true): Promise<Auto
     for (const podcastId of subscribedIds) {
       const podcast = catalogById.get(podcastId);
       const cached = PodcastApi.getEpisodesFromCache(podcastId) || [];
-      const latest = cached.reduce((max, episode) => Math.max(max, parseEpisodeDateEpoch(episode.pubDate)), 0);
+      const latest = latestEpisodeEpoch(cached.map((episode) => episode.pubDate));
       const title = (podcast?.title && podcast.title !== podcastId) ? podcast.title : findFallbackTitle(podcastId);
       const imageUrl = podcast?.imageUrl || findFallbackImage(podcastId);
       subscriptions.push({

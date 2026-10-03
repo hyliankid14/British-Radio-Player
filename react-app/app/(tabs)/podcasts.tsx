@@ -28,6 +28,8 @@ import {
 import { Preferences } from "../../src/storage/preferences";
 import { applyLanguageFilter } from "../../src/podcasts/languageFilter";
 import { ensureLanguageIndex } from "../../src/podcasts/languageResolver";
+import { ensureLatestEpisodeIndex, getLatestEpisodeMs } from "../../src/podcasts/latestEpisodeIndex";
+import { byNewestFirst } from "../../src/podcasts/episodeDates";
 import { OfflineBanner, VpnBanner } from "../../src/components/NetworkBanners";
 import { NativeAndroid } from "../../src/native/nativeAndroid";
 import { usePlayerStore } from "../../src/store/playerStore";
@@ -152,6 +154,9 @@ export default function PodcastsScreen() {
   const rawCatalogRef = useRef<Podcast[]>([]);
   const [popularRanks, setPopularRanks] = useState<Map<string, number>>(new Map());
   const [newPodcastsList, setNewPodcastsList] = useState<NewPodcastEntry[]>([]);
+  // Bumped whenever the newest-episode index resolves another batch, to re-sort the
+  // "Last Updated" tab. The dates themselves live in the index, not in component state.
+  const [latestEpisodeTick, setLatestEpisodeTick] = useState(0);
   const [subscribedIds, setSubscribedIds] = useState<string[]>([]);
   const [podcastRatings, setPodcastRatings] = useState<Record<string, PodcastRatingSummary>>(() =>
     Preferences.getCachedPodcastRatings()
@@ -200,6 +205,14 @@ export default function PodcastsScreen() {
             if (mounted) setCatalog(applyLanguageFilter(cats));
           });
         }
+
+        // Resolve newest-episode dates for the "Last Updated" tab, re-sorting as each
+        // batch lands. The BBC exposes no catalogue-wide recency endpoint, so this reads
+        // each podcast's own feed in the background; persisted dates mean later visits
+        // only cover shows new to the OPML.
+        ensureLatestEpisodeIndex(cats, () => {
+          if (mounted) setLatestEpisodeTick((tick) => tick + 1);
+        });
 
         // Map popular ranks (1-based rank by play count)
         const ranks = new Map<string, number>();
@@ -323,8 +336,10 @@ export default function PodcastsScreen() {
           });
       }
       case "last_updated": {
-        // Keep original OPML order or ID order
-        return list;
+        // Newest episode first, undated podcasts last. The index resolves in the
+        // background, so this re-runs as each batch lands and the list settles.
+        // Copied first: with the language filter off `list` is the catalog state array.
+        return [...list].sort(byNewestFirst((podcast) => getLatestEpisodeMs(podcast.id)));
       }
       case "new_podcasts": {
         const newIdsOrder = newPodcastsList.slice(0, 50).map((n) => n.id);
@@ -341,7 +356,7 @@ export default function PodcastsScreen() {
       default:
         return list;
     }
-  }, [catalog, activeTab, selectedGenre, popularRanks, newPodcastsList]);
+  }, [catalog, activeTab, selectedGenre, popularRanks, newPodcastsList, latestEpisodeTick]);
 
   // Scroll to top FAB
   const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {

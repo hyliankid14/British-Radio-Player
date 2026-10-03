@@ -1,15 +1,9 @@
 import { normalizeEpisodeId } from "../downloads/downloadLimits.ts";
 import type { Episode } from "../api/podcasts.ts";
+import { parseEpisodeDateEpoch } from "./episodeDates.ts";
 
-/**
- * Parses an episode's pubDate RFC 2822 / ISO string into millisecond epoch timestamp.
- * Returns 0 if absent or unparseable.
- */
-export function parseEpisodePubDateEpoch(pubDate?: string): number {
-  if (!pubDate) return 0;
-  const parsed = Date.parse(pubDate);
-  return Number.isNaN(parsed) ? 0 : parsed;
-}
+/** @internal Re-exported so existing callers keep one canonical implementation. */
+export { parseEpisodeDateEpoch as parseEpisodePubDateEpoch };
 
 /**
  * Finds the next unplayed episode to advance to when the current episode ends.
@@ -32,7 +26,7 @@ export function findNextEpisodeToPlay(
 
   const currentNormId = normalizeEpisodeId(currentEpisode.id) || currentEpisode.id;
   const currentTitle = currentEpisode.title?.trim().toLowerCase();
-  const currentEpoch = parseEpisodePubDateEpoch(currentEpisode.pubDate);
+  const currentEpoch = parseEpisodeDateEpoch(currentEpisode.pubDate);
 
   const isCurrent = (ep: Episode) => {
     if (ep.id === currentEpisode.id) return true;
@@ -52,8 +46,8 @@ export function findNextEpisodeToPlay(
   if (order === "oldest_first") {
     // Sort oldest first (ascending epoch; undated last)
     const sorted = [...episodes].sort((a, b) => {
-      const aEpoch = parseEpisodePubDateEpoch(a.pubDate);
-      const bEpoch = parseEpisodePubDateEpoch(b.pubDate);
+      const aEpoch = parseEpisodeDateEpoch(a.pubDate);
+      const bEpoch = parseEpisodeDateEpoch(b.pubDate);
       if (!aEpoch && !bEpoch) return 0;
       if (!aEpoch) return 1;
       if (!bEpoch) return -1;
@@ -72,7 +66,7 @@ export function findNextEpisodeToPlay(
     if (currentEpoch > 0) {
       const nextByDate = sorted.find((ep) => {
         if (isCurrent(ep) || checkPlayed(ep)) return false;
-        const epoch = parseEpisodePubDateEpoch(ep.pubDate);
+        const epoch = parseEpisodeDateEpoch(ep.pubDate);
         return epoch > currentEpoch;
       });
       if (nextByDate) return nextByDate;
@@ -83,8 +77,8 @@ export function findNextEpisodeToPlay(
   } else {
     // Newest first (descending epoch; undated last)
     const sorted = [...episodes].sort((a, b) => {
-      const aEpoch = parseEpisodePubDateEpoch(a.pubDate);
-      const bEpoch = parseEpisodePubDateEpoch(b.pubDate);
+      const aEpoch = parseEpisodeDateEpoch(a.pubDate);
+      const bEpoch = parseEpisodeDateEpoch(b.pubDate);
       return bEpoch - aEpoch;
     });
 
@@ -100,7 +94,7 @@ export function findNextEpisodeToPlay(
     if (currentEpoch > 0) {
       const nextByDate = sorted.find((ep) => {
         if (isCurrent(ep) || checkPlayed(ep)) return false;
-        const epoch = parseEpisodePubDateEpoch(ep.pubDate);
+        const epoch = parseEpisodeDateEpoch(ep.pubDate);
         return epoch < currentEpoch;
       });
       if (nextByDate) return nextByDate;

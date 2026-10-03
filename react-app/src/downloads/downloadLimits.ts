@@ -7,6 +7,9 @@
  * tested under the plain Node test runner.
  */
 
+// Pure and import-free itself, so the Node test runner can load it here too.
+import { byEpisodePubDate, byEpisodePubDateOldest } from "../podcasts/episodeDates.ts";
+
 /** Preference key holding the maximum number of episodes kept on the device. */
 export const MAX_DOWNLOADS_PREF_KEY = "pref_max_downloads";
 
@@ -122,27 +125,13 @@ export interface DatedEpisodeLike {
   pubDate?: string;
 }
 
-function episodeEpoch(pubDate?: string): number {
-  if (!pubDate) return 0;
-  const parsed = Date.parse(pubDate);
-  return Number.isNaN(parsed) ? 0 : parsed;
-}
-
-/** A newest-first copy of the episodes; entries without a usable date sort last. */
 export function sortEpisodesNewestFirst<T extends { pubDate?: string }>(episodes: T[]): T[] {
-  return [...episodes].sort((a, b) => episodeEpoch(b.pubDate) - episodeEpoch(a.pubDate));
+  return [...episodes].sort(byEpisodePubDate);
 }
 
 /** An oldest-first copy of the episodes; entries without a usable date sort last. */
 export function sortEpisodesOldestFirst<T extends { pubDate?: string }>(episodes: T[]): T[] {
-  return [...episodes].sort((a, b) => {
-    const aEpoch = episodeEpoch(a.pubDate);
-    const bEpoch = episodeEpoch(b.pubDate);
-    if (!aEpoch && !bEpoch) return 0;
-    if (!aEpoch) return 1;
-    if (!bEpoch) return -1;
-    return aEpoch - bEpoch;
-  });
+  return [...episodes].sort(byEpisodePubDateOldest);
 }
 
 /**

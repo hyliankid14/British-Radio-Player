@@ -24,6 +24,7 @@ import { MiniPlayer } from "../../src/components/MiniPlayer";
 import { AppNavigation } from "../../src/components/AppNavigation";
 import { EpisodePlaybackIndicator, EpisodeProgressBar } from "../../src/components/EpisodeIndicators";
 import { computeEpisodePlaybackStatus } from "../../src/podcasts/episodePlaybackStatus";
+import { byEpisodePubDate, byEpisodePubDateOldest } from "../../src/podcasts/episodeDates";
 import { useNetworkStatus } from "../../src/store/networkStore";
 import { sharePodcast } from "../../src/utils/share";
 import {
@@ -32,11 +33,7 @@ import {
 } from "../../src/notifications/notifications";
 import { syncBackgroundSync } from "../../src/background/backgroundSync";
 
-function parseEpisodeEpoch(pubDate?: string): number {
-  if (!pubDate) return 0;
-  const parsed = Date.parse(pubDate);
-  return Number.isNaN(parsed) ? 0 : parsed;
-}
+
 
 /**
  * Builds a usable podcast from just its id. New-podcast notifications can point at
@@ -169,11 +166,9 @@ export default function PodcastDetailModal() {
       ? [...episodes]
       : episodes.filter((episode) => Preferences.isEpisodeDownloaded(episode.id));
 
-    return list.sort((a, b) => {
-      const timeA = parseEpisodeEpoch(a.pubDate);
-      const timeB = parseEpisodeEpoch(b.pubDate);
-      return episodeSort === "oldest_first" ? timeA - timeB : timeB - timeA;
-    });
+    return list.sort(
+      episodeSort === "oldest_first" ? byEpisodePubDateOldest : byEpisodePubDate
+    );
   }, [episodes, isOnline, downloads, episodeSort]);
 
   const displayEpisodes = useMemo(() => {

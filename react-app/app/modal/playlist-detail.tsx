@@ -26,6 +26,7 @@ import { AppNavigation } from "../../src/components/AppNavigation";
 import { useNetworkStatus } from "../../src/store/networkStore";
 import { EpisodePlaybackIndicator, EpisodeProgressBar } from "../../src/components/EpisodeIndicators";
 import { computeEpisodePlaybackStatus } from "../../src/podcasts/episodePlaybackStatus";
+import { byEpisodePubDate, byEpisodePubDateOldest } from "../../src/podcasts/episodeDates";
 
 type PlaylistSort = "newest_first" | "oldest_first" | "title" | "manual";
 
@@ -345,19 +346,11 @@ export default function PlaylistDetailModal() {
     }
 
     if (playlistSort === "newest_first") {
-      return list.sort((a, b) => {
-        const timeA = a.pubDate ? Date.parse(a.pubDate) || 0 : 0;
-        const timeB = b.pubDate ? Date.parse(b.pubDate) || 0 : 0;
-        return timeB - timeA;
-      });
+      return list.sort(byEpisodePubDate);
     }
 
     if (playlistSort === "oldest_first") {
-      return list.sort((a, b) => {
-        const timeA = a.pubDate ? Date.parse(a.pubDate) || 0 : 0;
-        const timeB = b.pubDate ? Date.parse(b.pubDate) || 0 : 0;
-        return timeA - timeB;
-      });
+      return list.sort(byEpisodePubDateOldest);
     }
 
     if (playlistSort === "title") {

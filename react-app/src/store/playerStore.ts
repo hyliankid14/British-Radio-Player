@@ -12,6 +12,7 @@ import { CurrentShow, fetchShowInfo, onRmsDelayedUpdate, resetStationRmsDelay, i
 import { useStationShowStore } from "./stationShowStore";
 import { Podcast, Episode, PodcastApi } from "../api/podcasts";
 import { shouldMarkEpisodePlayed, resolveEffectiveDuration } from "../podcasts/episodePlaybackStatus";
+import { parseEpisodeDateEpoch } from "../podcasts/episodeDates";
 import { findNextEpisodeToPlay } from "../podcasts/autoplayNext";
 import { ScrobbleManager } from "../audio/scrobbleManager";
 import { ScrobbleOutbox } from "../audio/scrobbleOutbox";
@@ -140,12 +141,6 @@ function stopShowInfoInterval() {
     clearInterval(showInfoInterval);
     showInfoInterval = null;
   }
-}
-
-function parsePodcastDateEpoch(pubDate?: string): number {
-  if (!pubDate) return 0;
-  const parsed = Date.parse(pubDate);
-  return Number.isNaN(parsed) ? 0 : parsed;
 }
 
 /** Resolves the effective stream quality, honouring the Auto-detect preference and network status. */
@@ -738,7 +733,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
           const episodes = await PodcastApi.fetchEpisodes(podcast.rssUrl, podcast.id);
           if (!episodes || episodes.length === 0) continue;
           const latest = [...episodes].sort(
-            (a, b) => parsePodcastDateEpoch(b.pubDate) - parsePodcastDateEpoch(a.pubDate)
+            (a, b) => parseEpisodeDateEpoch(b.pubDate) - parseEpisodeDateEpoch(a.pubDate)
           )[0];
           if (!latest) continue;
           await usePlayerStore.getState().playEpisode(podcast, latest);
@@ -773,7 +768,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
           Preferences.markEpisodePlayed(
             currentEpisode.id,
             currentEpisode.podcastId,
-            parsePodcastDateEpoch(currentEpisode.pubDate),
+            parseEpisodeDateEpoch(currentEpisode.pubDate),
             { keepDownload: true }
           );
         } else {
@@ -806,7 +801,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         Preferences.markEpisodePlayed(
           currentEpisode.id,
           currentEpisode.podcastId,
-          parsePodcastDateEpoch(currentEpisode.pubDate)
+          parseEpisodeDateEpoch(currentEpisode.pubDate)
         );
         deleteDownloadWhenPlayed(currentEpisode.id);
         pruneDownloads();
@@ -970,7 +965,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         Preferences.markEpisodePlayed(
           currentEpisode.id,
           currentEpisode.podcastId,
-          parsePodcastDateEpoch(currentEpisode.pubDate),
+          parseEpisodeDateEpoch(currentEpisode.pubDate),
           // Still playing, so a "Delete when completed" download must be kept.
           { keepDownload: true }
         );
@@ -1005,7 +1000,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         Preferences.markEpisodePlayed(
           currentEpisode.id,
           currentEpisode.podcastId,
-          parsePodcastDateEpoch(currentEpisode.pubDate),
+          parseEpisodeDateEpoch(currentEpisode.pubDate),
           { keepDownload: true }
         );
       }
@@ -1047,7 +1042,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       Preferences.markEpisodePlayed(
         currentEpisode.id,
         currentEpisode.podcastId,
-        parsePodcastDateEpoch(currentEpisode.pubDate)
+        parseEpisodeDateEpoch(currentEpisode.pubDate)
       );
       recordEpisodeCompleted();
       setTimeout(() => void requestReviewIfEligible("episode_ended"), 1500);
