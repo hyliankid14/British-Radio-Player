@@ -87,7 +87,12 @@ export function getStationUri(station: Station, quality: AudioQuality = "HIGH", 
   return `${STREAM_BASE}?station=${resolvedServiceId}&bitrate=${bitrate}`;
 }
 
-const UK_ONLY_STATION_IDS = new Set(["radio5livesportsextra2", "radio5livesportsextra3"]);
+const UK_ONLY_STATION_IDS = new Set([
+  "radio5livesportsextra2",
+  "radio5livesportsextra3",
+  // BBC Sounds exclusive, so BBC publishes no international simulcast feed for it.
+  "radio6indieforever"
+]);
 
 function getQualityLadder(quality: AudioQuality): ("HIGH" | "MEDIUM" | "LOW")[] {
   switch (quality) {
@@ -215,6 +220,11 @@ export const STATIONS: Station[] = [
     ]
   }),
   createStation("radio6", "Radio 6 Music", "bbc_6music", StationCategory.NATIONAL),
+  // BBC Sounds exclusive extension of 6 Music. BBC publishes no logo asset for
+  // the service, so CarPlay and Android Auto borrow the parent station's logo.
+  createStation("radio6indieforever", "Radio 6 Indie Forever", "bbc_radio_six_indie_forever", StationCategory.NATIONAL, {
+    logoServiceId: "bbc_6music"
+  }),
   createStation("worldservice", "World Service", "bbc_world_service", StationCategory.NATIONAL),
   createStation("asiannetwork", "Asian Network", "bbc_asian_network", StationCategory.NATIONAL),
 

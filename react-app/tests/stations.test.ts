@@ -69,6 +69,29 @@ test("Stream Candidates - candidate prioritization and fallbacks", () => {
   assert.equal(se2GeoCandidates.length, 0, "Sports Extra 2 has no international stream candidates");
 });
 
+test("Station Catalogue - BBC Sounds exclusive stations reuse a valid logo and stay UK-only", () => {
+  // Radio 6 Indie Forever is a BBC Sounds exclusive extension. BBC publishes no
+  // logo asset for the service, so it borrows the parent station's logo to keep
+  // CarPlay and Android Auto artwork working, and it has no international feed.
+  const indie = StationRepository.getById("radio6indieforever");
+  assert.ok(indie, "Radio 6 Indie Forever must exist");
+  assert.equal(indie.serviceId, "bbc_radio_six_indie_forever");
+  assert.equal(indie.category, StationCategory.NATIONAL);
+  assert.equal(indie.logoUrl, StationRepository.getById("radio6")!.logoUrl);
+
+  const ukCandidates = getStreamCandidates(indie, "HIGH", false);
+  assert.ok(ukCandidates.length > 0, "Indie Forever has UK stream candidates");
+  assert.ok(
+    ukCandidates[0].includes("bbc_radio_six_indie_forever"),
+    "Indie Forever UK candidate must use its own service id"
+  );
+  assert.equal(
+    getStreamCandidates(indie, "HIGH", true).length,
+    0,
+    "Indie Forever must offer no candidates outside the UK"
+  );
+});
+
 test("Stream Candidates - variable bitrate prioritization", () => {
   const r1 = StationRepository.getById("radio1")!;
   assert.ok(r1, "Radio 1 must exist");

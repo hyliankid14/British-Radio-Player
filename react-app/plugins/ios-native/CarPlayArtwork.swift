@@ -43,6 +43,8 @@ enum CarPlayArtwork {
         "radio5livesportsextra3": Config(
             backgroundColor: hex(0x000000), label: "5S", circleColor: hex(0x009EAA), badgeLabel: "3"),
         "radio6": Config(backgroundColor: hex(0x007749), label: "6"),
+        "radio6indieforever": Config(
+            backgroundColor: hex(0x0B0F0D), label: "6IF", circleColor: hex(0x007749)),
         "worldservice": Config(backgroundColor: hex(0xBB1919), label: "WS"),
         "asiannetwork": Config(backgroundColor: hex(0x703FA0), label: "AN"),
 

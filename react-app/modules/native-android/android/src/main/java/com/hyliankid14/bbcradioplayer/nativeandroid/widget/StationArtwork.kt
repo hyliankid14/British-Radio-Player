@@ -41,6 +41,7 @@ object StationArtwork {
       circleColor = Color.parseColor("#009EAA"), badgeLabel = "3"
     ),
     "radio6" to Config(Color.parseColor("#007749"), "6"),
+    "radio6indieforever" to Config(Color.parseColor("#0B0F0D"), "6IF", circleColor = Color.parseColor("#007749")),
     "worldservice" to Config(Color.parseColor("#BB1919"), "WS"),
     "asiannetwork" to Config(Color.parseColor("#703FA0"), "AN"),
     // Regions

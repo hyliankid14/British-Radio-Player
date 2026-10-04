@@ -33,6 +33,7 @@ export const STATION_IDENT_ASSETS: Record<string, () => any> = {
   "radio5livesportsextra2": () => require("../../assets/idents/radio5livesportsextra2.png"),
   "radio5livesportsextra3": () => require("../../assets/idents/radio5livesportsextra3.png"),
   "radio6": () => require("../../assets/idents/radio6.png"),
+  "radio6indieforever": () => require("../../assets/idents/radio6indieforever.png"),
   "radioberkshire": () => require("../../assets/idents/radioberkshire.png"),
   "radiobristol": () => require("../../assets/idents/radiobristol.png"),
   "radiocambridge": () => require("../../assets/idents/radiocambridge.png"),

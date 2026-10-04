@@ -4,7 +4,12 @@ export const UK_STREAM_PROBE_URL =
 export const NONUK_STREAM_PROBE_URL =
   "https://a.files.bbci.co.uk/ms6/live/3441A116-B12E-4D2F-ACA8-C1984642FA4B/audio/simulcast/hls/nonuk/pc_hd_abr_v2/cf/bbc_radio_one.m3u8";
 
-export const UK_ONLY_STATION_IDS = new Set(["radio5livesportsextra2", "radio5livesportsextra3"]);
+export const UK_ONLY_STATION_IDS = new Set([
+  "radio5livesportsextra2",
+  "radio5livesportsextra3",
+  // BBC Sounds exclusive, so BBC publishes no international simulcast feed for it.
+  "radio6indieforever"
+]);
 
 /** Stations with frequent event-driven rights restrictions outside the UK */
 export const RIGHTS_RESTRICTED_STATION_IDS = new Set([

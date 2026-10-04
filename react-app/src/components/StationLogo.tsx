@@ -25,6 +25,7 @@ const STATION_ARTWORK_CONFIGS: Record<string, StationLogoConfig> = {
   radio5livesportsextra2: { backgroundColor: "#000000", label: "5S", circleColor: "#009EAA", badgeLabel: "2" },
   radio5livesportsextra3: { backgroundColor: "#000000", label: "5S", circleColor: "#009EAA", badgeLabel: "3" },
   radio6: { backgroundColor: "#007749", label: "6" },
+  radio6indieforever: { backgroundColor: "#0B0F0D", label: "6IF", circleColor: "#007749" },
   worldservice: { backgroundColor: "#BB1919", label: "WS" },
   asiannetwork: { backgroundColor: "#703FA0", label: "AN" },
 
