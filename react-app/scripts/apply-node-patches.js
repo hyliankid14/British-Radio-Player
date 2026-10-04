@@ -177,6 +177,67 @@ const PATCHES = [
           "            Timber.w(exception, \"Could not show the temporary foreground notification\")\n" +
           "        }"
       }
+]
+  },
+  {
+    package: "react-native",
+    file: "scripts/replace-rncore-version.js",
+    reason:
+      "With no .last_build_configuration marker the script assumes the installed " +
+      "prebuilt React Native core is already the debug one. A Release build leaves the " +
+      "release framework there instead, and the release framework does not export " +
+      "React's internal C++ symbols, so the next Debug build failed to link with " +
+      "'Undefined symbols for architecture arm64: facebook::react::Sealable::Sealable()' " +
+      "and every other react:: symbol used by source-built pods such as ExpoModulesCore " +
+      "and react-native-screens. Installing the requested variant unconditionally is " +
+      "correct either way and costs one tarball extraction after a pod install",
+    replacements: [
+      {
+        from:
+          "  // Assumption: if there is no stored last build, we assume that it was build for debug.\n" +
+          "  if (!fileExists && configuration === 'Debug') {\n" +
+          "    console.log(\n" +
+          "      'No previous build detected, but Debug Configuration. No need to replace React-Core-prebuilt',\n" +
+          "    );\n" +
+          "    return false;\n" +
+          "  }\n",
+        to:
+          "  if (!fileExists) {\n" +
+          "    console.log(\n" +
+          "      `No previous build recorded. Installing the ${configuration} React Native core, ` +\n" +
+          "        'which may differ from the one currently in place',\n" +
+          "    );\n" +
+          "    return true;\n" +
+          "  }\n"
+      }
+    ]
+  },
+  {
+    package: "react-native",
+    file: "third-party-podspecs/replace_dependencies_version.js",
+    reason:
+      "Same missing-marker assumption as scripts/replace-rncore-version.js, with the same " +
+      "consequence: a Release build leaves the release ReactNativeDependencies framework " +
+      "installed, so the Debug build that follows cannot resolve the C++ symbols it hides",
+    replacements: [
+      {
+        from:
+          "  // Assumption: if there is no stored last build, we assume that it was build for debug.\n" +
+          "  if (!fileExists && configuration === 'Debug') {\n" +
+          "    console.log(\n" +
+          "      'No previous build detected, but Debug Configuration. No need to replace RNDeps',\n" +
+          "    );\n" +
+          "    return false;\n" +
+          "  }\n",
+        to:
+          "  if (!fileExists) {\n" +
+          "    console.log(\n" +
+          "      `No previous build recorded. Installing the ${configuration} React Native ` +\n" +
+          "        'dependencies, which may differ from the ones currently in place',\n" +
+          "    );\n" +
+          "    return true;\n" +
+          "  }\n"
+      }
     ]
   }
 ];
