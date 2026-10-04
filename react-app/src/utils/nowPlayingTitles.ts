@@ -51,3 +51,35 @@ export function resolveRadioNowPlayingTitles(params: RadioNowPlayingTitlesParams
     secondaryTitle
   };
 }
+
+/** 24-hour `HH:MM`, matching `formatScheduleTime` used by the guide and schedule screens. */
+function formatUpNextTime(timestampMs: number): string {
+  const date = new Date(timestampMs);
+  if (Number.isNaN(date.getTime())) return "";
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${hours}:${minutes}`;
+}
+
+/**
+ * Builds the "Up next:" line under a live radio show on Now Playing, including the time the
+ * next programme starts. Falls back to the current show's end time, which is where the schedule
+ * grid advances to the next show, when the schedule entry has no explicit next start time.
+ */
+export function formatUpNextLabel(
+  nextShowTitle?: string,
+  nextShowStartTimeMs?: number,
+  currentShowEndTimeMs?: number
+): string {
+  const title = nextShowTitle?.trim();
+  if (!title) return "";
+
+  const startTimeMs =
+    typeof nextShowStartTimeMs === "number" && nextShowStartTimeMs > 0
+      ? nextShowStartTimeMs
+      : currentShowEndTimeMs;
+  const time =
+    typeof startTimeMs === "number" && startTimeMs > 0 ? formatUpNextTime(startTimeMs) : "";
+
+  return time ? `${title} at ${time}` : title;
+}

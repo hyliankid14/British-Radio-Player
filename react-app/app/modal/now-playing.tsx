@@ -19,7 +19,7 @@ import TrackPlayer from "react-native-track-player";
 import { MaterialIcons } from "@expo/vector-icons";
 import { usePlayerStore } from "../../src/store/playerStore";
 import { formatShowDisplayTitle, isPlaceholderArtwork } from "../../src/api/showInfo";
-import { resolveRadioNowPlayingTitles } from "../../src/utils/nowPlayingTitles";
+import { resolveRadioNowPlayingTitles, formatUpNextLabel } from "../../src/utils/nowPlayingTitles";
 import { StationRepository } from "../../src/data/stations";
 import { Podcast, Episode, PodcastApi, decodeXmlEntities } from "../../src/api/podcasts";
 import { useAppTheme } from "../../src/theme/colors";
@@ -683,7 +683,12 @@ export default function NowPlayingModal() {
 
               {currentShow?.nextShowTitle ? (
                 <Text style={[styles.nextShow, { color: screenSecondaryTextColor }]} numberOfLines={2}>
-                  Up next: {currentShow.nextShowTitle}
+                  Up next:{" "}
+                  {formatUpNextLabel(
+                    currentShow.nextShowTitle,
+                    currentShow.nextShowStartTimeMs,
+                    currentShow.endTimeMs
+                  )}
                 </Text>
               ) : null}
             </>

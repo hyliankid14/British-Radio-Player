@@ -103,4 +103,27 @@ test("Now Playing radio titles do not duplicate the station name when show or so
   assert.equal(fallback.secondaryTitle, undefined);
 });
 
+test("Up next line on Now Playing includes the start time of the next show", async () => {
+  const { formatUpNextLabel } = await import("../src/utils/nowPlayingTitles.ts");
+
+  // Local-time constructors keep the expected "HH:MM" independent of the test runner's zone.
+  const at = (hour: number, minute: number) => new Date(2026, 0, 2, hour, minute).getTime();
+
+  assert.equal(formatUpNextLabel("Newshipping", at(15, 5), at(14, 0)), "Newshipping at 15:05");
+  assert.equal(formatUpNextLabel("Late Night Extra", at(0, 30), at(0, 0)), "Late Night Extra at 00:30");
+  assert.equal(formatUpNextLabel("Woman's Hour", at(23, 45), at(23, 0)), "Woman's Hour at 23:45");
+
+  // Falls back to the current show's end time when the schedule has no next start time.
+  assert.equal(formatUpNextLabel("Money Box", undefined, at(10, 0)), "Money Box at 10:00");
+
+  // No usable time: still show the programme name rather than an empty or broken line.
+  assert.equal(formatUpNextLabel("News Briefing"), "News Briefing");
+  assert.equal(formatUpNextLabel("News Briefing", 0, 0), "News Briefing");
+  assert.equal(formatUpNextLabel("News Briefing", at(10, 0), 0), "News Briefing at 10:00");
+
+  // Missing or whitespace-only title means no line at all.
+  assert.equal(formatUpNextLabel(undefined, at(10, 0)), "");
+  assert.equal(formatUpNextLabel("   ", at(10, 0)), "");
+});
+
 
