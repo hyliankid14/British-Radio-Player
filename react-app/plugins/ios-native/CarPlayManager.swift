@@ -866,7 +866,7 @@ final class CarPlayManager: NSObject {
             ? (state.findPodcast(podcastId: podcastId)?.title ?? podcastId)
             : episode.podcastTitle
 
-        let savedProgressMs = state.progress(for: episode.id)
+        let savedProgressMs = state.progress(episodeId: episode.id)
         let isResume = savedProgressMs > Self.resumeThresholdMs && !state.isPlayed(episodeId: episode.id)
         if !isResume && lastTrackedEpisodeAnalyticsId == episode.id {
             lastTrackedEpisodeAnalyticsId = ""
