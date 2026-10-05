@@ -9,7 +9,7 @@ import {
   MINUTES_IN_DAY,
   type PodcastLike
 } from "../src/utils/scheduleGridUtils.ts";
-import { fillScheduleGaps, type ScheduleEntry } from "../src/api/showInfo.ts";
+import { fillScheduleGaps, parseEssSchedule, type ScheduleEntry } from "../src/api/showInfo.ts";
 
 test("generateTimeSlots generates 48 half-hour slots for a 24h day", () => {
   const slots = generateTimeSlots();
@@ -72,6 +72,15 @@ test("normalizeTitle strips punctuation, lowercase, extra spaces", () => {
   assert.equal(normalizeTitle(""), "");
 });
 
+/** Mirrors how the guide builds its catalogue map: keyed by the normalised podcast title. */
+function buildPodcastMap(titles: string[]): Map<string, PodcastLike> {
+  const map = new Map<string, PodcastLike>();
+  for (const title of titles) {
+    map.set(normalizeTitle(title), { id: title, title });
+  }
+  return map;
+}
+
 test("matchShowToPodcast matches exact or fuzzy show titles", () => {
   const mockPodcast: PodcastLike = {
     id: "p002vsnb",
@@ -102,6 +111,66 @@ test("matchShowToPodcast matches exact or fuzzy show titles", () => {
   // Unrelated show
   const matchNone = matchShowToPodcast("Weather Forecast", undefined, podcastMap);
   assert.equal(matchNone, undefined);
+});
+
+test("matchShowToPodcast absorbs station prefixes and trailing format words", () => {
+  const podcastMap = buildPodcastMap(["The Documentary Podcast", "Off the Ball Podcast"]);
+
+  assert.equal(matchShowToPodcast("The Documentary", undefined, podcastMap)?.title, "The Documentary Podcast");
+  assert.equal(matchShowToPodcast("Off the Ball", undefined, podcastMap)?.title, "Off the Ball Podcast");
+});
+
+test("matchShowToPodcast does not match a single shared word", () => {
+  const podcastMap = buildPodcastMap(["Tracks", "BBC Radio", "Limelight", "Screenshot"]);
+
+  // A one-word podcast only ever matches a show with the same single identifying word.
+  for (const show of [
+    "Night Tracks",
+    "Cinematic Soundtracks",
+    "City Soundtracks",
+    "Sleep Tracks",
+    "The Soundtrack Show"
+  ]) {
+    assert.equal(matchShowToPodcast(show, undefined, podcastMap), undefined, show);
+  }
+
+  // "BBC Radio" is nothing but station noise, so it identifies no programme at all.
+  assert.equal(matchShowToPodcast("Adam Dowling on BBC Radio Kent", undefined, podcastMap), undefined);
+
+  // ...but the same single word as a whole title is still an exact match.
+  assert.equal(matchShowToPodcast("Tracks", undefined, podcastMap)?.title, "Tracks");
+  assert.equal(matchShowToPodcast("Limelight", undefined, podcastMap)?.title, "Limelight");
+  assert.equal(matchShowToPodcast("Screenshot", undefined, podcastMap)?.title, "Screenshot");
+});
+
+test("matchShowToPodcast requires a majority of the longer title", () => {
+  const podcastMap = buildPodcastMap(["BBC Essex", "The Bears Podblast", "Beyond Today"]);
+
+  assert.equal(matchShowToPodcast("BBC Essex Sport", undefined, podcastMap), undefined);
+  assert.equal(matchShowToPodcast("Blas", undefined, podcastMap), undefined);
+  assert.equal(matchShowToPodcast("Today", undefined, podcastMap), undefined);
+});
+
+test("matchShowToPodcast does not match a station label to a programme podcast", () => {
+  // "live" is part of the 5 Live network name, so on its own it identifies no programme. The
+  // remaining word is shared with the show name too, which is what used to reach the podcast.
+  const programmes = buildPodcastMap(["5 Live Science Podcast"]);
+  assert.equal(matchShowToPodcast("Radio 5 Live", undefined, programmes), undefined);
+
+  // The network's own feed podcast is still the right match for the label.
+  const network = buildPodcastMap(["BBC Radio 5 Live", "5 Live Science Podcast"]);
+  assert.equal(matchShowToPodcast("Radio 5 Live", undefined, network)?.title, "BBC Radio 5 Live");
+
+  // Words that do identify a programme match on both sides.
+  const named = buildPodcastMap(["Saturday Live", "Songs To Live By"]);
+  assert.equal(matchShowToPodcast("Saturday Live", undefined, named)?.title, "Saturday Live");
+  assert.equal(matchShowToPodcast("Songs To Live By", undefined, named)?.title, "Songs To Live By");
+});
+
+test("matchShowToPodcast falls back to an exact episode title", () => {
+  const podcastMap = buildPodcastMap(["Newshour"]);
+
+  assert.equal(matchShowToPodcast("Around the World", "Newshour", podcastMap)?.title, "Newshour");
 });
 
 test("fillScheduleGaps fills 1.5 - 6.5 minute gaps with BBC News bulletin", () => {
@@ -169,5 +238,48 @@ test("fillScheduleGaps leaves large gaps (> 6.5 minutes) untouched", () => {
   const result = fillScheduleGaps(entries);
   assert.equal(result.length, 2);
   assert.equal(result[0].endTimeMs, baseTime + 30 * 60 * 1000);
+});
+
+test("parseEssSchedule replaces the no_brand_title placeholder", () => {
+  const published = { start: "2026-10-05T01:00:00Z", end: "2026-10-05T05:00:00Z" };
+
+  // 5 Live's overnight speech slots come back from ESS with this literal brand title and
+  // nothing else but the broadcast date. A date names no programme, so the station stands in.
+  const placeholder = parseEssSchedule(
+    [{ brand: { title: "no_brand_title" }, episode: { title: "05/10/2026" }, published_time: published }],
+    "BBC Radio 5 Live"
+  );
+  assert.equal(placeholder[0].title, "BBC Radio 5 Live");
+  assert.equal(placeholder[0].episodeTitle, undefined);
+  // Flagged so the guide does not match a station label to an unrelated podcast.
+  assert.equal(placeholder[0].isUnnamed, true);
+
+  // With no usable brand or episode title either, the station name still stands in.
+  const bare = parseEssSchedule([{ brand: {}, episode: {}, published_time: published }], "BBC Radio 5 Live");
+  assert.equal(bare[0].title, "BBC Radio 5 Live");
+
+  // A brandless slot that does name its episode keeps that name.
+  const special = parseEssSchedule(
+    [{ brand: {}, episode: { title: "The Reith Lectures" }, published_time: published }],
+    "BBC Radio 4"
+  );
+  assert.equal(special[0].title, "The Reith Lectures");
+
+  // A real brand still wins, and the date stays as the subtitle where it dates the edition.
+  const real = parseEssSchedule(
+    [{ brand: { title: "Shipping Forecast" }, episode: { title: "05/10/2026" }, published_time: published }],
+    "BBC Radio 4"
+  );
+  assert.equal(real[0].title, "Shipping Forecast");
+  assert.equal(real[0].episodeTitle, "05/10/2026");
+  // A named slot stays matchable, even when the programme and the station share a name.
+  assert.equal(real[0].isUnnamed, false);
+
+  const sameName = parseEssSchedule(
+    [{ brand: { title: "Radio 1 Anthems" }, episode: { title: "Swedish House Mafia" }, published_time: published }],
+    "Radio 1 Anthems"
+  );
+  assert.equal(sameName[0].title, "Radio 1 Anthems");
+  assert.equal(sameName[0].isUnnamed, false);
 });
 

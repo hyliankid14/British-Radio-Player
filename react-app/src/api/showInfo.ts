@@ -27,6 +27,12 @@ export interface ScheduleEntry {
   startTimeMs: number;
   endTimeMs: number;
   imageUrl?: string;
+  /**
+   * True when the slot has no programme name of its own, so `title` is the station name rather
+   * than a show. Such a slot must not be matched against the podcast catalogue: "Radio 5 Live"
+   * names a network, and matching it to the "5 Live Science Podcast" is meaningless.
+   */
+  isUnnamed?: boolean;
 }
 
 export function formatShowDisplayTitle(show: CurrentShow): string {
@@ -369,7 +375,7 @@ async function fetchShowInfoUncached(
     if (essData) {
       const items = essData.items || [];
       const now = Date.now() - RMS_DELAY_MS;
-      const entries = parseEssSchedule(items);
+      const entries = parseEssSchedule(items, station.title);
 
       for (let i = 0; i < entries.length; i++) {
         const entry = entries[i];
@@ -509,7 +515,33 @@ export function fillScheduleGaps(entries: ScheduleEntry[]): ScheduleEntry[] {
   return result;
 }
 
-function parseEssSchedule(items: any[]): ScheduleEntry[] {
+/**
+ * Title the schedule APIs use to mean "this slot has no programme name". ESS returns the literal
+ * `no_brand_title` as a brand title — 5 Live's overnight speech slots carry it.
+ */
+const PLACEHOLDER_SCHEDULE_TITLES = new Set(["no_brand_title"]);
+
+/**
+ * A slot with no brand of its own is often listed with nothing but the broadcast date
+ * ("05/10/2026"), which identifies the slot no better than the placeholder does and is the same
+ * date already on the guide's date ribbon. Digits and date separators only, so a title in any
+ * script is left alone.
+ */
+const BARE_DATE_TITLE = /^[\d\s/.\-]+$/;
+
+/**
+ * A schedule title that names a programme. `no_brand_title` means the slot has no brand at all,
+ * so it is skipped in favour of the episode title and then the station name.
+ */
+function usableScheduleTitle(...candidates: (string | undefined)[]): string | undefined {
+  for (const candidate of candidates) {
+    const trimmed = candidate?.trim();
+    if (trimmed && !PLACEHOLDER_SCHEDULE_TITLES.has(trimmed.toLowerCase())) return trimmed;
+  }
+  return undefined;
+}
+
+export function parseEssSchedule(items: any[], fallbackTitle: string = "BBC Radio"): ScheduleEntry[] {
   const entries: ScheduleEntry[] = [];
   for (const item of items) {
     const pubTime = item.published_time;
@@ -519,8 +551,16 @@ function parseEssSchedule(items: any[]): ScheduleEntry[] {
 
     const brand = item.brand;
     const episode = item.episode;
-    const title = brand?.title || episode?.title || "BBC Radio";
-    const epTitle = brand?.title && episode?.title && episode.title !== brand.title ? episode.title : undefined;
+    const brandTitle = usableScheduleTitle(brand?.title);
+    const episodeTitle = usableScheduleTitle(episode?.title);
+    // A date is not a programme name, so it only stands in for a missing brand. Behind a real
+    // brand it stays as the subtitle, where it dates the edition.
+    const episodeName =
+      episodeTitle && !BARE_DATE_TITLE.test(episodeTitle) ? episodeTitle : undefined;
+    const title = brandTitle || episodeName || fallbackTitle;
+    const epTitle =
+      brandTitle && episodeTitle && episodeTitle !== brandTitle ? episodeTitle : undefined;
+    const isUnnamed = !brandTitle && !episodeName;
 
     const imgObj = episode?.image || brand?.image;
     const template = imgObj?.template_url;
@@ -531,13 +571,14 @@ function parseEssSchedule(items: any[]): ScheduleEntry[] {
       episodeTitle: epTitle,
       startTimeMs: start,
       endTimeMs: end,
-      imageUrl
+      imageUrl,
+      isUnnamed
     });
   }
   return fillScheduleGaps(entries);
 }
 
-function parseRmsSchedule(data: any): ScheduleEntry[] {
+function parseRmsSchedule(data: any, fallbackTitle: string = "BBC Radio"): ScheduleEntry[] {
   const entries: ScheduleEntry[] = [];
   const modules = data?.data || [];
   for (const mod of modules) {
@@ -549,7 +590,9 @@ function parseRmsSchedule(data: any): ScheduleEntry[] {
       const end = new Date(item.end).getTime();
 
       const titles = item.titles;
-      const title = titles?.primary || "BBC Radio";
+      const primary = usableScheduleTitle(titles?.primary);
+      const named = primary && !BARE_DATE_TITLE.test(primary) ? primary : undefined;
+      const title = named || fallbackTitle;
       const secondary = titles?.secondary;
       const epTitle = secondary && secondary !== title ? secondary : undefined;
       const imgUrl = item.image_url ? item.image_url.replace("{recipe}", "320x320") : undefined;
@@ -559,7 +602,8 @@ function parseRmsSchedule(data: any): ScheduleEntry[] {
         episodeTitle: epTitle,
         startTimeMs: start,
         endTimeMs: end,
-        imageUrl: imgUrl
+        imageUrl: imgUrl,
+        isUnnamed: !named
       });
     }
   }
@@ -598,7 +642,7 @@ export async function fetchScheduleForDate(
       });
       if (res.ok) {
         const data = await res.json();
-        entries = parseEssSchedule(data?.items || []);
+        entries = parseEssSchedule(data?.items || [], station.title);
       }
     } else {
       const res = await fetch(`https://rms.api.bbc.co.uk/v2/experience/inline/schedules/${serviceId}/${dateStr}`, {
@@ -606,7 +650,7 @@ export async function fetchScheduleForDate(
       });
       if (res.ok) {
         const data = await res.json();
-        entries = parseRmsSchedule(data);
+        entries = parseRmsSchedule(data, station.title);
       }
     }
   } catch (err) {
@@ -622,7 +666,7 @@ export async function fetchScheduleForDate(
       });
       if (res.ok) {
         const data = await res.json();
-        entries = parseRmsSchedule(data);
+        entries = parseRmsSchedule(data, station.title);
       }
     } catch (err) {
       console.warn(`Fallback RMS schedule fetch failed for ${stationId} on ${dateStr}:`, err);

@@ -32,6 +32,7 @@ import {
   generateTimeSlots,
   calculateScheduleBlockLayout,
   matchShowToPodcast,
+  normalizeTitle,
   PIXELS_PER_MINUTE,
   ROW_HEIGHT,
   STATION_COLUMN_WIDTH,
@@ -194,7 +195,11 @@ export default function GuideScreen() {
             blockWidth,
             stickyContentWidth,
             stickyTranslateX,
-            matchedPodcast: matchShowToPodcast(entry.title, entry.episodeTitle, podcastMap)
+            // A slot with no programme name shows the station name, which identifies a network
+            // rather than a show — matching it to a podcast would be arbitrary.
+            matchedPodcast: entry.isUnnamed
+              ? undefined
+              : matchShowToPodcast(entry.title, entry.episodeTitle, podcastMap)
           };
         })
       };
@@ -208,7 +213,9 @@ export default function GuideScreen() {
         const catalog = await PodcastApi.fetchLiveCatalog();
         const map = new Map<string, Podcast>();
         catalog.forEach((p) => {
-          map.set(p.title.toLowerCase().trim(), p);
+          // Keyed the same way `matchShowToPodcast` normalises the show title, otherwise a
+          // podcast title carrying punctuation ("Woman's Hour") can never match exactly.
+          map.set(normalizeTitle(p.title), p);
         });
         setPodcastMap(map);
       } catch (err) {

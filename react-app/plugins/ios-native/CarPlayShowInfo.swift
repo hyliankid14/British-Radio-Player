@@ -273,6 +273,21 @@ final class CarPlayShowInfo {
         return song
     }
 
+    /// ESS uses this literal as a brand title when a schedule slot has no programme of its own —
+    /// 5 Live's overnight speech slots carry it, leaving only the broadcast date. CarPlay must show
+    /// neither, so both are dropped and the entry ends up with no title, which makes the caller
+    /// fall back to the station name. Mirrors `parseEssSchedule` in
+    /// `react-app/src/api/showInfo.ts`.
+    private static let placeholderScheduleTitles: Set<String> = ["no_brand_title"]
+
+    private static func usableScheduleTitle(_ raw: String?) -> String {
+        let trimmed = (raw ?? "").trimmingCharacters(in: .whitespaces)
+        if placeholderScheduleTitles.contains(trimmed.lowercased()) { return "" }
+        // Digits and date separators only: a bare broadcast date names no programme.
+        if trimmed.range(of: "^[0-9/\\s.-]+$", options: .regularExpression) != nil { return "" }
+        return trimmed
+    }
+
     /// Resolves the programme that is on air at `streamTime`, falling back to the next
     /// scheduled entry when the schedule has no current programme.
     private func fetchCurrentShowDetails(
@@ -301,10 +316,8 @@ final class CarPlayShowInfo {
 
             let brand = item["brand"] as? [String: Any]
             let episode = item["episode"] as? [String: Any]
-            let brandTitle = ((brand?["title"] as? String) ?? "")
-                .trimmingCharacters(in: .whitespaces)
-            let episodeTitle = ((episode?["title"] as? String) ?? "")
-                .trimmingCharacters(in: .whitespaces)
+            let brandTitle = Self.usableScheduleTitle(brand?["title"] as? String)
+            let episodeTitle = Self.usableScheduleTitle(episode?["title"] as? String)
             let episodeSynopses = episode?["synopses"] as? [String: Any]
             let itemSynopses = item["synopses"] as? [String: Any]
             var shortSynopsis =
@@ -326,11 +339,12 @@ final class CarPlayShowInfo {
                 showSubtitle = shortSynopsis
             }
 
-            if !showTitle.isEmpty {
-                entries.append(
-                    ScheduleEntry(
-                        title: showTitle, subtitle: showSubtitle, startMs: start, endMs: end))
-            }
+            // A slot with no programme name is still a real slot. Keeping it leaves the timeline
+            // unbroken, and the empty title is what makes callers fall back to the station name
+            // instead of reporting the next hour's show as on air.
+            entries.append(
+                ScheduleEntry(
+                    title: showTitle, subtitle: showSubtitle, startMs: start, endMs: end))
         }
 
         if !entries.isEmpty {

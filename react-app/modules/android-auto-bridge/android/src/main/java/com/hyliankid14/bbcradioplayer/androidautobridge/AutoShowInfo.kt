@@ -318,6 +318,23 @@ object AutoShowInfo {
     }
   }
 
+  /**
+   * ESS uses this literal as a brand title when a schedule slot has no programme of its own —
+   * 5 Live's overnight speech slots carry it, leaving only the broadcast date. Car metadata must
+   * show neither, so both are dropped and the entry ends up with no title, which makes the
+   * caller fall back to the station name. Mirrors `parseEssSchedule` in
+   * `react-app/src/api/showInfo.ts`.
+   */
+  private val placeholderScheduleTitles = setOf("no_brand_title")
+
+  private val bareDateTitle = Regex("^[\\d\\s/.\\-]+$")
+
+  private fun usableScheduleTitle(raw: String?): String {
+    val trimmed = raw?.trim().orEmpty()
+    if (placeholderScheduleTitles.contains(trimmed.lowercase())) return ""
+    return if (bareDateTitle.matches(trimmed)) "" else trimmed
+  }
+
   private fun fetchCurrentShowDetails(serviceId: String, streamTime: Long): ShowDetails {
     val connection = (URL("https://ess.api.bbci.co.uk/schedules?serviceId=$serviceId&mediatypes=audio&t=${System.currentTimeMillis()}")
       .openConnection() as HttpURLConnection).apply {
@@ -345,8 +362,8 @@ object AutoShowInfo {
 
         val brand = item.optJSONObject("brand")
         val episode = item.optJSONObject("episode")
-        val brandTitle = brand?.optString("title", "").orEmpty().trim()
-        val episodeTitle = episode?.optString("title", "").orEmpty().trim()
+        val brandTitle = usableScheduleTitle(brand?.optString("title", ""))
+        val episodeTitle = usableScheduleTitle(episode?.optString("title", ""))
         val shortSynopsis = episode?.optJSONObject("synopses")?.optString("short", "").orEmpty().trim()
           .ifEmpty { item.optJSONObject("synopses")?.optString("short", "").orEmpty().trim() }
 
@@ -359,9 +376,10 @@ object AutoShowInfo {
           ""
         }
 
-        if (showTitle.isNotEmpty()) {
-          entries.add(ScheduleEntry(showTitle, showSubtitle, start, end))
-        }
+        // A slot with no programme name is still a real slot. Keeping it leaves the timeline
+        // unbroken, and the empty title is what makes callers fall back to the station name
+        // instead of reporting the next hour's show as on air.
+        entries.add(ScheduleEntry(showTitle, showSubtitle, start, end))
       }
 
       if (entries.isNotEmpty()) {
