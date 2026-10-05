@@ -404,7 +404,14 @@ export const Preferences = {
     );
     if (isDup) return;
 
-    const updated = [entry, ...recent].slice(0, 20);
+    // Sorted newest first rather than prepended. The outbox delivers a backlog newest
+    // entry first, so prepending alone left the *oldest* scrobble of a batch at the head —
+    // which is what "last scrobbled" and its listened-time label both read from.
+    // Rows with no real time sort last: they cannot be placed in time, and formatSongPlayedAt
+    // renders nothing for them anyway.
+    const updated = [entry, ...recent]
+      .sort((a, b) => b.timestampMs - a.timestampMs)
+      .slice(0, 20);
     storage.set(KEYS.LASTFM_RECENT_SCROBBLES, JSON.stringify(updated));
     storage.set(KEYS.LASTFM_LAST_SCROBBLED, `${entry.artist} - ${entry.track}`);
     storage.set(KEYS.LASTFM_LAST_SCROBBLED_TIME_MS, entry.timestampMs);

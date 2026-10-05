@@ -23,7 +23,7 @@ import { Preferences } from "../../src/storage/preferences";
 import { OfflineBanner, VpnBanner, PlaybackErrorBanner } from "../../src/components/NetworkBanners";
 import { formatSongPlayedAt } from "../../src/utils/dateUtils";
 import { useNow } from "../../src/hooks/useNow";
-import { isPlaceholderArtwork } from "../../src/api/showInfo";
+import { resolveRecentSong } from "../../src/api/showInfo";
 import { ScreenHeader, HeaderIconButton } from "../../src/components/ScreenHeader";
 
 type SubCategoryTab = "National" | "Regions" | "Local" | "Songs";
@@ -98,15 +98,12 @@ export default function AllStationsScreen() {
 
   useEffect(() => {
     if (!currentStation || !currentShow) return;
-    const songArtist = (currentShow as any).rawArtist || currentShow.artist || "";
-    const songTrack = (currentShow as any).rawTrack || currentShow.track || "";
-    if (!songArtist && !songTrack) return;
-    const rawArt = currentShow.songImageUrl || (currentShow as any).rawImageUrl;
-    const songArt = rawArt && !isPlaceholderArtwork(rawArt, currentStation.logoUrl) ? rawArt : "";
+    const song = resolveRecentSong(currentShow, currentStation.logoUrl);
+    if (!song) return;
     Preferences.addRecentSong({
-      artist: songArtist,
-      track: songTrack,
-      imageUrl: songArt,
+      artist: song.artist,
+      track: song.track,
+      imageUrl: song.imageUrl,
       stationId: currentStation.id,
       stationName: currentStation.title
     });

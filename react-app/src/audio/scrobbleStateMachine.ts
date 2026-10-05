@@ -42,6 +42,31 @@ export const SLS_STATE_COMPLETE = 3;
  */
 export const METADATA_GAP_TOLERANCE_MS = 60_000;
 
+/**
+ * How long a scrobbled track is remembered after its active slot is retired.
+ *
+ * `expireStalledTrack` clears the active track once metadata has gone quiet for longer than
+ * the gap tolerance, which is right — but if the same song's metadata then comes back, as it
+ * does whenever RMS recovers after a dropped request, `onTrackStarted` finds no active track
+ * and treats the song as a brand new listen: fresh clock, and `alreadyScrobbled` reset. It
+ * scrobbles a second time with a start time taken from the recovery rather than from when the
+ * song actually began, so the account shows the track twice, the second time at the wrong
+ * hour. On radio the same artist and track recurring this soon is a metadata echo rather than
+ * a replay, so it is not re-armed.
+ */
+export const SCROBBLE_REARM_COOLDOWN_MS = 5 * 60_000;
+
+/**
+ * Last.fm's signing proxy validates `duration` as a whole number and rejects anything else
+ * with a 400, which the outbox treats as permanent. A fractional duration therefore wedged
+ * the queue rather than being retried. Podcast lengths arrive in minutes from a feed and are
+ * routinely fractional, so the value is rounded where it enters the state machine.
+ */
+export function normalizeDurationSec(durationSec: number): number {
+  if (!Number.isFinite(durationSec) || durationSec <= 0) return 0;
+  return Math.round(durationSec);
+}
+
 export interface ScrobbleSubmission {
   artist: string;
   track: string;
@@ -92,6 +117,9 @@ export class ScrobbleStateMachine {
   private activeTrack: ActiveTrack | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private readonly deps: ScrobbleDeps;
+  /** Last track credited, so a metadata echo cannot be counted as a second listen. */
+  private lastScrobbled: { artist: string; track: string } | null = null;
+  private lastScrobbledAtMs = 0;
 
   constructor(deps: ScrobbleDeps) {
     this.deps = deps;
@@ -138,12 +166,19 @@ export class ScrobbleStateMachine {
     this.expireStalledTrack();
     this.checkAndScrobbleCurrent();
 
+    if (this.isScrobbledEcho(trimmedArtist, trimmedTrack)) {
+      console.log(
+        `[ScrobbleManager] Not re-arming already-played ${trimmedArtist} - ${trimmedTrack}; metadata echo`
+      );
+      return;
+    }
+
     const now = this.deps.now();
     const newTrack: ActiveTrack = {
       artist: trimmedArtist,
       track: trimmedTrack,
       album: album.trim(),
-      durationSec,
+      durationSec: normalizeDurationSec(durationSec),
       startTimeMs: now,
       totalListenedMs: 0,
       lastResumeTimeMs: now,
@@ -165,7 +200,7 @@ export class ScrobbleStateMachine {
         newTrack.artist,
         newTrack.track,
         newTrack.album,
-        durationSec
+        newTrack.durationSec
       );
     }
 
@@ -173,7 +208,7 @@ export class ScrobbleStateMachine {
       this.deps.nowPlaying(
         newTrack.artist,
         newTrack.track,
-        durationSec > 0 ? durationSec : undefined,
+        newTrack.durationSec > 0 ? newTrack.durationSec : undefined,
         newTrack.album || undefined
       );
     }
@@ -244,7 +279,7 @@ export class ScrobbleStateMachine {
     current.lastResumeTimeMs = this.deps.now();
 
     if (current.durationSec <= 0 && durationSec > 0) {
-      current.durationSec = Math.round(durationSec);
+      current.durationSec = normalizeDurationSec(durationSec);
     }
 
     const thresholdMs = calculateScrobbleThresholdMs(current.durationSec);
@@ -254,6 +289,19 @@ export class ScrobbleStateMachine {
     ) {
       this.triggerScrobble(current);
     }
+  }
+
+  /**
+   * True when this artist and track were already credited within the re-arm cooldown, so
+   * the only reason to see them again is the metadata reporting a song already counted.
+   */
+  private isScrobbledEcho(artist: string, track: string): boolean {
+    if (!this.lastScrobbled) return false;
+    if (this.deps.now() - this.lastScrobbledAtMs >= SCROBBLE_REARM_COOLDOWN_MS) return false;
+    return (
+      this.lastScrobbled.artist.toLowerCase() === artist.toLowerCase() &&
+      this.lastScrobbled.track.toLowerCase() === track.toLowerCase()
+    );
   }
 
   private emitBroadcast(state: number, track: ActiveTrack): void {
@@ -328,6 +376,9 @@ export class ScrobbleStateMachine {
 
     if (track.isPodcast && !this.deps.podcastsEnabled()) return;
 
+    this.lastScrobbled = { artist: track.artist, track: track.track };
+    this.lastScrobbledAtMs = this.deps.now();
+
     const timestampSec = Math.floor(track.startTimeMs / 1000);
 
     // Queue before touching local history or the network: a scrobble lost here is lost
@@ -337,7 +388,7 @@ export class ScrobbleStateMachine {
       artist: track.artist,
       track: track.track,
       album: track.album || undefined,
-      durationSec: track.durationSec > 0 ? track.durationSec : undefined,
+      durationSec: normalizeDurationSec(track.durationSec) || undefined,
       timestampSec
     });
 

@@ -203,7 +203,9 @@ function createMockPreferences() {
       );
       if (isDup) return;
 
-      const updated = [entry, ...recent].slice(0, 20);
+      const updated = [entry, ...recent]
+        .sort((a: any, b: any) => b.timestampMs - a.timestampMs)
+        .slice(0, 20);
       storage.set("pref_lastfm_recent_scrobbles", JSON.stringify(updated));
       storage.set("pref_lastfm_last_scrobbled", `${entry.artist} - ${entry.track}`);
       storage.set("pref_lastfm_last_scrobbled_time_ms", entry.timestampMs);
@@ -639,3 +641,30 @@ test("Preferences - Kotlin backup restore falls back to single last_scrobbled_tr
 });
 
 
+
+test("Preferences - recent scrobbles stay newest first when delivered out of order", () => {
+  // Regression: the outbox delivers a backlog newest entry first, so simply prepending
+  // left the oldest scrobble of the batch at the head of the list. "Last scrobbled" and
+  // its listened-time label both read from the head, so they showed a stale track and an
+  // incorrect time whenever anything had queued up.
+  const prefs = createMockPreferences();
+  const base = 1_700_000_000_000;
+
+  // Delivered newest first, as the queue does.
+  for (const offset of [200_000, 100_000, 0]) {
+    prefs.addLastFmRecentScrobble({
+      artist: `Artist ${offset / 100_000}`,
+      track: `Track ${offset / 100_000}`,
+      stationName: "Radio 1",
+      timestampMs: base + offset
+    });
+  }
+
+  const scrobbles = prefs.getLastFmRecentScrobbles();
+  assert.deepEqual(
+    scrobbles.map((entry) => entry.timestampMs),
+    [base + 200_000, base + 100_000, base],
+    "the list is ordered by listen time, not by delivery order"
+  );
+  assert.equal(prefs.getLastFmLastScrobbled(), "Artist 2 - Track 2");
+});

@@ -8,7 +8,7 @@ import {
   resolveEffectiveAudioQuality
 } from "../data/stations";
 import { Preferences } from "../storage/preferences";
-import { CurrentShow, fetchShowInfo, onRmsDelayedUpdate, resetStationRmsDelay, isPlaceholderArtwork } from "../api/showInfo";
+import { CurrentShow, fetchShowInfo, onRmsDelayedUpdate, resetStationRmsDelay, isPlaceholderArtwork, resolveRecentSong } from "../api/showInfo";
 import { useStationShowStore } from "./stationShowStore";
 import { Podcast, Episode, PodcastApi } from "../api/podcasts";
 import { shouldMarkEpisodePlayed, resolveEffectiveDuration } from "../podcasts/episodePlaybackStatus";
@@ -512,15 +512,12 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
           } else {
             ScrobbleManager.onNoTrackPlaying();
           }
-          const songArtist = show.rawArtist || show.artist || "";
-          const songTrack = show.rawTrack || show.track || "";
-          if (songArtist || songTrack) {
-            const rawArt = show.songImageUrl || show.rawImageUrl;
-            const songArt = rawArt && !isPlaceholderArtwork(rawArt, station.logoUrl) ? rawArt : "";
+          const song = resolveRecentSong(show, station.logoUrl);
+          if (song) {
             Preferences.addRecentSong({
-              artist: songArtist,
-              track: songTrack,
-              imageUrl: songArt,
+              artist: song.artist,
+              track: song.track,
+              imageUrl: song.imageUrl,
               stationId: station.id,
               stationName: station.title
             });
@@ -570,15 +567,12 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       } else {
         ScrobbleManager.onNoTrackPlaying();
       }
-      const songArtist = show.rawArtist || show.artist || "";
-      const songTrack = show.rawTrack || show.track || "";
-      if (songArtist || songTrack) {
-        const rawArt = show.songImageUrl || show.rawImageUrl;
-        const songArt = rawArt && !isPlaceholderArtwork(rawArt, station.logoUrl) ? rawArt : "";
+      const song = resolveRecentSong(show, station.logoUrl);
+      if (song) {
         Preferences.addRecentSong({
-          artist: songArtist,
-          track: songTrack,
-          imageUrl: songArt,
+          artist: song.artist,
+          track: song.track,
+          imageUrl: song.imageUrl,
           stationId: station.id,
           stationName: station.title
         });
@@ -1157,15 +1151,12 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       } else {
         ScrobbleManager.onNoTrackPlaying();
       }
-      const songArtist = show.rawArtist || show.artist || "";
-      const songTrack = show.rawTrack || show.track || "";
-      if (songArtist || songTrack) {
-        const rawArt = show.songImageUrl || show.rawImageUrl;
-        const songArt = rawArt && !isPlaceholderArtwork(rawArt, currentStation.logoUrl) ? rawArt : "";
+      const song = resolveRecentSong(show, currentStation.logoUrl);
+      if (song) {
         Preferences.addRecentSong({
-          artist: songArtist,
-          track: songTrack,
-          imageUrl: songArt,
+          artist: song.artist,
+          track: song.track,
+          imageUrl: song.imageUrl,
           stationId: currentStation.id,
           stationName: currentStation.title
         });

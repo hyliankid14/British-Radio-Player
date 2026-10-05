@@ -57,6 +57,36 @@ export function formatShowDisplayTitle(show: CurrentShow): string {
   return show.title || "BBC Radio";
 }
 
+/**
+ * A song to add to the listener's recent list, resolved from one consistent metadata
+ * snapshot.
+ *
+ * `artist`, `track` and `songImageUrl` are all written together by
+ * {@link resolveDelayedRmsTrack}, so they always describe the same RMS segment. The `raw*`
+ * fields are the undelayed read, which is the *incoming* song: pairing `rawArtist` with
+ * `songImageUrl` therefore names the new track over the artwork of the track that was
+ * playing a moment ago. That was how recent songs ended up showing one song's cover, and
+ * because `addRecentSong` returns early when the same track is already in the list, the
+ * wrong artwork was never corrected once the real one arrived.
+ *
+ * Returns undefined when there is no song to record.
+ */
+export function resolveRecentSong(
+  show: CurrentShow,
+  stationLogoUrl?: string
+): { artist: string; track: string; imageUrl: string } | undefined {
+  const artist = show.artist || "";
+  const track = show.track || "";
+  if (!artist.trim() && !track.trim()) return undefined;
+
+  const url = show.songImageUrl || show.rawImageUrl;
+  return {
+    artist,
+    track,
+    imageUrl: url && !isPlaceholderArtwork(url, stationLogoUrl) ? url : ""
+  };
+}
+
 export interface RmsTrackData {
   artist?: string;
   track?: string;

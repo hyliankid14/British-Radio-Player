@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   resolveDelayedRmsTrack,
   resetStationRmsDelay,
+  resolveRecentSong,
   RMS_DELAY_MS
 } from "../src/api/showInfo.ts";
 
@@ -74,4 +75,56 @@ test("resolveDelayedRmsTrack with skipDelay=true applies fresh RMS song immediat
   assert.equal(immediate.track, "Track 2");
 
   resetStationRmsDelay();
+});
+
+test("resolveRecentSong names a song using the same snapshot as its artwork", () => {
+  // Regression: recent songs took the artist and track from the undelayed `raw*` fields
+  // but the artwork from the delayed ones. For the ~20s after a handover that paired the
+  // incoming track with the artwork of the track that was playing before it, and
+  // addRecentSong never corrected the cover once the real artwork arrived.
+  const song = resolveRecentSong({
+    title: "BBC Radio 1",
+    artist: "Artist A",
+    track: "Track A",
+    songImageUrl: "https://img/track-a.jpg",
+    rawArtist: "Artist B",
+    rawTrack: "Track B",
+    rawImageUrl: "https://img/track-b.jpg"
+  });
+
+  assert.deepEqual(song, {
+    artist: "Artist A",
+    track: "Track A",
+    imageUrl: "https://img/track-a.jpg"
+  });
+});
+
+test("resolveRecentSong reports no song when metadata has none", () => {
+  assert.equal(resolveRecentSong({ title: "BBC Radio 1" }), undefined);
+  assert.equal(resolveRecentSong({ title: "BBC Radio 1", artist: "  ", track: "  " }), undefined);
+});
+
+test("resolveRecentSong drops placeholder artwork but keeps the song", () => {
+  const song = resolveRecentSong({
+    title: "BBC Radio 1",
+    artist: "Artist A",
+    track: "Track A",
+    songImageUrl: "https://ichef.images.bbci.co.uk/p0bqcdzf/320x320.jpg"
+  });
+
+  assert.deepEqual(song, { artist: "Artist A", track: "Track A", imageUrl: "" });
+});
+
+test("resolveRecentSong drops artwork that is just the station logo", () => {
+  const song = resolveRecentSong(
+    {
+      title: "BBC Radio 1",
+      artist: "Artist A",
+      track: "Track A",
+      songImageUrl: "https://bbc.co.uk/services/radio1.png"
+    },
+    "https://bbc.co.uk/services/radio1.png"
+  );
+
+  assert.equal(song?.imageUrl, "");
 });

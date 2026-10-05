@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   ScrobbleStateMachine,
   METADATA_GAP_TOLERANCE_MS,
+  SCROBBLE_REARM_COOLDOWN_MS,
   SLS_STATE_START,
   SLS_STATE_PAUSE,
   SLS_STATE_RESUME,
@@ -270,4 +271,110 @@ test("broadcasts are suppressed when external scrobblers are disabled", () => {
 
   assert.deepEqual(h.broadcasts, []);
   assert.equal(h.submitted.length, 1, "direct scrobbling is independent of broadcasts");
+});
+
+test("a fractional duration is rounded to whole seconds before it is submitted", () => {
+  // Regression: the signing proxy validates `duration` as an integer and answers a
+  // fractional value with a 400, which the outbox treats as permanent. Podcast feeds
+  // report lengths in minutes, so `durationMins * 60` was routinely fractional.
+  const h = createHarness();
+  h.machine.onTrackStarted("Podcast Host", "Episode 3", "Some Podcast", 2599.9998, true);
+
+  assert.equal(h.machine.getActiveTrack()?.durationSec, 2600);
+  assert.equal(h.nowPlaying[0].artist, "Podcast Host");
+
+  h.advance(1_300_000);
+  h.machine.onProgress(1300, 2599.9998);
+  assert.equal(h.submitted.length, 1);
+  assert.equal(h.submitted[0].durationSec, 2600);
+  assert.equal(Number.isInteger(h.submitted[0].durationSec), true);
+});
+
+test("a fractional duration learned from the progress tick is rounded too", () => {
+  const h = createHarness();
+  h.machine.onTrackStarted("Artist A", "Track A", "BBC Radio 1", 0, false);
+  assert.equal(h.machine.getActiveTrack()?.durationSec, 0);
+
+  h.advance(5_000);
+  h.machine.onProgress(5, 180.5);
+  assert.equal(h.machine.getActiveTrack()?.durationSec, 181);
+});
+
+test("a song is not credited twice when its metadata returns after a long gap", () => {
+  // Regression: a gap longer than the tolerance retires the active track. When RMS then
+  // recovered and reported the same song again, onTrackStarted found no active track and
+  // began a brand new listen clock, so the track scrobbled a second time with a start time
+  // taken from the recovery instead of from when the song actually began.
+  const h = createHarness();
+  h.machine.onTrackStarted("Artist A", "Track A", "BBC Radio 1", 120, false);
+
+  // Credit it.
+  h.advance(61_000);
+  h.machine.onProgress(61, 120);
+  assert.equal(h.submitted.length, 1);
+  const firstTimestamp = h.submitted[0].timestampSec;
+
+  // Metadata goes quiet, and stays quiet past the gap tolerance.
+  h.advance(5_000);
+  h.machine.onNoTrackPlaying();
+  h.advance(METADATA_GAP_TOLERANCE_MS + 5_000);
+  h.machine.onNoTrackPlaying();
+  assert.equal(h.machine.getActiveTrack(), null, "the stalled track was retired");
+
+  // The same song is reported again by recovering metadata.
+  h.advance(1_000);
+  h.machine.onTrackStarted("Artist A", "Track A", "BBC Radio 1", 120, false);
+  assert.equal(h.machine.getActiveTrack(), null, "the echo is not armed as a new listen");
+
+  h.advance(120_000);
+  h.machine.onProgress(180, 120);
+
+  assert.equal(h.submitted.length, 1, "the song is credited once");
+  assert.equal(h.submitted[0].timestampSec, firstTimestamp, "at the time it actually began");
+});
+
+test("a stopped song is not re-armed inside the cooldown, but is afterwards", () => {
+  const h = createHarness();
+  h.machine.onTrackStarted("Artist A", "Track A", "BBC Radio 1", 120, false);
+  h.advance(61_000);
+  h.machine.onProgress(61, 120);
+  assert.equal(h.submitted.length, 1);
+
+  // Playback stops, which clears the active slot.
+  h.machine.onPlaybackStopped();
+  assert.equal(h.machine.getActiveTrack(), null);
+
+  // Restarting the same song straight away is a re-arm of what was just credited.
+  h.advance(1_000);
+  h.machine.onTrackStarted("Artist A", "Track A", "BBC Radio 1", 120, false);
+  assert.equal(h.machine.getActiveTrack(), null, "not armed again inside the cooldown");
+
+  h.advance(61_000);
+  h.machine.onProgress(61, 120);
+  assert.equal(h.submitted.length, 1, "still credited once");
+
+  // Once the cooldown has passed it is treated as a genuine new listen.
+  h.advance(SCROBBLE_REARM_COOLDOWN_MS + 1_000);
+  h.machine.onTrackStarted("Artist A", "Track A", "BBC Radio 1", 120, false);
+  assert.notEqual(h.machine.getActiveTrack(), null, "a genuine later play still counts");
+
+  h.advance(61_000);
+  h.machine.onProgress(61, 120);
+  assert.equal(h.submitted.length, 2);
+});
+
+test("a different song during the cooldown is still credited", () => {
+  const h = createHarness();
+  h.machine.onTrackStarted("Artist A", "Track A", "BBC Radio 1", 120, false);
+  h.advance(61_000);
+  h.machine.onProgress(61, 120);
+  assert.equal(h.submitted.length, 1);
+
+  h.advance(30_000);
+  h.machine.onTrackStarted("Artist B", "Track B", "BBC Radio 1", 120, false);
+  h.advance(61_000);
+  h.machine.onProgress(61, 120);
+
+  assert.equal(h.submitted.length, 2);
+  assert.equal(h.submitted[1].track, "Track B");
 });
