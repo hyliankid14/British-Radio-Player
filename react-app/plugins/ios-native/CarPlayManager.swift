@@ -37,6 +37,14 @@ final class CarPlayManager: NSObject {
     private var observersInstalled = false
 
     private var imageCache: [String: UIImage] = [:]
+    private lazy var showTitlePrefetchQueue: OperationQueue = {
+        let queue = OperationQueue()
+        queue.name = "com.bbcradioplayer.carplay.show-title-prefetch"
+        queue.maxConcurrentOperationCount = 3
+        queue.qualityOfService = .utility
+        return queue
+    }()
+    private var showTitlePrefetching: Set<String> = []
     private var progressTimer: Timer?
     private var endObserver: NSObjectProtocol?
     private var statusObservation: NSKeyValueObservation?
@@ -51,6 +59,8 @@ final class CarPlayManager: NSObject {
     /// controller delegate so a refresh is only applied when it is safe to replace the
     /// root template without throwing the driver out of the list they are reading.
     private weak var visibleTemplate: CPTemplate?
+    private weak var favouritesTemplate: CPListTemplate?
+    private weak var stationsTemplate: CPListTemplate?
 
     private static let analyticsMinPlaySeconds: Double = 10.001
     private static let lastTrackedEpisodeAnalyticsKey = "last_tracked_analytics_episode_id"
@@ -169,7 +179,7 @@ final class CarPlayManager: NSObject {
         configureRemoteCommands()
         buildAndSetRootTemplate(animated: false)
         resumeOnConnectIfNeeded()
-        refreshFavouriteSubtitles()
+        prefetchStationShowTitles()
     }
 
     func disconnect() {
@@ -336,8 +346,16 @@ final class CarPlayManager: NSObject {
     /// Rebuilds the tab bar so new data is picked up. Skipped while a drill-down list is
     /// on screen, because replacing the root template would discard the driver's place.
     private func refreshTemplates() {
-        guard visibleTemplate == nil || visibleTemplate is CPTabBarTemplate else { return }
-        buildAndSetRootTemplate(animated: true)
+        if visibleTemplate == nil || visibleTemplate is CPTabBarTemplate {
+            buildAndSetRootTemplate(animated: true)
+        } else {
+            refreshStationBrowseTemplates()
+        }
+    }
+
+    private func refreshStationBrowseTemplates() {
+        favouritesTemplate?.updateSections(makeFavouritesSections())
+        stationsTemplate?.updateSections(makeStationSections())
     }
 
     private func push(_ template: CPTemplate) {
@@ -356,6 +374,16 @@ final class CarPlayManager: NSObject {
     // MARK: Favourites
 
     private func makeFavouritesTemplate() -> CPListTemplate {
+        let template = CPListTemplate(
+            title: "Favourites", sections: makeFavouritesSections())
+        template.tabTitle = "Favourites"
+        template.tabImage = UIImage(systemName: "star.fill")
+        template.trailingNavigationBarButtons = [makeSearchButton()]
+        favouritesTemplate = template
+        return template
+    }
+
+    private func makeFavouritesSections() -> [CPListSection] {
         let stations = CarPlayState.shared.favorites.compactMap {
             CarPlayStationRepository.station(id: $0)
         }
@@ -387,17 +415,21 @@ final class CarPlayManager: NSObject {
             }
         }
 
-        let template = CPListTemplate(
-            title: "Favourites", sections: [CPListSection(items: items)])
-        template.tabTitle = "Favourites"
-        template.tabImage = UIImage(systemName: "star.fill")
-        template.trailingNavigationBarButtons = [makeSearchButton()]
-        return template
+        return [CPListSection(items: items)]
     }
 
     // MARK: Stations
 
     private func makeStationsTemplate() -> CPListTemplate {
+        let template = CPListTemplate(title: "All Stations", sections: makeStationSections())
+        template.tabTitle = "All Stations"
+        template.tabImage = UIImage(systemName: "dot.radiowaves.left.and.right")
+        template.trailingNavigationBarButtons = [makeSearchButton()]
+        stationsTemplate = template
+        return template
+    }
+
+    private func makeStationSections() -> [CPListSection] {
         let sections =
             CarPlayStationCategory.allCases
             .compactMap { category -> CPListSection? in
@@ -435,11 +467,7 @@ final class CarPlayManager: NSObject {
             sectionsToUse = sections
         }
 
-        let template = CPListTemplate(title: "All Stations", sections: sectionsToUse)
-        template.tabTitle = "All Stations"
-        template.tabImage = UIImage(systemName: "dot.radiowaves.left.and.right")
-        template.trailingNavigationBarButtons = [makeSearchButton()]
-        return template
+        return sectionsToUse
     }
 
     // MARK: Podcasts
@@ -1372,6 +1400,7 @@ final class CarPlayManager: NSObject {
             Task { @MainActor in
                 guard let self, self.currentStationId == stationId else { return }
                 self.updateNowPlayingInfo()
+                self.refreshStationBrowseTemplates()
 
                 let signature = "\(info.rawArtist)|\(info.rawTrack)"
                 guard signature != self.lastTrackedSongSignature else { return }
@@ -1391,19 +1420,23 @@ final class CarPlayManager: NSObject {
         }
     }
 
-    /// Warms the "now showing" text used on Favourites rows shortly after connecting.
-    private func refreshFavouriteSubtitles() {
-        let stations = CarPlayState.shared.favorites.compactMap {
-            CarPlayStationRepository.station(id: $0)
+    /// Loads show titles for every station without waiting for playback to start.
+    private func prefetchStationShowTitles() {
+        var scheduledServiceIds = showTitlePrefetching
+        let stations = CarPlayStationRepository.all.filter {
+            !$0.serviceId.isEmpty && scheduledServiceIds.insert($0.serviceId).inserted
         }
-        guard !stations.isEmpty else { return }
-        DispatchQueue.global(qos: .utility).async { [weak self] in
-            for station in stations {
-                CarPlayShowInfo.shared.refresh(serviceId: station.serviceId)
-            }
-            Task { @MainActor in
-                guard let self, self.isConnected else { return }
-                self.refreshTemplates()
+        for station in stations {
+            showTitlePrefetching.insert(station.serviceId)
+            showTitlePrefetchQueue.addOperation { [weak self] in
+                CarPlayShowInfo.shared.refresh(
+                    serviceId: station.serviceId, includeSongInfo: false)
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.showTitlePrefetching.remove(station.serviceId)
+                    guard self.isConnected else { return }
+                    self.refreshStationBrowseTemplates()
+                }
             }
         }
     }

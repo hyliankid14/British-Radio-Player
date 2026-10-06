@@ -106,7 +106,9 @@ final class CarPlayShowInfo {
     /// Fetches the latest show and song info. Runs synchronously, so call it off the
     /// main thread; the results land in the cache for the UI to pick up.
     @discardableResult
-    func refresh(serviceId: String, skipDelay: Bool = false) -> ShowInfo {
+    func refresh(
+        serviceId: String, skipDelay: Bool = false, includeSongInfo: Bool = true
+    ) -> ShowInfo {
         guard !serviceId.isEmpty else { return ShowInfo() }
         let now = Date().timeIntervalSince1970 * 1000
         let streamTime = now - Self.rmsDelayMs
@@ -114,13 +116,19 @@ final class CarPlayShowInfo {
         let existing = queue.sync { cache[serviceId] }
 
         // Song metadata (RMS).
-        let rmsFresh = !skipDelay && (existing.map { now - $0.fetchedAtMs <= Self.rmsCacheTTL } ?? false)
         var rawSong = RmsSong()
-        if rmsFresh, let existing = existing {
+        if !includeSongInfo, let existing = existing {
+            rawSong = RmsSong(
+                artist: existing.info.rawArtist, track: existing.info.rawTrack,
+                artworkUrl: existing.info.rawArtworkUrl)
+        } else if includeSongInfo,
+            !skipDelay,
+            let existing = existing,
+            now - existing.fetchedAtMs <= Self.rmsCacheTTL {
             rawSong = RmsSong(
                 artist: existing.info.artist, track: existing.info.track,
                 artworkUrl: existing.info.songArtworkUrl)
-        } else {
+        } else if includeSongInfo {
             let fetched = fetchRmsNowPlaying(serviceId: serviceId) ?? RmsSong()
             if fetched.artist.isEmpty, fetched.track.isEmpty, fetched.artworkUrl.isEmpty,
                 let existing = existing, !skipDelay {
@@ -132,27 +140,35 @@ final class CarPlayShowInfo {
             }
         }
 
-        let applied = queue.sync { () -> RmsSong in
-            var state = delayed[serviceId] ?? DelayedRms()
-            if skipDelay {
-                state.applied = rawSong
-                state.pending = nil
-                state.pendingApplyAtMs = 0
-                state.lastRaw = rawSong
-            } else {
-                if state.pendingApplyAtMs > 0, now >= state.pendingApplyAtMs {
-                    state.applied = state.pending ?? RmsSong()
+        let applied: RmsSong
+        if includeSongInfo {
+            applied = queue.sync {
+                var state = delayed[serviceId] ?? DelayedRms()
+                if skipDelay {
+                    state.applied = rawSong
                     state.pending = nil
                     state.pendingApplyAtMs = 0
-                }
-                if state.lastRaw != rawSong {
                     state.lastRaw = rawSong
-                    state.pending = rawSong
-                    state.pendingApplyAtMs = now + Self.rmsDelayMs
+                } else {
+                    if state.pendingApplyAtMs > 0, now >= state.pendingApplyAtMs {
+                        state.applied = state.pending ?? RmsSong()
+                        state.pending = nil
+                        state.pendingApplyAtMs = 0
+                    }
+                    if state.lastRaw != rawSong {
+                        state.lastRaw = rawSong
+                        state.pending = rawSong
+                        state.pendingApplyAtMs = now + Self.rmsDelayMs
+                    }
                 }
+                delayed[serviceId] = state
+                return state.applied
             }
-            delayed[serviceId] = state
-            return state.applied
+        } else {
+            applied = RmsSong(
+                artist: existing?.info.artist ?? "",
+                track: existing?.info.track ?? "",
+                artworkUrl: existing?.info.songArtworkUrl ?? "")
         }
 
         // Programme details (ESS).
@@ -200,11 +216,11 @@ final class CarPlayShowInfo {
 
         // Song artwork.
         let artworkUrl = applied.artworkUrl
-        if !artworkUrl.isEmpty, artworkUrl != existing?.info.songArtworkUrl {
+        if includeSongInfo, !artworkUrl.isEmpty, artworkUrl != existing?.info.songArtworkUrl {
             if let image = downloadImage(artworkUrl) {
                 queue.sync { artwork[serviceId] = image }
             }
-        } else if artworkUrl.isEmpty {
+        } else if includeSongInfo, artworkUrl.isEmpty {
             queue.sync { _ = artwork.removeValue(forKey: serviceId) }
         }
 
@@ -221,7 +237,8 @@ final class CarPlayShowInfo {
         queue.sync {
             cache[serviceId] = CachedInfo(
                 info: info, showStartMs: details.start, showEndMs: details.end,
-                essFetchedAtMs: details.fetched, fetchedAtMs: now)
+                essFetchedAtMs: details.fetched,
+                fetchedAtMs: includeSongInfo ? now : (existing?.fetchedAtMs ?? 0))
         }
         return info
     }
