@@ -220,7 +220,8 @@ function handleNativeEvent(event: AutoNativeEvent): void {
             pubDate: String(payload.pubDate || ""),
             durationMins: Number(payload.durationMins || 0),
             podcastId: String(payload.podcastId || ""),
-            podcastTitle: String(payload.subtitle || payload.podcastTitle || "")
+            podcastTitle: String(payload.subtitle || payload.podcastTitle || ""),
+            playedAtMs: Number(payload.playedAtMs || 0)
           });
         }
       }

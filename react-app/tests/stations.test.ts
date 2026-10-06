@@ -92,6 +92,21 @@ test("Station Catalogue - BBC Sounds exclusive stations reuse a valid logo and s
   );
 });
 
+test("Station Catalogue - BBC Sounds Live News uses its official UK and international streams", () => {
+  const liveNews = StationRepository.getById("livenews");
+  assert.ok(liveNews, "Live News must exist");
+  assert.equal(liveNews.title, "Live News");
+  assert.equal(liveNews.serviceId, "bbc_sounds_news");
+  assert.equal(liveNews.category, StationCategory.NATIONAL);
+  const stations = StationRepository.getAll();
+  assert.equal(stations[stations.indexOf(liveNews) - 1]?.id, "worldservice");
+
+  const ukCandidates = getStreamCandidates(liveNews, "HIGH", false);
+  const internationalCandidates = getStreamCandidates(liveNews, "HIGH", true);
+  assert.ok(ukCandidates[0].includes("/uk/audio_syndication_high_sbr_v1/cf/bbc_sounds_news.m3u8"));
+  assert.ok(internationalCandidates[0].includes("/hls/nonuk/pc_hd_abr_v2/cf/bbc_sounds_news.m3u8"));
+});
+
 test("Stream Candidates - variable bitrate prioritization", () => {
   const r1 = StationRepository.getById("radio1")!;
   assert.ok(r1, "Radio 1 must exist");
@@ -274,7 +289,7 @@ test("isPlaceholderArtwork - correctly filters placeholder and logo URLs", () =>
 });
 
 test("Notification Artwork - uses custom station idents rather than BBC branded artwork", () => {
-  const station = StationRepository.getById("radio4")!;
+  const station = StationRepository.getById("livenews")!;
   assert.ok(station);
 
   // Custom ident is available for the station

@@ -226,6 +226,7 @@ export const STATIONS: Station[] = [
     logoServiceId: "bbc_6music"
   }),
   createStation("worldservice", "World Service", "bbc_world_service", StationCategory.NATIONAL),
+  createStation("livenews", "Live News", "bbc_sounds_news", StationCategory.NATIONAL),
   createStation("asiannetwork", "Asian Network", "bbc_asian_network", StationCategory.NATIONAL),
 
   // Nations / Regions

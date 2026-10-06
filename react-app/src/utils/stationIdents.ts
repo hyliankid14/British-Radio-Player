@@ -87,6 +87,7 @@ export const STATION_IDENT_ASSETS: Record<string, () => any> = {
   "radiowiltshire": () => require("../../assets/idents/radiowiltshire.png"),
   "radioyork": () => require("../../assets/idents/radioyork.png"),
   "worldservice": () => require("../../assets/idents/worldservice.png"),
+  "livenews": () => require("../../assets/idents/livenews.png"),
 };
 
 /**

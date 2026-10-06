@@ -1049,7 +1049,11 @@ export default function FavouritesScreen() {
 
             <View style={styles.historyMetaRow}>
               <Text style={[styles.historyMetaText, { color: theme.onSurfaceVariant }]}>
-                {item.pubDate ? formatEpisodeDate(item.pubDate) : formatRelativeTime(item.playedAtMs)}
+                {item.playedAtMs > 0
+                  ? formatRelativeTime(item.playedAtMs)
+                  : item.pubDate
+                    ? formatEpisodeDate(item.pubDate)
+                    : ""}
               </Text>
               {item.durationMins > 0 ? (
                 <Text style={[styles.historyMetaText, { color: theme.onSurfaceVariant }]}>

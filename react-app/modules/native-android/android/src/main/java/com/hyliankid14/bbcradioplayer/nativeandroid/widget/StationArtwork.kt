@@ -43,6 +43,7 @@ object StationArtwork {
     "radio6" to Config(Color.parseColor("#007749"), "6"),
     "radio6indieforever" to Config(Color.parseColor("#0B0F0D"), "6IF", circleColor = Color.parseColor("#007749")),
     "worldservice" to Config(Color.parseColor("#BB1919"), "WS"),
+    "livenews" to Config(Color.parseColor("#BB1919"), "NEWS"),
     "asiannetwork" to Config(Color.parseColor("#703FA0"), "AN"),
     // Regions
     "radiocymru" to Config(Color.parseColor("#0057A8"), "CY"),

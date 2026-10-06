@@ -477,6 +477,7 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
       put("playedAtMs", System.currentTimeMillis())
     }
     AutoState.addHistory(this, historyEntry)
+    AndroidAutoBridgeModule.emitEvent("podcastHistoryAdded", historyEntry)
     AutoState.setLastPlayed(this, "episode", epId, podId)?.let { emitMutation("lastPlayed", it) }
 
     emitMutation("playbackStarted", JSONObject().apply {
@@ -490,6 +491,7 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
       put("audioUrl", epAudio)
       put("pubDate", epPubDate)
       put("durationMins", epDuration)
+      put("playedAtMs", historyEntry.optLong("playedAtMs"))
     })
   }
 

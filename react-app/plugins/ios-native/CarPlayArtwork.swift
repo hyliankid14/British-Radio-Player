@@ -46,6 +46,7 @@ enum CarPlayArtwork {
         "radio6indieforever": Config(
             backgroundColor: hex(0x0B0F0D), label: "6IF", circleColor: hex(0x007749)),
         "worldservice": Config(backgroundColor: hex(0xBB1919), label: "WS"),
+        "livenews": Config(backgroundColor: hex(0xBB1919), label: "NEWS"),
         "asiannetwork": Config(backgroundColor: hex(0x703FA0), label: "AN"),
 
         // Regions

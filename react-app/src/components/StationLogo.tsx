@@ -27,6 +27,7 @@ const STATION_ARTWORK_CONFIGS: Record<string, StationLogoConfig> = {
   radio6: { backgroundColor: "#007749", label: "6" },
   radio6indieforever: { backgroundColor: "#0B0F0D", label: "6IF", circleColor: "#007749" },
   worldservice: { backgroundColor: "#BB1919", label: "WS" },
+  livenews: { backgroundColor: "#BB1919", label: "NEWS" },
   asiannetwork: { backgroundColor: "#703FA0", label: "AN" },
 
   // Regions
@@ -162,7 +163,12 @@ export function StationLogo({
   };
 
   const circleSize = size * 0.82;
-  const fontSize = config.label.length > 2 ? circleSize * 0.42 : circleSize * 0.54;
+  const fontSize =
+    config.label.length > 3
+      ? circleSize * 0.28
+      : config.label.length > 2
+        ? circleSize * 0.42
+        : circleSize * 0.54;
 
   return (
     <View
@@ -195,6 +201,8 @@ export function StationLogo({
               color: config.textColor || "#FFFFFF"
             }
           ]}
+          adjustsFontSizeToFit
+          minimumFontScale={0.7}
           numberOfLines={1}
         >
           {config.label}
