@@ -3,9 +3,9 @@ import SwiftUI
 
 struct BRPComplicationView: View {
     var entry: ComplicationEntry
-    
+
     @Environment(\.widgetFamily) var family
-    
+
     var body: some View {
         switch family {
         case .accessoryCircular:
@@ -19,35 +19,35 @@ struct BRPComplicationView: View {
 }
 
 struct CircularView: View {
-    let state: WidgetSharedState
-    
+    let state: WidgetSharedState.State
+
     var body: some View {
-        if let logoUrl = state.logoUrl, let url = URL(string: logoUrl) {
-            AsyncImage(url: url) { image in
-                image.resizable().aspectRatio(contentMode: .fit)
-            } placeholder: {
-                Text("BBC")
-            }
-            .clipShape(Circle())
-        } else {
-            Text("BBC")
-                .bold()
+        VStack {
+            Image(systemName: state.isPlaying ? "radio.fill" : "radio")
+                .font(.title3)
+        }
+        .containerBackground(for: .widget) {
+            Color.clear
         }
     }
 }
 
 struct RectangularView: View {
-    let state: WidgetSharedState
-    
+    let state: WidgetSharedState.State
+
     var body: some View {
-        VStack(alignment: .leading) {
-            Text(state.stationTitle ?? "BBC Radio")
+        VStack(alignment: .leading, spacing: 2) {
+            Text(state.stationTitle.isEmpty ? "BBC Radio" : state.stationTitle)
                 .font(.headline)
                 .bold()
-            
-            Text(state.showTitle ?? "Not playing")
+                .lineLimit(1)
+
+            Text(state.showLine.isEmpty ? (state.isPlaying ? "On air" : "Not playing") : state.showLine)
                 .font(.caption2)
                 .lineLimit(1)
+        }
+        .containerBackground(for: .widget) {
+            Color.clear
         }
     }
 }

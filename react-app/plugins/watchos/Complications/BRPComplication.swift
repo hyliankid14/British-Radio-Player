@@ -1,32 +1,25 @@
 import WidgetKit
 import SwiftUI
-import AppIntents
 
 struct ComplicationEntry: TimelineEntry {
     let date: Date
-    let state: WidgetSharedState
+    let state: WidgetSharedState.State
 }
 
-struct BRPConfigurationIntent: WidgetConfigurationIntent {
-    static var title: LocalizedStringResource = "Configuration"
-    static var description = IntentDescription("Configures the complication.")
-}
-
-struct ComplicationProvider: AppIntentTimelineProvider {
+struct ComplicationProvider: TimelineProvider {
     func placeholder(in context: Context) -> ComplicationEntry {
         ComplicationEntry(date: Date(), state: WidgetSharedState.loadState())
     }
 
-    func snapshot(for configuration: BRPConfigurationIntent, in context: Context) async -> ComplicationEntry {
-        ComplicationEntry(date: Date(), state: WidgetSharedState.loadState())
+    func getSnapshot(in context: Context, completion: @escaping (ComplicationEntry) -> Void) {
+        completion(ComplicationEntry(date: Date(), state: WidgetSharedState.loadState()))
     }
 
-    func timeline(for configuration: BRPConfigurationIntent, in context: Context) async -> Timeline<ComplicationEntry> {
+    func getTimeline(in context: Context, completion: @escaping (Timeline<ComplicationEntry>) -> Void) {
         let state = WidgetSharedState.loadState()
         let entry = ComplicationEntry(date: Date(), state: state)
-        
-        let nextUpdate = Calendar.current.date(byAdding: .minute, value: 30, to: Date())!
-        return Timeline(entries: [entry], policy: .after(nextUpdate))
+        let nextUpdate = Calendar.current.date(byAdding: .minute, value: 30, to: Date()) ?? Date().addingTimeInterval(1800)
+        completion(Timeline(entries: [entry], policy: .after(nextUpdate)))
     }
 }
 
@@ -34,7 +27,7 @@ struct BRPComplication: Widget {
     let kind: String = "BRPComplication"
 
     var body: some WidgetConfiguration {
-        AppIntentConfiguration(kind: kind, intent: BRPConfigurationIntent.self, provider: ComplicationProvider()) { entry in
+        StaticConfiguration(kind: kind, provider: ComplicationProvider()) { entry in
             BRPComplicationView(entry: entry)
         }
         .configurationDisplayName("BBC Radio Player")

@@ -17,6 +17,7 @@ import {
   shouldShowAnalyticsPrompt
 } from "../src/analytics/analytics";
 import { initWearSync, pushWearState } from "../src/wear/wearSync";
+import { initWatchSync, pushWatchState } from "../src/watch/watchSync";
 import { syncBackgroundSync } from "../src/background/backgroundSync";
 import { registerBackgroundTask } from "../src/background/backgroundTask";
 import { runAutoDownload } from "../src/downloads/autoDownload";
@@ -77,8 +78,9 @@ initDownloadCleanup();
 // catalogue and state.
 initAutoSync();
 
-// Sync favourites, subscriptions and progress with the Wear OS companion.
+// Sync favourites, subscriptions and progress with the Wear OS and Apple Watch companions.
 initWearSync();
+initWatchSync();
 
 // Initialize review prompt metrics and lifecycle monitoring.
 initReviewManager();
@@ -90,16 +92,24 @@ let autoCheckTimer: ReturnType<typeof setTimeout> | null = null;
 let wearSyncTimer: ReturnType<typeof setTimeout> | null = null;
 
 Preferences.onChanged((key) => {
-  // Push wear state only for relevant keys, debounced to avoid thrashing the bridge
+  if (key === "pref_favorite_stations") {
+    usePlayerStore.setState({ favorites: Preferences.getFavorites() });
+  }
+
+  // Push watch state only for relevant keys, debounced to avoid thrashing the bridge
   if (
     key === "pref_favorite_stations" ||
     key === "pref_subscribed_podcasts" ||
     key === "pref_played_episode_ids" ||
     key === "pref_podcast_history" ||
+    key === "pref_scroll_mode" ||
     key.startsWith("pref_lastfm_")
   ) {
     if (wearSyncTimer) clearTimeout(wearSyncTimer);
-    wearSyncTimer = setTimeout(() => void pushWearState(), 1000);
+    wearSyncTimer = setTimeout(() => {
+      void pushWearState();
+      void pushWatchState();
+    }, 1000);
   }
 
   if (

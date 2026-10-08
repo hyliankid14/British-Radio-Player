@@ -5,9 +5,6 @@ const WATCH_DIRECTORY = "watch";
 const STATE_FILE = "state.json";
 const RECEIVED_FILE = "received_state.json";
 const OUTBOUND_REVISION_KEY = "watch_snapshot_revision";
-const INBOUND_REVISION_KEY = "watch_received_revision";
-
-let lastInboundRevision = 0;
 
 export const WatchBridge = {
   isAvailable(): boolean {
@@ -32,15 +29,22 @@ export const WatchBridge = {
 
   drainReceivedState(): string | null {
     if (!this.isAvailable()) return null;
-    const current = Number(Settings.get(INBOUND_REVISION_KEY) ?? 0);
-    if (current === lastInboundRevision) return null;
     try {
       const dir = new Directory(Paths.cache, WATCH_DIRECTORY);
       const file = new File(dir, RECEIVED_FILE);
       if (!file.exists) return null;
       const content = file.textSync();
-      lastInboundRevision = current;
-      return content || null;
+      if (!content || content.trim().length === 0) return null;
+      try {
+        file.delete();
+      } catch {
+        try {
+          file.write("");
+        } catch {
+          // Best effort truncation
+        }
+      }
+      return content;
     } catch {
       return null;
     }

@@ -19,6 +19,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         // Start mirroring the React widget snapshot into the App Group the WidgetKit
         // extension reads. Safe to call once per scene: the bridge guards itself.
         WidgetStateBridge.shared.start()
+        WatchStateBridge.shared.start()
 
         // Handle cold start deep links
         for context in connectionOptions.urlContexts {            let options: [UIApplication.OpenURLOptionsKey: Any] = [

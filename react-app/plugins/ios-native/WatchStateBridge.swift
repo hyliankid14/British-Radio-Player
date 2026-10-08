@@ -63,9 +63,26 @@ final class WatchStateBridge: NSObject, WCSessionDelegate, @unchecked Sendable {
         do {
             let data = try Data(contentsOf: stateUrl)
             guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
-            try WCSession.default.updateApplicationContext(json)
+            
+            // 1. Update application context (cached snapshot for watchOS)
+            do {
+                try WCSession.default.updateApplicationContext(json)
+            } catch {
+                print("[WatchStateBridge] updateApplicationContext error: \(error)")
+            }
+            
+            // 2. Direct message if watch is currently reachable (instant update)
+            if WCSession.default.isReachable {
+                WCSession.default.sendMessage(json, replyHandler: nil) { err in
+                    print("[WatchStateBridge] sendMessage error: \(err)")
+                }
+            }
+            
+            // 3. Queue transfer for guaranteed delivery
+            _ = WCSession.default.transferUserInfo(json)
+            print("[WatchStateBridge] Successfully synced state to watch")
         } catch {
-            print("Failed to sync watch state: \(error)")
+            print("[WatchStateBridge] Failed to read or parse state.json: \(error)")
         }
     }
     
@@ -77,14 +94,12 @@ final class WatchStateBridge: NSObject, WCSessionDelegate, @unchecked Sendable {
             try FileManager.default.createDirectory(at: watchDir, withIntermediateDirectories: true)
             let receivedUrl = watchDir.appendingPathComponent(Self.receivedFileName)
             let data = try JSONSerialization.data(withJSONObject: state)
-            try data.write(to: receivedUrl)
-            
-            DispatchQueue.main.async {
-                let current = UserDefaults.standard.integer(forKey: Self.inboundRevisionKey)
-                UserDefaults.standard.set(current + 1, forKey: Self.inboundRevisionKey)
-            }
+            try data.write(to: receivedUrl, options: .atomic)
+            let rev = UserDefaults.standard.integer(forKey: Self.inboundRevisionKey)
+            UserDefaults.standard.set(rev + 1, forKey: Self.inboundRevisionKey)
+            print("[WatchStateBridge] Saved received watch state (rev \(rev + 1)): \(state)")
         } catch {
-            print("Failed to save received watch state: \(error)")
+            print("[WatchStateBridge] Failed to save received watch state: \(error)")
         }
     }
 
@@ -96,6 +111,43 @@ final class WatchStateBridge: NSObject, WCSessionDelegate, @unchecked Sendable {
         }
     }
 
+    private func readCurrentState() -> [String: Any]? {
+        guard let cachesUrl = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { return nil }
+        let watchDir = cachesUrl.appendingPathComponent(Self.cacheDirectoryName)
+        let stateUrl = watchDir.appendingPathComponent(Self.stateFileName)
+        guard let data = try? Data(contentsOf: stateUrl),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        return json
+    }
+
+    func session(_ session: WCSession, didReceiveMessage message: [String : Any]) {
+        if message["request"] as? Bool == true {
+            queue.async { [weak self] in
+                self?.performSync()
+            }
+        } else {
+            saveReceivedState(message)
+        }
+    }
+
+    func session(_ session: WCSession, didReceiveMessage message: [String : Any], replyHandler: @escaping ([String : Any]) -> Void) {
+        if message["request"] as? Bool == true {
+            if let state = readCurrentState() {
+                replyHandler(state)
+            } else {
+                replyHandler(["status": "syncing"])
+            }
+            queue.async { [weak self] in
+                self?.performSync()
+            }
+        } else {
+            saveReceivedState(message)
+            replyHandler(["status": "ok"])
+        }
+    }
+
     func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String : Any]) {
         saveReceivedState(applicationContext)
     }
@@ -104,11 +156,24 @@ final class WatchStateBridge: NSObject, WCSessionDelegate, @unchecked Sendable {
         saveReceivedState(userInfo)
     }
 
+    func session(_ session: WCSession, didFinish userInfoTransfer: WCSessionUserInfoTransfer, error: Error?) {
+        if let error = error {
+            print("[WatchStateBridge] didFinishUserInfoTransfer error: \(error)")
+        } else {
+            print("[WatchStateBridge] didFinishUserInfoTransfer completed successfully")
+        }
+    }
+
     func sessionDidBecomeInactive(_ session: WCSession) {}
     func sessionDidDeactivate(_ session: WCSession) {
         WCSession.default.activate()
     }
     func sessionWatchStateDidChange(_ session: WCSession) {
+        queue.async { [weak self] in
+            self?.performSync()
+        }
+    }
+    func sessionReachabilityDidChange(_ session: WCSession) {
         if session.isReachable {
             queue.async { [weak self] in
                 self?.performSync()

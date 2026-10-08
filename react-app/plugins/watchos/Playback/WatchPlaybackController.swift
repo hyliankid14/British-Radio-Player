@@ -11,6 +11,10 @@ import Observation
     var isBuffering: Bool = false
     var currentStationId: String?
     var currentEpisodeId: String?
+    var currentEpisode: WatchEpisode?
+    var currentEpisodePodcast: WatchPodcast?
+    var currentPositionSeconds: Double = 0
+    var currentDurationSeconds: Double = 0
     
     private var player: AVPlayer?
     private var playerItem: AVPlayerItem?
@@ -25,12 +29,20 @@ import Observation
     
     private let userDefaults = UserDefaults.standard
     
+    // Analytics tracking (matching WearPlaybackService)
+    private static let analyticsMinPlaySeconds: Double = 10.001
+    private static let keyLastTrackedEpisodeId = "watch_last_tracked_episode_id"
+    private var stationAnalyticsTask: DispatchWorkItem?
+    private var episodeAnalyticsTask: DispatchWorkItem?
+    private var lastTrackedEpisodeAnalyticsId: String?
+    
     var audioQuality: AudioQuality {
         let rawValue = userDefaults.string(forKey: "watch_audio_quality") ?? "standard"
         return AudioQuality(rawValue: rawValue) ?? .standard
     }
     
     private init() {
+        lastTrackedEpisodeAnalyticsId = userDefaults.string(forKey: Self.keyLastTrackedEpisodeId)
         setupAudioSession()
         setupRemoteCommandCenter()
     }
@@ -48,6 +60,8 @@ import Observation
         stop()
         currentStationId = station.id
         currentPlayingStation = station
+        
+        scheduleStationAnalytics(stationId: station.id, stationTitle: station.title)
         
         let serviceId = station.serviceId
         let bitrate = audioQuality.bitrate
@@ -100,9 +114,19 @@ import Observation
         isBuffering = true
     }
     
-    func playEpisode(_ episode: WatchEpisode, startPositionMs: Int) {
+    func playEpisode(_ episode: WatchEpisode, podcast: WatchPodcast? = nil, startPositionMs: Int) {
         stop()
         currentEpisodeId = episode.id
+        currentEpisode = episode
+        currentPositionSeconds = Double(startPositionMs) / 1000.0
+        currentDurationSeconds = Double(episode.duration)
+        if let pod = podcast {
+            currentEpisodePodcast = pod
+        } else if let found = WatchPodcastManager.shared.subscribedPodcasts.first(where: { $0.id == episode.podcastId }) {
+            currentEpisodePodcast = found
+        } else if let epImg = episode.imageUrl {
+            currentEpisodePodcast = WatchPodcast(id: episode.podcastId, title: "Podcast", rssUrl: "", imageUrl: epImg)
+        }
         
         guard let url = URL(string: episode.mediaUrl) else { return }
         playerItem = AVPlayerItem(url: url)
@@ -118,38 +142,112 @@ import Observation
             player?.seek(to: time)
         }
         
+        NotificationCenter.default.removeObserver(self, name: .AVPlayerItemDidPlayToEndTime, object: nil)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(playerItemDidReachEnd),
+            name: .AVPlayerItemDidPlayToEndTime,
+            object: playerItem
+        )
+        
         startSession()
         player?.play()
         isPlaying = true
         isBuffering = true
         
+        let cleanEpId = episode.id.trimmingCharacters(in: .whitespacesAndNewlines)
+        if startPositionMs == 0 && cleanEpId == lastTrackedEpisodeAnalyticsId {
+            lastTrackedEpisodeAnalyticsId = nil
+            userDefaults.removeObject(forKey: Self.keyLastTrackedEpisodeId)
+        }
+        scheduleEpisodeAnalytics(
+            podcastId: episode.podcastId,
+            episodeId: cleanEpId,
+            episodeTitle: episode.title,
+            podcastTitle: currentEpisodePodcast?.title ?? podcast?.title
+        )
+        
         setupProgressSaving(episodeId: episode.id)
-        updateNowPlayingInfo(title: episode.title, artist: "Podcast")
+        updateNowPlayingInfo(title: episode.title, artist: currentEpisodePodcast?.title ?? "Podcast")
+    }
+    
+    @objc private func playerItemDidReachEnd(notification: Notification) {
+        if let epId = currentEpisodeId {
+            WatchConnectivityManager.shared.markEpisodePlayed(epId, played: true)
+        }
+        stop()
     }
     
     func togglePlayPause() {
         if isPlaying {
+            cancelAnalyticsTasks()
             player?.pause()
             isPlaying = false
+            if let epId = currentEpisodeId, let player = player {
+                let ms = Int(player.currentTime().seconds * 1000)
+                WatchConnectivityManager.shared.updateEpisodeProgress(episodeId: epId, positionMs: ms, immediate: true)
+            }
         } else {
             player?.play()
             isPlaying = true
+            if let station = currentPlayingStation {
+                scheduleStationAnalytics(stationId: station.id, stationTitle: station.title)
+            } else if let ep = currentEpisode {
+                scheduleEpisodeAnalytics(
+                    podcastId: ep.podcastId,
+                    episodeId: ep.id,
+                    episodeTitle: ep.title,
+                    podcastTitle: currentEpisodePodcast?.title
+                )
+            }
         }
     }
     
+    func seekTo(_ seconds: Double) {
+        guard let player = player else { return }
+        let safe = max(0, seconds)
+        currentPositionSeconds = safe
+        let time = CMTime(seconds: safe, preferredTimescale: 600)
+        player.seek(to: time)
+        if let epId = currentEpisodeId {
+            let ms = Int(safe * 1000)
+            WatchConnectivityManager.shared.updateEpisodeProgress(episodeId: epId, positionMs: ms, immediate: true)
+        }
+    }
+
     func seekBy(_ seconds: Double) {
         guard let player = player else { return }
         let currentTime = player.currentTime()
         let newTime = CMTimeAdd(currentTime, CMTime(seconds: seconds, preferredTimescale: 600))
+        let targetSecs = max(0, newTime.seconds)
+        currentPositionSeconds = targetSecs
         player.seek(to: newTime)
+        if let epId = currentEpisodeId {
+            let ms = Int(targetSecs * 1000)
+            WatchConnectivityManager.shared.updateEpisodeProgress(episodeId: epId, positionMs: ms, immediate: true)
+        }
     }
     
     func stop() {
+        cancelAnalyticsTasks()
+        if let epId = currentEpisodeId, let player = player {
+            let ms = Int(player.currentTime().seconds * 1000)
+            if ms > 0 {
+                WatchConnectivityManager.shared.updateEpisodeProgress(episodeId: epId, positionMs: ms, immediate: true)
+            }
+        }
+        NotificationCenter.default.removeObserver(self, name: .AVPlayerItemDidPlayToEndTime, object: nil)
+
         player?.pause()
         isPlaying = false
         isBuffering = false
         currentStationId = nil
+        currentPlayingStation = nil
         currentEpisodeId = nil
+        currentEpisode = nil
+        currentEpisodePodcast = nil
+        currentPositionSeconds = 0
+        currentDurationSeconds = 0
         
         if let observer = timeObserver {
             player?.removeTimeObserver(observer)
@@ -167,11 +265,69 @@ import Observation
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
     }
     
-    private func setupProgressSaving(episodeId: String) {
-        timeObserver = player?.addPeriodicTimeObserver(forInterval: CMTime(seconds: 15, preferredTimescale: 600), queue: .main) { [weak self] time in
+    private func scheduleStationAnalytics(stationId: String, stationTitle: String) {
+        cancelAnalyticsTasks()
+        let cleanId = stationId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanId.isEmpty else { return }
+        
+        let workItem = DispatchWorkItem { [weak self] in
             guard let self = self else { return }
+            if self.isPlaying, self.currentStationId == cleanId {
+                WatchAnalytics.shared.trackStationPlay(stationId: cleanId, stationName: stationTitle)
+            }
+        }
+        stationAnalyticsTask = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.analyticsMinPlaySeconds, execute: workItem)
+    }
+    
+    private func scheduleEpisodeAnalytics(
+        podcastId: String,
+        episodeId: String,
+        episodeTitle: String,
+        podcastTitle: String?
+    ) {
+        cancelAnalyticsTasks()
+        let cleanPodId = podcastId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanEpId = episodeId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanPodId.isEmpty, !cleanEpId.isEmpty else { return }
+        guard lastTrackedEpisodeAnalyticsId != cleanEpId else { return }
+        
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            if self.isPlaying, self.currentEpisodeId == cleanEpId {
+                WatchAnalytics.shared.trackEpisodePlay(
+                    podcastId: cleanPodId,
+                    episodeId: cleanEpId,
+                    episodeTitle: episodeTitle,
+                    podcastTitle: podcastTitle
+                )
+                self.lastTrackedEpisodeAnalyticsId = cleanEpId
+                self.userDefaults.set(cleanEpId, forKey: Self.keyLastTrackedEpisodeId)
+            }
+        }
+        episodeAnalyticsTask = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.analyticsMinPlaySeconds, execute: workItem)
+    }
+    
+    private func cancelAnalyticsTasks() {
+        stationAnalyticsTask?.cancel()
+        stationAnalyticsTask = nil
+        episodeAnalyticsTask?.cancel()
+        episodeAnalyticsTask = nil
+    }
+    
+    private func setupProgressSaving(episodeId: String) {
+        timeObserver = player?.addPeriodicTimeObserver(forInterval: CMTime(seconds: 1.0, preferredTimescale: 600), queue: .main) { [weak self] time in
+            guard let self = self else { return }
+            let secs = time.seconds
+            if secs.isFinite && !secs.isNaN {
+                self.currentPositionSeconds = max(0, secs)
+            }
+            if let dur = self.playerItem?.duration.seconds, dur.isFinite && !dur.isNaN && dur > 0 {
+                self.currentDurationSeconds = dur
+            }
             let ms = Int(time.seconds * 1000)
-            self.userDefaults.set(ms, forKey: "watch_episode_progress_\(episodeId)")
+            WatchConnectivityManager.shared.updateEpisodeProgress(episodeId: episodeId, positionMs: ms, immediate: false)
         }
     }
     

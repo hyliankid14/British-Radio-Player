@@ -263,6 +263,10 @@ async function searchEpisodePage(
 }
 
 export const PodcastApi = {
+  getCachedCatalog(): Podcast[] {
+    return cachedCatalog;
+  },
+
   getRatingsBaseUrl(): string {
     return PI_BASE_URL;
   },
