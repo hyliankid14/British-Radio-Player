@@ -206,10 +206,10 @@ export function createLaunchNavigation(options: LaunchNavigationOptions) {
 
     // On a cold start expo-router can resolve the same intent into the initial state,
     // leaving the screen focused before any of our listeners run. Pushing again would
-    // stack a duplicate, so the first request of the session adopts what is already
-    // on screen — but it still prepares the state underneath it.
+    // stack a duplicate, and running prepare (router.navigate) would navigate away from
+    // the focused screen, so the first request of the session adopts what is already
+    // on screen without disturbing the active route.
     if (isFirstRequest && isFocused(target)) {
-      prepare?.(target);
       settle(entry);
       return true;
     }

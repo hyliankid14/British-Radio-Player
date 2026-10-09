@@ -23,14 +23,13 @@ let bridge: AutoNativeBridge | null = null;
 let loaded = false;
 
 function load(): AutoNativeBridge | null {
-  if (loaded) return bridge;
-  loaded = true;
+  if (bridge) return bridge;
   if (Platform.OS !== "android") return null;
   try {
     // The native module only exists on Android; require lazily so other platforms
     // (and Jest) never evaluate it.
     const nativeModule = require("../../modules/android-auto-bridge/src/AndroidAutoBridgeModule");
-    bridge = (nativeModule?.default ?? null) as AutoNativeBridge | null;
+    bridge = (nativeModule?.default ?? nativeModule ?? null) as AutoNativeBridge | null;
   } catch {
     bridge = null;
   }

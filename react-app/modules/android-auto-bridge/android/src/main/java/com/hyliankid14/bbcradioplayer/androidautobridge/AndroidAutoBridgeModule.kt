@@ -18,6 +18,8 @@ class AndroidAutoBridgeModule : Module() {
 
   private val context: Context?
     get() = appContext.reactContext?.applicationContext
+      ?: appContext.reactContext
+      ?: appContext.currentActivity?.applicationContext
 
   override fun definition() = ModuleDefinition {
     Name("AndroidAutoBridge")

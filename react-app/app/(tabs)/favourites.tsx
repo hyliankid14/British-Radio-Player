@@ -28,6 +28,7 @@ import { ScreenHeader, HeaderIconButton } from "../../src/components/ScreenHeade
 import { useStationShowStore } from "../../src/store/stationShowStore";
 import { Podcast, PodcastApi, decodeXmlEntities, Episode, matchesBooleanSearch } from "../../src/api/podcasts";
 import { Preferences, PodcastHistoryEntry } from "../../src/storage/preferences";
+import { drainAutoMutations } from "../../src/auto/autoSync";
 import { OfflineBanner, VpnBanner, PlaybackErrorBanner } from "../../src/components/NetworkBanners";
 import { NativeAndroid } from "../../src/native/nativeAndroid";
 import { useResponsiveLayout } from "../../src/theme/responsive";
@@ -464,6 +465,7 @@ export default function FavouritesScreen() {
   useFocusEffect(
     useCallback(() => {
       let active = true;
+      drainAutoMutations();
       const searches = Preferences.getSavedPodcastSearches();
       setSavedSearches(searches);
       setPodcastHistory(Preferences.getPodcastHistory());
@@ -516,6 +518,7 @@ export default function FavouritesScreen() {
 
   useEffect(() => {
     if (activeCategory === "History") {
+      drainAutoMutations();
       setPodcastHistory(Preferences.getPodcastHistory());
     }
   }, [activeCategory]);

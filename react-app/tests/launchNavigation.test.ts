@@ -148,7 +148,7 @@ test("retries stop once the retry timeout is exhausted", () => {
   assert.equal(applied.length, attemptsAtTimeout);
 });
 
-test("a launch already resolved into the initial state is not pushed again", () => {
+test("a launch already resolved into the initial state is not pushed again or navigated away from", () => {
   // expo-router can build the initial state from the same intent, leaving the screen
   // focused before any of our listeners run.
   const { navigation, applied, prepared } = createHarnessNavigation({
@@ -157,8 +157,9 @@ test("a launch already resolved into the initial state is not pushed again", () 
 
   assert.equal(navigation.request(DETAIL_URL), true);
   assert.deepEqual(applied, []);
-  // The screen underneath is still prepared, so back from it lands where it should.
-  assert.deepEqual(prepared, [DETAIL_PATH]);
+  // The screen is already focused, so it must not run prepare (which calls router.navigate)
+  // to avoid navigating away from the target screen.
+  assert.deepEqual(prepared, []);
 });
 
 test("the screen underneath is prepared before each navigation attempt", () => {

@@ -1,6 +1,7 @@
 import { Platform } from "react-native";
 import type * as ExpoNotifications from "expo-notifications";
 import { Preferences } from "../storage/preferences";
+import { NativeAndroid } from "../native/nativeAndroid";
 import { latestEpisodeEpoch, parseEpisodeDateEpoch } from "../podcasts/episodeDates";
 import { PodcastApi, matchesBooleanSearch } from "../api/podcasts";
 import { buildPodcastDetailUrl, buildPodcastSearchUrl } from "../utils/navigationUtils";
@@ -200,7 +201,12 @@ export async function checkSubscriptionsForNewEpisodes(force = false): Promise<v
         .filter((ep) => parseEpisodeDateEpoch(ep.pubDate) > lastNotified)
         .sort((a, b) => parseEpisodeDateEpoch(a.pubDate) - parseEpisodeDateEpoch(b.pubDate));
 
+      const backgroundNotified = new Set(NativeAndroid.getBackgroundNotifiedEpisodeIds());
+
       for (const episode of fresh.slice(-MAX_NOTIFICATIONS_PER_PODCAST)) {
+        const alreadyNotified =
+          backgroundNotified.has(episode.id) || Preferences.isEpisodeNotified(episode.id);
+
         Preferences.setNotifiedEpisode(episode.id, {
           title: episode.title,
           audioUrl: episode.audioUrl,
@@ -209,13 +215,17 @@ export async function checkSubscriptionsForNewEpisodes(force = false): Promise<v
           durationMins: episode.durationMins,
           podcastId: podcast.id
         });
-        await present(
-          Notifications,
-          podcast.title,
-          episode.title,
-          buildPodcastDetailUrl(podcast.id, episode.id),
-          { podcastId: podcast.id, episodeId: episode.id }
-        );
+
+        if (!alreadyNotified) {
+          NativeAndroid.markBackgroundEpisodeNotified(episode.id);
+          await present(
+            Notifications,
+            podcast.title,
+            episode.title,
+            buildPodcastDetailUrl(podcast.id, episode.id),
+            { podcastId: podcast.id, episodeId: episode.id }
+          );
+        }
       }
 
       if (fresh.length > 0) {

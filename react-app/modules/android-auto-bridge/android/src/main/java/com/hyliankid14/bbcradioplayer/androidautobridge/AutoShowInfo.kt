@@ -140,13 +140,13 @@ object AutoShowInfo {
     val rmsFresh = !skipDelay && existing != null && (now - existing.fetchedAtMs <= RMS_CACHE_TTL_MS)
 
     val (rawArtist, rawTrack, rawArtworkUrl) = if (rmsFresh) {
-      Triple(existing?.artist.orEmpty(), existing?.track.orEmpty(), existing?.songArtworkUrl.orEmpty())
+      Triple(existing?.rawArtist.orEmpty(), existing?.rawTrack.orEmpty(), existing?.rawArtworkUrl.orEmpty())
     } else {
       try {
         fetchRmsNowPlaying(serviceId)
       } catch (e: Exception) {
         Log.d(TAG, "RMS segment fetch failed for $serviceId: ${e.message}")
-        Triple(existing?.artist.orEmpty(), existing?.track.orEmpty(), existing?.songArtworkUrl.orEmpty())
+        Triple(existing?.rawArtist.orEmpty(), existing?.rawTrack.orEmpty(), existing?.rawArtworkUrl.orEmpty())
       }
     }
 

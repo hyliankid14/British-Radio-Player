@@ -933,12 +933,20 @@ export default function PodcastDetailModal() {
     );
   }, [hidePlayed, playedEpisodes, playedSectionExpanded, theme, renderEpisodeItem]);
 
+  const handleBack = useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace({ pathname: "/(tabs)/favourites", params: { category: "Subscribed" } });
+    }
+  }, [router]);
+
   if (!podcast) {
     return (
       <View style={[styles.container, { backgroundColor: theme.surfaceContainer }]}>
         <ScreenHeader
           title=""
-          navigationAction={{ label: "Back", onPress: () => router.back() }}
+          navigationAction={{ label: "Back", onPress: handleBack }}
         />
         <View style={styles.centerBox}>
           <ActivityIndicator size="large" color={theme.primary} />
@@ -951,7 +959,7 @@ export default function PodcastDetailModal() {
     <View style={[styles.container, { backgroundColor: theme.surfaceContainer }]}>
       <ScreenHeader
         title={decodeXmlEntities(podcast.title)}
-        navigationAction={{ label: "Back", onPress: () => router.back() }}
+        navigationAction={{ label: "Back", onPress: handleBack }}
         actions={[
           {
             icon: "more-vert",

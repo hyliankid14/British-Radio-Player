@@ -684,6 +684,12 @@ export const Preferences = {
     }
   },
 
+  /** True when a notification snapshot has been recorded for this episode. */
+  isEpisodeNotified(episodeId: string): boolean {
+    if (!episodeId) return false;
+    return storage.contains(`pref_notified_ep_${episodeId}`);
+  },
+
   isPodcastNotificationsEnabled(podcastId: string): boolean {
     if (!this.getSubscribedPodcasts().includes(podcastId)) return false;
     return storage.getBoolean(`pref_podcast_notifications_${podcastId}`) ?? false;

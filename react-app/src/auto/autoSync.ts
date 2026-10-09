@@ -4,6 +4,7 @@ import { StationRepository } from "../data/stations";
 import { Preferences } from "../storage/preferences";
 import { usePlayerStore } from "../store/playerStore";
 import { AutoBridge, AutoNativeEvent } from "./autoBridge";
+import { parseAutoPayload, applyAutoMutation, type AutoMutationSink } from "./autoMutations";
 import { buildAutoSnapshot } from "./autoSnapshot";
 import { CarPlayBridge } from "./carPlayBridge";
 
@@ -73,176 +74,48 @@ function scheduleSync(changedKey?: string): void {
   }, SYNC_DEBOUNCE_MS);
 }
 
-function parsePayload(event: AutoNativeEvent): Record<string, any> {
-  try {
-    const parsed = JSON.parse(event.payload || "{}");
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
+export function parsePayload(event: AutoNativeEvent): Record<string, any> {
+  return parseAutoPayload(event);
 }
 
-function handleNativeEvent(event: AutoNativeEvent): void {
-  const payload = parsePayload(event);
-  switch (event.type) {
-    case "favoriteToggled": {
-      const stationId = String(payload.stationId || "");
-      if (!stationId) break;
-      const favorites = Preferences.getFavorites();
-      const isFavorite = favorites.includes(stationId);
-      if (payload.favorite && !isFavorite) {
-        Preferences.setFavorites([...favorites, stationId]);
-      } else if (!payload.favorite && isFavorite) {
-        Preferences.setFavorites(favorites.filter((id) => id !== stationId));
+const preferencesSink: AutoMutationSink = {
+  getFavorites: () => Preferences.getFavorites(),
+  setFavorites: (stationIds) => {
+    Preferences.setFavorites(stationIds);
+    usePlayerStore.setState({ favorites: Preferences.getFavorites() });
+  },
+  getSubscribedPodcasts: () => Preferences.getSubscribedPodcasts(),
+  setSubscribedPodcasts: (podcastIds) => Preferences.setSubscribedPodcasts(podcastIds),
+  addPodcastPlaylistEntry: (playlist, entry) => Preferences.addPodcastPlaylistEntry(playlist, entry),
+  removePodcastPlaylistEntry: (playlist, episodeId) => Preferences.removePodcastPlaylistEntry(playlist, episodeId),
+  markEpisodePlayed: (episodeId, podcastId, pubDateEpochMs) =>
+    Preferences.markEpisodePlayed(episodeId, podcastId, pubDateEpochMs),
+  setEpisodeProgress: (episodeId, positionSec) => Preferences.setEpisodeProgress(episodeId, positionSec),
+  addPodcastHistory: (entry) => Preferences.addPodcastHistory(entry as any),
+  setLastPlayed: (entry) =>
+    Preferences.setLastPlayed({
+      kind: entry.kind,
+      id: entry.id,
+      podcastId: entry.podcastId ?? "",
+      ...(typeof entry.atMs === "number" ? { atMs: entry.atMs } : {})
+    }),
+  setLastStationId: (stationId) => Preferences.setLastStationId(stationId),
+  addRecentSong: (song) => Preferences.addRecentSong(song),
+  onPlaybackStarted: (payload) => {
+    const state = usePlayerStore.getState();
+    const stationId = String(payload.id || "");
+    const station =
+      payload.kind === "station" && stationId ? StationRepository.getById(stationId) : undefined;
+    void state.stop().then(() => {
+      if (station) {
+        usePlayerStore.setState({ currentStation: station, isPlaying: false, isBuffering: false });
       }
-      usePlayerStore.setState({ favorites: Preferences.getFavorites() });
-      break;
-    }
-
-    case "subscribeToggled": {
-      const podcastId = String(payload.podcastId || "");
-      if (!podcastId) break;
-      const subscribed = Preferences.getSubscribedPodcasts();
-      const isSubscribed = subscribed.includes(podcastId);
-      if (payload.subscribed && !isSubscribed) {
-        Preferences.setSubscribedPodcasts([...subscribed, podcastId]);
-      } else if (!payload.subscribed && isSubscribed) {
-        Preferences.setSubscribedPodcasts(subscribed.filter((id) => id !== podcastId));
-      }
-      break;
-    }
-
-    case "savedToggled": {
-      // Save/unsave performed from the car's now-playing screen.
-      const entry = payload.entry as Record<string, any> | undefined;
-      const episodeId = String(entry?.id || payload.episodeId || "");
-      if (!episodeId) break;
-      if (payload.saved === true && entry) {
-        Preferences.addPodcastPlaylistEntry("saved", {
-          id: episodeId,
-          title: String(entry.title || ""),
-          description: String(entry.description || ""),
-          imageUrl: String(entry.imageUrl || entry.podcastImageUrl || ""),
-          audioUrl: String(entry.audioUrl || ""),
-          pubDate: String(entry.pubDate || ""),
-          durationMins: Number(entry.durationMins || 0),
-          podcastId: String(entry.podcastId || ""),
-          podcastTitle: String(entry.podcastTitle || "")
-        });
-      } else {
-        Preferences.removePodcastPlaylistEntry("saved", episodeId);
-      }
-      break;
-    }
-
-    case "episodePlayed": {
-      const episodeId = String(payload.episodeId || "");
-      if (!episodeId) break;
-      Preferences.markEpisodePlayed(
-        episodeId,
-        payload.podcastId ? String(payload.podcastId) : undefined,
-        typeof payload.pubDateEpochMs === "number" && payload.pubDateEpochMs > 0
-          ? payload.pubDateEpochMs
-          : undefined
-      );
-      break;
-    }
-
-    case "episodeProgress": {
-      const episodeId = String(payload.episodeId || "");
-      const positionMs = Number(payload.positionMs || 0);
-      if (episodeId && positionMs > 0) {
-        Preferences.setEpisodeProgress(episodeId, positionMs / 1000);
-      }
-      break;
-    }
-
-    case "podcastHistoryAdded": {
-      const entry = payload as Record<string, any>;
-      const episodeId = String(entry.id || "");
-      if (!episodeId) break;
-      Preferences.addPodcastHistory({
-        id: episodeId,
-        title: String(entry.title || ""),
-        description: String(entry.description || ""),
-        imageUrl: String(entry.imageUrl || entry.podcastImageUrl || ""),
-        audioUrl: String(entry.audioUrl || ""),
-        pubDate: String(entry.pubDate || ""),
-        durationMins: Number(entry.durationMins || 0),
-        podcastId: String(entry.podcastId || ""),
-        podcastTitle: String(entry.podcastTitle || ""),
-        playedAtMs: typeof entry.playedAtMs === "number" ? entry.playedAtMs : Date.now()
-      });
-      break;
-    }
-
-    case "lastPlayed": {
-      // The car started something; keep the phone's resume target in step.
-      const id = String(payload.id || "");
-      if (!id) break;
-      const kind = payload.kind === "episode" ? "episode" : "station";
-      Preferences.setLastPlayed({
-        kind,
-        id,
-        podcastId: String(payload.podcastId || ""),
-        ...(typeof payload.atMs === "number" && payload.atMs > 0 ? { atMs: payload.atMs } : {})
-      });
-      if (kind === "station") Preferences.setLastStationId(id);
-      break;
-    }
-
-    case "recentSongAdded": {
-      const entry = payload as Record<string, any>;
-      if (entry?.artist || entry?.track) {
-        Preferences.addRecentSong({
-          artist: String(entry.artist || ""),
-          track: String(entry.track || ""),
-          imageUrl: String(entry.imageUrl || ""),
-          stationId: String(entry.stationId || ""),
-          stationName: String(entry.stationName || "")
-        });
-      }
-      break;
-    }
-
-    case "playbackStarted": {
-      // The car has taken over playback: stop the phone player so audio does not overlap.
-      const state = usePlayerStore.getState();
-      if (payload.kind === "episode") {
-        const episodeId = String(payload.id || "");
-        if (episodeId) {
-          Preferences.addPodcastHistory({
-            id: episodeId,
-            title: String(payload.title || ""),
-            description: String(payload.description || ""),
-            imageUrl: String(payload.imageUrl || payload.podcastImageUrl || ""),
-            audioUrl: String(payload.audioUrl || ""),
-            pubDate: String(payload.pubDate || ""),
-            durationMins: Number(payload.durationMins || 0),
-            podcastId: String(payload.podcastId || ""),
-            podcastTitle: String(payload.subtitle || payload.podcastTitle || ""),
-            playedAtMs: Number(payload.playedAtMs || 0)
-          });
-        }
-      }
-      const stationId = String(payload.id || "");
-      const station =
-        payload.kind === "station" && stationId ? StationRepository.getById(stationId) : undefined;
-      void state.stop().then(() => {
-        if (station) {
-          usePlayerStore.setState({ currentStation: station, isPlaying: false, isBuffering: false });
-        }
-      });
-      break;
-    }
-
-    case "playbackStopped":
-    case "playbackError":
-      break;
-
-    default:
-      break;
+    });
   }
+};
+
+export function handleNativeEvent(event: AutoNativeEvent): void {
+  applyAutoMutation(event, preferencesSink);
 }
 
 /** Fetches episode feeds for subscribed podcasts so Auto can browse them offline. */
@@ -282,8 +155,8 @@ async function prefetchSubscribedEpisodes(): Promise<void> {
   }
 }
 
-/** Applies mutations performed natively from the car (drained on startup). */
-function drainNativeMutations(): void {
+/** Applies mutations performed natively from the car (Android Auto and CarPlay). */
+export function drainAutoMutations(): void {
   if (AutoBridge.isAvailable()) {
     let mutations: AutoNativeEvent[] = [];
     try {
@@ -319,21 +192,22 @@ export function initAutoSync(): void {
   initialised = true;
   if (!hasNativeTarget()) return;
 
-  drainNativeMutations();
+  drainAutoMutations();
 
   changeSubscription = Preferences.onChanged((key) => scheduleSync(key));
   eventSubscription = AutoBridge.onEvent(handleNativeEvent);
   appStateSubscription = AppState.addEventListener("change", (status: AppStateStatus) => {
     if (status === "active") {
-      drainNativeMutations();
+      drainAutoMutations();
       void syncAutoState();
       void prefetchSubscribedEpisodes();
     }
   });
-  // CarPlay has no event channel, so the mutation queue is polled while the app runs.
-  // This is what surfaces car-side favourites, saves and playback in the phone UI.
-  if (CarPlayBridge.isAvailable()) {
-    carPlayPollTimer = setInterval(drainNativeMutations, CARPLAY_MUTATION_POLL_MS);
+
+  // Poll mutation queue while the app runs so in-car song & podcast playback
+  // immediately appears on the phone screen even without an app state change.
+  if (hasNativeTarget()) {
+    carPlayPollTimer = setInterval(drainAutoMutations, CARPLAY_MUTATION_POLL_MS);
   }
 
   // Push a stations-only snapshot immediately so the head unit is browsable without

@@ -24,6 +24,7 @@ import { OfflineBanner, VpnBanner, PlaybackErrorBanner } from "../../src/compone
 import { formatSongPlayedAt } from "../../src/utils/dateUtils";
 import { useNow } from "../../src/hooks/useNow";
 import { resolveRecentSong } from "../../src/api/showInfo";
+import { drainAutoMutations } from "../../src/auto/autoSync";
 import { ScreenHeader, HeaderIconButton } from "../../src/components/ScreenHeader";
 
 type SubCategoryTab = "National" | "Regions" | "Local" | "Songs";
@@ -66,7 +67,10 @@ export default function AllStationsScreen() {
   }, []);
 
   useEffect(() => {
-    if (activeSubTab === "Songs") setRecentSongs(Preferences.getRecentSongs());
+    if (activeSubTab === "Songs") {
+      drainAutoMutations();
+      setRecentSongs(Preferences.getRecentSongs());
+    }
   }, [activeSubTab, currentShow]);
 
   const openSongInMusicApp = (song: (typeof recentSongs)[number]) => {
@@ -127,6 +131,7 @@ export default function AllStationsScreen() {
   // fresh cached show, so refetching on focus is what keeps returning data current.
   useFocusEffect(
     useCallback(() => {
+      drainAutoMutations();
       setRecentSongs(Preferences.getRecentSongs());
       checkAndAdvanceShows();
       if (filteredStations.length > 0) {

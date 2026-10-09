@@ -42,7 +42,9 @@ function fileFor(name: string): File | null {
   if (!parent) return null;
   const file = new File(parent, name);
   try {
-    file.create({ intermediates: true, overwrite: true });
+    if (!file.exists) {
+      file.create({ intermediates: true });
+    }
   } catch {
     return null;
   }

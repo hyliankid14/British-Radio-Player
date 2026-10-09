@@ -56,6 +56,9 @@ object BackgroundSync {
   fun isNotified(context: Context, episodeId: String): Boolean =
     prefs(context).getStringSet(KEY_NOTIFIED, emptySet())?.contains(episodeId) == true
 
+  fun getNotifiedEpisodeIds(context: Context): List<String> =
+    prefs(context).getStringSet(KEY_NOTIFIED, emptySet())?.toList() ?: emptyList()
+
   fun markNotified(context: Context, episodeId: String) {
     val current = prefs(context).getStringSet(KEY_NOTIFIED, emptySet())?.toMutableSet() ?: mutableSetOf()
     if (!current.add(episodeId)) return

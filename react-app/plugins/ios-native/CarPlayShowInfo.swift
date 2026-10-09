@@ -126,15 +126,15 @@ final class CarPlayShowInfo {
             let existing = existing,
             now - existing.fetchedAtMs <= Self.rmsCacheTTL {
             rawSong = RmsSong(
-                artist: existing.info.artist, track: existing.info.track,
-                artworkUrl: existing.info.songArtworkUrl)
+                artist: existing.info.rawArtist, track: existing.info.rawTrack,
+                artworkUrl: existing.info.rawArtworkUrl)
         } else if includeSongInfo {
             let fetched = fetchRmsNowPlaying(serviceId: serviceId) ?? RmsSong()
             if fetched.artist.isEmpty, fetched.track.isEmpty, fetched.artworkUrl.isEmpty,
                 let existing = existing, !skipDelay {
                 rawSong = RmsSong(
-                    artist: existing.info.artist, track: existing.info.track,
-                    artworkUrl: existing.info.songArtworkUrl)
+                    artist: existing.info.rawArtist, track: existing.info.rawTrack,
+                    artworkUrl: existing.info.rawArtworkUrl)
             } else {
                 rawSong = fetched
             }

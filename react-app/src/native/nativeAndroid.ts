@@ -66,6 +66,8 @@ interface NativeAndroidBridge {
   ): { remove(): void };
   syncBackgroundSubscriptions(subscriptionsJson: string): void;
   scheduleBackgroundSync(intervalMinutes: number, wifiOnly: boolean): void;
+  getBackgroundNotifiedEpisodeIds(): string[];
+  markBackgroundEpisodeNotified(episodeId: string): void;
   getDownloadsFolderPath(): string;
   publishDownload(sourceUri: string, fileName: string, title: string): Promise<string | null>;
   deleteDownload(uri: string): boolean;
@@ -466,6 +468,24 @@ export const NativeAndroid = {
   scheduleBackgroundSync(intervalMinutes: number, wifiOnly: boolean): void {
     try {
       load()?.scheduleBackgroundSync(intervalMinutes, wifiOnly);
+    } catch {
+      // Ignore.
+    }
+  },
+
+  /** Returns episode IDs already notified by the native background worker. */
+  getBackgroundNotifiedEpisodeIds(): string[] {
+    try {
+      return load()?.getBackgroundNotifiedEpisodeIds() ?? [];
+    } catch {
+      return [];
+    }
+  },
+
+  /** Marks an episode as notified so the native background worker will not duplicate it. */
+  markBackgroundEpisodeNotified(episodeId: string): void {
+    try {
+      load()?.markBackgroundEpisodeNotified(episodeId);
     } catch {
       // Ignore.
     }

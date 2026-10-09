@@ -78,6 +78,10 @@ declare class NativeAndroidModule extends NativeModule<{}> {
   syncBackgroundSubscriptions(subscriptionsJson: string): void;
   /** Schedules (or cancels, when intervalMinutes is 0) the periodic new-episode check. */
   scheduleBackgroundSync(intervalMinutes: number, wifiOnly: boolean): void;
+  /** Returns episode IDs already notified by the native background worker. */
+  getBackgroundNotifiedEpisodeIds(): string[];
+  /** Marks an episode as notified so the background worker will not duplicate it. */
+  markBackgroundEpisodeNotified(episodeId: string): void;
   /** Notification open events emitted when a notification is tapped while the app is running. */
   addListener(
     eventName: "onNotificationOpen",

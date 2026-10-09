@@ -160,8 +160,21 @@ function resolveVersions(project, appTarget, config) {
   return versions;
 }
 
+function findTargetByName(project, name) {
+  const target = project.pbxTargetByName(name);
+  if (target) return target;
+  const targets = project.pbxNativeTargetSection();
+  for (const [k, v] of Object.entries(targets)) {
+    if (k.endsWith("_comment")) continue;
+    if (v.name === name || v.name === `"${name}"`) {
+      return v;
+    }
+  }
+  return null;
+}
+
 function ensureEmbedWatchPhase(project, appTargetUuid) {
-  const watchTarget = project.pbxTargetByName(WATCH_TARGET_NAME);
+  const watchTarget = findTargetByName(project, WATCH_TARGET_NAME);
   if (!watchTarget) return;
   const watchProductRef = watchTarget.productReference;
   if (!watchProductRef) return;
@@ -215,6 +228,61 @@ function ensureEmbedWatchPhase(project, appTargetUuid) {
   }
 }
 
+function ensureEmbedComplicationsPhase(project, watchTargetUuid) {
+  const compTarget = findTargetByName(project, COMPLICATIONS_TARGET_NAME);
+  if (!compTarget || !watchTargetUuid) return;
+  const compProductRef = compTarget.productReference;
+  if (!compProductRef) return;
+
+  const copyPhases = project.hash.project.objects["PBXCopyFilesBuildPhase"] || {};
+  let embedPhaseKey = Object.keys(copyPhases).find((k) => {
+    if (k.endsWith("_comment")) return false;
+    const p = copyPhases[k];
+    return p && (p.name === '"Embed App Extensions"' || p.name === "Embed App Extensions");
+  });
+
+  let embedPhase;
+  if (!embedPhaseKey) {
+    const res = project.addBuildPhase(
+      [],
+      "PBXCopyFilesBuildPhase",
+      "Embed App Extensions",
+      watchTargetUuid,
+      "app_extension",
+      '""'
+    );
+    embedPhaseKey = res.uuid;
+    embedPhase = res.buildPhase;
+  } else {
+    embedPhase = copyPhases[embedPhaseKey];
+  }
+
+  embedPhase.dstPath = '""';
+  embedPhase.dstSubfolderSpec = 13;
+  embedPhase.name = '"Embed App Extensions"';
+
+  if (!embedPhase.files) embedPhase.files = [];
+  const alreadyInPhase = embedPhase.files.some((f) => {
+    const comment = f.comment || "";
+    return comment.includes(`${COMPLICATIONS_TARGET_NAME}.appex`);
+  });
+
+  if (!alreadyInPhase) {
+    const buildFileUuid = project.generateUuid();
+    project.addToPbxBuildFileSection({
+      uuid: buildFileUuid,
+      fileRef: compProductRef,
+      basename: `${COMPLICATIONS_TARGET_NAME}.appex`,
+      group: "Embed App Extensions",
+      settings: { ATTRIBUTES: ["RemoveHeadersOnCopy"] }
+    });
+    embedPhase.files.push({
+      value: buildFileUuid,
+      comment: `${COMPLICATIONS_TARGET_NAME}.appex in Embed App Extensions`
+    });
+  }
+}
+
 function withWatchOSTarget(config) {
   return withXcodeProject(config, (configWithProject) => {
     const project = configWithProject.modResults;
@@ -242,7 +310,7 @@ function withWatchOSTarget(config) {
       project.addPbxGroup([], "Resources", "Resources");
     }
 
-    const existingWatchTarget = project.pbxTargetByName(WATCH_TARGET_NAME);
+    const existingWatchTarget = findTargetByName(project, WATCH_TARGET_NAME);
     let watchTargetUuid;
     if (!existingWatchTarget) {
       const watchTarget = project.addTarget(
@@ -272,7 +340,7 @@ function withWatchOSTarget(config) {
         INFOPLIST_FILE: `${WATCH_TARGET_NAME}/${WATCH_TARGET_NAME}-Info.plist`,
         CODE_SIGN_ENTITLEMENTS: `${WATCH_TARGET_NAME}/${WATCH_TARGET_NAME}.entitlements`,
         ENABLE_BITCODE: "NO",
-        SKIP_INSTALL: "NO",
+        SKIP_INSTALL: "YES",
         ASSETCATALOG_COMPILER_APPICON_NAME: '"AppIcon"',
         LD_RUNPATH_SEARCH_PATHS: [
           '"$(inherited)"',
@@ -341,6 +409,7 @@ function withWatchOSTarget(config) {
         if (uuid.endsWith("_comment") || !watchConfigurations.has(uuid)) continue;
         configuration.buildSettings.MARKETING_VERSION = versions.marketing;
         configuration.buildSettings.CURRENT_PROJECT_VERSION = versions.build;
+        configuration.buildSettings.SKIP_INSTALL = "YES";
         if (config?.ios?.appleTeamId) {
           configuration.buildSettings.DEVELOPMENT_TEAM = config.ios.appleTeamId;
         }
@@ -361,7 +430,7 @@ function withWatchOSTarget(config) {
     }
 
     // Setup Complications Target
-    if (!project.pbxTargetByName(COMPLICATIONS_TARGET_NAME)) {
+    if (!findTargetByName(project, COMPLICATIONS_TARGET_NAME)) {
       const compTarget = project.addTarget(
         COMPLICATIONS_TARGET_NAME,
         "app_extension",
@@ -493,6 +562,9 @@ function withWatchOSTarget(config) {
     }
 
     ensureEmbedWatchPhase(project, appTargetEntry.uuid);
+    if (watchTargetUuid) {
+      ensureEmbedComplicationsPhase(project, watchTargetUuid);
+    }
 
     return configWithProject;
   });

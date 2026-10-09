@@ -343,6 +343,19 @@ class NativeAndroidModule : Module() {
       null
     }
 
+    /** Returns episode IDs already notified by the native background worker. */
+    Function("getBackgroundNotifiedEpisodeIds") { ->
+      val ctx = context ?: return@Function emptyList<String>()
+      BackgroundSync.getNotifiedEpisodeIds(ctx)
+    }
+
+    /** Marks an episode as notified so the background worker will not duplicate it. */
+    Function("markBackgroundEpisodeNotified") { episodeId: String ->
+      val ctx = context ?: return@Function null
+      BackgroundSync.markNotified(ctx, episodeId)
+      null
+    }
+
     // ── Podcast downloads ───────────────────────────────────────────────────
 
     /** Absolute path of the public Podcasts folder used for downloads. */

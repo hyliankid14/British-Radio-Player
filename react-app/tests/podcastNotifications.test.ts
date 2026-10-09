@@ -153,3 +153,41 @@ test("Layout preference key prefix correctly matches podcast notification keys",
   // The fixed prefix matches:
   assert.equal(notificationKey.startsWith("pref_podcast_notifications_"), true);
 });
+
+test("Preferences.isEpisodeNotified correctly identifies recorded notification snapshots", () => {
+  const memoryStore = new Map<string, any>();
+  const isEpisodeNotified = (episodeId: string) =>
+    Boolean(episodeId && memoryStore.has(`pref_notified_ep_${episodeId}`));
+  const setNotifiedEpisode = (episodeId: string, data: any) => {
+    if (episodeId) memoryStore.set(`pref_notified_ep_${episodeId}`, JSON.stringify(data));
+  };
+
+  assert.equal(isEpisodeNotified("ep-1"), false);
+  setNotifiedEpisode("ep-1", { title: "Episode 1" });
+  assert.equal(isEpisodeNotified("ep-1"), true);
+  assert.equal(isEpisodeNotified("ep-2"), false);
+});
+
+test("New episode checker suppresses notifications for episodes already notified by native background sync", () => {
+  const backgroundNotified = new Set(["ep-background-1"]);
+  const notifiedEpisodesInPrefs = new Set(["ep-prefs-1"]);
+  const notifiedEvents: string[] = [];
+
+  const episodes = [
+    { id: "ep-background-1", title: "Already notified by worker", pubDate: "2026-10-09T05:00:00Z" },
+    { id: "ep-prefs-1", title: "Already notified in prefs", pubDate: "2026-10-09T05:10:00Z" },
+    { id: "ep-fresh-1", title: "Brand new episode", pubDate: "2026-10-09T05:20:00Z" }
+  ];
+
+  for (const ep of episodes) {
+    const alreadyNotified =
+      backgroundNotified.has(ep.id) || notifiedEpisodesInPrefs.has(ep.id);
+    if (!alreadyNotified) {
+      notifiedEvents.push(ep.id);
+    }
+  }
+
+  // Only the brand new episode should trigger a notification
+  assert.deepEqual(notifiedEvents, ["ep-fresh-1"]);
+});
+

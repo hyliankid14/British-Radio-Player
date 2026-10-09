@@ -362,11 +362,27 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
     if (serviceId.isNotEmpty()) {
       AutoShowInfo.resetDelay(serviceId)
       io.execute {
-        AutoShowInfo.refreshShowInfo(serviceId, skipDelay = true)
+        val info = AutoShowInfo.refreshShowInfo(serviceId, skipDelay = true)
         handler.post {
           if (kind == Kind.STATION && stationJson?.optString("serviceId") == serviceId) {
             updateSessionMetadata()
             updateNotification()
+          }
+        }
+        val sArtist = info.rawArtist.ifEmpty { info.artist }
+        val sTrack = info.rawTrack.ifEmpty { info.track }
+        if (sTrack.isNotEmpty() || sArtist.isNotEmpty()) {
+          val songKey = "$sArtist|$sTrack"
+          if (songKey != lastTrackedSongSignature) {
+            lastTrackedSongSignature = songKey
+            val songImage = info.rawArtworkUrl.ifEmpty { info.songArtworkUrl.ifEmpty { station.optString("logoUrl") } }
+            emitMutation("recentSongAdded", JSONObject().apply {
+              put("artist", sArtist)
+              put("track", sTrack)
+              put("imageUrl", songImage)
+              put("stationId", station.optString("id"))
+              put("stationName", station.optString("title"))
+            })
           }
         }
       }
