@@ -7,12 +7,25 @@
 - **Primary Category**: Music (or Entertainment)
 - **Secondary Category**: News
 - **Age Rating**: 12+ (Infrequent/Mild Realistic Violence, Sexual Content, or Profanity in live broadcast talk/comedy)
-- **Bundle ID**: `com.hyliankid14.bbcradioplayer.tv`
-- **SKU**: `BRPTV-01`
-- **Version**: 2.1.0
-- **Build**: 6
+- **Bundle ID**: `com.hyliankid14.bbcradioplayer` *(Universal Purchase across iOS, tvOS & watchOS)*
+- **Top Shelf Bundle ID**: `com.hyliankid14.bbcradioplayer.topshelf`
+- **Version**: 1.0 (tvOS release)
+- **Privacy Policy URL**: `https://shai.website/british-radio-player/privacy.html`
+- **Support URL**: `https://shai.website/british-radio-player/`
+- **Marketing URL**: `https://shai.website/british-radio-player/`
 
 ---
+
+## App Privacy Declaration (App Store Connect)
+
+When completing the **App Privacy** section in App Store Connect:
+
+- **Data Collection**: Select **"No, we do not collect data from this app"**
+- **Tracking**: Select **"No"**
+- **Third-Party Advertising SDKs**: None (0)
+- **Third-Party Tracking SDKs**: None (0)
+- **On-Device Storage**: The app uses on-device `UserDefaults` purely for local preferences (favourite stations, podcast subscriptions, screensaver timeout) and does not transmit this data.
+- **Privacy Manifest**: Included in the tvOS app bundle (`PrivacyInfo.xcprivacy`) with `NSPrivacyTracking = false` and `NSPrivacyCollectedDataTypes = []`.
 
 ## Promotional Text (170 characters max)
 
