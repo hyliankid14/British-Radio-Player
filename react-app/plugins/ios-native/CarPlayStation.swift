@@ -50,13 +50,14 @@ struct CarPlayStation: Identifiable {
 
         if geoBlocked {
             for serviceId in serviceIds { append("\(CarPlayStation.bbcHlsNonUK)/\(serviceId).m3u8") }
-            for url in direct where !url.contains("&uk=1") { append(url) }
+            for url in direct where !url.contains("&uk=1") && !url.contains("/live/uk/") && !url.contains("/hls/uk/") { append(url) }
             return candidates
         }
 
         for serviceId in serviceIds { append("\(CarPlayStation.bbcHlsUK)/\(serviceId).m3u8") }
-        for url in direct { append(url) }
+        for url in direct where !url.contains("/live/ww/") && !url.contains("/nonuk/") { append(url) }
         for serviceId in serviceIds { append("\(CarPlayStation.bbcHlsNonUK)/\(serviceId).m3u8") }
+        for url in direct where url.contains("/live/ww/") || url.contains("/nonuk/") { append(url) }
 
         return candidates
     }

@@ -11,12 +11,18 @@ data class Station(
 ) {
     fun streamCandidates(qualityBitrate: String, geoBlocked: Boolean = false): List<String> {
         // Prefer lower bitrates first for smoother playback on constrained Wear connections.
-        val bitrates = listOf("48000", "96000", "128000")
         val candidates = mutableListOf<String>()
+
+        val isUkUrl: (String) -> Boolean = { url ->
+            url.contains("&uk=1") || url.contains("/live/uk/") || url.contains("/hls/uk/")
+        }
+        val isWwUrl: (String) -> Boolean = { url ->
+            url.contains("/live/ww/") || url.contains("/nonuk/")
+        }
 
         // First: UK stream at the user's chosen quality (from directStreamUrls)
         for (url in directStreamUrls.filter { it.isNotBlank() }) {
-            if (url.contains("&uk=1") && url.contains("bitrate=$qualityBitrate")) {
+            if (isUkUrl(url) && (url.contains("bitrate=$qualityBitrate") || url.contains("audio=$qualityBitrate"))) {
                 candidates += url
             }
         }
@@ -24,41 +30,37 @@ data class Station(
         if (geoBlocked) {
             // Only add international streams if geo-blocked
             for (url in directStreamUrls.filter { it.isNotBlank() }) {
-                if (!url.contains("&uk=1")) {
+                if (isWwUrl(url)) {
                     candidates += url
                 }
             }
             for (sid in streamServiceIds.filter { it.isNotBlank() }) {
-                candidates += "https://a.files.bbci.co.uk/media/live/manifesto/audio/simulcast/hls/nonuk/sbr_low/ak/$sid.m3u8"
+                candidates += "https://a.files.bbci.co.uk/ms6/live/3441A116-B12E-4D2F-ACA8-C1984642FA4B/audio/simulcast/hls/nonuk/pc_hd_abr_v2/cf/$sid.m3u8"
             }
             return candidates.distinct()
         }
 
-        // Second: UK streams at other bitrates and generated lsn.lv URLs
+        // Second: Other UK direct streams
         for (url in directStreamUrls.filter { it.isNotBlank() }) {
-            if (url.contains("&uk=1") && !url.contains("bitrate=$qualityBitrate")) {
+            if (isUkUrl(url) && !url.contains("bitrate=$qualityBitrate") && !url.contains("audio=$qualityBitrate")) {
                 candidates += url
             }
         }
-        for (sid in streamServiceIds.filter { it.isNotBlank() }) {
-            for (bitrate in bitrates.filter { it != qualityBitrate }) {
-                candidates += "https://lsn.lv/bbcradio.m3u8?station=$sid&bitrate=$bitrate"
-            }
-        }
 
-        // Third: BBC UK HLS as fallback
+        // Third: BBC UK HLS as standard UK streams
         for (sid in streamServiceIds.filter { it.isNotBlank() }) {
-            candidates += "https://a.files.bbci.co.uk/media/live/manifesto/audio/simulcast/hls/uk/sbr_high/ak/$sid.m3u8"
+            candidates += "https://a.files.bbci.co.uk/ms6/live/3441A116-B12E-4D2F-ACA8-C1984642FA4B/audio/simulcast/hls/uk/audio_syndication_high_sbr_v1/cf/$sid.m3u8"
+            candidates += "https://a.files.bbci.co.uk/ms6/live/3441A116-B12E-4D2F-ACA8-C1984642FA4B/audio/simulcast/hls/uk/pc_hd_abr_v2/cf/$sid.m3u8"
         }
 
         // Fourth: International/worldwide streams as last resort (Akamai ww, BBC non-UK)
         for (url in directStreamUrls.filter { it.isNotBlank() }) {
-            if (!url.contains("&uk=1")) {
+            if (isWwUrl(url)) {
                 candidates += url
             }
         }
         for (sid in streamServiceIds.filter { it.isNotBlank() }) {
-            candidates += "https://a.files.bbci.co.uk/media/live/manifesto/audio/simulcast/hls/nonuk/sbr_low/ak/$sid.m3u8"
+            candidates += "https://a.files.bbci.co.uk/ms6/live/3441A116-B12E-4D2F-ACA8-C1984642FA4B/audio/simulcast/hls/nonuk/pc_hd_abr_v2/cf/$sid.m3u8"
         }
 
         return candidates.distinct()

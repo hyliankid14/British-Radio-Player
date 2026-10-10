@@ -45,6 +45,7 @@
     "ios": "expo run:ios",
     "ios:dev": "expo start --dev-client --localhost",
     "ios:simulator": "../scripts/launch-ios-simulator.sh",
+    "build:tvos": "../scripts/ios/build-tvos-ipa.sh",
     "web": "expo start --web"
   },
   "private": true

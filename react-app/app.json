@@ -102,6 +102,7 @@
       "./plugins/withIosNative",
       "./plugins/withIosWidget",
       "./plugins/withWatchOS",
+      "./plugins/withTvOS",
       "expo-router",
       "expo-notifications",
       "./plugins/withAndroidCleartextTraffic",

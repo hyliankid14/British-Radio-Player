@@ -13,8 +13,31 @@ enum WatchStationCatalogue {
             WatchStation(id: "radio3unwind", title: "Radio 3 Unwind", serviceId: "bbc_radio_three_unwind", streamServiceIds: ["bbc_radio_three_unwind"], directStreamUrls: nil, logoUrl: "https://sounds.files.bbci.co.uk/3.11.1/services/bbc_radio_three_unwind/blocks-colour-black_600x600.png", category: .national),
             WatchStation(id: "radio4", title: "Radio 4", serviceId: "bbc_radio_fourfm", streamServiceIds: ["bbc_radio_fourfm"], directStreamUrls: nil, logoUrl: "https://sounds.files.bbci.co.uk/3.11.1/services/bbc_radio_fourfm/blocks-colour-black_600x600.png", category: .national),
             WatchStation(id: "radio4extra", title: "Radio 4 Extra", serviceId: "bbc_radio_four_extra", streamServiceIds: ["bbc_radio_four_extra"], directStreamUrls: nil, logoUrl: "https://sounds.files.bbci.co.uk/3.11.1/services/bbc_radio_four_extra/blocks-colour-black_600x600.png", category: .national),
-            WatchStation(id: "radio5live", title: "Radio 5 Live", serviceId: "bbc_radio_five_live", streamServiceIds: ["bbc_radio_five_live"], directStreamUrls: nil, logoUrl: "https://sounds.files.bbci.co.uk/3.11.1/services/bbc_radio_five_live/blocks-colour-black_600x600.png", category: .national),
-            WatchStation(id: "radio5livesportsextra", title: "Radio 5 Sports Extra", serviceId: "bbc_radio_five_live_sports_extra", streamServiceIds: ["bbc_radio_five_live_sports_extra"], directStreamUrls: nil, logoUrl: "https://sounds.files.bbci.co.uk/3.11.1/services/bbc_radio_five_live_sports_extra/blocks-colour-black_600x600.png", category: .national),
+            WatchStation(
+                id: "radio5live",
+                title: "Radio 5 Live",
+                serviceId: "bbc_radio_five_live",
+                streamServiceIds: ["bbc_radio_five_live"],
+                directStreamUrls: [
+                    "https://as-hls-uk-live.akamaized.net/pool_89021708/live/uk/bbc_radio_five_live/bbc_radio_five_live.isml/bbc_radio_five_live-audio=320000.norewind.m3u8",
+                    "https://as-hls-uk-live.akamaized.net/pool_89021708/live/uk/bbc_radio_five_live/bbc_radio_five_live.isml/bbc_radio_five_live-audio=128000.norewind.m3u8",
+                    "https://as-hls-uk-live.akamaized.net/pool_89021708/live/uk/bbc_radio_five_live/bbc_radio_five_live.isml/bbc_radio_five_live-audio=96000.norewind.m3u8",
+                    "https://as-hls-ww-live.akamaized.net/pool_89021708/live/ww/bbc_radio_five_live/bbc_radio_five_live.isml/bbc_radio_five_live-audio=96000.norewind.m3u8"
+                ],
+                logoUrl: "https://sounds.files.bbci.co.uk/3.11.1/services/bbc_radio_five_live/blocks-colour-black_600x600.png",
+                category: .national
+            ),
+            WatchStation(
+                id: "radio5livesportsextra",
+                title: "Radio 5 Sports Extra",
+                serviceId: "bbc_radio_five_live_sports_extra",
+                streamServiceIds: ["bbc_radio_five_live_sports_extra"],
+                directStreamUrls: [
+                    "https://as-hls-uk-live.akamaized.net/pool_47700285/live/uk/bbc_radio_five_live_sports_extra/bbc_radio_five_live_sports_extra.isml/bbc_radio_five_live_sports_extra-audio=96000.norewind.m3u8"
+                ],
+                logoUrl: "https://sounds.files.bbci.co.uk/3.11.1/services/bbc_radio_five_live/blocks-colour-black_600x600.png",
+                category: .national
+            ),
             WatchStation(id: "radio5livesportsextra2", title: "Radio 5 Sports Extra 2", serviceId: "bbc_radio_five_sports_extra_2", streamServiceIds: ["bbc_radio_five_sports_extra_2"], directStreamUrls: nil, logoUrl: "https://sounds.files.bbci.co.uk/3.11.1/services/bbc_radio_five_sports_extra_2/blocks-colour-black_600x600.png", category: .national),
             WatchStation(id: "radio5livesportsextra3", title: "Radio 5 Sports Extra 3", serviceId: "bbc_radio_five_sports_extra_3", streamServiceIds: ["bbc_radio_five_sports_extra_3"], directStreamUrls: nil, logoUrl: "https://sounds.files.bbci.co.uk/3.11.1/services/bbc_radio_five_sports_extra_3/blocks-colour-black_600x600.png", category: .national),
             WatchStation(id: "radio6", title: "Radio 6 Music", serviceId: "bbc_6music", streamServiceIds: ["bbc_6music"], directStreamUrls: nil, logoUrl: "https://sounds.files.bbci.co.uk/3.11.1/services/bbc_6music/blocks-colour-black_600x600.png", category: .national),

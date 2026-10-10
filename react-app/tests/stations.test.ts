@@ -42,12 +42,22 @@ test("Stream Candidates - candidate prioritization and fallbacks", () => {
   const candidatesHigh = getStreamCandidates(r5, "HIGH", false);
   assert.ok(candidatesHigh.length > 0, "Candidates should not be empty");
   assert.ok(candidatesHigh[0].includes("/hls/uk/"), "First candidate for UK should be UK HLS stream");
+  assert.ok(candidatesHigh.some(c => c.includes("as-hls-uk-live")), "Candidates should include Akamaized UK direct stream");
   assert.ok(candidatesHigh.some(c => c.includes("/hls/nonuk/")), "Candidates should include non-UK fallback");
+
+  // Verify that within the UK, all UK streams precede any worldwide / non-UK streams
+  const firstNonUkIndex = candidatesHigh.findIndex(c => c.includes("/live/ww/") || c.includes("/nonuk/"));
+  assert.ok(firstNonUkIndex > 0, "Worldwide/non-UK streams must only appear after UK candidates");
+  for (let i = 0; i < firstNonUkIndex; i++) {
+    const c = candidatesHigh[i];
+    assert.ok(!c.includes("/live/ww/") && !c.includes("/nonuk/"), `Stream candidate at index ${i} should be a UK stream, got: ${c}`);
+  }
 
   // Geo-blocked stream candidates for Radio 5 Live
   const candidatesGeo = getStreamCandidates(r5, "HIGH", true);
   assert.ok(candidatesGeo.length > 0, "Geo candidates should not be empty");
   assert.ok(candidatesGeo[0].includes("/hls/nonuk/"), "First candidate for geo-blocked should be international stream");
+  assert.ok(candidatesGeo.some(c => c.includes("as-hls-ww-live")), "Geo candidates should include worldwide fallback");
   for (const c of candidatesGeo) {
     assert.ok(!c.includes("&uk=1") && !c.includes("/live/uk/") && !c.includes("/hls/uk/"), `Geo-blocked candidate should not be UK-only: ${c}`);
   }

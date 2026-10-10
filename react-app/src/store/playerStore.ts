@@ -24,7 +24,7 @@ import { getNetworkStatus, subscribeNetwork } from "./networkStore";
 import { PlaybackAnalytics } from "../analytics/playbackAnalytics";
 import { getStationIdentArtwork } from "../utils/stationIdents";
 
-import { probeGeoBlock, isStationUkOnly } from "../utils/geoBlock";
+import { probeGeoBlock, isStationUkOnly, isSportsStation } from "../utils/geoBlock";
 import {
   recordListeningSeconds,
   recordEpisodeCompleted,
@@ -211,16 +211,8 @@ async function tryNextStationCandidate(sessionId: number, reason: string): Promi
   const station = stationBeingPlayed;
   if (!station) return false;
 
-  const failedCandidate = stationCandidates[stationCandidateIndex];
-  if (
-    failedCandidate &&
-    (failedCandidate.includes("as-hls-uk") ||
-      failedCandidate.includes("/live/uk/") ||
-      failedCandidate.includes("/hls/uk/"))
-  ) {
-    Preferences.setGeoBlocked(true);
-  }
 
+  const failedCandidate = stationCandidates[stationCandidateIndex];
   if (stationCandidateIndex + 1 < stationCandidates.length) {
     stationCandidateIndex += 1;
     console.warn(
@@ -452,7 +444,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   playStation: async (station: Station) => {
     resetStationRmsDelay();
-    void probeGeoBlock();
+    if (isSportsStation(station.id)) {
+      await probeGeoBlock();
+    } else {
+      void probeGeoBlock();
+    }
     const quality = resolvePlaybackQuality(get().audioQuality);
     currentStationQuality = quality;
     const geoBlocked = Preferences.getGeoBlocked();

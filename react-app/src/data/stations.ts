@@ -160,9 +160,11 @@ export function getStreamCandidates(station: Station, quality: AudioQuality = "H
     }
   }
 
-  // 2. Direct working streams if provided
+  // 2. Direct working UK streams if provided
   for (const url of station.directStreamUrls) {
-    candidates.push(url);
+    if (!url.includes("/live/ww/") && !url.includes("/nonuk/")) {
+      candidates.push(url);
+    }
   }
 
   // 3. Fallback quality tiers UK HLS streams
@@ -179,6 +181,11 @@ export function getStreamCandidates(station: Station, quality: AudioQuality = "H
     for (const sid of station.streamServiceIds) {
       candidates.push(`${BBC_HLS_NONUK}/${sid}.m3u8`);
       candidates.push(`${BBC_HLS_BASE}/nonuk/pc_hd_abr_v2/ak/${sid}.m3u8`);
+    }
+    for (const url of station.directStreamUrls) {
+      if (url.includes("/live/ww/") || url.includes("/nonuk/")) {
+        candidates.push(url);
+      }
     }
   }
 
@@ -198,6 +205,9 @@ export const STATIONS: Station[] = [
   createStation("radio4extra", "Radio 4 Extra", "bbc_radio_four_extra", StationCategory.NATIONAL),
   createStation("radio5live", "Radio 5 Live", "bbc_radio_five_live", StationCategory.NATIONAL, {
     directStreamUrls: [
+      "https://as-hls-uk-live.akamaized.net/pool_89021708/live/uk/bbc_radio_five_live/bbc_radio_five_live.isml/bbc_radio_five_live-audio%3d320000.norewind.m3u8",
+      "https://as-hls-uk-live.akamaized.net/pool_89021708/live/uk/bbc_radio_five_live/bbc_radio_five_live.isml/bbc_radio_five_live-audio%3d128000.norewind.m3u8",
+      "https://as-hls-uk-live.akamaized.net/pool_89021708/live/uk/bbc_radio_five_live/bbc_radio_five_live.isml/bbc_radio_five_live-audio%3d96000.norewind.m3u8",
       "https://as-hls-ww-live.akamaized.net/pool_89021708/live/ww/bbc_radio_five_live/bbc_radio_five_live.isml/bbc_radio_five_live-audio%3d96000.norewind.m3u8"
     ]
   }),

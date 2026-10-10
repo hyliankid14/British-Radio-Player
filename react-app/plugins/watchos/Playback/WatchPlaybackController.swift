@@ -64,14 +64,37 @@ import Observation
         scheduleStationAnalytics(stationId: station.id, stationTitle: station.title)
         
         let serviceId = station.serviceId
-        let bitrate = audioQuality.bitrate
-        
-        candidateUrls = [
-            URL(string: "https://lsn.lv/bbcradio.m3u8?station=\(serviceId)&bitrate=\(bitrate)")!,
-            URL(string: "https://lsn.lv/bbcradio.m3u8?station=\(serviceId)")!,
-            URL(string: "https://a.files.bbci.co.uk/ms6/live/3441A116-B12E-4D2F-ACA8-C1984642FA4B/audio/simulcast/hls/uk/pc_hd_abr_v2/cf/\(serviceId).m3u8")!,
-            URL(string: "https://a.files.bbci.co.uk/ms6/live/3441A116-B12E-4D2F-ACA8-C1984642FA4B/audio/simulcast/hls/nonuk/pc_hd_abr_v2/cf/\(serviceId).m3u8")!
-        ]
+        var urls: [URL] = []
+        if let direct = station.directStreamUrls {
+            for streamStr in direct {
+                if !streamStr.contains("/live/ww/") && !streamStr.contains("/nonuk/"),
+                   let url = URL(string: streamStr) {
+                    urls.append(url)
+                }
+            }
+        }
+        for sid in station.streamServiceIds {
+            if let url = URL(string: "https://a.files.bbci.co.uk/ms6/live/3441A116-B12E-4D2F-ACA8-C1984642FA4B/audio/simulcast/hls/uk/audio_syndication_high_sbr_v1/cf/\(sid).m3u8") {
+                urls.append(url)
+            }
+            if let url = URL(string: "https://a.files.bbci.co.uk/ms6/live/3441A116-B12E-4D2F-ACA8-C1984642FA4B/audio/simulcast/hls/uk/pc_hd_abr_v2/cf/\(sid).m3u8") {
+                urls.append(url)
+            }
+        }
+        for sid in station.streamServiceIds {
+            if let url = URL(string: "https://a.files.bbci.co.uk/ms6/live/3441A116-B12E-4D2F-ACA8-C1984642FA4B/audio/simulcast/hls/nonuk/pc_hd_abr_v2/cf/\(sid).m3u8") {
+                urls.append(url)
+            }
+        }
+        if let direct = station.directStreamUrls {
+            for streamStr in direct {
+                if (streamStr.contains("/live/ww/") || streamStr.contains("/nonuk/")),
+                   let url = URL(string: streamStr) {
+                    urls.append(url)
+                }
+            }
+        }
+        candidateUrls = urls
         
         currentCandidateIndex = 0
         tryPlayCurrentCandidate()

@@ -20,25 +20,24 @@ class WearPlaybackController(private val context: Context) {
         get() = WearPlaybackStateStore.currentState()
 
     private suspend fun probeGeoBlock(station: Station): List<String> = withContext(Dispatchers.IO) {
-        val ukOnlyUrl = station.directStreamUrls.firstOrNull { it.contains("&uk=1") && it.isNotBlank() }
-        if (ukOnlyUrl != null) {
-            try {
-                val url = URL(ukOnlyUrl)
-                val connection = url.openConnection() as HttpURLConnection
-                connection.requestMethod = "GET"
-                connection.connectTimeout = 2000
-                connection.readTimeout = 2000
-                connection.setRequestProperty("User-Agent", "BBC Radio Player Wear/1.0")
-                connection.inputStream.close()
-                connection.disconnect()
-                // UK stream accessible, not geo-blocked
-                return@withContext station.streamCandidates("48000", false)
-            } catch (e: Exception) {
-                // Geo-block detected, return only international streams
+        val probeUrl = "https://as-hls-uk.live.cf.md.bbci.co.uk/pool_01505109/live/uk/bbc_radio_one/bbc_radio_one.isml/bbc_radio_one-audio%3d320000.norewind.m3u8"
+        try {
+            val url = URL(probeUrl)
+            val connection = url.openConnection() as HttpURLConnection
+            connection.requestMethod = "HEAD"
+            connection.connectTimeout = 2500
+            connection.readTimeout = 2500
+            connection.setRequestProperty("User-Agent", "BBC Radio Player Wear/1.0")
+            val code = connection.responseCode
+            connection.disconnect()
+            if (code == 403 || code == 401) {
                 return@withContext station.streamCandidates("48000", true)
+            } else {
+                return@withContext station.streamCandidates("48000", false)
             }
+        } catch (e: Exception) {
+            return@withContext station.streamCandidates("48000", false)
         }
-        station.streamCandidates("48000", false)
     }
 
     fun playStation(station: Station) {
