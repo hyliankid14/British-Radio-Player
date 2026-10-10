@@ -78,5 +78,14 @@
 			</dict>
 		</dict>
 	</dict>
+	<key>UIRequiredDeviceCapabilities</key>
+	<array>
+		<string>arm64</string>
+	</array>
+	<key>TVTopShelfImage</key>
+	<dict>
+		<key>TVTopShelfPrimaryImageWide</key>
+		<string>Top Shelf Image</string>
+	</dict>
 </dict>
 </plist>

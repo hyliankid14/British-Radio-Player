@@ -15,9 +15,9 @@ const TV_TOP_SHELF_DIR = path.join(TV_DIR, "TopShelf");
 const IDENTS_DIR = path.join(__dirname, "..", "assets", "idents");
 
 const TV_TARGET_NAME = "BRPTV";
-const TV_TARGET_BUNDLE_ID = "com.hyliankid14.bbcradioplayer.tv";
+const TV_TARGET_BUNDLE_ID = "com.hyliankid14.bbcradioplayer";
 const TOP_SHELF_TARGET_NAME = "BRPTVTopShelf";
-const TOP_SHELF_TARGET_BUNDLE_ID = "com.hyliankid14.bbcradioplayer.tv.topshelf";
+const TOP_SHELF_TARGET_BUNDLE_ID = "com.hyliankid14.bbcradioplayer.topshelf";
 const APP_GROUP_ID = "group.com.hyliankid14.bbcradioplayer";
 const TVOS_DEPLOYMENT_TARGET = "17.0";
 const SWIFT_VERSION = "5.0";
@@ -124,19 +124,9 @@ function withTvOSSources(config) {
 
 function resolveVersions(project, appTarget, config) {
   const versions = {
-    marketing: config?.version || "1.0",
+    marketing: config?.tvos?.version || "1.0",
     build: config?.ios?.buildNumber || config?.version || "1"
   };
-  const configurations = project.pbxXCBuildConfigurationSection();
-  const list = project.pbxXCConfigurationList()[appTarget.buildConfigurationList];
-  for (const entry of list?.buildConfigurations ?? []) {
-    const settings = configurations[entry.value]?.buildSettings;
-    if (!settings) continue;
-    if (settings.MARKETING_VERSION) versions.marketing = settings.MARKETING_VERSION;
-    if (settings.CURRENT_PROJECT_VERSION) versions.build = settings.CURRENT_PROJECT_VERSION;
-  }
-  if (config?.version) versions.marketing = config.version;
-  if (config?.ios?.buildNumber) versions.build = config.ios.buildNumber;
   return versions;
 }
 
