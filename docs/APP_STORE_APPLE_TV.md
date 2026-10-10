@@ -27,6 +27,58 @@ When completing the **App Privacy** section in App Store Connect:
 - **On-Device Storage**: The app uses on-device `UserDefaults` purely for local preferences (favourite stations, podcast subscriptions, screensaver timeout) and does not transmit this data.
 - **Privacy Manifest**: Included in the tvOS app bundle (`PrivacyInfo.xcprivacy`) with `NSPrivacyTracking = false` and `NSPrivacyCollectedDataTypes = []`.
 
+---
+
+## Apple TV Privacy Policy (Full Text for App Store Connect)
+
+Copy and paste the text below directly into the **Apple TV Privacy Policy** field in App Store Connect:
+
+```text
+BRITISH RADIO PLAYER – APPLE TV PRIVACY POLICY
+
+Effective Date: October 11, 2026
+Version: 2.1.0
+Developer: Shai Vure (shaivure@gmail.com)
+Website: https://shai.website/british-radio-player/
+
+1. COMMITMENT TO PRIVACY
+British Radio Player is an independent, ad-free application built with strict privacy standards. We believe in complete transparency and user privacy. We collect zero personal data, zero advertising identifiers, and zero device information.
+
+2. INFORMATION WE DO NOT COLLECT
+British Radio Player does NOT collect, store, or share:
+• Personal Information: No name, email, phone number, address, or contacts.
+• Device Identifiers: No Advertising Identifier (IDFA), Vendor ID (IDFV), IMEI, or MAC address.
+• Account Information: No sign-up, login, or user accounts are required to use the app.
+• Location Data: We never access your device GPS or location.
+• Financial or Payment Data: The app is completely free with no subscriptions or in-app purchases.
+• Cross-App Tracking: We do not track your activity across other applications or websites.
+
+3. DATA STORED LOCALLY ON YOUR APPLE TV
+All application data is stored exclusively on your device in local on-device storage (UserDefaults):
+• Favourite radio stations and subscribed podcasts.
+• Quick-access Top Shelf station shortcuts.
+• Podcast episode playback progress.
+• User preferences (such as OLED screensaver timeout interval).
+• Optional Last.fm credentials (if you choose to connect your Last.fm account).
+
+This data never leaves your Apple TV and is automatically removed if you delete the application.
+
+4. NETWORK CONNECTIONS & THIRD-PARTY SERVICES
+When playing live radio or podcast episodes:
+• Broadcast Feeds: Audio streams and podcast RSS feeds are fetched directly from public BBC broadcast servers. Standard HTTP request metadata (such as IP address) is processed by BBC servers in accordance with the BBC Privacy Policy.
+• Last.fm (Optional): If you optionally connect your Last.fm profile, song titles and artist names are submitted solely to log your listening history to your personal Last.fm account.
+• No Third-Party SDKs: British Radio Player contains no advertising networks, no social media tracking frameworks, and no third-party analytics SDKs.
+
+5. CHILDREN'S PRIVACY
+Because British Radio Player does not collect any personal data, it is safe for all audiences, including children.
+
+6. CONTACT
+For any questions regarding this privacy policy, please contact:
+Developer: Shai Vure
+Email: shaivure@gmail.com
+Support & Full Policy: https://shai.website/british-radio-player/privacy.html
+```
+
 ## Promotional Text (170 characters max)
 
 > Experience all BBC live radio stations and podcasts on Apple TV with an interactive 7-day visual schedule guide, OLED ambient screensaver, and Top Shelf quick tuning.
