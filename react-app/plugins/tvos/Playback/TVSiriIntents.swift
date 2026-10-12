@@ -175,7 +175,7 @@ struct TVPlayPodcastIntent: AppIntent {
         let allPods = TVSubscriptionManager.shared.subscribedPodcasts + TVPodcastManager.shared.featuredPodcasts
         let targetPod: TVPodcast?
         if let id = podcast?.id, !id.isEmpty {
-            targetPod = allPods.first(where: { $0.id == id }) ?? TVPodcast(id: id, title: podcast?.title ?? id, description: "", imageUrl: "", genres: [])
+            targetPod = allPods.first(where: { $0.id == id }) ?? TVPodcast(id: id, title: podcast?.title ?? id, rssUrl: "", imageUrl: "")
         } else {
             targetPod = allPods.first
         }
@@ -336,8 +336,8 @@ struct TVSiriShortcutsProvider: AppShortcutsProvider {
         AppShortcut(
             intent: TVPlayFromSearchIntent(),
             phrases: [
-                "Play \(\.$query) on \(.applicationName)",
-                "Play \(\.$query) with \(.applicationName)",
+                "Search and play with \(.applicationName)",
+                "Search and play on \(.applicationName)",
                 "Play \(.applicationName)"
             ],
             shortTitle: "Voice Search",

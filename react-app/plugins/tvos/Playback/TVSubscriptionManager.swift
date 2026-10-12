@@ -14,6 +14,10 @@ import Observation
     
     var subscribedPodcastIds: [String] = []
     
+    var subscribedPodcasts: [TVPodcast] {
+        TVPodcastManager.shared.subscribedPodcasts()
+    }
+    
     private init() {
         loadSubscriptions()
     }

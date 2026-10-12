@@ -50,15 +50,6 @@
 			<string>Radio Player</string>
 		</dict>
 	</array>
-	<key>NSUserActivityTypes</key>
-	<array>
-		<string>INPlayMediaIntent</string>
-	</array>
-	<key>INSupportedMediaCategories</key>
-	<array>
-		<string>INMediaCategoryRadio</string>
-		<string>INMediaCategoryPodcasts</string>
-	</array>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>

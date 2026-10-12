@@ -61,7 +61,6 @@ test('tvOS plugin and sources are properly configured', () => {
   const infoPlist = fs.readFileSync(path.join(tvosDir, 'BRPTV-Info.plist'), 'utf8');
   assert.ok(infoPlist.includes('<string>audio</string>'), 'BRPTV-Info.plist must declare audio background mode');
   assert.ok(infoPlist.includes('bbcradioplayer'), 'BRPTV-Info.plist must declare bbcradioplayer URL scheme');
-  assert.ok(infoPlist.includes('INPlayMediaIntent'), 'BRPTV-Info.plist must declare INPlayMediaIntent');
   assert.ok(infoPlist.includes('INAlternativeAppNames'), 'BRPTV-Info.plist must declare INAlternativeAppNames');
 
   // Verify launcher icon and logo assets
