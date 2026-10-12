@@ -72,6 +72,23 @@ test("resolveAppNavigation handles widget action links", () => {
   assert.equal(stopTarget.params.station, "radio2");
 });
 
+test("resolveAppNavigation handles voice action links", () => {
+  const playStationTarget = resolveAppNavigation("bbcradioplayer://voice/play?station=radio4");
+  assert.ok(playStationTarget);
+  assert.equal(playStationTarget.pathname, "/(tabs)");
+  assert.equal(playStationTarget.params.station, "radio4");
+
+  const playPodcastTarget = resolveAppNavigation("bbcradioplayer://voice/play?podcast=p002vsxs");
+  assert.ok(playPodcastTarget);
+  assert.equal(playPodcastTarget.pathname, "/(tabs)");
+  assert.equal(playPodcastTarget.params.podcast, "p002vsxs");
+
+  const searchQueryTarget = resolveAppNavigation("bbcradioplayer://voice/play?query=the%20archers");
+  assert.ok(searchQueryTarget);
+  assert.equal(searchQueryTarget.pathname, "/(tabs)");
+  assert.equal(searchQueryTarget.params.query, "the archers");
+});
+
 test("resolveAppNavigation handles new podcast episode notification URL", () => {
   const target = resolveAppNavigation("/modal/podcast-detail?podcastId=p086w16s&episodeId=p086w200");
   assert.ok(target);

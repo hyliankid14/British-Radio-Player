@@ -50,6 +50,11 @@ import {
   type WidgetAction,
   type WidgetLiveState
 } from "../src/widgets/widgetSync";
+import {
+  executeVoiceAction,
+  parseVoiceActionUrl,
+  type VoiceAction
+} from "../src/voice/voiceControl";
 import { syncIosWidgetState } from "../src/widgets/widgetIos";
 import { initReviewManager, recordSessionStart } from "../src/reviews/reviewManager";
 
@@ -166,6 +171,7 @@ const LAUNCH_PODCAST_SCREENS = ["/modal/podcast-detail", "/modal/podcast-search"
  * see the same slot.
  */
 let pendingWidgetAction: WidgetAction | null = null;
+let pendingVoiceAction: VoiceAction | null = null;
 
 export default function RootLayout() {
   const router = useRouter();
@@ -261,6 +267,16 @@ export default function RootLayout() {
     }
   }, []);
 
+  // Play, resume, or search for content requested via Siri or voice actions.
+  const handleVoiceAction = useCallback(async (action: VoiceAction | null) => {
+    if (!action) return;
+    try {
+      await executeVoiceAction(action);
+    } catch (error) {
+      console.warn("Voice playback failed:", error);
+    }
+  }, []);
+
   // A widget tap that arrived before the player existed, replayed once setup finishes.
   useEffect(() => {
     if (!pendingWidgetAction) return;
@@ -269,9 +285,26 @@ export default function RootLayout() {
     void handleWidgetAction(action);
   }, [handleWidgetAction, playerReady]);
 
+  // A voice request that arrived before the player existed, replayed once setup finishes.
+  useEffect(() => {
+    if (!pendingVoiceAction) return;
+    const action = pendingVoiceAction;
+    pendingVoiceAction = null;
+    void handleVoiceAction(action);
+  }, [handleVoiceAction, playerReady]);
+
   // Deep linking (e.g. bbcradioplayer://...)
   useEffect(() => {
     const route = (url: string) => {
+      const voiceAction = parseVoiceActionUrl(url);
+      if (voiceAction) {
+        if (!playerReady) {
+          pendingVoiceAction = voiceAction;
+          return;
+        }
+        void handleVoiceAction(voiceAction);
+        return;
+      }
       const action = parseWidgetActionUrl(url);
       if (!action) {
         navigateToTarget(url);
@@ -290,7 +323,7 @@ export default function RootLayout() {
       if (url) route(url);
     });
     return () => sub.remove();
-  }, [navigateToTarget, handleWidgetAction, playerReady]);
+  }, [navigateToTarget, handleWidgetAction, handleVoiceAction, playerReady]);
 
   // Handles alarm playback on both Android and iOS
   const handleAlarmPlayback = useCallback(async (alarm: AlarmLaunch | null) => {

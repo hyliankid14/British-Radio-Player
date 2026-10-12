@@ -1,4 +1,5 @@
 import UIKit
+import Intents
 import React
 
 class SceneDelegate: UIResponder, UIWindowSceneDelegate {
@@ -34,8 +35,17 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             }
         }
 
-        // Handle cold start universal links
+        // Handle cold start universal links and Siri media intents
         if let userActivity = connectionOptions.userActivities.first {
+            if let intent = userActivity.interaction?.intent as? INPlayMediaIntent {
+                let query = intent.mediaSearch?.mediaName ?? intent.mediaSearch?.searchTerm ?? ""
+                let urlString = query.isEmpty ? "bbcradioplayer://voice/resume" : "bbcradioplayer://voice/play?query=\(query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"
+                if let playUrl = URL(string: urlString) {
+                    _ = RCTLinkingManager.application(UIApplication.shared, open: playUrl, options: [:])
+                    return
+                }
+            }
+
             if let appDelegate = UIApplication.shared.delegate as? AppDelegate {
                 _ = appDelegate.application(UIApplication.shared, continue: userActivity, restorationHandler: { _ in })
             } else {
@@ -60,6 +70,15 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     }
 
     func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
+        if let intent = userActivity.interaction?.intent as? INPlayMediaIntent {
+            let query = intent.mediaSearch?.mediaName ?? intent.mediaSearch?.searchTerm ?? ""
+            let urlString = query.isEmpty ? "bbcradioplayer://voice/resume" : "bbcradioplayer://voice/play?query=\(query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"
+            if let playUrl = URL(string: urlString) {
+                _ = RCTLinkingManager.application(UIApplication.shared, open: playUrl, options: [:])
+                return
+            }
+        }
+
         if let appDelegate = UIApplication.shared.delegate as? AppDelegate {
             _ = appDelegate.application(UIApplication.shared, continue: userActivity, restorationHandler: { _ in })
         } else {

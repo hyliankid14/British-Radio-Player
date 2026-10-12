@@ -46,6 +46,18 @@
         "NSPrivacyTracking": false
       },
       "infoPlist": {
+        "INAlternativeAppNames": [
+          { "INAlternativeAppName": "BBC Radio Player" },
+          { "INAlternativeAppName": "British Radio" },
+          { "INAlternativeAppName": "Radio Player" }
+        ],
+        "NSUserActivityTypes": [
+          "INPlayMediaIntent"
+        ],
+        "INSupportedMediaCategories": [
+          "INMediaCategoryRadio",
+          "INMediaCategoryPodcasts"
+        ],
         "UIBackgroundModes": [
           "audio",
           "fetch",

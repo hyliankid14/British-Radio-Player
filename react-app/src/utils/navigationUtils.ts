@@ -33,6 +33,8 @@ export const KNOWN_APP_ROUTES: readonly string[] = [
   "/modal/schedule",
   "/modal/settings-detail",
   "/notification.click",
+  "/voice/[action]",
+  "/voice/index",
   "/widget/[action]",
   "/widget/index"
 ];
@@ -124,8 +126,8 @@ export function resolveAppNavigation(rawUrl: string): AppNavigationTarget | null
     };
   }
 
-  // Route widget deep links to main tabs
-  if (pathname.startsWith("/widget")) {
+  // Route widget and voice deep links to main tabs
+  if (pathname.startsWith("/widget") || pathname.startsWith("/voice")) {
     return {
       pathname: "/(tabs)",
       params
