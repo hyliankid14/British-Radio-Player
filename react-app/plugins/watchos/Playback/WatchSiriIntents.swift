@@ -116,7 +116,7 @@ struct WatchPodcastQuery: EntityStringQuery {
 
 struct WatchPlayStationIntent: AppIntent {
     static var title: LocalizedStringResource = "Play Station"
-    static var description = IntentDescription("Plays a BBC radio station on Apple Watch.")
+    static var description = IntentDescription("Plays a BBC radio station in British Radio Player.")
 
     @Parameter(title: "Station")
     var station: WatchStationEntity?
@@ -150,7 +150,7 @@ struct WatchPlayStationIntent: AppIntent {
 
 struct WatchPlayPodcastIntent: AppIntent {
     static var title: LocalizedStringResource = "Play Podcast"
-    static var description = IntentDescription("Plays a BBC podcast episode on Apple Watch.")
+    static var description = IntentDescription("Plays a BBC podcast episode in British Radio Player.")
 
     @Parameter(title: "Podcast")
     var podcast: WatchPodcastEntity?
@@ -192,7 +192,7 @@ struct WatchPlayPodcastIntent: AppIntent {
 
 struct WatchPlayRandomPodcastIntent: AppIntent {
     static var title: LocalizedStringResource = "Play Random Podcast"
-    static var description = IntentDescription("Plays a random BBC podcast on Apple Watch.")
+    static var description = IntentDescription("Plays a random BBC podcast in British Radio Player.")
 
     init() {}
 
@@ -216,7 +216,7 @@ struct WatchPlayRandomPodcastIntent: AppIntent {
 
 struct WatchPlayFromSearchIntent: AppIntent {
     static var title: LocalizedStringResource = "Voice Search & Play"
-    static var description = IntentDescription("Searches and plays a station or podcast by voice on Apple Watch.")
+    static var description = IntentDescription("Searches and plays a station or podcast by voice.")
 
     @Parameter(title: "Search Query")
     var query: String?
@@ -270,7 +270,7 @@ struct WatchPlayFromSearchIntent: AppIntent {
 
 struct WatchResumePlaybackIntent: AppIntent {
     static var title: LocalizedStringResource = "Resume Radio"
-    static var description = IntentDescription("Resumes playback on Apple Watch.")
+    static var description = IntentDescription("Resumes playback in British Radio Player.")
 
     init() {}
 
@@ -283,7 +283,7 @@ struct WatchResumePlaybackIntent: AppIntent {
 
 struct WatchStopPlaybackIntent: AppIntent {
     static var title: LocalizedStringResource = "Stop Radio"
-    static var description = IntentDescription("Stops playback on Apple Watch.")
+    static var description = IntentDescription("Stops playback in British Radio Player.")
 
     init() {}
 

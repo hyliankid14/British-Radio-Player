@@ -120,7 +120,7 @@ struct TVPodcastQuery: EntityStringQuery {
 
 struct TVPlayStationIntent: AppIntent {
     static var title: LocalizedStringResource = "Play Station"
-    static var description = IntentDescription("Plays a BBC radio station on Apple TV.")
+    static var description = IntentDescription("Plays a BBC radio station in British Radio Player.")
 
     @Parameter(title: "Station")
     var station: TVStationEntity?
@@ -155,7 +155,7 @@ struct TVPlayStationIntent: AppIntent {
 
 struct TVPlayPodcastIntent: AppIntent {
     static var title: LocalizedStringResource = "Play Podcast"
-    static var description = IntentDescription("Plays a BBC podcast episode on Apple TV.")
+    static var description = IntentDescription("Plays a BBC podcast episode in British Radio Player.")
 
     @Parameter(title: "Podcast")
     var podcast: TVPodcastEntity?
@@ -197,7 +197,7 @@ struct TVPlayPodcastIntent: AppIntent {
 
 struct TVPlayRandomPodcastIntent: AppIntent {
     static var title: LocalizedStringResource = "Play Random Podcast"
-    static var description = IntentDescription("Plays a random BBC podcast on Apple TV.")
+    static var description = IntentDescription("Plays a random BBC podcast in British Radio Player.")
 
     init() {}
 
@@ -221,7 +221,7 @@ struct TVPlayRandomPodcastIntent: AppIntent {
 
 struct TVPlayFromSearchIntent: AppIntent {
     static var title: LocalizedStringResource = "Voice Search & Play"
-    static var description = IntentDescription("Searches and plays a station or podcast by voice on Apple TV.")
+    static var description = IntentDescription("Searches and plays a station or podcast by voice.")
 
     @Parameter(title: "Search Query")
     var query: String?
@@ -274,7 +274,7 @@ struct TVPlayFromSearchIntent: AppIntent {
 
 struct TVResumePlaybackIntent: AppIntent {
     static var title: LocalizedStringResource = "Resume Radio"
-    static var description = IntentDescription("Resumes playback on Apple TV.")
+    static var description = IntentDescription("Resumes playback in British Radio Player.")
 
     init() {}
 
@@ -287,7 +287,7 @@ struct TVResumePlaybackIntent: AppIntent {
 
 struct TVStopPlaybackIntent: AppIntent {
     static var title: LocalizedStringResource = "Stop Radio"
-    static var description = IntentDescription("Stops playback on Apple TV.")
+    static var description = IntentDescription("Stops playback in British Radio Player.")
 
     init() {}
 
