@@ -46,6 +46,7 @@ test('tvOS plugin and sources are properly configured', () => {
   assert.ok(fs.existsSync(path.join(tvosDir, 'Playback', 'TVPodcastManager.swift')), 'TVPodcastManager.swift must exist');
   assert.ok(fs.existsSync(path.join(tvosDir, 'Playback', 'TVFavouritesManager.swift')), 'TVFavouritesManager.swift must exist');
   assert.ok(fs.existsSync(path.join(tvosDir, 'Playback', 'TVScrobbleManager.swift')), 'TVScrobbleManager.swift must exist');
+  assert.ok(fs.existsSync(path.join(tvosDir, 'Playback', 'TVSiriIntents.swift')), 'TVSiriIntents.swift must exist');
 
   // Verify Top Shelf extension
   assert.ok(fs.existsSync(path.join(tvosDir, 'TopShelf', 'ContentProvider.swift')), 'ContentProvider.swift must exist');
@@ -56,10 +57,12 @@ test('tvOS plugin and sources are properly configured', () => {
   assert.ok(fs.existsSync(path.join(tvosDir, 'BRPTV.entitlements')), 'BRPTV.entitlements must exist');
   assert.ok(fs.existsSync(path.join(tvosDir, 'PrivacyInfo.xcprivacy')), 'PrivacyInfo.xcprivacy must exist');
 
-  // Check Info.plist content for audio background mode
+  // Check Info.plist content for audio background mode and Siri/URL schemes
   const infoPlist = fs.readFileSync(path.join(tvosDir, 'BRPTV-Info.plist'), 'utf8');
   assert.ok(infoPlist.includes('<string>audio</string>'), 'BRPTV-Info.plist must declare audio background mode');
   assert.ok(infoPlist.includes('bbcradioplayer'), 'BRPTV-Info.plist must declare bbcradioplayer URL scheme');
+  assert.ok(infoPlist.includes('INPlayMediaIntent'), 'BRPTV-Info.plist must declare INPlayMediaIntent');
+  assert.ok(infoPlist.includes('INAlternativeAppNames'), 'BRPTV-Info.plist must declare INAlternativeAppNames');
 
   // Verify launcher icon and logo assets
   assert.ok(fs.existsSync(path.join(tvosDir, 'Assets', 'AppIcon.brandassets')), 'AppIcon.brandassets must exist');

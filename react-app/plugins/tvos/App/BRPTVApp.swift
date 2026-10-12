@@ -147,6 +147,79 @@ struct BRPTVApp: App {
             return
         }
         
+        if host == "voice" {
+            let action = pathComponents.first ?? ""
+            let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems
+            let queryParam = queryItems?.first(where: { $0.name == "name" || $0.name == "query" || $0.name == "q" })?.value ?? ""
+            
+            DispatchQueue.main.async {
+                switch action {
+                case "station":
+                    let allStations = TVStationCatalogue.allStations()
+                    let q = queryParam.lowercased()
+                    if let station = allStations.first(where: { $0.title.lowercased().contains(q) || $0.id.lowercased().contains(q) }) {
+                        TVPlaybackController.shared.playStation(station)
+                        NotificationCenter.default.post(
+                            name: Notification.Name("BRPTVOpenTab"),
+                            object: nil,
+                            userInfo: ["tab": "nowPlaying"]
+                        )
+                    }
+                case "podcast":
+                    let allPods = TVSubscriptionManager.shared.subscribedPodcasts + TVPodcastManager.shared.featuredPodcasts
+                    let q = queryParam.lowercased()
+                    if let podcast = allPods.first(where: { $0.title.lowercased().contains(q) || $0.id.lowercased().contains(q) }) {
+                        TVPodcastManager.shared.fetchEpisodes(for: podcast) { episodes in
+                            if let firstEp = episodes.first {
+                                DispatchQueue.main.async {
+                                    TVPlaybackController.shared.playEpisode(firstEp, podcast: podcast)
+                                    NotificationCenter.default.post(
+                                        name: Notification.Name("BRPTVOpenTab"),
+                                        object: nil,
+                                        userInfo: ["tab": "nowPlaying"]
+                                    )
+                                }
+                            }
+                        }
+                    }
+                case "random-podcast":
+                    let allPods = TVSubscriptionManager.shared.subscribedPodcasts + TVPodcastManager.shared.featuredPodcasts
+                    if let podcast = allPods.randomElement() {
+                        TVPodcastManager.shared.fetchEpisodes(for: podcast) { episodes in
+                            if let firstEp = episodes.first {
+                                DispatchQueue.main.async {
+                                    TVPlaybackController.shared.playEpisode(firstEp, podcast: podcast)
+                                    NotificationCenter.default.post(
+                                        name: Notification.Name("BRPTVOpenTab"),
+                                        object: nil,
+                                        userInfo: ["tab": "nowPlaying"]
+                                    )
+                                }
+                            }
+                        }
+                    }
+                case "search":
+                    NotificationCenter.default.post(
+                        name: Notification.Name("BRPTVOpenTab"),
+                        object: nil,
+                        userInfo: ["tab": "search"]
+                    )
+                    NotificationCenter.default.post(
+                        name: Notification.Name("BRPTVSearch"),
+                        object: nil,
+                        userInfo: ["query": queryParam]
+                    )
+                case "resume":
+                    TVPlaybackController.shared.resume()
+                case "stop":
+                    TVPlaybackController.shared.stop()
+                default:
+                    break
+                }
+            }
+            return
+        }
+        
         var targetStationId: String? = nil
         if host == "station" || host == "play" {
             targetStationId = pathComponents.first

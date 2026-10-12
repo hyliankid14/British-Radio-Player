@@ -137,7 +137,7 @@ import Observation
         isBuffering = true
     }
     
-    func playEpisode(_ episode: WatchEpisode, podcast: WatchPodcast? = nil, startPositionMs: Int) {
+    func playEpisode(_ episode: WatchEpisode, podcast: WatchPodcast? = nil, startPositionMs: Int = 0) {
         stop()
         currentEpisodeId = episode.id
         currentEpisode = episode
@@ -223,6 +223,18 @@ import Observation
                     podcastTitle: currentEpisodePodcast?.title
                 )
             }
+        }
+    }
+    
+    func resume() {
+        if !isPlaying {
+            togglePlayPause()
+        }
+    }
+    
+    func pause() {
+        if isPlaying {
+            togglePlayPause()
         }
     }
     
