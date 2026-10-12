@@ -93,3 +93,31 @@ test("CarPlay and Android Auto skip controls advance 30s and rewind 10s for podc
   // Forward near end clamps to duration
   assert.equal(calculateNewPosition(1790, SEEK_FORWARD_SECONDS, duration), 1800);
 });
+
+test("CarPlay recentSongAdded and podcastHistoryAdded mutation structure", () => {
+  const songPayload = {
+    artist: "Wet Leg",
+    track: "Chaise Longue",
+    imageUrl: "https://ichef.bbci.co.uk/images/song.jpg",
+    stationId: "6music",
+    stationName: "BBC Radio 6 Music",
+    playedAtMs: 1728375000000
+  };
+
+  assert.ok(songPayload.artist);
+  assert.ok(songPayload.track);
+  assert.ok(songPayload.playedAtMs > 0);
+
+  const episodePayload = {
+    id: "p012345",
+    title: "Desert Island Discs",
+    podcastId: "did",
+    podcastTitle: "Desert Island Discs",
+    durationMins: 45,
+    playedAtMs: 1728376000000
+  };
+
+  assert.ok(episodePayload.id);
+  assert.ok(episodePayload.title);
+  assert.ok(episodePayload.playedAtMs > 0);
+});

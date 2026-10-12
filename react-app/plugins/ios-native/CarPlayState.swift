@@ -545,7 +545,9 @@ final class CarPlayState: @unchecked Sendable {
         current.insert(episode, at: 0)
         let trimmed = Array(current.prefix(Self.maxHistory))
         updateOverlay { $0.history = trimmed }
-        addMutation(type: "podcastHistoryAdded", payload: CarPlayState.jsonObject(for: episode))
+        var payload = CarPlayState.jsonObject(for: episode)
+        payload["playedAtMs"] = Double(Date().timeIntervalSince1970 * 1000)
+        addMutation(type: "podcastHistoryAdded", payload: payload)
     }
 
     // MARK: Last played

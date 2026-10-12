@@ -34,6 +34,7 @@ export interface AutoMutationSink {
     imageUrl: string;
     stationId: string;
     stationName: string;
+    playedAtMs?: number;
   }): void;
   onPlaybackStarted?(payload: Record<string, any>): void;
 }
@@ -178,7 +179,9 @@ export function applyAutoMutation(event: AutoNativeEvent, sink: AutoMutationSink
           track,
           imageUrl: String(entry?.imageUrl || ""),
           stationId: String(entry?.stationId || ""),
-          stationName: String(entry?.stationName || "")
+          stationName: String(entry?.stationName || ""),
+          playedAtMs:
+            typeof entry?.playedAtMs === "number" && entry.playedAtMs > 0 ? entry.playedAtMs : undefined
         });
       }
       break;

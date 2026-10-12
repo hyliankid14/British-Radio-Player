@@ -7,7 +7,7 @@ import TrackPlayer from "react-native-track-player";
 import { Alert, AppState, LogBox, Platform, StatusBar as RNStatusBar, Dimensions } from "react-native";
 import { setupPlayer, playbackService } from "../src/audio/trackPlayerService";
 import { usePlayerStore, flushEpisodeProgress } from "../src/store/playerStore";
-import { initAutoSync } from "../src/auto/autoSync";
+import { initAutoSync, drainAutoMutations } from "../src/auto/autoSync";
 import { runLegacyMigration } from "../src/storage/legacyMigration";
 import { useAppTheme, useIsDarkTheme } from "../src/theme/colors";
 import { AnalyticsConsentDialog } from "../src/components/AnalyticsConsentDialog";
@@ -355,6 +355,12 @@ export default function RootLayout() {
     if (!shouldShowAnalyticsPrompt()) return;
     const timer = setTimeout(() => setShowAnalyticsConsent(true), 1200);
     return () => clearTimeout(timer);
+  }, []);
+
+  // Ensure two-way car sync is active and drain any mutations recorded while closed.
+  useEffect(() => {
+    initAutoSync();
+    drainAutoMutations();
   }, []);
 
 /**

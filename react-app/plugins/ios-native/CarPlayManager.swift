@@ -939,7 +939,8 @@ final class CarPlayManager: NSObject {
                 "description": episode.description,
                 "audioUrl": episode.audioUrl,
                 "pubDate": episode.pubDate,
-                "durationMins": episode.durationMins
+                "durationMins": episode.durationMins,
+                "playedAtMs": Double(Date().timeIntervalSince1970 * 1000)
             ]
         )
     }
@@ -1402,18 +1403,22 @@ final class CarPlayManager: NSObject {
                 self.updateNowPlayingInfo()
                 self.refreshStationBrowseTemplates()
 
-                let signature = "\(info.rawArtist)|\(info.rawTrack)"
+                let sArtist = info.rawArtist.isEmpty ? info.artist : info.rawArtist
+                let sTrack = info.rawTrack.isEmpty ? info.track : info.rawTrack
+                let signature = "\(sArtist)|\(sTrack)"
                 guard signature != self.lastTrackedSongSignature else { return }
                 self.lastTrackedSongSignature = signature
-                guard !info.rawTrack.isEmpty || !info.rawArtist.isEmpty else { return }
+                guard !sTrack.isEmpty || !sArtist.isEmpty else { return }
+                let sArtwork = info.rawArtworkUrl.isEmpty ? (info.songArtworkUrl.isEmpty ? logoUrl : info.songArtworkUrl) : info.rawArtworkUrl
                 CarPlayState.shared.addMutation(
                     type: "recentSongAdded",
                     payload: [
-                        "artist": info.rawArtist,
-                        "track": info.rawTrack,
-                        "imageUrl": info.rawArtworkUrl.isEmpty ? logoUrl : info.rawArtworkUrl,
+                        "artist": sArtist,
+                        "track": sTrack,
+                        "imageUrl": sArtwork,
                         "stationId": stationId,
-                        "stationName": stationName
+                        "stationName": stationName,
+                        "playedAtMs": Double(Date().timeIntervalSince1970 * 1000)
                     ]
                 )
             }

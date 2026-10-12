@@ -41,13 +41,39 @@ object AutoState {
 
   fun saveSnapshot(context: Context, json: String) {
     synchronized(lock) {
-      prefs(context).edit()
-        .putString(KEY_SNAPSHOT, json)
-        // JS is authoritative: any native overlay (favourite/subscribe/played/progress
-        // tweaks made from the car) has either already been drained back into JS via the
-        // mutation queue or is superseded by the snapshot we are writing now.
-        .remove(KEY_OVERLAY)
-        .apply()
+      val editor = prefs(context).edit().putString(KEY_SNAPSHOT, json)
+      // JS is authoritative: any native overlay (favourite/subscribe/played/progress
+      // tweaks made from the car) has either already been drained back into JS via the
+      // mutation queue or is superseded by the snapshot we are writing now.
+      // However, if the incoming snapshot does not contain history that was already in
+      // the overlay (e.g. fast stations snapshot or undrained mutations), preserve those
+      // entries in the overlay so they are never lost before JS drains them.
+      val oldOverlay = overlay(context)
+      val oldHistory = oldOverlay.optJSONArray("history")
+      editor.remove(KEY_OVERLAY)
+      if (oldHistory != null && oldHistory.length() > 0) {
+        val newSnap = try { JSONObject(json) } catch (_: Exception) { JSONObject() }
+        val newSnapHistory = newSnap.optJSONArray("history")
+        val snapIds = mutableSetOf<String>()
+        if (newSnapHistory != null) {
+          for (i in 0 until newSnapHistory.length()) {
+            newSnapHistory.optJSONObject(i)?.optString("id")?.let { if (it.isNotEmpty()) snapIds.add(it) }
+          }
+        }
+        val preserved = JSONArray()
+        for (i in 0 until oldHistory.length()) {
+          val ep = oldHistory.optJSONObject(i) ?: continue
+          val epId = ep.optString("id")
+          if (epId.isNotEmpty() && !snapIds.contains(epId)) {
+            preserved.put(ep)
+          }
+        }
+        if (preserved.length() > 0) {
+          val preservedOverlay = JSONObject().put("history", preserved)
+          editor.putString(KEY_OVERLAY, preservedOverlay.toString())
+        }
+      }
+      editor.commit()
       snapshotCache = null
       overlayCache = null
     }
@@ -84,7 +110,7 @@ object AutoState {
     synchronized(lock) {
       val current = overlay(context)
       mutate(current)
-      prefs(context).edit().putString(KEY_OVERLAY, current.toString()).apply()
+      prefs(context).edit().putString(KEY_OVERLAY, current.toString()).commit()
       overlayCache = current
     }
   }
@@ -105,7 +131,7 @@ object AutoState {
       val trimmed = if (array.length() > MAX_MUTATIONS) {
         JSONArray().also { out -> for (i in array.length() - MAX_MUTATIONS until array.length()) out.put(array.get(i)) }
       } else array
-      prefs(context).edit().putString(KEY_MUTATIONS, trimmed.toString()).apply()
+      prefs(context).edit().putString(KEY_MUTATIONS, trimmed.toString()).commit()
     }
     notifyChanged(context)
   }
@@ -115,7 +141,7 @@ object AutoState {
       val existing = prefs(context).getString(KEY_MUTATIONS, null)
       val array = if (existing.isNullOrBlank()) JSONArray()
       else try { JSONArray(existing) } catch (_: Exception) { JSONArray() }
-      prefs(context).edit().remove(KEY_MUTATIONS).apply()
+      prefs(context).edit().remove(KEY_MUTATIONS).commit()
       return array
     }
   }
@@ -123,7 +149,7 @@ object AutoState {
   /** Clears everything; used when the user wipes app data or the JS layer resets. */
   fun clear(context: Context) {
     synchronized(lock) {
-      prefs(context).edit().clear().apply()
+      prefs(context).edit().clear().commit()
       snapshotCache = null
       overlayCache = null
     }
@@ -254,7 +280,7 @@ object AutoState {
       val episodesObj = snap.optJSONObject("episodes") ?: JSONObject()
       episodesObj.put(podcastId, JSONArray(episodes))
       snap.put("episodes", episodesObj)
-      prefs(context).edit().putString(KEY_SNAPSHOT, snap.toString()).apply()
+      prefs(context).edit().putString(KEY_SNAPSHOT, snap.toString()).commit()
       snapshotCache = snap
     }
   }
@@ -273,7 +299,7 @@ object AutoState {
         }
       }
       if (changed) {
-        prefs(context).edit().putString(KEY_SNAPSHOT, snap.toString()).apply()
+        prefs(context).edit().putString(KEY_SNAPSHOT, snap.toString()).commit()
         snapshotCache = snap
       }
     }

@@ -1178,6 +1178,7 @@ export default function FavouritesScreen() {
               onPress={() => {
                 setActiveCategory(item.id);
                 if (item.id === "History") {
+                  drainAutoMutations();
                   setPodcastHistory(Preferences.getPodcastHistory());
                 }
               }}

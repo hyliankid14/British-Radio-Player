@@ -493,21 +493,22 @@ export const Preferences = {
     imageUrl: string;
     stationId: string;
     stationName: string;
+    playedAtMs?: number;
   }): void {
     if (!song.artist.trim() && !song.track.trim()) return;
-    const now = Date.now();
+    const now = typeof song.playedAtMs === "number" && song.playedAtMs > 0 ? song.playedAtMs : Date.now();
     const recent = this.getRecentSongs();
     const duplicate = recent.some(
       (entry) =>
-        now - entry.playedAtMs < 5 * 60 * 1000 &&
+        Math.abs(now - entry.playedAtMs) < 5 * 60 * 1000 &&
         entry.artist === song.artist &&
         entry.track === song.track
     );
     if (duplicate) return;
-    storage.set(
-      KEYS.RECENT_SONGS,
-      JSON.stringify([{ ...song, playedAtMs: now }, ...recent].slice(0, 50))
-    );
+    const updated = [{ ...song, playedAtMs: now }, ...recent]
+      .sort((a, b) => b.playedAtMs - a.playedAtMs)
+      .slice(0, 50);
+    storage.set(KEYS.RECENT_SONGS, JSON.stringify(updated));
   },
 
   getFavorites(): string[] {
@@ -1170,7 +1171,10 @@ export const Preferences = {
       playedAtMs:
         typeof entry.playedAtMs === "number" && entry.playedAtMs > 0 ? entry.playedAtMs : Date.now()
     };
-    storage.set(KEYS.PODCAST_HISTORY, JSON.stringify([record, ...existing].slice(0, 20)));
+    const updated = [record, ...existing]
+      .sort((a, b) => (b.playedAtMs ?? 0) - (a.playedAtMs ?? 0))
+      .slice(0, 20);
+    storage.set(KEYS.PODCAST_HISTORY, JSON.stringify(updated));
   },
 
   clearPodcastHistory(): void {

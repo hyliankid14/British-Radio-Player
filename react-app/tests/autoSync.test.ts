@@ -353,3 +353,78 @@ test("applyAutoMutations drains mixed queue of car events in order", () => {
   assert.deepEqual(sink.favorites, ["radio1"]);
   assert.equal(sink.progress.get("ep-999"), 120); // 120,000ms -> 120 seconds
 });
+
+test("applyAutoMutation(recentSongAdded) preserves playedAtMs from in-car playback", () => {
+  const sink = createMockSink();
+  const playTime = 1728374000000;
+  applyAutoMutation(
+    {
+      type: "recentSongAdded",
+      payload: {
+        artist: "Coldplay",
+        track: "Yellow",
+        imageUrl: "https://img.jpg",
+        stationId: "radio2",
+        stationName: "BBC Radio 2",
+        playedAtMs: playTime
+      }
+    },
+    sink
+  );
+
+  assert.equal(sink.recentSongs.length, 1);
+  assert.equal(sink.recentSongs[0].artist, "Coldplay");
+  assert.equal(sink.recentSongs[0].track, "Yellow");
+  assert.equal((sink.recentSongs[0] as any).playedAtMs, playTime);
+});
+
+test("applyAutoMutations records podcasts and songs listened in Android Auto without data loss", () => {
+  const sink = createMockSink();
+  const t1 = 1728370000000;
+  const t2 = 1728371000000;
+  const t3 = 1728372000000;
+
+  const events = [
+    {
+      type: "recentSongAdded",
+      payload: {
+        artist: "Sam Fender",
+        track: "Seventeen Going Under",
+        imageUrl: "https://img1.jpg",
+        stationId: "radio1",
+        stationName: "BBC Radio 1",
+        playedAtMs: t1
+      }
+    },
+    {
+      type: "podcastHistoryAdded",
+      payload: {
+        id: "pod-ep-1",
+        title: "Episode 1",
+        podcastId: "pod-1",
+        podcastTitle: "Great Podcast",
+        playedAtMs: t2
+      }
+    },
+    {
+      type: "recentSongAdded",
+      payload: {
+        artist: "Fontaines D.C.",
+        track: "Starburster",
+        imageUrl: "https://img2.jpg",
+        stationId: "6music",
+        stationName: "BBC Radio 6 Music",
+        playedAtMs: t3
+      }
+    }
+  ];
+
+  applyAutoMutations(events, sink);
+
+  assert.equal(sink.recentSongs.length, 2);
+  assert.equal(sink.recentSongs[0].artist, "Fontaines D.C.");
+  assert.equal(sink.recentSongs[1].artist, "Sam Fender");
+  assert.equal(sink.podcastHistory.length, 1);
+  assert.equal(sink.podcastHistory[0].id, "pod-ep-1");
+  assert.equal(sink.podcastHistory[0].playedAtMs, t2);
+});

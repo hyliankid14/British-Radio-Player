@@ -273,6 +273,7 @@ export default function AllStationsScreen() {
                 onPress={() => {
                   setActiveSubTab(tab);
                   if (tab === "Songs") {
+                    drainAutoMutations();
                     setRecentSongs(Preferences.getRecentSongs());
                   }
                 }}

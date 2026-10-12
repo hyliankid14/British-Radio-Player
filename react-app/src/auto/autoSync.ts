@@ -37,6 +37,7 @@ function hasNativeTarget(): boolean {
 /** Pushes the current React state to the native Android Auto and CarPlay surfaces. */
 export async function syncAutoState(includePodcastData = true): Promise<void> {
   if (!hasNativeTarget()) return;
+  drainAutoMutations();
   if (syncing) {
     syncQueued = true;
     return;
@@ -189,8 +190,8 @@ export function drainAutoMutations(): void {
  */
 export function initAutoSync(): void {
   if (initialised) return;
-  initialised = true;
   if (!hasNativeTarget()) return;
+  initialised = true;
 
   drainAutoMutations();
 

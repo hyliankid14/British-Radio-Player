@@ -79,10 +79,10 @@ class AndroidAutoBridgeModule : Module() {
       try {
         module.sendEvent(
           "onAutoEvent",
-          Bundle().apply {
-            putString("type", type)
-            putString("payload", payload.toString())
-          }
+          mapOf(
+            "type" to type,
+            "payload" to payload.toString()
+          )
         )
       } catch (_: Exception) {
       }

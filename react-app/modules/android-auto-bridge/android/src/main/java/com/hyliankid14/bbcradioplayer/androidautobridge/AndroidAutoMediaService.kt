@@ -382,6 +382,7 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
               put("imageUrl", songImage)
               put("stationId", station.optString("id"))
               put("stationName", station.optString("title"))
+              put("playedAtMs", System.currentTimeMillis())
             })
           }
         }
@@ -739,6 +740,7 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
               put("imageUrl", songImage)
               put("stationId", station.optString("id"))
               put("stationName", station.optString("title"))
+              put("playedAtMs", System.currentTimeMillis())
             })
           }
         }
