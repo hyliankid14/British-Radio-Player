@@ -30,6 +30,12 @@ import { applyLanguageFilter } from "../../src/podcasts/languageFilter";
 import { ensureLanguageIndex } from "../../src/podcasts/languageResolver";
 import { ensureLatestEpisodeIndex, getLatestEpisodeMs } from "../../src/podcasts/latestEpisodeIndex";
 import { byNewestFirst } from "../../src/podcasts/episodeDates";
+import {
+  PopularRankings,
+  buildPopularRankings,
+  getPopularRank,
+  hasPopularRank
+} from "../../src/podcasts/popularRanking";
 import { OfflineBanner, VpnBanner } from "../../src/components/NetworkBanners";
 import { NativeAndroid } from "../../src/native/nativeAndroid";
 import { usePlayerStore } from "../../src/store/playerStore";
@@ -152,7 +158,10 @@ export default function PodcastsScreen() {
   const [catalog, setCatalog] = useState<Podcast[]>([]);
   // Full unfiltered catalog, kept so the language filter can be toggled without refetching.
   const rawCatalogRef = useRef<Podcast[]>([]);
-  const [popularRanks, setPopularRanks] = useState<Map<string, number>>(new Map());
+  const [popularRankings, setPopularRankings] = useState<PopularRankings>(() => ({
+    idRanks: new Map(),
+    titleRanks: new Map()
+  }));
   const [newPodcastsList, setNewPodcastsList] = useState<NewPodcastEntry[]>([]);
   // Bumped whenever the newest-episode index resolves another batch, to re-sort the
   // "Last Updated" tab. The dates themselves live in the index, not in component state.
@@ -214,18 +223,15 @@ export default function PodcastsScreen() {
           if (mounted) setLatestEpisodeTick((tick) => tick + 1);
         });
 
-        // Map popular ranks (1-based rank by play count)
-        const ranks = new Map<string, number>();
-        popEntries.forEach((entry, idx) => {
-          ranks.set(entry.id, idx + 1);
-        });
-        setPopularRanks(ranks);
+        // Map popular ranks (1-based rank by play count by both ID and title)
+        const rankings = buildPopularRankings(popEntries);
+        setPopularRankings(rankings);
         setNewPodcastsList(newEntries);
 
         // Background prefetch episodes for top popular podcasts so opening them is 0ms instant
         const popularPodcasts = cats
-          .filter((p) => ranks.has(p.id))
-          .sort((a, b) => (ranks.get(a.id) || 999) - (ranks.get(b.id) || 999));
+          .filter((p) => hasPopularRank(rankings, p))
+          .sort((a, b) => (getPopularRank(rankings, a) ?? 999) - (getPopularRank(rankings, b) ?? 999));
         PodcastApi.prefetchEpisodes(popularPodcasts.length > 0 ? popularPodcasts : cats, 25);
 
         // Fetch star ratings for catalog podcasts
@@ -328,11 +334,11 @@ export default function PodcastsScreen() {
     switch (activeTab) {
       case "popular": {
         return list
-          .filter((podcast) => popularRanks.has(podcast.id))
+          .filter((podcast) => hasPopularRank(popularRankings, podcast))
           .sort((a, b) => {
-          const rankA = popularRanks.get(a.id) ?? 99999;
-          const rankB = popularRanks.get(b.id) ?? 99999;
-          return rankA - rankB;
+            const rankA = getPopularRank(popularRankings, a) ?? 99999;
+            const rankB = getPopularRank(popularRankings, b) ?? 99999;
+            return rankA - rankB;
           });
       }
       case "last_updated": {
@@ -356,7 +362,7 @@ export default function PodcastsScreen() {
       default:
         return list;
     }
-  }, [catalog, activeTab, selectedGenre, popularRanks, newPodcastsList, latestEpisodeTick]);
+  }, [catalog, activeTab, selectedGenre, popularRankings, newPodcastsList, latestEpisodeTick]);
 
   // Scroll to top FAB
   const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {

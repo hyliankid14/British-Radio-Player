@@ -9,7 +9,7 @@ import Observation
     var episodesByPodcast: [String: [TVEpisode]] = [:]
     
     private var catalogPodcasts: [TVPodcast] = []
-    private var popularIds: [String] = []
+    private var popularEntries: [(id: String, name: String)] = []
     private var activeParsers: [String: TVPodcastRSSParser] = [:]
     
     private init() {
@@ -144,7 +144,7 @@ import Observation
             
             if let decoded = try? JSONDecoder().decode(PopularData.self, from: data) {
                 DispatchQueue.main.async {
-                    self.popularIds = decoded.popular_podcasts.map { $0.id }
+                    self.popularEntries = decoded.popular_podcasts.map { ($0.id, $0.name) }
                     self.updatePopularList()
                 }
             }
@@ -180,18 +180,23 @@ import Observation
     }
     
     private func updatePopularList() {
-        guard !popularIds.isEmpty else { return }
+        guard !popularEntries.isEmpty else { return }
         
         var ordered: [TVPodcast] = []
         var seenIds = Set<String>()
         
-        // 1. Add podcasts matching popularIds in exact popularity order
-        for popId in popularIds {
-            if let existing = self.featuredPodcasts.first(where: { $0.id == popId }) {
+        // 1. Add podcasts matching popularEntries in exact popularity order (by ID or title)
+        for popEntry in popularEntries {
+            let normName = popEntry.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if let existing = self.featuredPodcasts.first(where: {
+                $0.id == popEntry.id || (!normName.isEmpty && $0.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == normName)
+            }) {
                 if seenIds.insert(existing.id).inserted {
                     ordered.append(existing)
                 }
-            } else if let fromCatalog = self.catalogPodcasts.first(where: { $0.id == popId }) {
+            } else if let fromCatalog = self.catalogPodcasts.first(where: {
+                $0.id == popEntry.id || (!normName.isEmpty && $0.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == normName)
+            }) {
                 if seenIds.insert(fromCatalog.id).inserted {
                     ordered.append(fromCatalog)
                 }

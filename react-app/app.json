@@ -4,7 +4,7 @@
     "slug": "british-radio-player-react",
     "version": "2.1.0",
     "scheme": "bbcradioplayer",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "ios": {

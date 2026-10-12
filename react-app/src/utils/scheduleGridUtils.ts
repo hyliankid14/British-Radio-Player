@@ -10,6 +10,37 @@ export const STATION_COLUMN_WIDTH = 88;
 export const MINUTES_IN_DAY = 1440; // 24 hours * 60 minutes
 export const TIMELINE_WIDTH = MINUTES_IN_DAY * PIXELS_PER_MINUTE; // 5760dp
 
+// Landscape-specific dimensions optimized for wide horizontal viewing and vertical density
+export const ROW_HEIGHT_LANDSCAPE = 58;
+export const STATION_COLUMN_WIDTH_LANDSCAPE = 100;
+export const PIXELS_PER_MINUTE_LANDSCAPE = 4.0;
+export const TIME_RULER_HEIGHT = 38;
+export const TIME_RULER_HEIGHT_LANDSCAPE = 32;
+
+export interface GuideGridDimensions {
+  rowHeight: number;
+  stationColumnWidth: number;
+  pixelsPerMinute: number;
+  timelineWidth: number;
+  timeRulerHeight: number;
+}
+
+export function getGuideGridDimensions(isLandscape: boolean): GuideGridDimensions {
+  const rowHeight = isLandscape ? ROW_HEIGHT_LANDSCAPE : ROW_HEIGHT;
+  const stationColumnWidth = isLandscape ? STATION_COLUMN_WIDTH_LANDSCAPE : STATION_COLUMN_WIDTH;
+  const pixelsPerMinute = isLandscape ? PIXELS_PER_MINUTE_LANDSCAPE : PIXELS_PER_MINUTE;
+  const timelineWidth = MINUTES_IN_DAY * pixelsPerMinute;
+  const timeRulerHeight = isLandscape ? TIME_RULER_HEIGHT_LANDSCAPE : TIME_RULER_HEIGHT;
+
+  return {
+    rowHeight,
+    stationColumnWidth,
+    pixelsPerMinute,
+    timelineWidth,
+    timeRulerHeight
+  };
+}
+
 export interface TimeSlot {
   label: string; // e.g., "10:00am"
   minuteOffset: number; // 0 to 1440

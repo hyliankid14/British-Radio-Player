@@ -15,8 +15,10 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { useAppTheme } from "../../src/theme/colors";
+import { useResponsiveLayout } from "../../src/theme/responsive";
+import { lockToLandscape, lockToPortrait, unlockOrientation } from "../../src/utils/orientation";
 import { ScreenHeader, HeaderIconButton } from "../../src/components/ScreenHeader";
 import { Station, StationCategory, StationRepository } from "../../src/data/stations";
 import {
@@ -33,6 +35,7 @@ import {
   calculateScheduleBlockLayout,
   matchShowToPodcast,
   normalizeTitle,
+  getGuideGridDimensions,
   PIXELS_PER_MINUTE,
   ROW_HEIGHT,
   STATION_COLUMN_WIDTH,
@@ -65,6 +68,35 @@ export default function GuideScreen() {
   const favorites = usePlayerStore((s) => s.favorites);
   const playStation = usePlayerStore((s) => s.playStation);
   const toggleFavorite = usePlayerStore((s) => s.toggleFavorite);
+  const togglePlayPause = usePlayerStore((s) => s.togglePlayPause);
+
+  const { isLandscape } = useResponsiveLayout();
+  const {
+    rowHeight,
+    stationColumnWidth,
+    pixelsPerMinute,
+    timelineWidth,
+    timeRulerHeight
+  } = useMemo(() => getGuideGridDimensions(isLandscape), [isLandscape]);
+
+  // Manage screen orientation for Guide: allow sensor rotation while focused,
+  // restore portrait lock when leaving Guide tab.
+  useFocusEffect(
+    useCallback(() => {
+      void unlockOrientation();
+      return () => {
+        void lockToPortrait();
+      };
+    }, [])
+  );
+
+  const toggleOrientation = useCallback(async () => {
+    if (isLandscape) {
+      await lockToPortrait();
+    } else {
+      await lockToLandscape();
+    }
+  }, [isLandscape]);
 
   // 15 date tabs (-7 ... Today ... +7)
   const { tabs, todayIndex } = useMemo(() => {
@@ -93,6 +125,21 @@ export default function GuideScreen() {
   }, []);
 
   const [selectedTabIndex, setSelectedTabIndex] = useState(todayIndex);
+  const canGoPrevDay = selectedTabIndex > 0;
+  const canGoNextDay = selectedTabIndex < tabs.length - 1;
+
+  const goToPrevDay = useCallback(() => {
+    if (canGoPrevDay) setSelectedTabIndex((prev) => prev - 1);
+  }, [canGoPrevDay]);
+
+  const goToNextDay = useCallback(() => {
+    if (canGoNextDay) setSelectedTabIndex((prev) => prev + 1);
+  }, [canGoNextDay]);
+
+  const goToToday = useCallback(() => {
+    setSelectedTabIndex(todayIndex);
+  }, [todayIndex]);
+
   const [activeCategory, setActiveCategory] = useState<GuideFilterCategory>("National");
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [podcastMap, setPodcastMap] = useState<Map<string, Podcast>>(new Map());
@@ -174,7 +221,7 @@ export default function GuideScreen() {
             entry.startTimeMs,
             entry.endTimeMs,
             dayStartMs,
-            PIXELS_PER_MINUTE
+            pixelsPerMinute
           );
           const blockWidth = Math.max(20, width - 2);
           // Keep long titles in view as the user scrolls horizontally.
@@ -204,7 +251,7 @@ export default function GuideScreen() {
         })
       };
     });
-  }, [filteredStations, stationSchedules, selectedTab.dateStr, dayStartMs, podcastMap, scrollX]);
+  }, [filteredStations, stationSchedules, selectedTab.dateStr, dayStartMs, podcastMap, scrollX, pixelsPerMinute]);
 
   // Fetch podcast catalog once on mount
   useEffect(() => {
@@ -240,14 +287,14 @@ export default function GuideScreen() {
     if (!isSelectedDateToday) return;
     const now = new Date();
     const currentMinutes = now.getHours() * 60 + now.getMinutes();
-    const targetX = Math.max(0, currentMinutes * PIXELS_PER_MINUTE - 140);
+    const targetX = Math.max(0, currentMinutes * pixelsPerMinute - (isLandscape ? 220 : 140));
     const scrollRef =
       mainHorizontalScrollRef.current?.scrollTo
         ? mainHorizontalScrollRef.current
         : mainHorizontalScrollRef.current?.getNode?.();
     scrollRef?.scrollTo({ x: targetX, animated: true });
     timeRulerScrollRef.current?.scrollTo({ x: targetX, animated: true });
-  }, [isSelectedDateToday]);
+  }, [isSelectedDateToday, pixelsPerMinute, isLandscape]);
 
   useEffect(() => {
     if (isSelectedDateToday) {
@@ -406,8 +453,8 @@ export default function GuideScreen() {
     if (!isSelectedDateToday) return null;
     const d = new Date(nowMs);
     const minute = d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60;
-    return Math.round(minute * PIXELS_PER_MINUTE);
-  }, [isSelectedDateToday, nowMs]);
+    return Math.round(minute * pixelsPerMinute);
+  }, [isSelectedDateToday, nowMs, pixelsPerMinute]);
 
   // Handle playing a show
   const handlePlayStation = async (station: Station) => {
@@ -434,149 +481,364 @@ export default function GuideScreen() {
     <View
       style={[styles.container, { backgroundColor: theme.surfaceContainer }]}
     >
-      <ScreenHeader
-        title="Guide"
-        rightActions={
-          <>
-            <HeaderIconButton
-              icon="refresh"
-              accessibilityLabel="Refresh schedules"
-              disabled={isRefreshing}
-              onPress={() => void refreshSchedules()}
+      {!isLandscape ? (
+        <>
+          <ScreenHeader
+            title="Guide"
+            rightActions={
+              <>
+                <HeaderIconButton
+                  icon="refresh"
+                  accessibilityLabel="Refresh schedules"
+                  disabled={isRefreshing}
+                  onPress={() => void refreshSchedules()}
+                >
+                  {isRefreshing ? (
+                    <ActivityIndicator size="small" color={theme.primary} />
+                  ) : (
+                    <MaterialIcons name="refresh" size={24} color={theme.onSurface} />
+                  )}
+                </HeaderIconButton>
+
+                {isSelectedDateToday && (
+                  <TouchableOpacity
+                    style={[styles.nowButton, { backgroundColor: theme.primaryContainer }]}
+                    onPress={scrollToNow}
+                    activeOpacity={0.7}
+                    accessibilityLabel="Scroll to now"
+                  >
+                    <MaterialIcons name="my-location" size={16} color={theme.onPrimaryContainer} />
+                    <Text style={[styles.nowButtonText, { color: theme.onPrimaryContainer }]}>
+                      Now
+                    </Text>
+                  </TouchableOpacity>
+                )}
+
+                <TouchableOpacity
+                  style={[styles.orientationButton, { backgroundColor: theme.surfaceVariant }]}
+                  onPress={toggleOrientation}
+                  activeOpacity={0.7}
+                  accessibilityLabel="Switch to landscape guide mode"
+                >
+                  <MaterialIcons name="screen-rotation" size={16} color={theme.onSurface} />
+                  <Text style={[styles.orientationButtonText, { color: theme.onSurface }]}>
+                    Landscape
+                  </Text>
+                </TouchableOpacity>
+              </>
+            }
+          />
+
+          <OfflineBanner />
+
+          {/* Date Ribbon (-7 to +7 days) */}
+          <View style={[styles.dateRibbonContainer, { backgroundColor: theme.surface }]}>
+            <ScrollView
+              ref={dateScrollRef}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.dateRibbonScroll}
             >
-              {isRefreshing ? (
-                <ActivityIndicator size="small" color={theme.primary} />
-              ) : (
-                <MaterialIcons name="refresh" size={24} color={theme.onSurface} />
+              {tabs.map((tab, idx) => {
+                const isSelected = idx === selectedTabIndex;
+                return (
+                  <TouchableOpacity
+                    key={tab.dateStr}
+                    style={[
+                      styles.dateTab,
+                      isSelected && {
+                        backgroundColor: theme.primary,
+                        borderColor: theme.primary
+                      }
+                    ]}
+                    onPress={() => setSelectedTabIndex(idx)}
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      style={[
+                        styles.dateTabDayName,
+                        { color: isSelected ? theme.onPrimary : theme.onSurfaceVariant }
+                      ]}
+                    >
+                      {tab.dayName}
+                    </Text>
+                    {!tab.isToday && (
+                      <Text
+                        style={[
+                          styles.dateTabDayNum,
+                          { color: isSelected ? theme.onPrimary : theme.onSurface }
+                        ]}
+                      >
+                        {tab.dayNum}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+
+          {/* Category Filter Pills */}
+          <View style={[styles.categoryFilterBar, { backgroundColor: theme.surface }]}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.categoryFilterScroll}
+            >
+              {(["National", "Favourites", "Regions", "Local", "All"] as GuideFilterCategory[]).map(
+                (cat) => {
+                  const isSelected = activeCategory === cat;
+                  return (
+                    <TouchableOpacity
+                      key={cat}
+                      style={[
+                        styles.filterPill,
+                        isSelected
+                          ? { backgroundColor: theme.secondaryContainer, borderColor: theme.primary }
+                          : { backgroundColor: theme.surfaceContainer, borderColor: theme.outlineVariant }
+                      ]}
+                      onPress={() => setActiveCategory(cat)}
+                      activeOpacity={0.7}
+                    >
+                      {cat === "Favourites" && (
+                        <MaterialIcons
+                          name="star"
+                          size={14}
+                          color={isSelected ? theme.onSecondaryContainer : theme.star}
+                          style={{ marginRight: 4 }}
+                        />
+                      )}
+                      <Text
+                        style={[
+                          styles.filterPillText,
+                          {
+                            color: isSelected ? theme.onSecondaryContainer : theme.onSurfaceVariant,
+                            fontWeight: isSelected ? "700" : "500"
+                          }
+                        ]}
+                      >
+                        {cat}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                }
               )}
-            </HeaderIconButton>
+            </ScrollView>
+          </View>
+        </>
+      ) : (
+        /* Unified Landscape Mode Toolbar */
+        <View
+          style={[
+            styles.landscapeToolbar,
+            {
+              backgroundColor: theme.surface,
+              borderBottomColor: theme.outlineVariant,
+              paddingLeft: Math.max(10, insets.left),
+              paddingRight: Math.max(10, insets.right),
+              paddingTop: Math.max(2, insets.top)
+            }
+          ]}
+        >
+          {/* Left: Category filter pills */}
+          <View style={styles.landscapeCategoriesContainer}>
+            {(["National", "Favourites", "Regions", "Local", "All"] as GuideFilterCategory[]).map(
+              (cat) => {
+                const isSelected = activeCategory === cat;
+                return (
+                  <TouchableOpacity
+                    key={cat}
+                    style={[
+                      styles.landscapeCategoryPill,
+                      isSelected
+                        ? { backgroundColor: theme.secondaryContainer, borderColor: theme.primary }
+                        : { backgroundColor: theme.surfaceContainer, borderColor: theme.outlineVariant }
+                    ]}
+                    onPress={() => setActiveCategory(cat)}
+                    activeOpacity={0.7}
+                  >
+                    {cat === "Favourites" && (
+                      <MaterialIcons
+                        name="star"
+                        size={12}
+                        color={isSelected ? theme.onSecondaryContainer : theme.star}
+                        style={{ marginRight: 3 }}
+                      />
+                    )}
+                    <Text
+                      style={[
+                        styles.landscapeCategoryPillText,
+                        {
+                          color: isSelected ? theme.onSecondaryContainer : theme.onSurfaceVariant,
+                          fontWeight: isSelected ? "700" : "500"
+                        }
+                      ]}
+                    >
+                      {cat}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              }
+            )}
+          </View>
+
+          {/* Center: Date Stepper (< Today · Tue 12 Oct >) */}
+          <View style={styles.landscapeDateStepper}>
+            <TouchableOpacity
+              style={[styles.stepperArrow, !canGoPrevDay && styles.stepperArrowDisabled]}
+              disabled={!canGoPrevDay}
+              onPress={goToPrevDay}
+              accessibilityLabel="Previous day"
+            >
+              <MaterialIcons
+                name="chevron-left"
+                size={20}
+                color={canGoPrevDay ? theme.onSurface : theme.onSurfaceVariant + "55"}
+              />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.landscapeDateLabelPill,
+                selectedTab.isToday
+                  ? { backgroundColor: theme.primaryContainer }
+                  : { backgroundColor: theme.surfaceContainer }
+              ]}
+              onPress={() => {
+                if (!selectedTab.isToday) goToToday();
+              }}
+            >
+              <MaterialIcons
+                name="event"
+                size={14}
+                color={selectedTab.isToday ? theme.onPrimaryContainer : theme.primary}
+              />
+              <Text
+                style={[
+                  styles.landscapeDateLabelText,
+                  {
+                    color: selectedTab.isToday ? theme.onPrimaryContainer : theme.onSurface,
+                    fontWeight: "700"
+                  }
+                ]}
+              >
+                {selectedTab.label}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.stepperArrow, !canGoNextDay && styles.stepperArrowDisabled]}
+              disabled={!canGoNextDay}
+              onPress={goToNextDay}
+              accessibilityLabel="Next day"
+            >
+              <MaterialIcons
+                name="chevron-right"
+                size={20}
+                color={canGoNextDay ? theme.onSurface : theme.onSurfaceVariant + "55"}
+              />
+            </TouchableOpacity>
+
+            {!selectedTab.isToday && (
+              <TouchableOpacity
+                style={[styles.landscapeTodayJumpButton, { backgroundColor: theme.primary }]}
+                onPress={goToToday}
+                accessibilityLabel="Jump to today"
+              >
+                <Text style={[styles.landscapeTodayJumpText, { color: theme.onPrimary }]}>Today</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Right: Actions (Now, Refresh, Live Audio pill, Portrait toggle) */}
+          <View style={styles.landscapeRightActions}>
+            {currentStation && (
+              <TouchableOpacity
+                style={[styles.landscapePlaybackPill, { backgroundColor: theme.surfaceVariant }]}
+                onPress={() => void togglePlayPause()}
+                accessibilityLabel={`${isPlaying ? "Pause" : "Play"} ${currentStation.title}`}
+              >
+                <StationLogo stationId={currentStation.id} size={20} borderRadius={4} />
+                <MaterialIcons
+                  name={isPlaying ? "pause" : "play-arrow"}
+                  size={16}
+                  color={theme.primary}
+                />
+              </TouchableOpacity>
+            )}
 
             {isSelectedDateToday && (
               <TouchableOpacity
-                style={[styles.nowButton, { backgroundColor: theme.primaryContainer }]}
+                style={[styles.landscapeNowButton, { backgroundColor: theme.primaryContainer }]}
                 onPress={scrollToNow}
-                activeOpacity={0.7}
                 accessibilityLabel="Scroll to now"
               >
-                <MaterialIcons name="my-location" size={16} color={theme.onPrimaryContainer} />
-                <Text style={[styles.nowButtonText, { color: theme.onPrimaryContainer }]}>
+                <MaterialIcons name="my-location" size={14} color={theme.onPrimaryContainer} />
+                <Text style={[styles.landscapeNowButtonText, { color: theme.onPrimaryContainer }]}>
                   Now
                 </Text>
               </TouchableOpacity>
             )}
-          </>
-        }
-      />
 
-      <OfflineBanner />
+            <TouchableOpacity
+              style={styles.landscapeIconButton}
+              disabled={isRefreshing}
+              onPress={() => void refreshSchedules()}
+              accessibilityLabel="Refresh schedules"
+            >
+              {isRefreshing ? (
+                <ActivityIndicator size="small" color={theme.primary} />
+              ) : (
+                <MaterialIcons name="refresh" size={20} color={theme.onSurface} />
+              )}
+            </TouchableOpacity>
 
-      {/* Date Ribbon (-7 to +7 days) */}
-      <View style={[styles.dateRibbonContainer, { backgroundColor: theme.surface }]}>
-        <ScrollView
-          ref={dateScrollRef}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.dateRibbonScroll}
-        >
-          {tabs.map((tab, idx) => {
-            const isSelected = idx === selectedTabIndex;
-            return (
-              <TouchableOpacity
-                key={tab.dateStr}
-                style={[
-                  styles.dateTab,
-                  isSelected && {
-                    backgroundColor: theme.primary,
-                    borderColor: theme.primary
-                  }
-                ]}
-                onPress={() => setSelectedTabIndex(idx)}
-                activeOpacity={0.7}
-              >
-                <Text
-                  style={[
-                    styles.dateTabDayName,
-                    { color: isSelected ? theme.onPrimary : theme.onSurfaceVariant }
-                  ]}
-                >
-                  {tab.dayName}
-                </Text>
-                {!tab.isToday && (
-                  <Text
-                    style={[
-                      styles.dateTabDayNum,
-                      { color: isSelected ? theme.onPrimary : theme.onSurface }
-                    ]}
-                  >
-                    {tab.dayNum}
-                  </Text>
-                )}
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-      </View>
-
-      {/* Category Filter Pills */}
-      <View style={[styles.categoryFilterBar, { backgroundColor: theme.surface }]}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.categoryFilterScroll}
-        >
-          {(["National", "Favourites", "Regions", "Local", "All"] as GuideFilterCategory[]).map(
-            (cat) => {
-              const isSelected = activeCategory === cat;
-              return (
-                <TouchableOpacity
-                  key={cat}
-                  style={[
-                    styles.filterPill,
-                    isSelected
-                      ? { backgroundColor: theme.secondaryContainer, borderColor: theme.primary }
-                      : { backgroundColor: theme.surfaceContainer, borderColor: theme.outlineVariant }
-                  ]}
-                  onPress={() => setActiveCategory(cat)}
-                  activeOpacity={0.7}
-                >
-                  {cat === "Favourites" && (
-                    <MaterialIcons
-                      name="star"
-                      size={14}
-                      color={isSelected ? theme.onSecondaryContainer : theme.star}
-                      style={{ marginRight: 4 }}
-                    />
-                  )}
-                  <Text
-                    style={[
-                      styles.filterPillText,
-                      {
-                        color: isSelected ? theme.onSecondaryContainer : theme.onSurfaceVariant,
-                        fontWeight: isSelected ? "700" : "500"
-                      }
-                    ]}
-                  >
-                    {cat}
-                  </Text>
-                </TouchableOpacity>
-              );
-            }
-          )}
-        </ScrollView>
-      </View>
+            <TouchableOpacity
+              style={[styles.landscapePortraitButton, { backgroundColor: theme.surfaceVariant }]}
+              onPress={toggleOrientation}
+              accessibilityLabel="Exit landscape mode"
+            >
+              <MaterialIcons name="screen-rotation" size={16} color={theme.onSurface} />
+              <Text style={[styles.landscapePortraitButtonText, { color: theme.onSurface }]}>
+                Portrait
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
 
       {/* Grid Container */}
       <View style={[styles.gridContainer, { backgroundColor: theme.surface }]}>
         {/* Sticky Top Time Ruler Row */}
-        <View style={[styles.stickyHeaderRow, { borderBottomColor: theme.outlineVariant }]}>
+        <View
+          style={[
+            styles.stickyHeaderRow,
+            {
+              height: timeRulerHeight,
+              borderBottomColor: theme.outlineVariant,
+              paddingLeft: insets.left
+            }
+          ]}
+        >
           {/* Pinned top-left corner */}
           <View
             style={[
               styles.cornerBox,
-              { width: STATION_COLUMN_WIDTH, borderRightColor: theme.outlineVariant }
+              {
+                width: stationColumnWidth,
+                height: timeRulerHeight,
+                borderRightColor: theme.outlineVariant
+              }
             ]}
           >
-            <Text style={[styles.cornerText, { color: theme.onSurfaceVariant }]}>STATIONS</Text>
+            <Text
+              style={[
+                styles.cornerText,
+                { color: theme.onSurfaceVariant, fontSize: isLandscape ? 10 : 11 }
+              ]}
+            >
+              STATIONS
+            </Text>
           </View>
 
           {/* Horizontally scrolling Time Ruler */}
@@ -587,19 +849,25 @@ export default function GuideScreen() {
             showsHorizontalScrollIndicator={false}
             style={styles.timeRulerScroll}
           >
-            <View style={{ width: TIMELINE_WIDTH, height: 38, flexDirection: "row" }}>
+            <View style={{ width: timelineWidth, height: timeRulerHeight, flexDirection: "row" }}>
               {timeSlots.map((slot) => (
                 <View
                   key={slot.minuteOffset}
                   style={[
                     styles.timeSlotCell,
                     {
-                      width: 30 * PIXELS_PER_MINUTE,
+                      width: 30 * pixelsPerMinute,
+                      height: timeRulerHeight,
                       borderLeftColor: theme.outlineVariant
                     }
                   ]}
                 >
-                  <Text style={[styles.timeSlotText, { color: theme.onSurfaceVariant }]}>
+                  <Text
+                    style={[
+                      styles.timeSlotText,
+                      { color: theme.onSurfaceVariant, fontSize: isLandscape ? 10 : 11 }
+                    ]}
+                  >
                     {slot.label}
                   </Text>
                 </View>
@@ -622,16 +890,16 @@ export default function GuideScreen() {
         <ScrollView
           style={styles.mainVerticalScroll}
           contentContainerStyle={{
-            paddingBottom: 160 + insets.bottom
+            paddingBottom: isLandscape ? 20 + insets.bottom : 160 + insets.bottom
           }}
           showsVerticalScrollIndicator={true}
         >
-          <View style={styles.gridBodyRow}>
+          <View style={[styles.gridBodyRow, { paddingLeft: insets.left }]}>
             {/* Pinned Left Station Column */}
             <View
               style={[
                 styles.stationColumn,
-                { width: STATION_COLUMN_WIDTH, borderRightColor: theme.outlineVariant }
+                { width: stationColumnWidth, borderRightColor: theme.outlineVariant }
               ]}
             >
               {filteredStations.map((station) => {
@@ -644,17 +912,24 @@ export default function GuideScreen() {
                     style={[
                       styles.stationCell,
                       {
-                        height: ROW_HEIGHT,
+                        height: rowHeight,
                         borderBottomColor: theme.outlineVariant,
                         backgroundColor: isStationCurrent ? theme.primaryContainer : theme.surface
                       }
                     ]}
                   >
-                    <StationLogo stationId={station.id} size={36} borderRadius={8} />
+                    <StationLogo
+                      stationId={station.id}
+                      size={isLandscape ? 28 : 36}
+                      borderRadius={isLandscape ? 6 : 8}
+                    />
                     <Text
                       style={[
                         styles.stationCellTitle,
-                        { color: isStationCurrent ? theme.onPrimaryContainer : theme.onSurface }
+                        {
+                          color: isStationCurrent ? theme.onPrimaryContainer : theme.onSurface,
+                          fontSize: isLandscape ? 10 : 11
+                        }
                       ]}
                       numberOfLines={1}
                     >
@@ -695,7 +970,7 @@ export default function GuideScreen() {
               showsHorizontalScrollIndicator={true}
               style={styles.timelineHorizontalScroll}
             >
-              <View style={{ width: TIMELINE_WIDTH }}>
+              <View style={{ width: timelineWidth }}>
                 {guideRows.map((row) => {
                   const { station, blocks } = row;
                   const isLoading = loadingStations[station.id];
@@ -707,7 +982,7 @@ export default function GuideScreen() {
                       style={[
                         styles.stationScheduleRow,
                         {
-                          height: ROW_HEIGHT,
+                          height: rowHeight,
                           borderBottomColor: theme.outlineVariant
                         }
                       ]}
@@ -719,7 +994,7 @@ export default function GuideScreen() {
                           style={[
                             styles.backgroundTimeDivider,
                             {
-                              left: slot.minuteOffset * PIXELS_PER_MINUTE,
+                              left: slot.minuteOffset * pixelsPerMinute,
                               borderLeftColor: theme.outlineVariant
                             }
                           ]}
@@ -748,10 +1023,10 @@ export default function GuideScreen() {
                               {
                                 left,
                                 width: blockWidth,
-                                height: ROW_HEIGHT - 6,
+                                height: rowHeight - 6,
                                 top: 3,
                                 paddingHorizontal: isVeryNarrow ? 4 : isNarrow ? 6 : 8,
-                                paddingVertical: 4,
+                                paddingVertical: isLandscape ? 2 : 4,
                                 backgroundColor: isNow
                                   ? theme.primaryContainer
                                   : theme.surfaceVariant,
@@ -795,7 +1070,7 @@ export default function GuideScreen() {
                                           ? "volume-up"
                                           : "play-circle-filled"
                                       }
-                                      size={isVeryNarrow ? 15 : isNarrow ? 18 : 22}
+                                      size={isVeryNarrow ? 14 : isNarrow ? 16 : isLandscape ? 18 : 22}
                                       color="#E53935"
                                     />
                                   </TouchableOpacity>
@@ -809,8 +1084,8 @@ export default function GuideScreen() {
                                         ? theme.onPrimaryContainer
                                         : theme.onSurfaceVariant,
                                       fontWeight: isNow ? "700" : "600",
-                                      fontSize: isVeryNarrow ? 10 : isNarrow ? 11 : 12,
-                                      lineHeight: isVeryNarrow ? 12 : isNarrow ? 14 : 16,
+                                      fontSize: isVeryNarrow ? 9.5 : isNarrow ? 10.5 : isLandscape ? 11 : 12,
+                                      lineHeight: isVeryNarrow ? 12 : isNarrow ? 13 : isLandscape ? 14 : 16,
                                       flex: 1,
                                       paddingRight: showPodcastBadge ? 18 : 0
                                     }
@@ -829,8 +1104,8 @@ export default function GuideScreen() {
                                       color: isNow
                                         ? theme.onPrimaryContainer
                                         : theme.onSurfaceVariant,
-                                      fontSize: isNarrow ? 9 : 10,
-                                      marginTop: 2
+                                      fontSize: isNarrow ? 8.5 : isLandscape ? 9 : 10,
+                                      marginTop: isLandscape ? 1 : 2
                                     }
                                   ]}
                                   numberOfLines={1}
@@ -848,7 +1123,7 @@ export default function GuideScreen() {
                                 >
                                   <MaterialIcons
                                     name="podcasts"
-                                    size={isNarrow ? 14 : 16}
+                                    size={isNarrow ? 13 : isLandscape ? 14 : 16}
                                     color={theme.primary}
                                   />
                                 </TouchableOpacity>
@@ -898,7 +1173,7 @@ export default function GuideScreen() {
                       styles.verticalNowLine,
                       {
                         left: nowIndicatorLeft,
-                        height: Math.max(100, filteredStations.length * ROW_HEIGHT),
+                        height: Math.max(100, filteredStations.length * rowHeight),
                         backgroundColor: "#E53935"
                       }
                     ]}
@@ -922,100 +1197,103 @@ export default function GuideScreen() {
             <View
               style={[
                 styles.modalCard,
+                isLandscape && styles.modalCardLandscape,
                 { backgroundColor: theme.surface, borderColor: theme.outlineVariant }
               ]}
             >
-              <View style={styles.modalHeader}>
-                <View style={styles.modalStationHeader}>
-                  <StationLogo
-                    stationId={selectedProgram.station.id}
-                    size={32}
-                    borderRadius={6}
+              <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
+                <View style={styles.modalHeader}>
+                  <View style={styles.modalStationHeader}>
+                    <StationLogo
+                      stationId={selectedProgram.station.id}
+                      size={32}
+                      borderRadius={6}
+                    />
+                    <Text style={[styles.modalStationTitle, { color: theme.onSurface }]}>
+                      {selectedProgram.station.title}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => setSelectedProgram(null)}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <MaterialIcons name="close" size={24} color={theme.onSurfaceVariant} />
+                  </TouchableOpacity>
+                </View>
+
+                <Text style={[styles.modalProgramTitle, { color: theme.onSurface }]}>
+                  {selectedProgram.entry.title}
+                </Text>
+
+                {selectedProgram.entry.episodeTitle && (
+                  <Text
+                    style={[styles.modalEpisodeSubtitle, { color: theme.onSurfaceVariant }]}
+                  >
+                    {selectedProgram.entry.episodeTitle}
+                  </Text>
+                )}
+
+                <View style={styles.modalTimeRow}>
+                  <MaterialIcons
+                    name="schedule"
+                    size={16}
+                    color={theme.primary}
+                    style={{ marginRight: 6 }}
                   />
-                  <Text style={[styles.modalStationTitle, { color: theme.onSurface }]}>
-                    {selectedProgram.station.title}
+                  <Text style={[styles.modalTimeText, { color: theme.onSurfaceVariant }]}>
+                    {formatScheduleTime(selectedProgram.entry.startTimeMs)} –{" "}
+                    {formatScheduleTime(selectedProgram.entry.endTimeMs)}
                   </Text>
                 </View>
-                <TouchableOpacity
-                  onPress={() => setSelectedProgram(null)}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                >
-                  <MaterialIcons name="close" size={24} color={theme.onSurfaceVariant} />
-                </TouchableOpacity>
-              </View>
 
-              <Text style={[styles.modalProgramTitle, { color: theme.onSurface }]}>
-                {selectedProgram.entry.title}
-              </Text>
-
-              {selectedProgram.entry.episodeTitle && (
-                <Text
-                  style={[styles.modalEpisodeSubtitle, { color: theme.onSurfaceVariant }]}
-                >
-                  {selectedProgram.entry.episodeTitle}
-                </Text>
-              )}
-
-              <View style={styles.modalTimeRow}>
-                <MaterialIcons
-                  name="schedule"
-                  size={16}
-                  color={theme.primary}
-                  style={{ marginRight: 6 }}
-                />
-                <Text style={[styles.modalTimeText, { color: theme.onSurfaceVariant }]}>
-                  {formatScheduleTime(selectedProgram.entry.startTimeMs)} –{" "}
-                  {formatScheduleTime(selectedProgram.entry.endTimeMs)}
-                </Text>
-              </View>
-
-              {/* Action buttons */}
-              <View style={styles.modalActionButtons}>
-                {selectedProgram.isNow && (
-                  <TouchableOpacity
-                    style={[styles.modalActionButton, { backgroundColor: theme.primary }]}
-                    onPress={() => {
-                      void handlePlayStation(selectedProgram.station);
-                      setSelectedProgram(null);
-                    }}
-                  >
-                    <MaterialIcons name="play-arrow" size={20} color={theme.onPrimary} />
-                    <Text
-                      style={[styles.modalActionButtonText, { color: theme.onPrimary }]}
+                {/* Action buttons */}
+                <View style={styles.modalActionButtons}>
+                  {selectedProgram.isNow && (
+                    <TouchableOpacity
+                      style={[styles.modalActionButton, { backgroundColor: theme.primary }]}
+                      onPress={() => {
+                        void handlePlayStation(selectedProgram.station);
+                        setSelectedProgram(null);
+                      }}
                     >
-                      Listen Live
-                    </Text>
-                  </TouchableOpacity>
-                )}
+                      <MaterialIcons name="play-arrow" size={20} color={theme.onPrimary} />
+                      <Text
+                        style={[styles.modalActionButtonText, { color: theme.onPrimary }]}
+                      >
+                        Listen Live
+                      </Text>
+                    </TouchableOpacity>
+                  )}
 
-                {selectedProgram.matchedPodcast && (
-                  <TouchableOpacity
-                    style={[
-                      styles.modalActionButton,
-                      {
-                        backgroundColor: theme.secondaryContainer,
-                        borderColor: theme.primary,
-                        borderWidth: 1
-                      }
-                    ]}
-                    onPress={() => handleOpenPodcast(selectedProgram.matchedPodcast!)}
-                  >
-                    <MaterialIcons
-                      name="podcasts"
-                      size={20}
-                      color={theme.onSecondaryContainer}
-                    />
-                    <Text
+                  {selectedProgram.matchedPodcast && (
+                    <TouchableOpacity
                       style={[
-                        styles.modalActionButtonText,
-                        { color: theme.onSecondaryContainer }
+                        styles.modalActionButton,
+                        {
+                          backgroundColor: theme.secondaryContainer,
+                          borderColor: theme.primary,
+                          borderWidth: 1
+                        }
                       ]}
+                      onPress={() => handleOpenPodcast(selectedProgram.matchedPodcast!)}
                     >
-                      Open Podcast
-                    </Text>
-                  </TouchableOpacity>
-                )}
-              </View>
+                      <MaterialIcons
+                        name="podcasts"
+                        size={20}
+                        color={theme.onSecondaryContainer}
+                      />
+                      <Text
+                        style={[
+                          styles.modalActionButtonText,
+                          { color: theme.onSecondaryContainer }
+                        ]}
+                      >
+                        Open Podcast
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </ScrollView>
             </View>
           </View>
         </Modal>
@@ -1039,6 +1317,117 @@ const styles = StyleSheet.create({
   nowButtonText: {
     fontSize: 13,
     fontWeight: "700"
+  },
+  orientationButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
+    gap: 5
+  },
+  orientationButtonText: {
+    fontSize: 12,
+    fontWeight: "600"
+  },
+  landscapeToolbar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    minHeight: 46,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingVertical: 4,
+    gap: 8
+  },
+  landscapeCategoriesContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5
+  },
+  landscapeCategoryPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1
+  },
+  landscapeCategoryPillText: {
+    fontSize: 11
+  },
+  landscapeDateStepper: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4
+  },
+  stepperArrow: {
+    padding: 3,
+    borderRadius: 12
+  },
+  stepperArrowDisabled: {
+    opacity: 0.3
+  },
+  landscapeDateLabelPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12
+  },
+  landscapeDateLabelText: {
+    fontSize: 11.5
+  },
+  landscapeTodayJumpButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    marginLeft: 2
+  },
+  landscapeTodayJumpText: {
+    fontSize: 10.5,
+    fontWeight: "700"
+  },
+  landscapeRightActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6
+  },
+  landscapePlaybackPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 14,
+    gap: 5
+  },
+  landscapeNowButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 3
+  },
+  landscapeNowButtonText: {
+    fontSize: 11,
+    fontWeight: "700"
+  },
+  landscapeIconButton: {
+    padding: 5,
+    borderRadius: 12
+  },
+  landscapePortraitButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4
+  },
+  landscapePortraitButtonText: {
+    fontSize: 11,
+    fontWeight: "600"
   },
   dateRibbonContainer: {
     borderBottomWidth: StyleSheet.hairlineWidth,
@@ -1252,6 +1641,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 }
+  },
+  modalCardLandscape: {
+    maxWidth: 520,
+    maxHeight: "90%",
+    padding: 16
   },
   modalHeader: {
     flexDirection: "row",

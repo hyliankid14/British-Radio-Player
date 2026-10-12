@@ -5,6 +5,13 @@ import {
   calculateScheduleBlockLayout,
   normalizeTitle,
   matchShowToPodcast,
+  getGuideGridDimensions,
+  ROW_HEIGHT,
+  ROW_HEIGHT_LANDSCAPE,
+  STATION_COLUMN_WIDTH,
+  STATION_COLUMN_WIDTH_LANDSCAPE,
+  TIME_RULER_HEIGHT,
+  TIME_RULER_HEIGHT_LANDSCAPE,
   PIXELS_PER_MINUTE,
   MINUTES_IN_DAY,
   type PodcastLike
@@ -281,5 +288,48 @@ test("parseEssSchedule replaces the no_brand_title placeholder", () => {
   );
   assert.equal(sameName[0].title, "Radio 1 Anthems");
   assert.equal(sameName[0].isUnnamed, false);
+});
+
+test("getGuideGridDimensions provides tailored dimensions for portrait and landscape", () => {
+  const portrait = getGuideGridDimensions(false);
+  assert.equal(portrait.rowHeight, ROW_HEIGHT);
+  assert.equal(portrait.stationColumnWidth, STATION_COLUMN_WIDTH);
+  assert.equal(portrait.timeRulerHeight, TIME_RULER_HEIGHT);
+  assert.equal(portrait.pixelsPerMinute, PIXELS_PER_MINUTE);
+  assert.equal(portrait.timelineWidth, MINUTES_IN_DAY * PIXELS_PER_MINUTE);
+
+  const landscape = getGuideGridDimensions(true);
+  assert.equal(landscape.rowHeight, ROW_HEIGHT_LANDSCAPE);
+  assert.equal(landscape.stationColumnWidth, STATION_COLUMN_WIDTH_LANDSCAPE);
+  assert.equal(landscape.timeRulerHeight, TIME_RULER_HEIGHT_LANDSCAPE);
+  assert.equal(landscape.pixelsPerMinute, 4.0);
+  assert.equal(landscape.timelineWidth, MINUTES_IN_DAY * 4.0);
+
+  // Landscape row height is more compact to fit 5+ station rows on phone screens
+  assert.ok(landscape.rowHeight < portrait.rowHeight);
+  // Landscape station column provides slightly more room for station titles
+  assert.ok(landscape.stationColumnWidth >= portrait.stationColumnWidth);
+});
+
+test("landscape guide fits at least 5 stations in a 390dp phone viewport height", () => {
+  const landscape = getGuideGridDimensions(true);
+  const viewportHeight = 390;
+  const toolbarHeight = 46;
+  const timeRulerHeight = landscape.timeRulerHeight;
+  const availableGridHeight = viewportHeight - toolbarHeight - timeRulerHeight;
+
+  const visibleStations = Math.floor(availableGridHeight / landscape.rowHeight);
+  assert.ok(visibleStations >= 5, `expected at least 5 visible stations, got ${visibleStations}`);
+});
+
+test("landscape guide displays more than 2.5 hours of schedule across an 844dp phone screen width", () => {
+  const landscape = getGuideGridDimensions(true);
+  const screenWidth = 844;
+  const insetsLeftRight = 48 + 48; // dynamic island / notch + home bar margin
+  const visibleTimelineWidth = screenWidth - insetsLeftRight - landscape.stationColumnWidth;
+
+  const visibleMinutes = visibleTimelineWidth / landscape.pixelsPerMinute;
+  const visibleHours = visibleMinutes / 60;
+  assert.ok(visibleHours >= 2.5, `expected at least 2.5 hours visible, got ${visibleHours.toFixed(1)}`);
 });
 

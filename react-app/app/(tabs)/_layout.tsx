@@ -1,12 +1,14 @@
 import React from "react";
 import { View, StyleSheet, Text, ToastAndroid, Platform, Alert } from "react-native";
-import { Tabs, useRouter } from "expo-router";
+import { Tabs, useRouter, useSegments } from "expo-router";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MiniPlayer } from "../../src/components/MiniPlayer";
 import { useAppTheme } from "../../src/theme/colors";
 import { useNetworkStatus } from "../../src/store/networkStore";
 import { Preferences } from "../../src/storage/preferences";
+import { useResponsiveLayout } from "../../src/theme/responsive";
+import { lockToPortrait } from "../../src/utils/orientation";
 
 function notifyOffline(message: string) {
   if (Platform.OS === "android") {
@@ -23,6 +25,17 @@ export default function TabLayout() {
   const { isOnline } = useNetworkStatus();
   const navHeight = 80 + insets.bottom;
   const startupApplied = React.useRef(false);
+
+  const segments = useSegments();
+  const responsive = useResponsiveLayout();
+  const isLandscape = responsive.isLandscape;
+  const isGuideTab = segments[segments.length - 1] === "guide";
+  const hideChromeInLandscape = isLandscape && isGuideTab;
+
+  // Lock phone to portrait on startup so default app experience stays stable
+  React.useEffect(() => {
+    void lockToPortrait();
+  }, []);
 
   // Honour the user's "Startup page" preference on first mount, mirroring the Kotlin app.
   React.useEffect(() => {
@@ -55,15 +68,17 @@ export default function TabLayout() {
           headerShown: false,
           tabBarLabelPosition: "below-icon",
           tabBarItemStyle: styles.tabBarItem,
-          tabBarStyle: [
-            styles.tabBar,
-            {
-              backgroundColor: theme.surfaceContainer,
-              borderTopColor: theme.divider,
-              height: navHeight,
-              paddingBottom: 8 + insets.bottom
-            }
-          ],
+          tabBarStyle: hideChromeInLandscape
+            ? { display: "none" }
+            : [
+                styles.tabBar,
+                {
+                  backgroundColor: theme.surfaceContainer,
+                  borderTopColor: theme.divider,
+                  height: navHeight,
+                  paddingBottom: 8 + insets.bottom
+                }
+              ],
           tabBarActiveTintColor: theme.onSurface,
           tabBarInactiveTintColor: theme.navInactiveIcon,
           tabBarLabelStyle: styles.tabLabel
@@ -208,9 +223,11 @@ export default function TabLayout() {
       </Tabs>
 
       {/* Mini player anchored directly above bottom navigation */}
-      <View style={[styles.miniPlayerWrapper, { bottom: navHeight }]}>
-        <MiniPlayer />
-      </View>
+      {!hideChromeInLandscape && (
+        <View style={[styles.miniPlayerWrapper, { bottom: navHeight }]}>
+          <MiniPlayer />
+        </View>
+      )}
     </View>
   );
 }
