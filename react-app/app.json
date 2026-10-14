@@ -51,6 +51,9 @@
           { "INAlternativeAppName": "British Radio" },
           { "INAlternativeAppName": "Radio Player" }
         ],
+        "INIntentsSupported": [
+          "INPlayMediaIntent"
+        ],
         "NSUserActivityTypes": [
           "INPlayMediaIntent"
         ],

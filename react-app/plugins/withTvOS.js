@@ -143,6 +143,38 @@ function findTargetByName(project, name) {
   return null;
 }
 
+function findTargetUuidByName(project, name) {
+  const targets = project.pbxNativeTargetSection();
+  for (const [uuid, target] of Object.entries(targets)) {
+    if (uuid.endsWith("_comment")) continue;
+    if (target.name === name || target.name === `"${name}"`) return uuid;
+  }
+  return null;
+}
+
+function removeTargetDependencies(project, targetUuid, dependencyTargetUuids) {
+  const target = project.pbxNativeTargetSection()[targetUuid];
+  if (!target) return;
+
+  const dependencyTargets = new Set(dependencyTargetUuids.filter(Boolean));
+  const dependencies = project.hash.project.objects.PBXTargetDependency || {};
+  const proxies = project.hash.project.objects.PBXContainerItemProxy || {};
+
+  target.dependencies = (target.dependencies || []).filter(({ value }) => {
+    const dependency = dependencies[value];
+    if (!dependencyTargets.has(dependency?.target)) return true;
+
+    const proxyUuid = dependency.targetProxy;
+    delete dependencies[value];
+    delete dependencies[`${value}_comment`];
+    if (proxyUuid) {
+      delete proxies[proxyUuid];
+      delete proxies[`${proxyUuid}_comment`];
+    }
+    return false;
+  });
+}
+
 function ensureEmbedTopShelfPhase(project, tvTargetUuid) {
   const topShelfTarget = findTargetByName(project, TOP_SHELF_TARGET_NAME);
   if (!topShelfTarget || !tvTargetUuid) return;
@@ -497,6 +529,11 @@ function withTvOSTarget(config) {
     if (tvTargetUuid) {
       ensureEmbedTopShelfPhase(project, tvTargetUuid);
     }
+
+    removeTargetDependencies(project, appTargetEntry.uuid, [
+      tvTargetUuid,
+      findTargetUuidByName(project, TOP_SHELF_TARGET_NAME)
+    ]);
 
     return configWithProject;
   });

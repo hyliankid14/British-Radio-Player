@@ -39,7 +39,7 @@ struct BRPWatchApp: App {
                     let q = queryParam.lowercased()
                     if let podcast = allPods.first(where: { $0.title.lowercased().contains(q) || $0.id.lowercased().contains(q) }) {
                         WatchPodcastManager.shared.fetchEpisodes(for: podcast) { episodes in
-                            let unplayed = episodes.first(where: { !WatchSharedState.shared.isEpisodePlayed($0.id) }) ?? episodes.first
+                            let unplayed = episodes.first(where: { !WatchConnectivityManager.shared.isEpisodePlayed($0.id) }) ?? episodes.first
                             if let ep = unplayed {
                                 DispatchQueue.main.async {
                                     WatchPlaybackController.shared.playEpisode(ep, podcast: podcast)
@@ -51,7 +51,7 @@ struct BRPWatchApp: App {
                     let allPods = WatchPodcastManager.shared.subscribedPodcasts
                     if let podcast = allPods.randomElement() {
                         WatchPodcastManager.shared.fetchEpisodes(for: podcast) { episodes in
-                            let unplayed = episodes.first(where: { !WatchSharedState.shared.isEpisodePlayed($0.id) }) ?? episodes.first
+                            let unplayed = episodes.first(where: { !WatchConnectivityManager.shared.isEpisodePlayed($0.id) }) ?? episodes.first
                             if let ep = unplayed {
                                 DispatchQueue.main.async {
                                     WatchPlaybackController.shared.playEpisode(ep, podcast: podcast)

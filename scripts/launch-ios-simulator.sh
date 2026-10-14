@@ -84,7 +84,7 @@ APP_CONTAINER="$(xcrun simctl get_app_container booted "$BUNDLE_ID" 2>/dev/null 
 
 if [[ -z "$APP_CONTAINER" || "$REBUILD" == true ]]; then
   echo "Building and installing React app onto simulator..."
-  npx expo run:ios --no-bundler
+  npx expo run:ios --scheme BritishRadioPlayer --no-bundler
 fi
 
 # Launch a background waiter that ensures Metro is ready before launching the app on the simulator.

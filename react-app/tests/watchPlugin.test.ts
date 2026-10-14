@@ -37,4 +37,18 @@ test('watchOS plugin and sources are properly configured for voice and playback'
   assert.ok(infoPlist.includes('bbcradioplayer'), 'BRPWatch-Info.plist must declare bbcradioplayer URL scheme');
   assert.ok(infoPlist.includes('INPlayMediaIntent'), 'BRPWatch-Info.plist must declare INPlayMediaIntent');
   assert.ok(infoPlist.includes('INAlternativeAppNames'), 'BRPWatch-Info.plist must declare INAlternativeAppNames');
+
+  // Verify played episode resolution in watch sources uses WatchConnectivityManager
+  const watchAppSwift = fs.readFileSync(path.join(watchDir, 'App', 'BRPWatchApp.swift'), 'utf8');
+  assert.ok(watchAppSwift.includes('WatchConnectivityManager.shared.isEpisodePlayed'), 'BRPWatchApp must use WatchConnectivityManager.shared.isEpisodePlayed');
+  assert.ok(!watchAppSwift.includes('WatchSharedState.shared.isEpisodePlayed'), 'BRPWatchApp must not reference nonexistent WatchSharedState.shared');
+
+  const watchSiriSwift = fs.readFileSync(path.join(watchDir, 'Playback', 'WatchSiriIntents.swift'), 'utf8');
+  assert.ok(watchSiriSwift.includes('WatchConnectivityManager.shared.isEpisodePlayed'), 'WatchSiriIntents must use WatchConnectivityManager.shared.isEpisodePlayed');
+  assert.ok(!watchSiriSwift.includes('WatchSharedState.shared.isEpisodePlayed'), 'WatchSiriIntents must not reference nonexistent WatchSharedState.shared');
+  const watchSiriShortcuts = watchSiriSwift.slice(watchSiriSwift.indexOf('struct WatchSiriShortcutsProvider'));
+  assert.ok(!watchSiriShortcuts.includes('\\(\\.$query)'), 'WatchSiriShortcutsProvider must not interpolate non-AppEntity query into shortcut phrases');
+
+  const watchSharedStateSwift = fs.readFileSync(path.join(watchDir, 'Sync', 'WatchSharedState.swift'), 'utf8');
+  assert.ok(watchSharedStateSwift.includes('typealias WatchSharedState = WatchConnectivityManager'), 'WatchSharedState.swift must typealias WatchSharedState');
 });

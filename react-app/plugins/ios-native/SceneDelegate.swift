@@ -23,7 +23,8 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         WatchStateBridge.shared.start()
 
         // Handle cold start deep links
-        for context in connectionOptions.urlContexts {            let options: [UIApplication.OpenURLOptionsKey: Any] = [
+        for context in connectionOptions.urlContexts {
+            let options: [UIApplication.OpenURLOptionsKey: Any] = [
                 .sourceApplication: context.options.sourceApplication as Any,
                 .annotation: context.options.annotation as Any,
                 .openInPlace: context.options.openInPlace
@@ -38,7 +39,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         // Handle cold start universal links and Siri media intents
         if let userActivity = connectionOptions.userActivities.first {
             if let intent = userActivity.interaction?.intent as? INPlayMediaIntent {
-                let query = intent.mediaSearch?.mediaName ?? intent.mediaSearch?.searchTerm ?? ""
+                let query = intent.mediaSearch?.mediaName ?? intent.mediaSearch?.artistName ?? intent.mediaItems?.first?.title ?? ""
                 let urlString = query.isEmpty ? "bbcradioplayer://voice/resume" : "bbcradioplayer://voice/play?query=\(query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"
                 if let playUrl = URL(string: urlString) {
                     _ = RCTLinkingManager.application(UIApplication.shared, open: playUrl, options: [:])
@@ -51,6 +52,18 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             } else {
                 _ = RCTLinkingManager.application(UIApplication.shared, continue: userActivity, restorationHandler: { _ in })
             }
+        }
+
+        // Drain any pending Siri voice action posted before app launch
+        if let pendingUrl = SiriPendingAction.consume(), let url = URL(string: pendingUrl) {
+            _ = RCTLinkingManager.application(UIApplication.shared, open: url, options: [:])
+        }
+    }
+
+    func sceneDidBecomeActive(_ scene: UIScene) {
+        // Drain any pending Siri voice action on warm activation
+        if let pendingUrl = SiriPendingAction.consume(), let url = URL(string: pendingUrl) {
+            _ = RCTLinkingManager.application(UIApplication.shared, open: url, options: [:])
         }
     }
 
@@ -71,7 +84,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
         if let intent = userActivity.interaction?.intent as? INPlayMediaIntent {
-            let query = intent.mediaSearch?.mediaName ?? intent.mediaSearch?.searchTerm ?? ""
+            let query = intent.mediaSearch?.mediaName ?? intent.mediaSearch?.artistName ?? intent.mediaItems?.first?.title ?? ""
             let urlString = query.isEmpty ? "bbcradioplayer://voice/resume" : "bbcradioplayer://voice/play?query=\(query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"
             if let playUrl = URL(string: urlString) {
                 _ = RCTLinkingManager.application(UIApplication.shared, open: playUrl, options: [:])
@@ -86,4 +99,3 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         }
     }
 }
-

@@ -178,7 +178,7 @@ struct WatchPlayPodcastIntent: AppIntent {
         if let pod = targetPod {
             await withCheckedContinuation { continuation in
                 WatchPodcastManager.shared.fetchEpisodes(for: pod) { episodes in
-                    let unplayed = episodes.first(where: { !WatchSharedState.shared.isEpisodePlayed($0.id) }) ?? episodes.first
+                    let unplayed = episodes.first(where: { !WatchConnectivityManager.shared.isEpisodePlayed($0.id) }) ?? episodes.first
                     if let ep = unplayed {
                         WatchPlaybackController.shared.playEpisode(ep, podcast: pod)
                     }
@@ -202,7 +202,7 @@ struct WatchPlayRandomPodcastIntent: AppIntent {
         if let chosen = subs.randomElement() {
             await withCheckedContinuation { continuation in
                 WatchPodcastManager.shared.fetchEpisodes(for: chosen) { episodes in
-                    let unplayed = episodes.first(where: { !WatchSharedState.shared.isEpisodePlayed($0.id) }) ?? episodes.first
+                    let unplayed = episodes.first(where: { !WatchConnectivityManager.shared.isEpisodePlayed($0.id) }) ?? episodes.first
                     if let ep = unplayed {
                         WatchPlaybackController.shared.playEpisode(ep, podcast: chosen)
                     }
@@ -250,7 +250,7 @@ struct WatchPlayFromSearchIntent: AppIntent {
         if let pod = subs.first(where: { $0.title.lowercased().contains(q) }) {
             await withCheckedContinuation { continuation in
                 WatchPodcastManager.shared.fetchEpisodes(for: pod) { episodes in
-                    let unplayed = episodes.first(where: { !WatchSharedState.shared.isEpisodePlayed($0.id) }) ?? episodes.first
+                    let unplayed = episodes.first(where: { !WatchConnectivityManager.shared.isEpisodePlayed($0.id) }) ?? episodes.first
                     if let ep = unplayed {
                         WatchPlaybackController.shared.playEpisode(ep, podcast: pod)
                     }
@@ -332,8 +332,8 @@ struct WatchSiriShortcutsProvider: AppShortcutsProvider {
         AppShortcut(
             intent: WatchPlayFromSearchIntent(),
             phrases: [
-                "Play \(\.$query) on \(.applicationName)",
-                "Play \(\.$query) with \(.applicationName)",
+                "Search and play with \(.applicationName)",
+                "Search and play on \(.applicationName)",
                 "Play \(.applicationName)"
             ],
             shortTitle: "Voice Search",

@@ -239,6 +239,55 @@ const PATCHES = [
           "  }\n"
       }
     ]
+  },
+  {
+    package: "expo-modules-jsi",
+    file: "apple/scripts/build-xcframework.sh",
+    reason:
+      "Strip C++ type extensions (^extension __ObjC) with both dot and double-colon syntax " +
+      "so modern Swift / Xcode 16+ textual interfaces import cleanly in expo-modules-core",
+    replacements: [
+      {
+        from: "sed '/^extension __ObjC\\./,/^}/d;",
+        to: "sed '/^extension __ObjC/,/^}/d;"
+      }
+    ]
+  },
+  {
+    package: "expo-modules-jsi",
+    file: "apple/Products/ExpoModulesJSI.xcframework/ios-arm64/ExpoModulesJSI.framework/Modules/ExpoModulesJSI.swiftmodule/arm64-apple-ios.swiftinterface",
+    reason:
+      "Remove unresolvable C++ CppError extension from the prebuilt arm64-apple-ios swiftinterface",
+    replacements: [
+      {
+        from: "extension __ObjC::expo.__ObjC::CppError : Swift::Error {\n  public var message: Swift::String {\n    get\n  }\n}\n",
+        to: "// [stripped] CppError extension removed for Swift 6 interface compatibility\n"
+      }
+    ]
+  },
+  {
+    package: "expo-modules-jsi",
+    file: "apple/Products/ExpoModulesJSI.xcframework/ios-arm64_x86_64-simulator/ExpoModulesJSI.framework/Modules/ExpoModulesJSI.swiftmodule/arm64-apple-ios-simulator.swiftinterface",
+    reason:
+      "Remove unresolvable C++ CppError extension from the prebuilt arm64-apple-ios-simulator swiftinterface",
+    replacements: [
+      {
+        from: "extension __ObjC::expo.__ObjC::CppError : Swift::Error {\n  public var message: Swift::String {\n    get\n  }\n}\n",
+        to: "// [stripped] CppError extension removed for Swift 6 interface compatibility\n"
+      }
+    ]
+  },
+  {
+    package: "expo-modules-jsi",
+    file: "apple/Products/ExpoModulesJSI.xcframework/ios-arm64_x86_64-simulator/ExpoModulesJSI.framework/Modules/ExpoModulesJSI.swiftmodule/x86_64-apple-ios-simulator.swiftinterface",
+    reason:
+      "Remove unresolvable C++ CppError extension from the prebuilt x86_64-apple-ios-simulator swiftinterface",
+    replacements: [
+      {
+        from: "extension __ObjC::expo.__ObjC::CppError : Swift::Error {\n  public var message: Swift::String {\n    get\n  }\n}\n",
+        to: "// [stripped] CppError extension removed for Swift 6 interface compatibility\n"
+      }
+    ]
   }
 ];
 

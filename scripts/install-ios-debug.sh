@@ -170,7 +170,7 @@ if [[ -n "$BINARY_PATH" && -e "$BINARY_PATH" ]]; then
 fi
 
 echo "Building and installing React Native Debug app onto $TARGET_NAME..."
-npx expo run:ios --device "$TARGET_UDID" --configuration Debug --no-bundler ${PASSTHROUGH_ARGS[@]+"${PASSTHROUGH_ARGS[@]}"}
+npx expo run:ios --scheme BritishRadioPlayer --device "$TARGET_UDID" --configuration Debug --no-bundler ${PASSTHROUGH_ARGS[@]+"${PASSTHROUGH_ARGS[@]}"}
 
 echo ""
 echo "=== Installation complete ==="

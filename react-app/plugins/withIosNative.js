@@ -15,6 +15,16 @@ const SWIFT_DIR = path.join(__dirname, "ios-native");
 // Diagnostic logging that used to be hand-added to the generated AppDelegate.swift.
 const TRACE_LOG_LINE = /^[ \t]*NSLog\("=== BRP_TRACE[^\n]*\n/gm;
 
+// Marker used to make the Siri registration patch idempotent across repeated prebuild runs.
+const SIRI_SHORTCUT_MARKER = "// brp-siri-shortcuts-registered";
+const SIRI_HANDLER_MARKER = "// brp-siri-handler-injected";
+
+// The line in the Expo-generated AppDelegate where we inject the Siri call.
+// We target `return super.application(...)` which is the last statement in
+// `didFinishLaunchingWithOptions`, guaranteed to be present in every Expo template.
+const SIRI_INJECT_ANCHOR =
+  "return super.application(application, didFinishLaunchingWithOptions: launchOptions)";
+
 // The template's bundleURL() asks RCTBundleURLProvider for a Metro URL in
 // DEBUG. That provider already falls back to the embedded main.jsbundle when no
 // packager is reachable, so a Debug build that bundled its JS starts with no
@@ -132,6 +142,59 @@ function withIosNativeSources(config) {
         appDelegate = patched;
       }
 
+      // Ensure `import Intents` is present in AppDelegate.swift
+      if (!appDelegate.includes("import Intents")) {
+        appDelegate = "import Intents\n" + appDelegate;
+      }
+
+      // Register App Shortcuts with Siri so that "Play Radio 2 on British Radio Player"
+      // is recognised. `updateAppShortcutParameters()` must be called every launch;
+      // without it Siri responds with "hasn't added support for that".
+      if (!appDelegate.includes(SIRI_SHORTCUT_MARKER)) {
+        const injection = [
+          `    ${SIRI_SHORTCUT_MARKER}`,
+          `    if #available(iOS 16.0, *) {`,
+          `      SiriShortcutsProvider.updateAppShortcutParameters()`,
+          `    }`,
+          `    ${SIRI_INJECT_ANCHOR}`,
+        ].join("\n");
+        const patched = appDelegate.replace(SIRI_INJECT_ANCHOR, injection);
+        if (patched === appDelegate) {
+          console.warn(
+            "[withIosNative] Could not locate the super.application return in AppDelegate; " +
+              "Siri shortcut registration was not injected. Voice commands may not work."
+          );
+        } else {
+          appDelegate = patched;
+        }
+      }
+
+      // Inject application(_:handlerFor:) into AppDelegate class body so that
+      // SiriKit INPlayMediaIntent requests are routed to PlayMediaIntentHandler.
+      if (!appDelegate.includes(SIRI_HANDLER_MARKER)) {
+        const handlerSnippet = [
+          `  ${SIRI_HANDLER_MARKER}`,
+          `  public func application(`,
+          `    _ application: UIApplication,`,
+          `    handlerFor intent: INIntent`,
+          `  ) -> Any? {`,
+          `    if intent is INPlayMediaIntent {`,
+          `      return PlayMediaIntentHandler.shared`,
+          `    }`,
+          `    return nil`,
+          `  }`,
+          `}`,
+        ].join("\n");
+        const closingBraceRegex = /\n}\s*\n\s*class ReactNativeDelegate/;
+        if (closingBraceRegex.test(appDelegate)) {
+          appDelegate = appDelegate.replace(closingBraceRegex, `\n\n${handlerSnippet}\n\nclass ReactNativeDelegate`);
+        } else {
+          console.warn(
+            "[withIosNative] Could not locate AppDelegate closing brace to inject handlerFor"
+          );
+        }
+      }
+
       await fs.promises.writeFile(appDelegatePath, appDelegate);
       return configWithModRequest;
     }
@@ -190,6 +253,20 @@ function withSceneManifests(config) {
       UIApplicationSupportsMultipleScenes: ENABLE_CARPLAY ? true : (existing.UIApplicationSupportsMultipleScenes ?? false),
       UISceneConfigurations: scenes
     };
+
+    configWithInfoPlist.modResults.INIntentsSupported = [
+      "INPlayMediaIntent"
+    ];
+    configWithInfoPlist.modResults.INSupportedMediaCategories = [
+      "INMediaCategoryRadio",
+      "INMediaCategoryPodcasts"
+    ];
+    configWithInfoPlist.modResults.NSUserActivityTypes = Array.from(
+      new Set([
+        ...(configWithInfoPlist.modResults.NSUserActivityTypes || []),
+        "INPlayMediaIntent"
+      ])
+    );
 
     return configWithInfoPlist;
   });

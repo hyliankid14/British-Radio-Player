@@ -1,5 +1,7 @@
 import Foundation
 
+typealias WatchSharedState = WatchConnectivityManager
+
 enum AudioQuality: String, Codable {
     case low = "low"
     case standard = "standard"
