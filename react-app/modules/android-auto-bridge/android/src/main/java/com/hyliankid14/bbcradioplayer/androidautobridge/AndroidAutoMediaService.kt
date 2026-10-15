@@ -28,6 +28,9 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.media.MediaBrowserServiceCompat
 import androidx.media.app.NotificationCompat.MediaStyle
+import android.media.AudioAttributes as FrameworkAudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem as ExoMediaItem
@@ -89,6 +92,142 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
   private var lastTrackedEpisodeAnalyticsId: String? = null
   private var lastTrackedSongSignature: String = ""
 
+  private val audioManager by lazy { getSystemService(Context.AUDIO_SERVICE) as AudioManager }
+  private var audioFocusRequest: AudioFocusRequest? = null
+  private var stoppedForTransientFocusLoss = false
+  private var isDucked = false
+
+  private fun isPauseBufferingEnabled(): Boolean =
+    AutoState.settingBoolean(this, "pauseBuffering", true)
+
+  private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
+    when (focusChange) {
+      AudioManager.AUDIOFOCUS_GAIN -> {
+        Log.d(TAG, "Audio focus gained")
+        if (isDucked) {
+          player.volume = 1.0f
+          isDucked = false
+        }
+        if (stoppedForTransientFocusLoss) {
+          stoppedForTransientFocusLoss = false
+          if (kind == Kind.STATION) {
+            if (!isPauseBufferingEnabled() || player.playbackState == Player.STATE_IDLE) {
+              Log.d(TAG, "Resuming station after transient focus loss from live edge")
+              startCandidate()
+            } else {
+              player.play()
+            }
+          } else if (kind == Kind.EPISODE) {
+            player.play()
+          }
+          startProgressTicker()
+          updatePlaybackState()
+        }
+      }
+      AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+        Log.d(TAG, "Audio focus transient loss (can duck)")
+        if (player.isPlaying) {
+          player.volume = 0.2f
+          isDucked = true
+        }
+      }
+      AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+        Log.d(TAG, "Audio focus transient loss")
+        if (isDucked) {
+          player.volume = 1.0f
+          isDucked = false
+        }
+        val isCurrentlyPlaying = player.isPlaying || player.playbackState == Player.STATE_BUFFERING
+        if (isCurrentlyPlaying) {
+          stoppedForTransientFocusLoss = true
+          if (kind == Kind.STATION && !isPauseBufferingEnabled()) {
+            Log.d(TAG, "Stopping live station on transient focus loss to prevent buffering")
+            player.stop()
+          } else {
+            player.pause()
+            if (kind == Kind.EPISODE) persistProgress()
+          }
+          updatePlaybackState()
+        }
+      }
+      AudioManager.AUDIOFOCUS_LOSS -> {
+        Log.d(TAG, "Audio focus permanently lost")
+        stoppedForTransientFocusLoss = false
+        if (isDucked) {
+          player.volume = 1.0f
+          isDucked = false
+        }
+        if (player.isPlaying || player.playbackState == Player.STATE_BUFFERING) {
+          handlePause()
+        }
+      }
+    }
+  }
+
+  private fun requestAudioFocus(): Boolean {
+    val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      if (audioFocusRequest == null) {
+        val playbackAttributes = FrameworkAudioAttributes.Builder()
+          .setUsage(FrameworkAudioAttributes.USAGE_MEDIA)
+          .setContentType(FrameworkAudioAttributes.CONTENT_TYPE_MUSIC)
+          .build()
+
+        audioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+          .setAudioAttributes(playbackAttributes)
+          .setAcceptsDelayedFocusGain(false)
+          .setOnAudioFocusChangeListener(audioFocusChangeListener, handler)
+          .build()
+      }
+      audioManager.requestAudioFocus(audioFocusRequest!!)
+    } else {
+      @Suppress("DEPRECATION")
+      audioManager.requestAudioFocus(
+        audioFocusChangeListener,
+        AudioManager.STREAM_MUSIC,
+        AudioManager.AUDIOFOCUS_GAIN
+      )
+    }
+    return result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+  }
+
+  private fun abandonAudioFocus() {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      audioFocusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+      audioFocusRequest = null
+    } else {
+      @Suppress("DEPRECATION")
+      audioManager.abandonAudioFocus(audioFocusChangeListener)
+    }
+  }
+
+  private fun handlePlay() {
+    stoppedForTransientFocusLoss = false
+    if (kind == Kind.NONE) {
+      resumeLastSession()
+    } else if (kind == Kind.STATION && (!isPauseBufferingEnabled() || player.playbackState == Player.STATE_IDLE)) {
+      Log.d(TAG, "Resuming live station at live edge (pauseBuffering=${isPauseBufferingEnabled()})")
+      startCandidate()
+    } else {
+      if (requestAudioFocus()) {
+        player.play()
+      }
+    }
+    startProgressTicker()
+    updatePlaybackState()
+  }
+
+  private fun handlePause() {
+    stoppedForTransientFocusLoss = false
+    if (kind == Kind.STATION && !isPauseBufferingEnabled()) {
+      Log.d(TAG, "Pausing live radio with buffering disabled: stopping player")
+      player.stop()
+    } else {
+      player.pause()
+      if (kind == Kind.EPISODE) persistProgress()
+    }
+    updatePlaybackState()
+  }
+
   private val progressTick = object : Runnable {
     override fun run() {
       updatePlaybackState()
@@ -134,17 +273,9 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
           MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS
       )
       setCallback(object : MediaSessionCompat.Callback() {
-        override fun onPlay() {
-          if (kind == Kind.NONE) resumeLastSession() else player.play()
-          startProgressTicker()
-          updatePlaybackState()
-        }
+        override fun onPlay() = handlePlay()
 
-        override fun onPause() {
-          player.pause()
-          persistProgress()
-          updatePlaybackState()
-        }
+        override fun onPause() = handlePause()
 
         override fun onStop() = stopPlayback()
 
@@ -209,11 +340,8 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     when (intent?.action) {
-      ACTION_PLAY -> if (kind == Kind.NONE) resumeLastSession() else player.play()
-      ACTION_PAUSE -> {
-        player.pause()
-        persistProgress()
-      }
+      ACTION_PLAY -> handlePlay()
+      ACTION_PAUSE -> handlePause()
       ACTION_STOP -> stopPlayback()
       ACTION_NEXT -> skipToNext()
       ACTION_PREVIOUS -> skipToPrevious()
@@ -230,6 +358,7 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
 
   override fun onDestroy() {
     instance = null
+    abandonAudioFocus()
     cancelAnalyticsTimers()
     handler.removeCallbacks(progressTick)
     try { unregisterReceiver(stateReceiver) } catch (_: Exception) { }
@@ -259,7 +388,7 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
           .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
           .setUsage(C.USAGE_MEDIA)
           .build(),
-        /* handleAudioFocus = */ true
+        /* handleAudioFocus = */ false
       )
       .setHandleAudioBecomingNoisy(true)
       .build()
@@ -524,6 +653,10 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
 
   /** Prepares the candidate at [candidateIndex]. Returns true when preparation was started. */
   private fun startCandidate(): Boolean {
+    if (!requestAudioFocus()) {
+      Log.w(TAG, "Audio focus not granted")
+      return false
+    }
     val url = candidates.getOrNull(candidateIndex) ?: return false
     isStopped = false
     val mediaItem = ExoMediaItem.Builder()
@@ -609,13 +742,17 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
 
   fun onPhonePlaybackStarted() {
     if (player.isPlaying) {
-      player.pause()
-      persistProgress()
-      updatePlaybackState()
+      handlePause()
     }
   }
 
   private fun stopPlayback() {
+    abandonAudioFocus()
+    stoppedForTransientFocusLoss = false
+    if (isDucked) {
+      player.volume = 1.0f
+      isDucked = false
+    }
     cancelAnalyticsTimers()
     persistProgress()
     kind = Kind.NONE
@@ -948,7 +1085,7 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
     }
 
     session.setPlaybackState(builder.build())
-    if (kind != Kind.NONE && (player.isPlaying || player.playbackState == Player.STATE_BUFFERING || player.playbackState == Player.STATE_READY)) {
+    if (kind != Kind.NONE && !isStopped) {
       updateNotification()
     }
   }
@@ -1930,7 +2067,7 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
 
   private fun handlePlayFromSearch(query: String?) {
     if (query.isNullOrBlank()) {
-      if (kind == Kind.NONE) resumeLastSession() else player.play()
+      if (kind == Kind.NONE) resumeLastSession() else handlePlay()
       return
     }
     val terms = query.lowercase(Locale.US).trim().split(" ").filter { it.isNotBlank() }

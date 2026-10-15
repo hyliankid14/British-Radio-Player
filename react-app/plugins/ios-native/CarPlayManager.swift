@@ -173,6 +173,12 @@ final class CarPlayManager: NSObject {
                 name: CarPlayState.didChangeNotification,
                 object: nil
             )
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(handleAudioInterruption),
+                name: AVAudioSession.interruptionNotification,
+                object: nil
+            )
         }
 
         interfaceController.delegate = self
@@ -212,6 +218,35 @@ final class CarPlayManager: NSObject {
         updateNowPlayingInfo()
     }
 
+    @objc private func handleAudioInterruption(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else {
+            return
+        }
+        switch type {
+        case .began:
+            if let player = self.player, player.timeControlStatus == .playing {
+                player.pause()
+                self.persistProgress()
+                self.updateNowPlayingInfo()
+            }
+        case .ended:
+            let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+            let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
+            if options.contains(.shouldResume) {
+                if let station = self.currentStation, !self.isPauseBufferingEnabled {
+                    self.play(station: station)
+                } else {
+                    self.player?.play()
+                }
+                self.updateNowPlayingInfo()
+            }
+        @unknown default:
+            break
+        }
+    }
+
     static let phonePlaybackKey = "carplay_phone_playback_active"
 
     // MARK: - Remote commands
@@ -225,7 +260,11 @@ final class CarPlayManager: NSObject {
         center.playCommand.addTarget { [weak self] _ in
             Task { @MainActor in
                 guard let self, let player = self.player else { return }
-                player.play()
+                if let station = self.currentStation, !self.isPauseBufferingEnabled {
+                    self.play(station: station)
+                } else {
+                    player.play()
+                }
                 self.updateNowPlayingInfo()
             }
             return .success
@@ -250,7 +289,11 @@ final class CarPlayManager: NSObject {
                     player.pause()
                     self.persistProgress()
                 } else {
-                    player.play()
+                    if let station = self.currentStation, !self.isPauseBufferingEnabled {
+                        self.play(station: station)
+                    } else {
+                        player.play()
+                    }
                 }
                 self.updateNowPlayingInfo()
             }
@@ -813,6 +856,15 @@ final class CarPlayManager: NSObject {
     private var isEpisodePlaying: Bool {
         if case .episode = kind { return true }
         return false
+    }
+
+    private var currentStation: CarPlayStation? {
+        if case .station(let station) = kind { return station }
+        return nil
+    }
+
+    private var isPauseBufferingEnabled: Bool {
+        CarPlayState.shared.settingBool("pauseBuffering", fallback: true)
     }
 
     private var currentStationId: String? {

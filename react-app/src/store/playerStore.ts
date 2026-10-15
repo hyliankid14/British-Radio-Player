@@ -870,6 +870,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         await get().playStation(currentStation);
         return;
       }
+      const pauseBuffering = Preferences.getSetting("pref_pause_buffering", true);
+      if (!pauseBuffering) {
+        await get().playStation(currentStation);
+        return;
+      }
       await TrackPlayer.play();
       set({ isPlaying: true });
       ScrobbleManager.onPlaybackResumed();

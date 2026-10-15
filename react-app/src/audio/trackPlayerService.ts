@@ -4,11 +4,11 @@ import { ScrobbleManager } from "./scrobbleManager";
 
 export async function playbackService(): Promise<void> {
   TrackPlayer.addEventListener(Event.RemotePlay, () => {
-    TrackPlayer.play();
+    void usePlayerStore.getState().resume();
   });
 
   TrackPlayer.addEventListener(Event.RemotePause, () => {
-    TrackPlayer.pause();
+    void usePlayerStore.getState().pause();
   });
 
   TrackPlayer.addEventListener(Event.RemoteStop, () => {
@@ -37,9 +37,9 @@ export async function playbackService(): Promise<void> {
 
   TrackPlayer.addEventListener(Event.RemoteDuck, async (event) => {
     if (event.paused || event.permanent) {
-      await TrackPlayer.pause();
+      await usePlayerStore.getState().pause();
     } else {
-      await TrackPlayer.play();
+      await usePlayerStore.getState().resume();
     }
   });
 
