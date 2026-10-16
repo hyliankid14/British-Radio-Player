@@ -349,6 +349,17 @@ const PATCHES = [
         to: "    const DOMParser = xmldom_1.DOMParser || xmldom_1.default?.DOMParser || require('@xmldom/xmldom/lib/dom-parser').DOMParser;\n    const doc = new DOMParser({ errorHandler() { } }).parseFromString(xml);"
       }
     ]
+  },
+  {
+    package: "expo",
+    file: "node_modules/@expo/cli/build/src/prebuild/clearNativeFolder.js",
+    reason: "Fallback to rm -rf when fs.promises.rm fails with ENOTEMPTY on macOS in Node 26",
+    replacements: [
+      {
+        from: "        await Promise.all(folders.map((folderName)=>_fs().default.promises.rm(_path().default.join(projectRoot, folderName), {\n                recursive: true,\n                force: true\n            })));",
+        to: "        await Promise.all(folders.map(async (folderName)=>{\n            const target = _path().default.join(projectRoot, folderName);\n            try {\n                await _fs().default.promises.rm(target, {\n                    recursive: true,\n                    force: true\n                });\n            } catch (e) {\n                require('child_process').execFileSync('rm', ['-rf', target]);\n            }\n        }));"
+      }
+    ]
   }
 ];
 
