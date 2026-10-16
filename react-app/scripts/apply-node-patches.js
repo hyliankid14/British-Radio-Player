@@ -414,3 +414,17 @@ for (const patch of PATCHES) {
     console.log(`[patch] applied ${patch.package} — ${patch.reason}`);
   }
 }
+
+// Ensure hermesc is ad-hoc code-signed on macOS so taskgated doesn't SIGKILL it during Xcode archive
+if (process.platform === "darwin") {
+  const hermescPath = path.join(__dirname, "..", "node_modules", "hermes-compiler", "hermesc", "osx-bin", "hermesc");
+  if (fs.existsSync(hermescPath)) {
+    try {
+      require("child_process").execFileSync("codesign", ["-s", "-", "--force", hermescPath]);
+      console.log("[patch] hermesc code-signed for macOS taskgated");
+    } catch (e) {
+      console.warn("[patch] failed to code-sign hermesc:", e.message);
+    }
+  }
+}
+
