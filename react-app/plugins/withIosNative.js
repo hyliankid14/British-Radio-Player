@@ -107,11 +107,12 @@ function withIosNativeSources(config) {
       const swiftFiles = (await fs.promises.readdir(SWIFT_DIR)).filter((f) =>
         f.endsWith(".swift")
       );
+      const { execFileSync } = require("child_process");
       for (const file of swiftFiles) {
-        await fs.promises.copyFile(
+        execFileSync("/bin/cp", [
           path.join(SWIFT_DIR, file),
           path.join(sourceRoot, file)
-        );
+        ]);
       }
 
       const appDelegatePath = path.join(sourceRoot, "AppDelegate.swift");

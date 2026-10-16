@@ -135,13 +135,13 @@ if [[ "$PRECLEAN" == "1" ]]; then
   echo "Regenerating the iOS project from scratch..."
   (
     cd "$APP_DIR"
-    npx expo prebuild --platform ios --clean
+    npx expo prebuild --platform ios --clean --no-install
   )
 else
   echo "Regenerating the iOS project..."
   (
     cd "$APP_DIR"
-    npx expo prebuild --platform ios
+    npx expo prebuild --platform ios --no-install
   )
 fi
 

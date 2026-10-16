@@ -23,9 +23,15 @@ const APP_GROUP_ID = "group.com.hyliankid14.bbcradioplayer";
 const WATCHOS_DEPLOYMENT_TARGET = "10.0";
 const SWIFT_VERSION = "5.0";
 
+const { execFileSync } = require("child_process");
+
 function listFiles(directory, extension) {
   if (!fs.existsSync(directory)) return [];
   return fs.readdirSync(directory).filter((name) => name.endsWith(extension)).sort();
+}
+
+function safeCopy(src, dest) {
+  execFileSync("/bin/cp", [src, dest]);
 }
 
 function withWatchOSSources(config) {
@@ -43,23 +49,23 @@ function withWatchOSSources(config) {
       const watchDirs = [WATCH_APP_DIR, WATCH_SCREENS_DIR, WATCH_PLAYBACK_DIR, WATCH_SYNC_DIR];
       for (const dir of watchDirs) {
         for (const name of listFiles(dir, ".swift")) {
-          await fs.promises.copyFile(
+          safeCopy(
             path.join(dir, name),
             path.join(watchTargetRoot, name)
           );
         }
       }
 
-      await fs.promises.copyFile(
+      safeCopy(
         path.join(WATCH_DIR, "BRPWatch-Info.plist"),
         path.join(watchTargetRoot, "BRPWatch-Info.plist")
       );
-      await fs.promises.copyFile(
+      safeCopy(
         path.join(WATCH_DIR, "BRPWatch.entitlements"),
         path.join(watchTargetRoot, "BRPWatch.entitlements")
       );
       if (fs.existsSync(path.join(WATCH_DIR, "PrivacyInfo.xcprivacy"))) {
-        await fs.promises.copyFile(
+        safeCopy(
           path.join(WATCH_DIR, "PrivacyInfo.xcprivacy"),
           path.join(watchTargetRoot, "PrivacyInfo.xcprivacy")
         );
@@ -68,7 +74,7 @@ function withWatchOSSources(config) {
       // Copy Station Idents
       if (fs.existsSync(IDENTS_DIR)) {
         for (const name of listFiles(IDENTS_DIR, ".png")) {
-          await fs.promises.copyFile(
+          safeCopy(
             path.join(IDENTS_DIR, name),
             path.join(watchTargetRoot, name)
           );
@@ -79,42 +85,46 @@ function withWatchOSSources(config) {
       const mainAppIconDir = path.join(platformProjectRoot, configWithModRequest.modRequest.projectName, "Images.xcassets", "AppIcon.appiconset");
       const watchAssetsDir = path.join(watchTargetRoot, "Assets.xcassets");
       const watchAppIconDir = path.join(watchAssetsDir, "AppIcon.appiconset");
-      if (fs.existsSync(mainAppIconDir)) {
-        await fs.promises.mkdir(watchAppIconDir, { recursive: true });
-        for (const file of fs.readdirSync(mainAppIconDir)) {
-          if (file === "Contents.json") continue;
-          await fs.promises.copyFile(
-            path.join(mainAppIconDir, file),
-            path.join(watchAppIconDir, file)
-          );
-        }
-        await fs.promises.writeFile(
-          path.join(watchAppIconDir, "Contents.json"),
-          JSON.stringify(
-            {
-              images: [
-                {
-                  filename: "App-Icon-1024x1024@1x.png",
-                  idiom: "universal",
-                  platform: "watchos",
-                  size: "1024x1024"
-                }
-              ],
-              info: { version: 1, author: "xcode" }
-            },
-            null,
-            2
-          )
-        );
-        await fs.promises.writeFile(
-          path.join(watchAssetsDir, "Contents.json"),
-          JSON.stringify({ info: { version: 1, author: "xcode" } }, null, 2)
-        );
+      await fs.promises.mkdir(watchAppIconDir, { recursive: true });
+
+      const mainAppIconFile = path.join(mainAppIconDir, "App-Icon-1024x1024@1x.png");
+      const fallbackIcon = path.join(configWithModRequest.modRequest.projectRoot, "assets/icon.png");
+      const sourceIcon = (fs.existsSync(mainAppIconFile) && fs.statSync(mainAppIconFile).size > 0)
+        ? mainAppIconFile
+        : fallbackIcon;
+
+      safeCopy(sourceIcon, path.join(watchAppIconDir, "App-Icon-1024x1024@1x.png"));
+      if (!fs.existsSync(mainAppIconFile) || fs.statSync(mainAppIconFile).size === 0) {
+        await fs.promises.mkdir(mainAppIconDir, { recursive: true });
+        safeCopy(fallbackIcon, mainAppIconFile);
       }
+
+      await fs.promises.writeFile(
+        path.join(watchAppIconDir, "Contents.json"),
+        JSON.stringify(
+          {
+            images: [
+              {
+                filename: "App-Icon-1024x1024@1x.png",
+                idiom: "universal",
+                platform: "watchos",
+                size: "1024x1024"
+              }
+            ],
+            info: { version: 1, author: "xcode" }
+          },
+          null,
+          2
+        )
+      );
+      await fs.promises.writeFile(
+        path.join(watchAssetsDir, "Contents.json"),
+        JSON.stringify({ info: { version: 1, author: "xcode" } }, null, 2)
+      );
 
       // Copy Complications sources
       for (const name of listFiles(WATCH_COMPLICATIONS_DIR, ".swift")) {
-        await fs.promises.copyFile(
+        safeCopy(
           path.join(WATCH_COMPLICATIONS_DIR, name),
           path.join(compTargetRoot, name)
         );
@@ -122,17 +132,17 @@ function withWatchOSSources(config) {
 
       // Copy WidgetSharedState to Complications
       if (fs.existsSync(path.join(WIDGET_SHARED_DIR, "WidgetSharedState.swift"))) {
-        await fs.promises.copyFile(
+        safeCopy(
           path.join(WIDGET_SHARED_DIR, "WidgetSharedState.swift"),
           path.join(compTargetRoot, "WidgetSharedState.swift")
         );
       }
 
-      await fs.promises.copyFile(
+      safeCopy(
         path.join(WATCH_DIR, "BRPWatchComplications-Info.plist"),
         path.join(compTargetRoot, "BRPWatchComplications-Info.plist")
       );
-      await fs.promises.copyFile(
+      safeCopy(
         path.join(WATCH_DIR, "BRPWatchComplications.entitlements"),
         path.join(compTargetRoot, "BRPWatchComplications.entitlements")
       );

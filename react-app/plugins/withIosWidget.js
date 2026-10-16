@@ -36,9 +36,15 @@ const APP_GROUP_ID = "group.com.hyliankid14.bbcradioplayer";
 const WIDGET_DEPLOYMENT_TARGET = "17.0";
 const SWIFT_VERSION = "5.0";
 
+const { execFileSync } = require("child_process");
+
 function listFiles(directory, extension) {
   if (!fs.existsSync(directory)) return [];
   return fs.readdirSync(directory).filter((name) => name.endsWith(extension)).sort();
+}
+
+function safeCopy(src, dest) {
+  execFileSync("/bin/cp", [src, dest]);
 }
 
 /**
@@ -60,11 +66,11 @@ function withWidgetSources(config) {
       // target directories and compiled into each, because a widget extension is a separate
       // binary from the app.
       for (const name of listFiles(SHARED_DIR, ".swift")) {
-        await fs.promises.copyFile(
+        safeCopy(
           path.join(SHARED_DIR, name),
           path.join(appTargetRoot, name)
         );
-        await fs.promises.copyFile(
+        safeCopy(
           path.join(SHARED_DIR, name),
           path.join(extensionTargetRoot, name)
         );
@@ -73,7 +79,7 @@ function withWidgetSources(config) {
       // App-only code. Kept next to the other app sources rather than in the extension
       // directory, so nothing in the appex can reach for it.
       for (const name of listFiles(APP_ONLY_DIR, ".swift")) {
-        await fs.promises.copyFile(
+        safeCopy(
           path.join(APP_ONLY_DIR, name),
           path.join(appTargetRoot, name)
         );
@@ -81,7 +87,7 @@ function withWidgetSources(config) {
 
       // Extension-only code, plus the resources that define the appex bundle.
       for (const name of fs.readdirSync(EXTENSION_DIR)) {
-        await fs.promises.copyFile(
+        safeCopy(
           path.join(EXTENSION_DIR, name),
           path.join(extensionTargetRoot, name)
         );
