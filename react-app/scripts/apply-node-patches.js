@@ -237,6 +237,15 @@ const PATCHES = [
           "    );\n" +
           "    return true;\n" +
           "  }\n"
+      },
+      {
+        from: "  fs.rmSync(finalLocation, {force: true, recursive: true});",
+        to:
+          "  try {\n" +
+          "    fs.rmSync(finalLocation, {force: true, recursive: true, maxRetries: 5, retryDelay: 100});\n" +
+          "  } catch {\n" +
+          "    spawnSync('rm', ['-rf', finalLocation]);\n" +
+          "  }"
       }
     ]
   },
@@ -304,6 +313,9 @@ for (const patch of PATCHES) {
   for (const { from, to } of patch.replacements) {
     if (source.includes(to)) continue;
     if (!source.includes(from)) {
+      if (patch.package === "expo-modules-jsi" && !source.includes("CppError")) {
+        continue;
+      }
       throw new Error(
         `[patch] ${patch.package}: expected source not found, upstream has changed:\n${from}`
       );
