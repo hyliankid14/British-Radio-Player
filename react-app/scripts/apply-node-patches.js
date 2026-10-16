@@ -297,6 +297,36 @@ const PATCHES = [
         to: "// [stripped] CppError extension removed for Swift 6 interface compatibility\n"
       }
     ]
+  },
+  {
+    package: "@react-native/codegen",
+    file: "node_modules/hermes-parser/dist/HermesParser.js",
+    reason: "Handle HermesParserWASM function vs default export in worker threads",
+    replacements: [
+      {
+        from: "  HermesParserWASM = (0, _HermesParserWASM.default)({",
+        to: "  const wasmFn = typeof _HermesParserWASM === 'function' ? _HermesParserWASM : _HermesParserWASM?.default;\n  HermesParserWASM = wasmFn({"
+      }
+    ]
+  },
+  {
+    package: "@react-native/codegen",
+    file: "node_modules/hermes-parser/dist/HermesASTAdapter.js",
+    reason: "Handle ParserVisitorKeys direct vs default export fallback in worker threads",
+    replacements: [
+      {
+        from: "    const visitorKeys = _ParserVisitorKeys.HERMES_AST_VISITOR_KEYS[node.type];",
+        to: "    const keysTable = _ParserVisitorKeys.HERMES_AST_VISITOR_KEYS || _ParserVisitorKeys.default?.HERMES_AST_VISITOR_KEYS;\n    const nodeChild = _ParserVisitorKeys.NODE_CHILD || _ParserVisitorKeys.default?.NODE_CHILD;\n    const nodeListChild = _ParserVisitorKeys.NODE_LIST_CHILD || _ParserVisitorKeys.default?.NODE_LIST_CHILD;\n    const visitorKeys = keysTable ? keysTable[node.type] : undefined;"
+      },
+      {
+        from: "      if (childType === _ParserVisitorKeys.NODE_CHILD) {",
+        to: "      if (childType === nodeChild) {"
+      },
+      {
+        from: "      } else if (childType === _ParserVisitorKeys.NODE_LIST_CHILD) {",
+        to: "      } else if (childType === nodeListChild) {"
+      }
+    ]
   }
 ];
 
