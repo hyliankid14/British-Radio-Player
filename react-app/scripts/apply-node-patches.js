@@ -360,6 +360,28 @@ const PATCHES = [
         to: "        await Promise.all(folders.map(async (folderName)=>{\n            const target = _path().default.join(projectRoot, folderName);\n            try {\n                await _fs().default.promises.rm(target, {\n                    recursive: true,\n                    force: true\n                });\n            } catch (e) {\n                require('child_process').execFileSync('rm', ['-rf', target]);\n            }\n        }));"
       }
     ]
+  },
+  {
+    package: "@babel/helper-module-transforms",
+    file: "lib/index.js",
+    reason: "Handle _core.types vs direct @babel/types fallback for directive and directiveLiteral",
+    replacements: [
+      {
+        from: '    if (!hasStrict) {\n      path.unshiftContainer("directives", _core.types.directive(_core.types.directiveLiteral("use strict")));\n    }',
+        to: '    if (!hasStrict) {\n      const types = (_core.types && _core.types.directiveLiteral) ? _core.types : require("@babel/types");\n      const dirFn = types.directive || types.default?.directive;\n      const dirLitFn = types.directiveLiteral || types.default?.directiveLiteral;\n      path.unshiftContainer("directives", dirFn(dirLitFn("use strict")));\n    }'
+      }
+    ]
+  },
+  {
+    package: "react-native",
+    file: "scripts/codegen/generate-artifacts-executor/generateSchemaInfos.js",
+    reason: "Handle tinyglobby default vs named export for globSync",
+    replacements: [
+      {
+        from: "const {globSync} = require('tinyglobby');",
+        to: "const tinyglobby = require('tinyglobby');\nconst globSync = tinyglobby.globSync || tinyglobby.default?.globSync || tinyglobby;"
+      }
+    ]
   }
 ];
 
