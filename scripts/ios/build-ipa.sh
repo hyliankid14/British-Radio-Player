@@ -218,13 +218,27 @@ cat > "$EXPORT_OPTIONS_PATH" <<PLIST
 </plist>
 PLIST
 
+AUTH_KEY_PATH="${AUTH_KEY_PATH:-$HOME/.appstoreconnect/private_keys/AuthKey_2SVR4HL23A.p8}"
+AUTH_KEY_ID="${AUTH_KEY_ID:-2SVR4HL23A}"
+AUTH_KEY_ISSUER="${AUTH_KEY_ISSUER:-23d17eee-8104-4864-a595-c0266093d857}"
+
+AUTH_ARGS=()
+if [[ -f "$AUTH_KEY_PATH" ]]; then
+  AUTH_ARGS+=(
+    "-authenticationKeyPath" "$AUTH_KEY_PATH"
+    "-authenticationKeyID" "$AUTH_KEY_ID"
+    "-authenticationKeyIssuerID" "$AUTH_KEY_ISSUER"
+  )
+fi
+
 echo "Exporting the App Store .ipa (Xcode may create the distribution certificate and profile on first run)..."
 xcodebuild \
   -exportArchive \
   -archivePath "$ARCHIVE_PATH" \
   -exportOptionsPlist "$EXPORT_OPTIONS_PATH" \
   -exportPath "$EXPORT_DIR" \
-  -allowProvisioningUpdates
+  -allowProvisioningUpdates \
+  "${AUTH_ARGS[@]}"
 
 IPA_PATH="$(find "$EXPORT_DIR" -maxdepth 1 -type f -name '*.ipa' -print -quit)"
 if [[ -z "$IPA_PATH" || ! -f "$IPA_PATH" ]]; then
