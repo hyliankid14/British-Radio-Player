@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const { execFileSync } = require("child_process");
 const {
   withDangerousMod,
   withEntitlementsPlist,
@@ -27,6 +28,10 @@ function listFiles(directory, extension) {
   return fs.readdirSync(directory).filter((name) => name.endsWith(extension)).sort();
 }
 
+function safeCopy(src, dest) {
+  execFileSync("/bin/cp", [src, dest]);
+}
+
 function withTvOSSources(config) {
   return withDangerousMod(config, [
     "ios",
@@ -42,23 +47,23 @@ function withTvOSSources(config) {
       const tvDirs = [TV_APP_DIR, TV_SCREENS_DIR, TV_COMPONENTS_DIR, TV_PLAYBACK_DIR];
       for (const dir of tvDirs) {
         for (const name of listFiles(dir, ".swift")) {
-          await fs.promises.copyFile(
+          safeCopy(
             path.join(dir, name),
             path.join(tvTargetRoot, name)
           );
         }
       }
 
-      await fs.promises.copyFile(
+      safeCopy(
         path.join(TV_DIR, "BRPTV-Info.plist"),
         path.join(tvTargetRoot, "BRPTV-Info.plist")
       );
-      await fs.promises.copyFile(
+      safeCopy(
         path.join(TV_DIR, "BRPTV.entitlements"),
         path.join(tvTargetRoot, "BRPTV.entitlements")
       );
       if (fs.existsSync(path.join(TV_DIR, "PrivacyInfo.xcprivacy"))) {
-        await fs.promises.copyFile(
+        safeCopy(
           path.join(TV_DIR, "PrivacyInfo.xcprivacy"),
           path.join(tvTargetRoot, "PrivacyInfo.xcprivacy")
         );
@@ -67,11 +72,11 @@ function withTvOSSources(config) {
       // Copy Station Idents
       if (fs.existsSync(IDENTS_DIR)) {
         for (const name of listFiles(IDENTS_DIR, ".png")) {
-          await fs.promises.copyFile(
+          safeCopy(
             path.join(IDENTS_DIR, name),
             path.join(tvTargetRoot, name)
           );
-          await fs.promises.copyFile(
+          safeCopy(
             path.join(IDENTS_DIR, name),
             path.join(topShelfTargetRoot, name)
           );
@@ -84,7 +89,7 @@ function withTvOSSources(config) {
       const tvBrandAssetsDir = path.join(tvAssetsDir, "AppIcon.brandassets");
       if (fs.existsSync(tvPluginAssetsDir)) {
         await fs.promises.mkdir(tvAssetsDir, { recursive: true });
-        await fs.promises.cp(tvPluginAssetsDir, tvBrandAssetsDir, { recursive: true });
+        execFileSync("cp", ["-R", tvPluginAssetsDir, tvBrandAssetsDir]);
         await fs.promises.writeFile(
           path.join(tvAssetsDir, "Contents.json"),
           JSON.stringify({ info: { version: 1, author: "xcode" } }, null, 2)
@@ -94,7 +99,7 @@ function withTvOSSources(config) {
       // Copy app-logo.png
       const appLogoSrc = path.join(TV_DIR, "app-logo.png");
       if (fs.existsSync(appLogoSrc)) {
-        await fs.promises.copyFile(
+        safeCopy(
           appLogoSrc,
           path.join(tvTargetRoot, "app-logo.png")
         );
@@ -102,17 +107,17 @@ function withTvOSSources(config) {
 
       // Copy Top Shelf sources
       for (const name of listFiles(TV_TOP_SHELF_DIR, ".swift")) {
-        await fs.promises.copyFile(
+        safeCopy(
           path.join(TV_TOP_SHELF_DIR, name),
           path.join(topShelfTargetRoot, name)
         );
       }
 
-      await fs.promises.copyFile(
+      safeCopy(
         path.join(TV_DIR, "BRPTVTopShelf-Info.plist"),
         path.join(topShelfTargetRoot, "BRPTVTopShelf-Info.plist")
       );
-      await fs.promises.copyFile(
+      safeCopy(
         path.join(TV_DIR, "BRPTVTopShelf.entitlements"),
         path.join(topShelfTargetRoot, "BRPTVTopShelf.entitlements")
       );

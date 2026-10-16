@@ -327,6 +327,28 @@ const PATCHES = [
         to: "      } else if (childType === nodeListChild) {"
       }
     ]
+  },
+  {
+    package: "@expo/config-plugins",
+    file: "build/ios/utils/Xcodeproj.js",
+    reason: "Avoid caching incomplete Paths module during circular require",
+    replacements: [
+      {
+        from: "function Paths() {\n  const data = _interopRequireWildcard(require(\"../Paths\"));\n  Paths = function () {\n    return data;\n  };\n  return data;\n}",
+        to: "function Paths() {\n  const p = require(\"../Paths\");\n  if (p && p.getSourceRoot) return p;\n  const data = _interopRequireWildcard(p);\n  if (data && data.getSourceRoot) return data;\n  return p;\n}"
+      }
+    ]
+  },
+  {
+    package: "@expo/plist",
+    file: "build/parse.js",
+    reason: "Safely resolve DOMParser from @xmldom/xmldom",
+    replacements: [
+      {
+        from: "    const doc = new xmldom_1.DOMParser({ errorHandler() { } }).parseFromString(xml);",
+        to: "    const DOMParser = xmldom_1.DOMParser || xmldom_1.default?.DOMParser || require('@xmldom/xmldom/lib/dom-parser').DOMParser;\n    const doc = new DOMParser({ errorHandler() { } }).parseFromString(xml);"
+      }
+    ]
   }
 ];
 
