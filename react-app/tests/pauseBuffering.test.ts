@@ -108,3 +108,73 @@ test("Audio focus interruption semantics for Android Auto", () => {
   // Always pauses and saves progress
   assert.equal(resolveTransientFocusLossAction("episode", false), "pause_buffer");
 });
+
+test("Pause action resets player when buffering is disabled for live station", () => {
+  type PauseAction = "trackplayer_reset" | "trackplayer_pause";
+
+  function resolvePauseAction(
+    isStation: boolean,
+    pauseBufferingEnabled: boolean
+  ): PauseAction {
+    if (isStation && !pauseBufferingEnabled) {
+      return "trackplayer_reset";
+    }
+    return "trackplayer_pause";
+  }
+
+  // Live station with pause buffering disabled -> resets player completely to avoid buffer retention
+  assert.equal(resolvePauseAction(true, false), "trackplayer_reset");
+
+  // Live station with pause buffering enabled -> pauses player to retain buffer
+  assert.equal(resolvePauseAction(true, true), "trackplayer_pause");
+
+  // Podcast episode with pause buffering disabled -> pauses player to retain position
+  assert.equal(resolvePauseAction(false, false), "trackplayer_pause");
+});
+
+test("Native AutoState settingBoolean resolution hierarchy", () => {
+  interface MockNativeStorage {
+    prefs: Map<string, boolean>;
+    snapshot: Record<string, boolean>;
+  }
+
+  function resolveNativeSettingBoolean(
+    storage: MockNativeStorage,
+    key: string,
+    fallback: boolean
+  ): boolean {
+    if (storage.prefs.has(`setting_${key}`)) {
+      return storage.prefs.get(`setting_${key}`)!;
+    }
+    if (storage.prefs.has(key)) {
+      return storage.prefs.get(key)!;
+    }
+    if (key in storage.snapshot) {
+      return storage.snapshot[key];
+    }
+    return fallback;
+  }
+
+  // Case 1: Direct pref exists (user toggled off in settings) -> returns direct pref even if snapshot is empty or true
+  const storage1: MockNativeStorage = {
+    prefs: new Map([["setting_pref_pause_buffering", false]]),
+    snapshot: { pauseBuffering: true }
+  };
+  assert.equal(resolveNativeSettingBoolean(storage1, "pref_pause_buffering", true), false);
+
+  // Case 2: Snapshot exists with false, direct pref absent -> returns snapshot value
+  const storage2: MockNativeStorage = {
+    prefs: new Map(),
+    snapshot: { pauseBuffering: false }
+  };
+  assert.equal(resolveNativeSettingBoolean(storage2, "pauseBuffering", true), false);
+
+  // Case 3: Neither exists -> returns fallback
+  const storage3: MockNativeStorage = {
+    prefs: new Map(),
+    snapshot: {}
+  };
+  assert.equal(resolveNativeSettingBoolean(storage3, "pref_pause_buffering", true), true);
+  assert.equal(resolveNativeSettingBoolean(storage3, "pref_pause_buffering", false), false);
+});
+

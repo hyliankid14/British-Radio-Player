@@ -382,6 +382,45 @@ const PATCHES = [
         to: "const tinyglobby = require('tinyglobby');\nconst globSync = tinyglobby.globSync || tinyglobby.default?.globSync || tinyglobby;"
       }
     ]
+  },
+  {
+    package: "react-native",
+    file: "scripts/compose-source-maps.js",
+    reason: "Handle empty compiler sourcemap gracefully without JSON.parse crash",
+    replacements: [
+      {
+        from:
+          "  const [packagerSourcemapPath, compilerSourcemapPath] = argv.splice(0, 2);\n" +
+          "  const packagerSourcemap = JSON.parse(\n" +
+          "    fs.readFileSync(packagerSourcemapPath, 'utf8'),\n" +
+          "  );\n" +
+          "  const compilerSourcemap = JSON.parse(\n" +
+          "    fs.readFileSync(compilerSourcemapPath, 'utf8'),\n" +
+          "  );",
+        to:
+          "  const [packagerSourcemapPath, compilerSourcemapPath] = argv.splice(0, 2);\n" +
+          "  let packagerSourcemap, compilerSourcemap;\n" +
+          "  try {\n" +
+          "    const raw = fs.readFileSync(packagerSourcemapPath, 'utf8').trim();\n" +
+          "    packagerSourcemap = raw ? JSON.parse(raw) : null;\n" +
+          "  } catch (_) {\n" +
+          "    packagerSourcemap = null;\n" +
+          "  }\n" +
+          "  try {\n" +
+          "    const raw = fs.readFileSync(compilerSourcemapPath, 'utf8').trim();\n" +
+          "    compilerSourcemap = raw ? JSON.parse(raw) : null;\n" +
+          "  } catch (_) {\n" +
+          "    compilerSourcemap = null;\n" +
+          "  }\n" +
+          "\n" +
+          "  if (!compilerSourcemap || !packagerSourcemap) {\n" +
+          "    if (outputPath && packagerSourcemapPath && fs.existsSync(packagerSourcemapPath)) {\n" +
+          "      fs.copyFileSync(packagerSourcemapPath, outputPath);\n" +
+          "    }\n" +
+          "    process.exit(0);\n" +
+          "  }"
+      }
+    ]
   }
 ];
 
@@ -397,6 +436,9 @@ for (const patch of PATCHES) {
 
   for (const { from, to } of patch.replacements) {
     if (source.includes(to)) continue;
+    if (patch.package === "react-native-track-player" && from.includes("originalItem") && source.includes("originalItem ?: Bundle()")) {
+      continue;
+    }
     if (!source.includes(from)) {
       if (patch.package === "expo-modules-jsi" && !source.includes("CppError")) {
         continue;

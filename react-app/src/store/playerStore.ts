@@ -14,6 +14,11 @@ import { Podcast, Episode, PodcastApi } from "../api/podcasts";
 import { shouldMarkEpisodePlayed, resolveEffectiveDuration } from "../podcasts/episodePlaybackStatus";
 import { parseEpisodeDateEpoch } from "../podcasts/episodeDates";
 import { findNextEpisodeToPlay } from "../podcasts/autoplayNext";
+import {
+  findNextPlaylistEpisodeToPlay,
+  findPreviousPlaylistEpisodeToPlay,
+  getPlaylistEntriesForPlayback
+} from "../podcasts/playlistPlayback";
 import { ScrobbleManager } from "../audio/scrobbleManager";
 import { ScrobbleOutbox } from "../audio/scrobbleOutbox";
 import { notifyNativePhonePlaybackStarted } from "../auto/autoBridge";
@@ -36,6 +41,7 @@ interface PlayerState {
   currentShow: CurrentShow | null;
   currentPodcast: Podcast | null;
   currentEpisode: Episode | null;
+  currentPlaylistId: string | null;
   isPlaying: boolean;
   isBuffering: boolean;
   isRestoring: boolean;
@@ -47,7 +53,7 @@ interface PlayerState {
   init: () => Promise<void>;
   syncWithTrackPlayer: () => Promise<boolean>;
   playStation: (station: Station) => Promise<void>;
-  playEpisode: (podcast: Podcast, episode: Episode) => Promise<void>;
+  playEpisode: (podcast: Podcast, episode: Episode, playlistId?: string | null) => Promise<void>;
   playRandomPodcast: () => Promise<void>;
   pause: () => Promise<void>;
   resume: () => Promise<void>;
@@ -302,6 +308,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   currentShow: null,
   currentPodcast: null,
   currentEpisode: null,
+  currentPlaylistId: null,
   isPlaying: false,
   isBuffering: false,
   isRestoring: true,
@@ -359,6 +366,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
           currentShow: restoredShow,
           currentEpisode: null,
           currentPodcast: null,
+          currentPlaylistId: null,
           isPlaying,
           isBuffering,
           isRestoring: false
@@ -417,6 +425,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         currentShow: null,
         currentEpisode: episode,
         currentPodcast: podcast,
+        currentPlaylistId: Preferences.getLastPlaylistId(),
         isPlaying,
         isBuffering,
         isRestoring: false
@@ -466,10 +475,12 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       isBuffering: true,
       currentPodcast: null,
       currentEpisode: null,
+      currentPlaylistId: null,
       positionSeconds: 0,
       durationSeconds: 0,
       playbackError: null
     });
+    Preferences.setLastPlaylistId(null);
     Preferences.setLastStationId(station.id);
     Preferences.setLastPlayed({ kind: "station", id: station.id, podcastId: "" });
 
@@ -605,7 +616,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     }
   },
 
-  playEpisode: async (podcast: Podcast, episode: Episode) => {
+  playEpisode: async (podcast: Podcast, episode: Episode, playlistId?: string | null) => {
     endingEpisodeId = null;
     stationPlaybackSessionId += 1;
     stationBeingPlayed = null;
@@ -621,6 +632,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const podTitle = (podcast?.title || (episode as any)?.podcastTitle || "").trim();
     const epTitle = (episode?.title || "").trim();
     const artwork = resolvePodcastArtwork(podcast, episode);
+
+    const resolvedPlaylistId = playlistId !== undefined ? playlistId : null;
+    Preferences.setLastPlaylistId(resolvedPlaylistId);
 
     set({
       currentStation: null,
@@ -640,6 +654,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
             }
           : null),
       currentEpisode: episode,
+      currentPlaylistId: resolvedPlaylistId,
       isBuffering: true,
       isPlaying: false,
       playbackError: null,
@@ -743,7 +758,13 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       stopShowInfoInterval();
       ScrobbleManager.onPlaybackPaused();
       PlaybackAnalytics.onPlaybackStateChanged(false);
-      await TrackPlayer.pause();
+      const { currentStation } = get();
+      const pauseBuffering = Preferences.getSetting("pref_pause_buffering", true);
+      if (currentStation && !pauseBuffering) {
+        await TrackPlayer.reset();
+      } else {
+        await TrackPlayer.pause();
+      }
       set({ isPlaying: false });
 
       const { currentEpisode, positionSeconds, durationSeconds } = get();
@@ -1024,7 +1045,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   handleEpisodeEnded: async () => {
-    const { currentPodcast, currentEpisode } = get();
+    const { currentPodcast, currentEpisode, currentPlaylistId } = get();
     if (!currentEpisode) return;
     if (endingEpisodeId === currentEpisode.id) return;
     endingEpisodeId = currentEpisode.id;
@@ -1042,6 +1063,51 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       recordEpisodeCompleted();
       setTimeout(() => void requestReviewIfEligible("episode_ended"), 1500);
       set({ positionSeconds: 0, isPlaying: false, isBuffering: false });
+
+      // When playing within a playlist, advance strictly from first to last in playlist order.
+      if (currentPlaylistId) {
+        const isOnline = getNetworkStatus().isOnline;
+        const hidePlayed = Preferences.getHidePlayedEpisodesInPlaylists();
+        const playlistEntries = getPlaylistEntriesForPlayback(currentPlaylistId, {
+          isOnline,
+          hidePlayed: false
+        });
+        const isPlayed = hidePlayed ? (id: string) => Preferences.isEpisodePlayed(id) : undefined;
+        const nextEntry = findNextPlaylistEpisodeToPlay(playlistEntries, currentEpisode.id, isPlayed);
+
+        deleteDownloadWhenPlayed(currentEpisode.id);
+        pruneDownloads();
+
+        if (nextEntry) {
+          const nextPodcast: Podcast = {
+            id: nextEntry.podcastId,
+            title: nextEntry.podcastTitle,
+            description: "",
+            rssUrl: `https://podcasts.files.bbci.co.uk/${nextEntry.podcastId}.rss`,
+            htmlUrl: "",
+            imageUrl: nextEntry.imageUrl,
+            genres: [],
+            typicalDurationMins: nextEntry.durationMins || 0
+          };
+          const nextEp: Episode = {
+            id: nextEntry.id,
+            title: nextEntry.title,
+            description: nextEntry.description,
+            audioUrl: nextEntry.audioUrl,
+            imageUrl: nextEntry.imageUrl,
+            pubDate: nextEntry.pubDate,
+            durationMins: nextEntry.durationMins,
+            podcastId: nextEntry.podcastId
+          };
+          await get().playEpisode(nextPodcast, nextEp, currentPlaylistId);
+          return;
+        } else {
+          endingEpisodeId = null;
+          Preferences.setLastPlaylistId(null);
+          set({ currentPlaylistId: null });
+          return;
+        }
+      }
 
       // Auto-delete the download once the episode finishes, mirroring the Kotlin app.
       deleteDownloadWhenPlayed(currentEpisode.id);
@@ -1193,7 +1259,41 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   playNext: async () => {
-    const { currentStation, currentEpisode } = get();
+    const { currentStation, currentEpisode, currentPlaylistId } = get();
+    if (currentPlaylistId && currentEpisode) {
+      const isOnline = getNetworkStatus().isOnline;
+      const hidePlayed = Preferences.getHidePlayedEpisodesInPlaylists();
+      const playlistEntries = getPlaylistEntriesForPlayback(currentPlaylistId, {
+        isOnline,
+        hidePlayed: false
+      });
+      const isPlayed = hidePlayed ? (id: string) => Preferences.isEpisodePlayed(id) : undefined;
+      const nextEntry = findNextPlaylistEpisodeToPlay(playlistEntries, currentEpisode.id, isPlayed);
+      if (nextEntry) {
+        const nextPodcast: Podcast = {
+          id: nextEntry.podcastId,
+          title: nextEntry.podcastTitle,
+          description: "",
+          rssUrl: `https://podcasts.files.bbci.co.uk/${nextEntry.podcastId}.rss`,
+          htmlUrl: "",
+          imageUrl: nextEntry.imageUrl,
+          genres: [],
+          typicalDurationMins: nextEntry.durationMins || 0
+        };
+        const nextEp: Episode = {
+          id: nextEntry.id,
+          title: nextEntry.title,
+          description: nextEntry.description,
+          audioUrl: nextEntry.audioUrl,
+          imageUrl: nextEntry.imageUrl,
+          pubDate: nextEntry.pubDate,
+          durationMins: nextEntry.durationMins,
+          podcastId: nextEntry.podcastId
+        };
+        await get().playEpisode(nextPodcast, nextEp, currentPlaylistId);
+        return;
+      }
+    }
     if (currentEpisode) {
       await get().seekBy(30);
       return;
@@ -1206,7 +1306,43 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   playPrevious: async () => {
-    const { currentStation, currentEpisode } = get();
+    const { currentStation, currentEpisode, currentPlaylistId, positionSeconds } = get();
+    if (currentPlaylistId && currentEpisode) {
+      if (positionSeconds > 5) {
+        await get().seekTo(0);
+        return;
+      }
+      const isOnline = getNetworkStatus().isOnline;
+      const playlistEntries = getPlaylistEntriesForPlayback(currentPlaylistId, {
+        isOnline,
+        hidePlayed: false
+      });
+      const prevEntry = findPreviousPlaylistEpisodeToPlay(playlistEntries, currentEpisode.id);
+      if (prevEntry) {
+        const prevPodcast: Podcast = {
+          id: prevEntry.podcastId,
+          title: prevEntry.podcastTitle,
+          description: "",
+          rssUrl: `https://podcasts.files.bbci.co.uk/${prevEntry.podcastId}.rss`,
+          htmlUrl: "",
+          imageUrl: prevEntry.imageUrl,
+          genres: [],
+          typicalDurationMins: prevEntry.durationMins || 0
+        };
+        const prevEp: Episode = {
+          id: prevEntry.id,
+          title: prevEntry.title,
+          description: prevEntry.description,
+          audioUrl: prevEntry.audioUrl,
+          imageUrl: prevEntry.imageUrl,
+          pubDate: prevEntry.pubDate,
+          durationMins: prevEntry.durationMins,
+          podcastId: prevEntry.podcastId
+        };
+        await get().playEpisode(prevPodcast, prevEp, currentPlaylistId);
+        return;
+      }
+    }
     if (currentEpisode) {
       await get().seekBy(-10);
       return;

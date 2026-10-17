@@ -124,6 +124,7 @@ export default function NowPlayingModal() {
     stationId?: string;
     podcastData?: string;
     episodeData?: string;
+    playlistId?: string;
   }>();
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
@@ -447,11 +448,11 @@ export default function NowPlayingModal() {
           genres: [],
           typicalDurationMins: previewEpisode.durationMins || 0
         };
-      await playEpisode(podcast, previewEpisode);
+      await playEpisode(podcast, previewEpisode, params.playlistId || null);
     } else {
       await togglePlayPause();
     }
-  }, [isPreview, previewPodcast, previewEpisode, playEpisode, togglePlayPause]);
+  }, [isPreview, previewPodcast, previewEpisode, playEpisode, togglePlayPause, params.playlistId]);
 
   React.useEffect(() => {
     if (params.autoplay === "true") resume();

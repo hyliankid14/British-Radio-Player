@@ -98,7 +98,11 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
   private var isDucked = false
 
   private fun isPauseBufferingEnabled(): Boolean =
-    AutoState.settingBoolean(this, "pauseBuffering", true)
+    AutoState.settingBoolean(
+      this,
+      "pref_pause_buffering",
+      AutoState.settingBoolean(this, "pauseBuffering", true)
+    )
 
   private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
     when (focusChange) {

@@ -35,10 +35,18 @@ export async function playbackService(): Promise<void> {
     void usePlayerStore.getState().seekTo(event.position);
   });
 
+  let duckPaused = false;
   TrackPlayer.addEventListener(Event.RemoteDuck, async (event) => {
-    if (event.paused || event.permanent) {
+    if (event.permanent) {
+      duckPaused = false;
       await usePlayerStore.getState().pause();
-    } else {
+    } else if (event.paused) {
+      if (usePlayerStore.getState().isPlaying) {
+        duckPaused = true;
+        await usePlayerStore.getState().pause();
+      }
+    } else if (duckPaused) {
+      duckPaused = false;
       await usePlayerStore.getState().resume();
     }
   });

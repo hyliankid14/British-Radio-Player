@@ -195,6 +195,15 @@ export function initAutoSync(): void {
 
   drainAutoMutations();
 
+  AutoBridge.setSettingBoolean(
+    "pref_pause_buffering",
+    Preferences.getSetting("pref_pause_buffering", true)
+  );
+  AutoBridge.setSettingBoolean(
+    "pauseBuffering",
+    Preferences.getSetting("pref_pause_buffering", true)
+  );
+
   changeSubscription = Preferences.onChanged((key) => scheduleSync(key));
   eventSubscription = AutoBridge.onEvent(handleNativeEvent);
   appStateSubscription = AppState.addEventListener("change", (status: AppStateStatus) => {

@@ -41,12 +41,13 @@ mkdir -p "$DOWNLOADS_DIR"
 echo "Generating the Android project..."
 (
   cd "$APP_DIR"
-  npx expo prebuild --platform android --no-install
+  node "$APP_DIR/node_modules/.bin/expo" prebuild --platform android --no-install
 )
 
 echo "Building the self-contained debug APK..."
 (
   cd "$APP_DIR/android"
+  find "$APP_DIR" \( -name "* 2*" -o -name "* 3*" \) -delete 2>/dev/null || true
   EXPO_PUBLIC_DISTRIBUTION_CHANNEL=github \
   EXPO_PUBLIC_BUILD_VARIANT=debug \
   ./gradlew --no-daemon :app:assembleGithubDebug \

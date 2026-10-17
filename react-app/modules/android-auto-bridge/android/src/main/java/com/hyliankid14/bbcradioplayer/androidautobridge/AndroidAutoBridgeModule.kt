@@ -52,6 +52,13 @@ class AndroidAutoBridgeModule : Module() {
       true
     }
 
+    /** Sets a boolean preference directly into native SharedPreferences. */
+    Function("setSettingBoolean") { key: String, value: Boolean ->
+      val ctx = context ?: return@Function false
+      AutoState.setSettingBoolean(ctx, key, value)
+      true
+    }
+
     /** Tells the native Auto player to yield because phone playback has started. */
     Function("notifyPhonePlaybackStarted") { ->
       // Only the live service instance matters; avoid starting the service from the

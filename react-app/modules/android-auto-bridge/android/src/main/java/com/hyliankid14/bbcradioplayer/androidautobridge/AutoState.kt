@@ -53,6 +53,11 @@ object AutoState {
       editor.remove(KEY_OVERLAY)
       if (oldHistory != null && oldHistory.length() > 0) {
         val newSnap = try { JSONObject(json) } catch (_: Exception) { JSONObject() }
+        if (newSnap.has("pauseBuffering")) {
+          val pb = newSnap.optBoolean("pauseBuffering", true)
+          editor.putBoolean("setting_pref_pause_buffering", pb)
+          editor.putBoolean("setting_pauseBuffering", pb)
+        }
         val newSnapHistory = newSnap.optJSONArray("history")
         val snapIds = mutableSetOf<String>()
         if (newSnapHistory != null) {
@@ -71,6 +76,13 @@ object AutoState {
         if (preserved.length() > 0) {
           val preservedOverlay = JSONObject().put("history", preserved)
           editor.putString(KEY_OVERLAY, preservedOverlay.toString())
+        }
+      } else {
+        val newSnap = try { JSONObject(json) } catch (_: Exception) { JSONObject() }
+        if (newSnap.has("pauseBuffering")) {
+          val pb = newSnap.optBoolean("pauseBuffering", true)
+          editor.putBoolean("setting_pref_pause_buffering", pb)
+          editor.putBoolean("setting_pauseBuffering", pb)
         }
       }
       editor.commit()
@@ -463,8 +475,30 @@ object AutoState {
     return value.ifEmpty { fallback }
   }
 
-  fun settingBoolean(context: Context, key: String, fallback: Boolean = false): Boolean =
-    if (snapshot(context).has(key)) snapshot(context).optBoolean(key, fallback) else fallback
+  fun setSettingBoolean(context: Context, key: String, value: Boolean) {
+    synchronized(lock) {
+      prefs(context).edit()
+        .putBoolean("setting_$key", value)
+        .putBoolean(key, value)
+        .commit()
+    }
+    notifyChanged(context)
+  }
+
+  fun settingBoolean(context: Context, key: String, fallback: Boolean = false): Boolean {
+    val p = prefs(context)
+    if (p.contains("setting_$key")) {
+      return p.getBoolean("setting_$key", fallback)
+    }
+    if (p.contains(key)) {
+      return p.getBoolean(key, fallback)
+    }
+    val snap = snapshot(context)
+    if (snap.has(key)) {
+      return snap.optBoolean(key, fallback)
+    }
+    return fallback
+  }
 
   fun settingInt(context: Context, key: String, fallback: Int = 0): Int =
     if (snapshot(context).has(key)) snapshot(context).optInt(key, fallback) else fallback

@@ -27,8 +27,7 @@ import { useNetworkStatus } from "../../src/store/networkStore";
 import { EpisodePlaybackIndicator, EpisodeProgressBar } from "../../src/components/EpisodeIndicators";
 import { computeEpisodePlaybackStatus } from "../../src/podcasts/episodePlaybackStatus";
 import { byEpisodePubDate, byEpisodePubDateOldest } from "../../src/podcasts/episodeDates";
-
-type PlaylistSort = "newest_first" | "oldest_first" | "title" | "manual";
+import { PlaylistSort, sortPlaylistEntries } from "../../src/podcasts/playlistPlayback";
 
 const EPISODE_ITEM_HEIGHT = 88;
 
@@ -273,6 +272,7 @@ export default function PlaylistDetailModal() {
   const downloads = useDownloadStore((state) => state.downloads);
   const playEpisode = usePlayerStore((state) => state.playEpisode);
   const currentEpisode = usePlayerStore((state) => state.currentEpisode);
+  const currentPlaylistId = usePlayerStore((state) => state.currentPlaylistId);
   const isPlaying = usePlayerStore((state) => state.isPlaying);
   const togglePlayPause = usePlayerStore((state) => state.togglePlayPause);
   const positionSeconds = usePlayerStore((state) => state.positionSeconds);
@@ -344,30 +344,7 @@ export default function PlaylistDetailModal() {
       const played = Preferences.getPlayedEpisodeIdSet();
       list = list.filter((e) => !played.has(e.id));
     }
-
-    if (playlistSort === "newest_first") {
-      return list.sort(byEpisodePubDate);
-    }
-
-    if (playlistSort === "oldest_first") {
-      return list.sort(byEpisodePubDateOldest);
-    }
-
-    if (playlistSort === "title") {
-      return list.sort((a, b) => a.title.localeCompare(b.title));
-    }
-
-    if (playlistSort === "manual") {
-      if (manualOrder.length === 0) return list;
-      const orderMap = new Map(manualOrder.map((id, index) => [id, index]));
-      return list.sort((a, b) => {
-        const idxA = orderMap.get(a.id) ?? Number.MAX_SAFE_INTEGER;
-        const idxB = orderMap.get(b.id) ?? Number.MAX_SAFE_INTEGER;
-        return idxA - idxB;
-      });
-    }
-
-    return list;
+    return sortPlaylistEntries(list, playlistSort, manualOrder);
   }, [rawEntries, hidePlayed, playlistSort, manualOrder]);
 
   // Static per-row display data, recomputed only when the list itself changes.
@@ -625,12 +602,13 @@ export default function PlaylistDetailModal() {
       router.push({
         pathname: "/modal/now-playing",
         params: {
+          playlistId,
           podcastData: JSON.stringify(podcast),
           episodeData: JSON.stringify(episode)
         }
       });
     },
-    [currentEpisode?.id, router]
+    [currentEpisode?.id, router, playlistId]
   );
 
   // Directly starts playback
@@ -660,11 +638,11 @@ export default function PlaylistDetailModal() {
           durationMins: entry.durationMins,
           podcastId: entry.podcastId
         };
-        void playEpisode(podcast, episode);
+        void playEpisode(podcast, episode, playlistId);
       }
       router.push("/modal/now-playing");
     },
-    [currentEpisode?.id, playEpisode, togglePlayPause, router]
+    [currentEpisode?.id, playEpisode, togglePlayPause, router, playlistId]
   );
 
   const areAllDownloaded = useMemo(
@@ -721,7 +699,7 @@ export default function PlaylistDetailModal() {
           selectionMode
             ? [
                 {
-                  icon: allSelected ? "playlist-remove" : "playlist-add-check",
+                  icon: (allSelected ? "playlist-remove" : "playlist-add-check") as any,
                   label: allSelected ? "Clear selection" : "Select all",
                   onPress: toggleSelectAll
                 },
@@ -732,6 +710,27 @@ export default function PlaylistDetailModal() {
                 }
               ]
             : [
+                ...(displayEntries.length > 0
+                  ? [
+                      {
+                        icon:
+                          currentPlaylistId === playlistId && isPlaying
+                            ? "pause"
+                            : "play-arrow",
+                        label:
+                          currentPlaylistId === playlistId && isPlaying
+                            ? "Pause playlist"
+                            : "Play playlist",
+                        onPress: () => {
+                          if (currentPlaylistId === playlistId && currentEpisode) {
+                            void togglePlayPause();
+                          } else if (displayEntries.length > 0) {
+                            playEntry(displayEntries[0]);
+                          }
+                        }
+                      }
+                    ]
+                  : []),
                 {
                   icon: "sort",
                   label: "Sort playlist",

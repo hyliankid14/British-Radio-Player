@@ -165,7 +165,7 @@ test("KNOWN_APP_ROUTES covers every screen in app/", () => {
         continue;
       }
       // `+native-intent`/`+html`/API files are not routes, and `_layout` has no pathname.
-      if (entry.name.startsWith("+") || entry.name.startsWith("_")) continue;
+      if (entry.name.startsWith("+") || entry.name.startsWith("_") || entry.name.startsWith(".")) continue;
       const name = entry.name.replace(/\.(t|j)sx?$/, "");
       if (name.endsWith(".d")) continue;
       const route = name === "index" && hasLayout ? prefix || "/" : `${prefix}/${name}`;

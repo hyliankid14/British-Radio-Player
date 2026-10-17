@@ -12,6 +12,7 @@ interface AutoNativeBridge {
   getState(): string;
   drainMutations(): string;
   clearState(): boolean;
+  setSettingBoolean(key: string, value: boolean): boolean;
   notifyPhonePlaybackStarted(): boolean;
   addListener(
     event: "onAutoEvent",
@@ -61,6 +62,10 @@ export const AutoBridge = {
 
   clearState(): boolean {
     return load()?.clearState() ?? false;
+  },
+
+  setSettingBoolean(key: string, value: boolean): boolean {
+    return load()?.setSettingBoolean(key, value) ?? false;
   },
 
   notifyPhonePlaybackStarted(): boolean {

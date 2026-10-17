@@ -1,6 +1,7 @@
 import { isAnalyticsEnabled } from "../analytics/analytics";
 import { Episode, Podcast, PodcastApi } from "../api/podcasts";
 import { latestEpisodeEpoch, parseEpisodeDateEpoch } from "../podcasts/episodeDates.ts";
+import { getPlaylistEntriesForPlayback } from "../podcasts/playlistPlayback";
 import { AudioQuality, StationRepository } from "../data/stations";
 import {
   DownloadedEpisodeRecord,
@@ -292,16 +293,18 @@ export async function buildAutoSnapshot(includePodcastData = true): Promise<Auto
     latestUpdateMs: 0
   }));
 
-  const playlistEntryMap = Preferences.getPlaylistEntryMap();
   const playlists: AutoPlaylist[] = Preferences.getPodcastPlaylists()
     .filter((playlist) => !playlist.isDefault)
-    .map((playlist) => ({
-      id: playlist.id,
-      name: playlist.name,
-      isDefault: false,
-      entries: (playlistEntryMap[playlist.id] || []).map((entry) => savedToAutoEpisode(entry, downloads))
-    }));
-  const savedEntries = Preferences.getPodcastPlaylistEntries("saved");
+    .map((playlist) => {
+      const entries = getPlaylistEntriesForPlayback(playlist.id, { isOnline: true });
+      return {
+        id: playlist.id,
+        name: playlist.name,
+        isDefault: false,
+        entries: entries.map((entry) => savedToAutoEpisode(entry, downloads))
+      };
+    });
+  const savedEntries = getPlaylistEntriesForPlayback("saved", { isOnline: true });
   playlists.unshift({
     id: "saved",
     name: "Saved Episodes",

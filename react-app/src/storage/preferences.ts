@@ -1,5 +1,6 @@
 import { createMMKV } from "react-native-mmkv";
 import { NativeAndroid } from "../native/nativeAndroid";
+import { AutoBridge } from "../auto/autoBridge";
 import { AudioQuality } from "../data/stations";
 import { mergeEpisodeProgress } from "./episodeProgress";
 import { mergeLatestEpisodeDates } from "../podcasts/episodeDates";
@@ -14,6 +15,7 @@ import {
   type PlayedIdLookup
 } from "./playedIdLookup";
 import { savePersistentRecentScrobbles, readPersistentRecentScrobbles } from "./persistentScrobbles";
+import { setPlaylistStorageReader } from "../podcasts/playlistPlayback";
 
 export type { LastPlayed };
 
@@ -329,6 +331,13 @@ export const Preferences = {
   },
   setSetting(key: string, value: string | boolean | number): void {
     storage.set(key, value);
+    if (typeof value === "boolean") {
+      try {
+        AutoBridge.setSettingBoolean(key, value);
+      } catch {
+        // Ignore off Android
+      }
+    }
     if (key === KEYS.ANALYTICS && typeof value === "boolean") {
       try {
         NativeAndroid.setNativeAnalyticsEnabled(value);
@@ -821,6 +830,43 @@ export const Preferences = {
 
   setHidePlayedEpisodesInPlaylists(hidden: boolean): void {
     storage.set("pref_hide_played_episodes_in_playlists", hidden);
+  },
+
+  getLastPlaylistId(): string | null {
+    return storage.getString("pref_last_playlist_id") ?? null;
+  },
+
+  setLastPlaylistId(playlistId: string | null): void {
+    if (playlistId) {
+      storage.set("pref_last_playlist_id", playlistId);
+    } else {
+      storage.remove("pref_last_playlist_id");
+    }
+  },
+
+  getPlaylistSort(playlistId: string): "newest_first" | "oldest_first" | "title" | "manual" {
+    return (
+      (this.getSetting(`pref_playlist_sort_${playlistId}`, "newest_first") as "newest_first" | "oldest_first" | "title" | "manual") ||
+      "newest_first"
+    );
+  },
+
+  setPlaylistSort(playlistId: string, sort: "newest_first" | "oldest_first" | "title" | "manual"): void {
+    this.setSetting(`pref_playlist_sort_${playlistId}`, sort);
+  },
+
+  getPlaylistManualOrder(playlistId: string): string[] {
+    const raw = this.getSetting(`pref_playlist_manual_${playlistId}`, "[]");
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  },
+
+  setPlaylistManualOrder(playlistId: string, order: string[]): void {
+    this.setSetting(`pref_playlist_manual_${playlistId}`, JSON.stringify(order));
   },
 
   getHidePlayedEpisodesInPodcastDetail(podcastId: string): boolean {
@@ -2019,3 +2065,5 @@ configureGeoBlockedStorage({
   getGeoBlocked: () => Preferences.getGeoBlocked(),
   setGeoBlocked: (val: boolean) => Preferences.setGeoBlocked(val)
 });
+
+setPlaylistStorageReader(Preferences);
