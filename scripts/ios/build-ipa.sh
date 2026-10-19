@@ -183,6 +183,8 @@ APP_PLIST="$IOS_DIR/BritishRadioPlayer/Info.plist"
 BUILD_NUMBER="$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP_PLIST" 2>/dev/null || echo "?")"
 MARKETING_VERSION="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP_PLIST" 2>/dev/null || echo "?")"
 
+find "$APP_DIR" \( -name "* 2*" -o -name "* 3*" \) -delete 2>/dev/null || true
+
 echo "Archiving ${SCHEME} ${MARKETING_VERSION} (${BUILD_NUMBER}) for generic iOS device..."
 xcodebuild \
   -workspace "$WORKSPACE" \
