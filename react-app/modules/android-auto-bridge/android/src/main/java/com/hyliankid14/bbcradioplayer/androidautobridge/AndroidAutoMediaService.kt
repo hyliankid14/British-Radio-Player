@@ -1567,11 +1567,27 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
     return (0 until array.length()).mapNotNull { array.optJSONObject(it) }
   }
 
+  private fun normalizePodcastTitle(title: String): String =
+    title.trim().lowercase(Locale.US)
+      .replace("’", "'").replace("‘", "'")
+      .replace("“", "\"").replace("”", "\"")
+      .replace(Regex("\\s+"), " ")
+
   private fun subscribedPodcasts(): List<JSONObject> {
-    val subscribedIds = AutoState.effectiveSubscribedIds(this)
+    val subscribedIds = AutoState.effectiveSubscribedIds(this).toSet()
     val subscriptions = AutoState.subscriptions(this)
-    if (subscribedIds.isEmpty()) return subscriptions
-    return subscriptions.filter { subscribedIds.contains(it.optString("id")) }
+    val pool = if (subscribedIds.isEmpty()) subscriptions else subscriptions.filter { subscribedIds.contains(it.optString("id")) }
+    val seenIds = mutableSetOf<String>()
+    val seenTitles = mutableSetOf<String>()
+    val deduped = mutableListOf<JSONObject>()
+    for (podcast in pool) {
+      val id = podcast.optString("id")
+      val normTitle = normalizePodcastTitle(podcast.optString("title"))
+      if (id.isNotEmpty() && !seenIds.add(id)) continue
+      if (normTitle.isNotEmpty() && !seenTitles.add(normTitle)) continue
+      deduped.add(podcast)
+    }
+    return deduped
   }
 
   private fun sortedSubscriptions(podcasts: List<JSONObject>): List<JSONObject> {

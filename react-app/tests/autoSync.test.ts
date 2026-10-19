@@ -7,6 +7,8 @@ import {
   applyAutoMutations,
   type AutoMutationSink
 } from "../src/auto/autoMutations.ts";
+import { canonicalPodcastId, PODCAST_ID_ALIASES } from "../src/podcasts/podcastAliases.ts";
+import { normalizePodcastTitle } from "../src/podcasts/popularRanking.ts";
 
 function createMockSink(): AutoMutationSink & {
   recentSongs: Array<{ artist: string; track: string; imageUrl: string; stationId: string; stationName: string }>;
@@ -427,4 +429,91 @@ test("applyAutoMutations records podcasts and songs listened in Android Auto wit
   assert.equal(sink.podcastHistory.length, 1);
   assert.equal(sink.podcastHistory[0].id, "pod-ep-1");
   assert.equal(sink.podcastHistory[0].playedAtMs, t2);
+});
+
+test("subscribeToggled mutation canonicalizes legacy podcast ID alias (More or Less p02nrss1 -> b006qshd)", () => {
+  const sink = createMockSink();
+  // Legacy feed ID for More or Less
+  applyAutoMutation(
+    {
+      type: "subscribeToggled",
+      payload: { podcastId: "p02nrss1", subscribed: true }
+    },
+    sink
+  );
+
+  assert.deepEqual(sink.subscribed, ["b006qshd"], "canonical ID b006qshd should be stored instead of legacy p02nrss1");
+
+  // Attempting to subscribe canonical ID when legacy alias was already processed
+  applyAutoMutation(
+    {
+      type: "subscribeToggled",
+      payload: { podcastId: "b006qshd", subscribed: true }
+    },
+    sink
+  );
+  assert.deepEqual(sink.subscribed, ["b006qshd"], "should not duplicate More or Less subscription");
+
+  // Unsubscribing with either legacy or canonical ID cleans up
+  applyAutoMutation(
+    {
+      type: "subscribeToggled",
+      payload: { podcastId: "p02nrss1", subscribed: false }
+    },
+    sink
+  );
+  assert.deepEqual(sink.subscribed, [], "should remove subscription when unsubscribing via alias");
+});
+
+test("subscribeToggled cleans up existing alias duplicates when unsubscribed", () => {
+  const sink = createMockSink();
+  // Simulate state where both legacy and canonical IDs somehow existed
+  sink.subscribed = ["p02nrss1", "b006qshd", "other-podcast"];
+
+  applyAutoMutation(
+    {
+      type: "subscribeToggled",
+      payload: { podcastId: "b006qshd", subscribed: false }
+    },
+    sink
+  );
+
+  assert.deepEqual(sink.subscribed, ["other-podcast"], "should remove both alias and canonical IDs for More or Less");
+});
+
+test("canonicalPodcastId maps legacy alias p02nrss1 to canonical b006qshd", () => {
+  assert.equal(canonicalPodcastId("p02nrss1"), "b006qshd");
+  assert.equal(canonicalPodcastId("b006qshd"), "b006qshd");
+  assert.equal(canonicalPodcastId("other-podcast-id"), "other-podcast-id");
+  assert.equal(canonicalPodcastId(""), "");
+});
+
+test("podcast subscription list deduplication eliminates duplicates by both ID and normalized title", () => {
+  // Simulate subscriptions containing More or Less under two different IDs, as well as an identical ID duplicate
+  const rawSubscriptions = [
+    { id: "b006qshd", title: "More or Less" },
+    { id: "p02nrss1", title: "More or Less" },
+    { id: "b006qshd", title: "More or Less" },
+    { id: "p02nq0gn", title: "The Archers" }
+  ];
+
+  const seenIds = new Set<string>();
+  const seenTitles = new Set<string>();
+  const deduped: Array<{ id: string; title: string }> = [];
+
+  for (const pod of rawSubscriptions) {
+    const canonicalId = canonicalPodcastId(pod.id);
+    const normTitle = normalizePodcastTitle(pod.title);
+    if (!canonicalId || seenIds.has(canonicalId)) continue;
+    if (normTitle && seenTitles.has(normTitle)) continue;
+    seenIds.add(canonicalId);
+    if (normTitle) seenTitles.add(normTitle);
+    deduped.push(pod);
+  }
+
+  assert.equal(deduped.length, 2);
+  assert.equal(deduped[0].id, "b006qshd");
+  assert.equal(deduped[0].title, "More or Less");
+  assert.equal(deduped[1].id, "p02nq0gn");
+  assert.equal(deduped[1].title, "The Archers");
 });

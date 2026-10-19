@@ -241,8 +241,9 @@ object AutoState {
   /** Subscribed podcast ids, preferring native overlay mutations over the snapshot. */
   fun effectiveSubscribedIds(context: Context): List<String> {
     val overlaid = overlay(context).optJSONArray("subscribedIds")
-    return if (overlaid != null) stringList(overlay(context), "subscribedIds")
+    val list = if (overlaid != null) stringList(overlay(context), "subscribedIds")
     else stringList(snapshot(context), "subscribedIds")
+    return list.distinct()
   }
 
   fun isSubscribed(context: Context, podcastId: String): Boolean {
@@ -256,9 +257,9 @@ object AutoState {
     if (subscribed) {
       if (!current.contains(podcastId)) current.add(podcastId)
     } else {
-      current.remove(podcastId)
+      current.removeAll { it == podcastId }
     }
-    updateOverlay(context) { it.put("subscribedIds", JSONArray(current)) }
+    updateOverlay(context) { it.put("subscribedIds", JSONArray(current.distinct())) }
     addMutation(context, "subscribeToggled", JSONObject().apply {
       put("podcastId", podcastId)
       put("subscribed", subscribed)

@@ -77,7 +77,7 @@ struct WatchPodcastQuery: EntityStringQuery {
         .init(id: "p002vsxs", title: "Desert Island Discs", author: "BBC Radio 4"),
         .init(id: "p004y29g", title: "In Our Time", author: "BBC Radio 4"),
         .init(id: "p02pc9ny", title: "Friday Night Comedy", author: "BBC Radio 4"),
-        .init(id: "p02nq0lx", title: "More or Less", author: "BBC Radio 4"),
+        .init(id: "b006qshd", title: "More or Less", author: "BBC Radio 4"),
         .init(id: "p07mck39", title: "You're Dead To Me", author: "BBC Radio 4"),
         .init(id: "p052994h", title: "Newscast", author: "BBC Sounds"),
         .init(id: "p02nq08x", title: "Global News Podcast", author: "BBC World Service")

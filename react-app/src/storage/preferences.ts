@@ -19,6 +19,9 @@ import { setPlaylistStorageReader } from "../podcasts/playlistPlayback";
 
 export type { LastPlayed };
 
+import { PODCAST_ID_ALIASES, canonicalPodcastId } from "../podcasts/podcastAliases";
+export { PODCAST_ID_ALIASES, canonicalPodcastId };
+
 export interface SavedEpisodeEntry {
   id: string;
   title: string;
@@ -635,14 +638,36 @@ export const Preferences = {
     const raw = storage.getString(KEYS.SUBSCRIBED_PODCASTS);
     if (!raw) return [];
     try {
-      return JSON.parse(raw);
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      const seen = new Set<string>();
+      const canonicalList: string[] = [];
+      for (const id of parsed) {
+        if (!id || typeof id !== "string") continue;
+        const canonical = canonicalPodcastId(id);
+        if (!seen.has(canonical)) {
+          seen.add(canonical);
+          canonicalList.push(canonical);
+        }
+      }
+      return canonicalList;
     } catch {
       return [];
     }
   },
 
   setSubscribedPodcasts(podcastIds: string[]): void {
-    storage.set(KEYS.SUBSCRIBED_PODCASTS, JSON.stringify(podcastIds));
+    const seen = new Set<string>();
+    const canonicalList: string[] = [];
+    for (const id of podcastIds) {
+      if (!id || typeof id !== "string") continue;
+      const canonical = canonicalPodcastId(id);
+      if (!seen.has(canonical)) {
+        seen.add(canonical);
+        canonicalList.push(canonical);
+      }
+    }
+    storage.set(KEYS.SUBSCRIBED_PODCASTS, JSON.stringify(canonicalList));
   },
 
   getPodcastMetadata(podcastId: string): { title?: string; imageUrl?: string } | null {
@@ -701,17 +726,27 @@ export const Preferences = {
   },
 
   isPodcastNotificationsEnabled(podcastId: string): boolean {
-    if (!this.getSubscribedPodcasts().includes(podcastId)) return false;
-    return storage.getBoolean(`pref_podcast_notifications_${podcastId}`) ?? false;
+    const canonical = canonicalPodcastId(podcastId);
+    if (!this.getSubscribedPodcasts().includes(canonical)) return false;
+    return (
+      (storage.getBoolean(`pref_podcast_notifications_${canonical}`) ??
+        (canonical !== podcastId ? storage.getBoolean(`pref_podcast_notifications_${podcastId}`) : false)) ??
+      false
+    );
   },
 
   setPodcastNotificationsEnabled(podcastId: string, enabled: boolean): void {
-    storage.set(`pref_podcast_notifications_${podcastId}`, enabled);
+    const canonical = canonicalPodcastId(podcastId);
+    storage.set(`pref_podcast_notifications_${canonical}`, enabled);
+    if (canonical !== podcastId) {
+      storage.remove(`pref_podcast_notifications_${podcastId}`);
+    }
   },
 
   togglePodcastNotifications(podcastId: string): boolean {
-    const enabled = !this.isPodcastNotificationsEnabled(podcastId);
-    storage.set(`pref_podcast_notifications_${podcastId}`, enabled);
+    const canonical = canonicalPodcastId(podcastId);
+    const enabled = !this.isPodcastNotificationsEnabled(canonical);
+    this.setPodcastNotificationsEnabled(canonical, enabled);
     return enabled;
   },
 
@@ -982,31 +1017,42 @@ export const Preferences = {
   },
 
   togglePodcastSubscription(podcastId: string): boolean {
+    const canonical = canonicalPodcastId(podcastId);
     const subscribed = this.getSubscribedPodcasts();
-    const index = subscribed.indexOf(podcastId);
-    let isSub = false;
-    if (index >= 0) {
-      subscribed.splice(index, 1);
-      isSub = false;
-      this.setPodcastNotificationsEnabled(podcastId, false);
+    const isSub = subscribed.some((id) => canonicalPodcastId(id) === canonical);
+    let nowSubscribed = false;
+    if (isSub) {
+      const filtered = subscribed.filter((id) => canonicalPodcastId(id) !== canonical);
+      this.setPodcastNotificationsEnabled(canonical, false);
+      if (canonical !== podcastId) {
+        this.setPodcastNotificationsEnabled(podcastId, false);
+      }
+      this.setSubscribedPodcasts(filtered);
+      nowSubscribed = false;
     } else {
-      subscribed.push(podcastId);
-      isSub = true;
+      const withoutAlias = subscribed.filter((id) => canonicalPodcastId(id) !== canonical);
+      withoutAlias.push(canonical);
+      this.setSubscribedPodcasts(withoutAlias);
+      nowSubscribed = true;
     }
-    this.setSubscribedPodcasts(subscribed);
-    return isSub;
+    return nowSubscribed;
   },
 
   setPodcastSubscribed(podcastId: string, subscribedState: boolean): void {
+    const canonical = canonicalPodcastId(podcastId);
     const subscribed = this.getSubscribedPodcasts();
-    const index = subscribed.indexOf(podcastId);
-    if (subscribedState && index < 0) {
-      subscribed.push(podcastId);
-      this.setSubscribedPodcasts(subscribed);
-    } else if (!subscribedState && index >= 0) {
-      subscribed.splice(index, 1);
-      this.setPodcastNotificationsEnabled(podcastId, false);
-      this.setSubscribedPodcasts(subscribed);
+    const hasCanonical = subscribed.some((id) => canonicalPodcastId(id) === canonical);
+    if (subscribedState && !hasCanonical) {
+      const withoutAlias = subscribed.filter((id) => canonicalPodcastId(id) !== canonical);
+      withoutAlias.push(canonical);
+      this.setSubscribedPodcasts(withoutAlias);
+    } else if (!subscribedState && hasCanonical) {
+      this.setPodcastNotificationsEnabled(canonical, false);
+      if (canonical !== podcastId) {
+        this.setPodcastNotificationsEnabled(podcastId, false);
+      }
+      const filtered = subscribed.filter((id) => canonicalPodcastId(id) !== canonical);
+      this.setSubscribedPodcasts(filtered);
     }
   },
 

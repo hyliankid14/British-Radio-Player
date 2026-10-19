@@ -1,4 +1,5 @@
 import type { AutoNativeEvent } from "./autoBridge";
+import { canonicalPodcastId } from "../podcasts/podcastAliases.ts";
 
 export interface AutoMutationSink {
   getFavorites(): string[];
@@ -80,12 +81,14 @@ export function applyAutoMutation(event: AutoNativeEvent, sink: AutoMutationSink
     case "subscribeToggled": {
       const podcastId = String(payload.podcastId || "");
       if (!podcastId) break;
+      const canonicalId = canonicalPodcastId(podcastId);
       const subscribed = sink.getSubscribedPodcasts();
-      const isSubscribed = subscribed.includes(podcastId);
+      const isSubscribed = subscribed.some((id) => canonicalPodcastId(id) === canonicalId);
       if (payload.subscribed && !isSubscribed) {
-        sink.setSubscribedPodcasts([...subscribed, podcastId]);
+        const withoutAlias = subscribed.filter((id) => canonicalPodcastId(id) !== canonicalId);
+        sink.setSubscribedPodcasts([...withoutAlias, canonicalId]);
       } else if (!payload.subscribed && isSubscribed) {
-        sink.setSubscribedPodcasts(subscribed.filter((id) => id !== podcastId));
+        sink.setSubscribedPodcasts(subscribed.filter((id) => canonicalPodcastId(id) !== canonicalId));
       }
       break;
     }

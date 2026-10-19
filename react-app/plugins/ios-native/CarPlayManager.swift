@@ -1585,9 +1585,19 @@ final class CarPlayManager: NSObject {
 
     private func subscribedPodcasts() -> [CarPlayPodcast] {
         let state = CarPlayState.shared
-        let ids = state.subscribedIds
-        if ids.isEmpty { return state.subscriptions }
-        return state.subscriptions.filter { ids.contains($0.id) }
+        let ids = Set(state.subscribedIds)
+        let pool = ids.isEmpty ? state.subscriptions : state.subscriptions.filter { ids.contains($0.id) }
+        var seenIds = Set<String>()
+        var seenTitles = Set<String>()
+        var deduped: [CarPlayPodcast] = []
+        for podcast in pool {
+            let id = podcast.id
+            let normTitle = podcast.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if !id.isEmpty && !seenIds.insert(id).inserted { continue }
+            if !normTitle.isEmpty && !seenTitles.insert(normTitle).inserted { continue }
+            deduped.append(podcast)
+        }
+        return deduped
     }
 
     private func sortedSubscriptions(_ podcasts: [CarPlayPodcast]) -> [CarPlayPodcast] {

@@ -1,6 +1,7 @@
 import { isAnalyticsEnabled } from "../analytics/analytics";
 import { Episode, Podcast, PodcastApi } from "../api/podcasts";
 import { latestEpisodeEpoch, parseEpisodeDateEpoch } from "../podcasts/episodeDates.ts";
+import { normalizePodcastTitle } from "../podcasts/popularRanking";
 import { getPlaylistEntriesForPlayback } from "../podcasts/playlistPlayback";
 import { AudioQuality, StationRepository } from "../data/stations";
 import {
@@ -226,8 +227,10 @@ export async function buildAutoSnapshot(includePodcastData = true): Promise<Auto
   const episodes: Record<string, AutoEpisode[]> = {};
   const podcastTags: Record<string, string[]> = {};
   const subscriptions: AutoPodcast[] = [];
+  let uniqueSubscribedIds = Array.from(new Set(subscribedIds.filter(Boolean)));
 
   if (includePodcastData) {
+    uniqueSubscribedIds = [];
     const historyEntries = Preferences.getPodcastHistory();
     const savedEntriesList = Preferences.getPodcastPlaylistEntries("saved");
     const findFallbackTitle = (id: string): string => {
@@ -247,26 +250,22 @@ export async function buildAutoSnapshot(includePodcastData = true): Promise<Auto
       return "";
     };
 
-    const cachedPodcastIds = new Set<string>(subscribedIds);
-    for (const podcastId of cachedPodcastIds) {
-      const cached = PodcastApi.getEpisodesFromCache(podcastId);
-      if (cached && cached.length) {
-        const podcast = catalogById.get(podcastId);
-        const title = (podcast?.title && podcast.title !== podcastId) ? podcast.title : findFallbackTitle(podcastId);
-        const image = podcast?.imageUrl || findFallbackImage(podcastId);
-        // Cap to 50 episodes to prevent Android Binder TransactionTooLargeException
-        const sorted = sortEpisodes(cached, podcastId).slice(0, 50);
-        episodes[podcastId] = sorted.map((episode) =>
-          toAutoEpisode(episode, podcastId, title, image, downloads)
-        );
-      }
-    }
+    const seenIds = new Set<string>();
+    const seenTitles = new Set<string>();
 
     for (const podcastId of subscribedIds) {
+      if (!podcastId || seenIds.has(podcastId)) continue;
       const podcast = catalogById.get(podcastId);
+      const title = (podcast?.title && podcast.title !== podcastId) ? podcast.title : findFallbackTitle(podcastId);
+      const normTitle = normalizePodcastTitle(title);
+      if (normTitle && seenTitles.has(normTitle)) continue;
+
+      seenIds.add(podcastId);
+      if (normTitle) seenTitles.add(normTitle);
+      uniqueSubscribedIds.push(podcastId);
+
       const cached = PodcastApi.getEpisodesFromCache(podcastId) || [];
       const latest = latestEpisodeEpoch(cached.map((episode) => episode.pubDate));
-      const title = (podcast?.title && podcast.title !== podcastId) ? podcast.title : findFallbackTitle(podcastId);
       const imageUrl = podcast?.imageUrl || findFallbackImage(podcastId);
       subscriptions.push({
         id: podcastId,
@@ -279,6 +278,20 @@ export async function buildAutoSnapshot(includePodcastData = true): Promise<Auto
         latestUpdateMs: latest
       });
       podcastTags[podcastId] = Preferences.getPodcastTags(podcastId, podcast?.genres || []);
+    }
+
+    for (const podcastId of uniqueSubscribedIds) {
+      const cached = PodcastApi.getEpisodesFromCache(podcastId);
+      if (cached && cached.length) {
+        const podcast = catalogById.get(podcastId);
+        const title = (podcast?.title && podcast.title !== podcastId) ? podcast.title : findFallbackTitle(podcastId);
+        const image = podcast?.imageUrl || findFallbackImage(podcastId);
+        // Cap to 50 episodes to prevent Android Binder TransactionTooLargeException
+        const sorted = sortEpisodes(cached, podcastId).slice(0, 50);
+        episodes[podcastId] = sorted.map((episode) =>
+          toAutoEpisode(episode, podcastId, title, image, downloads)
+        );
+      }
     }
   }
 
@@ -346,7 +359,7 @@ export async function buildAutoSnapshot(includePodcastData = true): Promise<Auto
     lastStationId: Preferences.getLastStationId(),
     lastPlayed: Preferences.getLastPlayed(),
     subscriptions,
-    subscribedIds,
+    subscribedIds: uniqueSubscribedIds,
     catalog: autoCatalog,
     podcastSort: Preferences.getSubscribedPodcastSort(),
     podcastManualOrder: Preferences.getSubscribedPodcastManualOrder(),
