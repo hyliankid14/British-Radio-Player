@@ -2,7 +2,7 @@
   "expo": {
     "name": "British Radio Player",
     "slug": "british-radio-player-react",
-    "version": "2.1.2",
+    "version": "2.1.3",
     "scheme": "bbcradioplayer",
     "orientation": "default",
     "icon": "./assets/icon.png",
@@ -13,7 +13,7 @@
       "requireFullScreen": true,
       "bundleIdentifier": "com.hyliankid14.bbcradioplayer",
       "appleTeamId": "8ZAZCKQ9LV",
-      "buildNumber": "11",
+      "buildNumber": "12",
       "privacyManifests": {
         "NSPrivacyAccessedAPITypes": [
           {
@@ -48,9 +48,15 @@
       },
       "infoPlist": {
         "INAlternativeAppNames": [
-          { "INAlternativeAppName": "BBC Radio Player" },
-          { "INAlternativeAppName": "British Radio" },
-          { "INAlternativeAppName": "Radio Player" }
+          {
+            "INAlternativeAppName": "BBC Radio Player"
+          },
+          {
+            "INAlternativeAppName": "British Radio"
+          },
+          {
+            "INAlternativeAppName": "Radio Player"
+          }
         ],
         "INIntentsSupported": [
           "INPlayMediaIntent"
