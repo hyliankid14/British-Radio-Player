@@ -85,7 +85,9 @@ export default function GuideScreen() {
     useCallback(() => {
       void unlockOrientation();
       return () => {
-        void lockToPortrait();
+        if (Platform.OS !== "ios" || !Platform.isPad) {
+          void lockToPortrait();
+        }
       };
     }, [])
   );

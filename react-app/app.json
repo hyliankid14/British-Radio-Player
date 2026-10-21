@@ -9,7 +9,8 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "appStoreUrl": "https://apps.apple.com/app/british-radio-player/id6740921477",
-      "supportsTablet": false,
+      "supportsTablet": true,
+      "requireFullScreen": true,
       "bundleIdentifier": "com.hyliankid14.bbcradioplayer",
       "appleTeamId": "8ZAZCKQ9LV",
       "buildNumber": "11",

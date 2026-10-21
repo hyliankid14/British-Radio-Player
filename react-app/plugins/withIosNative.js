@@ -65,6 +65,41 @@ function withDevelopmentTeam(config) {
   });
 }
 
+function appendBuildSetting(buildSettings, settingName, settingValue) {
+  const currentValue = buildSettings[settingName];
+  const values = Array.isArray(currentValue)
+    ? currentValue
+    : currentValue == null
+      ? []
+      : [currentValue];
+  if (!values.includes(settingValue)) values.push(settingValue);
+  buildSettings[settingName] = values;
+}
+
+function withReactNativeDependenciesLink(config) {
+  return withXcodeProject(config, (configWithProject) => {
+    const bundleIdentifier = configWithProject.ios?.bundleIdentifier;
+    if (!bundleIdentifier) return configWithProject;
+
+    const configurations = configWithProject.modResults.pbxXCBuildConfigurationSection();
+    for (const buildConfiguration of Object.values(configurations || {})) {
+      const buildSettings = buildConfiguration?.buildSettings;
+      if (buildSettings?.PRODUCT_BUNDLE_IDENTIFIER !== bundleIdentifier) continue;
+
+      appendBuildSetting(buildSettings, "FRAMEWORK_SEARCH_PATHS", '"$(inherited)"');
+      appendBuildSetting(buildSettings, "OTHER_LDFLAGS", '"$(inherited)"');
+      appendBuildSetting(
+        buildSettings,
+        "FRAMEWORK_SEARCH_PATHS",
+        '"$(PODS_XCFRAMEWORKS_BUILD_DIR)/ReactNativeDependencies"'
+      );
+      appendBuildSetting(buildSettings, "OTHER_LDFLAGS", '"-framework"');
+      appendBuildSetting(buildSettings, "OTHER_LDFLAGS", '"ReactNativeDependencies"');
+    }
+    return configWithProject;
+  });
+}
+
 // This app only schedules local notifications (requestPermissionsAsync +
 // scheduleNotificationAsync); it never registers for remote APNs push, so the
 // aps-environment entitlement is not needed. expo-notifications adds it
@@ -389,6 +424,7 @@ module.exports = function withIosNative(config) {
   config = withNativeSwiftInProject(config);
   config = withSceneManifests(config);
   config = withDevelopmentTeam(config);
+  config = withReactNativeDependenciesLink(config);
   config = withFixedBundlePhase(config);
   config = withCarplayEntitlement(config);
   // Runs last so it also clears aps-environment that expo-notifications may add.

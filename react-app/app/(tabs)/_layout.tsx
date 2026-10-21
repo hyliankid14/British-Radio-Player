@@ -8,7 +8,7 @@ import { useAppTheme } from "../../src/theme/colors";
 import { useNetworkStatus } from "../../src/store/networkStore";
 import { Preferences } from "../../src/storage/preferences";
 import { useResponsiveLayout } from "../../src/theme/responsive";
-import { lockToPortrait } from "../../src/utils/orientation";
+import { lockToPortrait, unlockOrientation } from "../../src/utils/orientation";
 
 function notifyOffline(message: string) {
   if (Platform.OS === "android") {
@@ -32,9 +32,13 @@ export default function TabLayout() {
   const isGuideTab = segments[segments.length - 1] === "guide";
   const hideChromeInLandscape = isLandscape && isGuideTab;
 
-  // Lock phone to portrait on startup so default app experience stays stable
+  // Keep phones in portrait; iPad should follow its supported device orientation.
   React.useEffect(() => {
-    void lockToPortrait();
+    if (Platform.OS === "ios" && Platform.isPad) {
+      void unlockOrientation();
+    } else {
+      void lockToPortrait();
+    }
   }, []);
 
   // Honour the user's "Startup page" preference on first mount, mirroring the Kotlin app.
