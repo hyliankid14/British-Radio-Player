@@ -299,6 +299,9 @@ const KEYS = {
 /** Callbacks fired whenever an episode is marked as played. See `onEpisodePlayed`. */
 const playedListeners = new Set<(episodeId: string) => void>();
 
+/** Callbacks fired whenever a podcast is unsubscribed from. See `onPodcastUnsubscribed`. */
+const podcastUnsubscribedListeners = new Set<(podcastId: string) => void>();
+
 export const Preferences = {
   getLastFm(): { sessionKey: string; username: string; direct: boolean; broadcast: boolean; podcasts: boolean } {
     return {
@@ -657,6 +660,7 @@ export const Preferences = {
   },
 
   setSubscribedPodcasts(podcastIds: string[]): void {
+    const previous = this.getSubscribedPodcasts();
     const seen = new Set<string>();
     const canonicalList: string[] = [];
     for (const id of podcastIds) {
@@ -667,7 +671,20 @@ export const Preferences = {
         canonicalList.push(canonical);
       }
     }
+    const currentSet = new Set(canonicalList);
+    const removed = previous.filter((oldId) => !currentSet.has(canonicalPodcastId(oldId)));
+
     storage.set(KEYS.SUBSCRIBED_PODCASTS, JSON.stringify(canonicalList));
+
+    for (const podcastId of removed) {
+      for (const listener of podcastUnsubscribedListeners) {
+        try {
+          listener(podcastId);
+        } catch (e) {
+          console.error("Error in onPodcastUnsubscribed listener:", e);
+        }
+      }
+    }
   },
 
   getPodcastMetadata(podcastId: string): { title?: string; imageUrl?: string } | null {
@@ -1069,6 +1086,17 @@ export const Preferences = {
     playedListeners.add(listener);
     return () => {
       playedListeners.delete(listener);
+    };
+  },
+
+  /**
+   * Registers a callback fired whenever a podcast is unsubscribed from, so
+   * download housekeeping can remove automatic downloads without Preferences importing the store.
+   */
+  onPodcastUnsubscribed(listener: (podcastId: string) => void): () => void {
+    podcastUnsubscribedListeners.add(listener);
+    return () => {
+      podcastUnsubscribedListeners.delete(listener);
     };
   },
 

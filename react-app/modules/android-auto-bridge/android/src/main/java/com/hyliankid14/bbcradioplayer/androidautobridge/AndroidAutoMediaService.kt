@@ -149,7 +149,7 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
             player.stop()
           } else {
             player.pause()
-            if (kind == Kind.EPISODE) persistProgress()
+            if (kind == Kind.EPISODE) persistProgress(force = true)
           }
           updatePlaybackState()
         }
@@ -227,7 +227,7 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
       player.stop()
     } else {
       player.pause()
-      if (kind == Kind.EPISODE) persistProgress()
+      if (kind == Kind.EPISODE) persistProgress(force = true)
     }
     updatePlaybackState()
   }
@@ -249,15 +249,54 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
     }
   }
 
+  private val lastChildrenSignature = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
+  private fun computeChildrenSignature(items: List<MediaBrowserCompat.MediaItem>): Int {
+    var result = 1
+    for (item in items) {
+      val desc = item.description
+      var itemHash = 31 * (item.mediaId?.hashCode() ?: 0) + item.flags
+      itemHash = 31 * itemHash + (desc.title?.hashCode() ?: 0)
+      itemHash = 31 * itemHash + (desc.subtitle?.hashCode() ?: 0)
+      itemHash = 31 * itemHash + (desc.iconUri?.hashCode() ?: 0)
+      result = 31 * result + itemHash
+    }
+    return result
+  }
+
+  private fun notifyChildrenChangedIfModified(parentId: String) {
+    val items = try {
+      loadChildren(parentId, page = -1, pageSize = EPISODE_PAGE_SIZE)
+    } catch (_: Exception) {
+      return
+    }
+    val newSig = computeChildrenSignature(items)
+    val oldSig = lastChildrenSignature[parentId]
+    if (oldSig != null && oldSig == newSig) {
+      // The dataset is completely identical; do not notify Android Auto to avoid resetting scroll offset.
+      return
+    }
+    lastChildrenSignature[parentId] = newSig
+    try { notifyChildrenChanged(parentId) } catch (_: Exception) { }
+  }
+
   private val stateReceiver = object : BroadcastReceiver() {
     override fun onReceive(context: Context?, intent: Intent?) {
       if (intent?.action != AutoState.ACTION_STATE_CHANGED) return
-      for (parent in listOf(
-        MEDIA_ID_ROOT, MEDIA_ID_FAVORITES, MEDIA_ID_ALL_STATIONS, MEDIA_ID_PODCASTS,
-        MEDIA_ID_PODCASTS_SUBSCRIBED, MEDIA_ID_PODCASTS_SUBSCRIBED_TAGS,
-        MEDIA_ID_PODCASTS_PLAYLISTS, MEDIA_ID_PODCASTS_DOWNLOADED, MEDIA_ID_PODCASTS_HISTORY
-      )) {
-        try { notifyChildrenChanged(parent) } catch (_: Exception) { }
+      val changedParent = intent.getStringExtra(AutoState.EXTRA_CHANGED_PARENT)
+      if (changedParent != null) {
+        notifyChildrenChangedIfModified(changedParent)
+        if (changedParent == MEDIA_ID_PODCASTS_SUBSCRIBED) {
+          notifyChildrenChangedIfModified(MEDIA_ID_PODCASTS_SUBSCRIBED_TAGS)
+        }
+      } else {
+        for (parent in listOf(
+          MEDIA_ID_ROOT, MEDIA_ID_FAVORITES, MEDIA_ID_ALL_STATIONS, MEDIA_ID_PODCASTS,
+          MEDIA_ID_PODCASTS_SUBSCRIBED, MEDIA_ID_PODCASTS_SUBSCRIBED_TAGS,
+          MEDIA_ID_PODCASTS_PLAYLISTS, MEDIA_ID_PODCASTS_DOWNLOADED, MEDIA_ID_PODCASTS_HISTORY
+        )) {
+          notifyChildrenChangedIfModified(parent)
+        }
       }
     }
   }
@@ -366,7 +405,7 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
     cancelAnalyticsTimers()
     handler.removeCallbacks(progressTick)
     try { unregisterReceiver(stateReceiver) } catch (_: Exception) { }
-    persistProgress()
+    persistProgress(force = true)
     session.isActive = false
     session.release()
     player.release()
@@ -758,7 +797,7 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
       isDucked = false
     }
     cancelAnalyticsTimers()
-    persistProgress()
+    persistProgress(force = true)
     kind = Kind.NONE
     stationJson = null
     episodeJson = null
@@ -1094,11 +1133,20 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
     }
   }
 
-  private fun persistProgress() {
+  private var lastPersistedProgressPosition = -1L
+  private var lastPersistedProgressTimeMs = 0L
+
+  private fun persistProgress(force: Boolean = false) {
     if (kind != Kind.EPISODE) return
     val episodeId = episodeJson?.optString("id").orEmpty()
     val position = player.currentPosition
     if (episodeId.isEmpty() || position <= 0L) return
+    val now = System.currentTimeMillis()
+    if (!force && now - lastPersistedProgressTimeMs < 5_000L && Math.abs(position - lastPersistedProgressPosition) < 5_000L) {
+      return
+    }
+    lastPersistedProgressTimeMs = now
+    lastPersistedProgressPosition = position
     AutoState.setProgress(this, episodeId, position)
     emitMutation("episodeProgress", JSONObject().apply {
       put("episodeId", episodeId)
@@ -1280,7 +1328,6 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
     val isAndroidAutoClient = clientPackageName.contains(ANDROID_AUTO_CLIENT_HINT, ignoreCase = true)
     if (!isAndroidAutoClient && rootHints?.getBoolean(EXTRA_RECENT) == true && isStopped) return null
     if (isAndroidAutoClient) {
-      try { notifyChildrenChanged(MEDIA_ID_ROOT) } catch (_: Exception) { }
       maybeResumeOnAutoConnect()
     }
     val extras = Bundle().apply {
@@ -1312,6 +1359,7 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
       Log.e(TAG, "onLoadChildren failed for $parentId", e)
       emptyList()
     }
+    lastChildrenSignature[parentId] = computeChildrenSignature(items)
     result.sendResult(items)
     if (parentId == MEDIA_ID_FAVORITES || parentId == MEDIA_ID_ALL_STATIONS) {
       refreshStationSubtitles(parentId)
@@ -1713,7 +1761,7 @@ class AndroidAutoMediaService : MediaBrowserServiceCompat() {
         if (AutoShowInfo.refreshShowTitle(serviceId) != before) changed = true
       }
       if (changed) handler.post {
-        try { notifyChildrenChanged(parentId) } catch (_: Exception) { }
+        notifyChildrenChangedIfModified(parentId)
       }
     }
   }

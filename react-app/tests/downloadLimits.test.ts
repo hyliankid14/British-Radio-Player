@@ -17,6 +17,7 @@ import {
   pickDownloadsToRemove,
   pickPerPodcastDownloadsToRemove,
   pickStaleAutomaticDownloads,
+  pickAutoDownloadsForPodcast,
   sanitizeFileName,
   sortEpisodesNewestFirst,
   sortEpisodesOldestFirst
@@ -333,5 +334,65 @@ test("normalizeEpisodeId extracts canonical episode IDs and handles various form
   assert.equal(normalizeEpisodeId(""), "");
   assert.equal(normalizeEpisodeId(undefined), "");
   assert.equal(normalizeEpisodeId(null), "");
+});
+
+test("pickAutoDownloadsForPodcast identifies auto-downloaded episodes of the unsubscribed podcast", () => {
+  const records = {
+    auto1: { downloadedAtMs: 100, isAutoDownloaded: true, entry: { podcastId: "podA" } },
+    auto2: { downloadedAtMs: 200, isAutoDownloaded: true, entry: { podcastId: "podA" } },
+    manual: { downloadedAtMs: 300, isAutoDownloaded: false, entry: { podcastId: "podA" } },
+    otherPod: { downloadedAtMs: 400, isAutoDownloaded: true, entry: { podcastId: "podB" } },
+    orphan: { downloadedAtMs: 500, isAutoDownloaded: true }
+  };
+
+  const victims = pickAutoDownloadsForPodcast(records, "podA");
+  assert.deepEqual(victims, ["auto1", "auto2"]);
+});
+
+test("pickAutoDownloadsForPodcast resolves podcast ID aliases", () => {
+  const records = {
+    epAlias: { downloadedAtMs: 100, isAutoDownloaded: true, entry: { podcastId: "p02nrss1" } },
+    epCanonical: { downloadedAtMs: 200, isAutoDownloaded: true, entry: { podcastId: "b006qshd" } }
+  };
+
+  // Searching by alias finds both
+  assert.deepEqual(pickAutoDownloadsForPodcast(records, "p02nrss1"), ["epAlias", "epCanonical"]);
+  // Searching by canonical ID finds both
+  assert.deepEqual(pickAutoDownloadsForPodcast(records, "b006qshd"), ["epAlias", "epCanonical"]);
+});
+
+test("pickAutoDownloadsForPodcast protects currently playing and excluded episodes", () => {
+  const records = {
+    playingEp: { downloadedAtMs: 100, isAutoDownloaded: true, entry: { podcastId: "podA" } },
+    savedEp: { downloadedAtMs: 200, isAutoDownloaded: true, entry: { podcastId: "podA" } },
+    regularEp: { downloadedAtMs: 300, isAutoDownloaded: true, entry: { podcastId: "podA" } }
+  };
+
+  const victims = pickAutoDownloadsForPodcast(
+    records,
+    "podA",
+    ["playingEp"],
+    ["savedEp"]
+  );
+  assert.deepEqual(victims, ["regularEp"]);
+});
+
+test("pickAutoDownloadsForPodcast handles empty inputs gracefully", () => {
+  assert.deepEqual(pickAutoDownloadsForPodcast({}, "podA"), []);
+  assert.deepEqual(pickAutoDownloadsForPodcast({ ep1: { isAutoDownloaded: true, entry: { podcastId: "podA" } } }, ""), []);
+});
+
+test("unsubscribing removes auto downloaded episodes for that podcast while keeping manual downloads", () => {
+  const downloadedRecords = {
+    epAuto1: { downloadedAtMs: 100, isAutoDownloaded: true, entry: { podcastId: "unsubscribedPod" } },
+    epAuto2: { downloadedAtMs: 200, isAutoDownloaded: true, entry: { podcastId: "unsubscribedPod" } },
+    epManual: { downloadedAtMs: 300, isAutoDownloaded: false, entry: { podcastId: "unsubscribedPod" } },
+    otherPodAuto: { downloadedAtMs: 400, isAutoDownloaded: true, entry: { podcastId: "keptPod" } }
+  };
+
+  const removedIds = pickAutoDownloadsForPodcast(downloadedRecords, "unsubscribedPod");
+  assert.deepEqual(removedIds, ["epAuto1", "epAuto2"]);
+  assert.ok(!removedIds.includes("epManual"), "manual download must not be removed");
+  assert.ok(!removedIds.includes("otherPodAuto"), "other podcast download must not be removed");
 });
 

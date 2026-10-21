@@ -28,6 +28,7 @@ object AutoState {
 
   const val ACTION_STATE_CHANGED =
     "com.hyliankid14.bbcradioplayer.react.action.AUTO_STATE_CHANGED"
+  const val EXTRA_CHANGED_PARENT = "changed_parent"
 
   private val lock = Any()
 
@@ -41,18 +42,26 @@ object AutoState {
 
   fun saveSnapshot(context: Context, json: String) {
     synchronized(lock) {
-      val editor = prefs(context).edit().putString(KEY_SNAPSHOT, json)
-      // JS is authoritative: any native overlay (favourite/subscribe/played/progress
-      // tweaks made from the car) has either already been drained back into JS via the
-      // mutation queue or is superseded by the snapshot we are writing now.
-      // However, if the incoming snapshot does not contain history that was already in
-      // the overlay (e.g. fast stations snapshot or undrained mutations), preserve those
-      // entries in the overlay so they are never lost before JS drains them.
+      val oldSnap = snapshot(context)
+      val newSnap = try { JSONObject(json) } catch (_: Exception) { JSONObject() }
+
+      // If the incoming snapshot has empty subscriptions (e.g. from a fast startup snapshot),
+      // preserve existing subscriptions from the old snapshot so the Android Auto browse tree
+      // doesn't transiently lose its list.
+      val newSubs = newSnap.optJSONArray("subscriptions")
+      val oldSubs = oldSnap.optJSONArray("subscriptions")
+      if ((newSubs == null || newSubs.length() == 0) && oldSubs != null && oldSubs.length() > 0) {
+        newSnap.put("subscriptions", oldSubs)
+        if (!newSnap.has("subscribedIds") || newSnap.optJSONArray("subscribedIds")?.length() == 0) {
+          oldSnap.optJSONArray("subscribedIds")?.let { newSnap.put("subscribedIds", it) }
+        }
+      }
+
+      val editor = prefs(context).edit().putString(KEY_SNAPSHOT, newSnap.toString())
       val oldOverlay = overlay(context)
       val oldHistory = oldOverlay.optJSONArray("history")
       editor.remove(KEY_OVERLAY)
       if (oldHistory != null && oldHistory.length() > 0) {
-        val newSnap = try { JSONObject(json) } catch (_: Exception) { JSONObject() }
         if (newSnap.has("pauseBuffering")) {
           val pb = newSnap.optBoolean("pauseBuffering", true)
           editor.putBoolean("setting_pref_pause_buffering", pb)
@@ -78,7 +87,6 @@ object AutoState {
           editor.putString(KEY_OVERLAY, preservedOverlay.toString())
         }
       } else {
-        val newSnap = try { JSONObject(json) } catch (_: Exception) { JSONObject() }
         if (newSnap.has("pauseBuffering")) {
           val pb = newSnap.optBoolean("pauseBuffering", true)
           editor.putBoolean("setting_pref_pause_buffering", pb)
@@ -145,7 +153,6 @@ object AutoState {
       } else array
       prefs(context).edit().putString(KEY_MUTATIONS, trimmed.toString()).commit()
     }
-    notifyChanged(context)
   }
 
   fun drainMutations(context: Context): JSONArray {
@@ -168,9 +175,12 @@ object AutoState {
     notifyChanged(context)
   }
 
-  fun notifyChanged(context: Context) {
+  fun notifyChanged(context: Context, changedParent: String? = null) {
     try {
       val intent = Intent(ACTION_STATE_CHANGED).setPackage(context.packageName)
+      if (changedParent != null) {
+        intent.putExtra(EXTRA_CHANGED_PARENT, changedParent)
+      }
       context.applicationContext.sendBroadcast(intent)
     } catch (_: Exception) {
     }
@@ -220,7 +230,7 @@ object AutoState {
       put("stationId", stationId)
       put("favorite", isFav)
     })
-    notifyChanged(context)
+    notifyChanged(context, "favorites")
     return isFav
   }
 
@@ -264,7 +274,7 @@ object AutoState {
       put("podcastId", podcastId)
       put("subscribed", subscribed)
     })
-    notifyChanged(context)
+    notifyChanged(context, "podcasts_subscribed")
   }
 
   private fun objectList(context: Context, key: String): List<JSONObject> {
@@ -373,7 +383,7 @@ object AutoState {
     val trimmed = current.take(20)
     updateOverlay(context) { it.put("history", JSONArray(trimmed)) }
     addMutation(context, "podcastHistoryAdded", episode)
-    notifyChanged(context)
+    notifyChanged(context, "podcasts_history")
   }
 
   fun playedIds(context: Context): List<String> = effectiveList(context, "playedIds")
@@ -403,6 +413,7 @@ object AutoState {
         put("pubDateEpochMs", pubDateEpochMs ?: 0L)
         put("played", true)
       })
+      notifyChanged(context, "podcasts_downloaded")
     }
   }
 

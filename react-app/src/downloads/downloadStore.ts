@@ -9,12 +9,15 @@ import {
   AUTO_DOWNLOAD_LIMIT_PREF_KEY,
   MAX_DOWNLOADS_PREF_KEY,
   buildDownloadDisplayName,
+  isAutomaticDownload,
   normaliseMaxDownloads,
   normalizeEpisodeId,
+  pickAutoDownloadsForPodcast,
   pickDownloadsToRemove,
   pickPerPodcastDownloadsToRemove,
   sanitizeFileName
 } from "./downloadLimits";
+import { canonicalPodcastId } from "../podcasts/podcastAliases";
 
 export type DownloadStatus = "downloading" | "downloaded" | "error";
 
@@ -171,6 +174,62 @@ export function enforcePerPodcastDownloadLimit(remove: (episodeId: string) => vo
   const victims = pickPerPodcastDownloadsToRemove(Preferences.getDownloadedEntries(), limit, protectedIds);
   for (const id of victims) remove(id);
   return victims.length;
+}
+
+/**
+ * Removes all automatic downloads of a podcast when the user unsubscribes from it.
+ * Manual downloads are preserved. The episode currently playing is protected.
+ * Returns the number removed.
+ */
+export function removeAutoDownloadsForPodcast(podcastId: string): number {
+  if (!podcastId) return 0;
+  const store = useDownloadStore.getState();
+  const protectedIds = inUseEpisodeId ? [inUseEpisodeId] : [];
+  const autoSaved = Boolean(Preferences.getSetting("pref_auto_download_saved", false));
+  const savedEntries = autoSaved ? Preferences.getPodcastPlaylistEntries("saved") : [];
+  const savedEpisodeIds = new Set(savedEntries.map((e) => normalizeEpisodeId(e.id) || e.id));
+
+  const allRecords = Preferences.getDownloadedEntries();
+  const victims = pickAutoDownloadsForPodcast(
+    allRecords,
+    podcastId,
+    protectedIds,
+    savedEpisodeIds
+  );
+  for (const id of victims) {
+    store.remove(id);
+  }
+  return victims.length;
+}
+
+/**
+ * Removes automatic downloads for any podcast the user is no longer subscribed to.
+ * Manual downloads and episodes saved in the "saved" playlist (when auto-download saved is on)
+ * are preserved.
+ */
+export function enforceUnsubscribedAutoDownloads(remove: (episodeId: string) => void): number {
+  const subscribed = new Set(Preferences.getSubscribedPodcasts().map(canonicalPodcastId));
+  const autoSaved = Boolean(Preferences.getSetting("pref_auto_download_saved", false));
+  const savedEntries = autoSaved ? Preferences.getPodcastPlaylistEntries("saved") : [];
+  const savedEpisodeIds = new Set(savedEntries.map((e) => normalizeEpisodeId(e.id) || e.id));
+  const protectedIds = inUseEpisodeId ? new Set([inUseEpisodeId, normalizeEpisodeId(inUseEpisodeId) || inUseEpisodeId]) : new Set();
+
+  const allRecords = Preferences.getDownloadedEntries();
+  let count = 0;
+  for (const [id, record] of Object.entries(allRecords)) {
+    if (!isAutomaticDownload(record)) continue;
+    const podcastId = record?.entry?.podcastId;
+    if (!podcastId) continue;
+    const canonical = canonicalPodcastId(podcastId);
+    if (!subscribed.has(canonical)) {
+      const normId = normalizeEpisodeId(id) || id;
+      if (protectedIds.has(id) || protectedIds.has(normId)) continue;
+      if (savedEpisodeIds.has(id) || savedEpisodeIds.has(normId)) continue;
+      remove(id);
+      count++;
+    }
+  }
+  return count;
 }
 
 async function refreshEpisodeAudioUrl(

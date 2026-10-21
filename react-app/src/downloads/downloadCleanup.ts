@@ -2,7 +2,9 @@ import { Preferences } from "../storage/preferences";
 import {
   enforceMaxDownloads,
   enforcePerPodcastDownloadLimit,
+  enforceUnsubscribedAutoDownloads,
   getDownloadInUseEpisode,
+  removeAutoDownloadsForPodcast,
   setDownloadInUseEpisode,
   useDownloadStore
 } from "./downloadStore";
@@ -14,7 +16,7 @@ let registered = false;
 const pendingPlayed = new Set<string>();
 let flushHandle: ReturnType<typeof setTimeout> | null = null;
 
-export { setDownloadInUseEpisode };
+export { removeAutoDownloadsForPodcast, setDownloadInUseEpisode };
 
 /** Whether finished episodes should have their download removed. */
 export function isDeleteWhenPlayed(): boolean {
@@ -22,12 +24,17 @@ export function isDeleteWhenPlayed(): boolean {
 }
 
 /**
- * Brings the library back inside the configured limits: the per-podcast automatic
- * download cap first, then the global maximum. Returns the number removed.
+ * Brings the library back inside the configured limits: automatic downloads for
+ * unsubscribed podcasts first, the per-podcast automatic download cap second,
+ * then the global maximum. Returns the number removed.
  */
 export function pruneDownloads(): number {
   const remove = (id: string) => useDownloadStore.getState().remove(id);
-  return enforcePerPodcastDownloadLimit(remove) + enforceMaxDownloads(remove);
+  return (
+    enforceUnsubscribedAutoDownloads(remove) +
+    enforcePerPodcastDownloadLimit(remove) +
+    enforceMaxDownloads(remove)
+  );
 }
 
 /** Removes a single download when "Delete when completed" is switched on. */
@@ -71,7 +78,10 @@ function schedulePlayedCleanup(episodeId: string): void {
 export function initDownloadCleanup(): () => void {
   if (registered) return () => {};
   registered = true;
-  const unsubscribe = Preferences.onEpisodePlayed(schedulePlayedCleanup);
+  const unsubscribePlayed = Preferences.onEpisodePlayed(schedulePlayedCleanup);
+  const unsubscribeUnsubscribed = Preferences.onPodcastUnsubscribed((podcastId) => {
+    removeAutoDownloadsForPodcast(podcastId);
+  });
   pruneDownloads();
   return () => {
     registered = false;
@@ -80,6 +90,7 @@ export function initDownloadCleanup(): () => void {
       flushHandle = null;
     }
     pendingPlayed.clear();
-    unsubscribe();
+    unsubscribePlayed();
+    unsubscribeUnsubscribed();
   };
 }

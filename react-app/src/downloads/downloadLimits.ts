@@ -9,6 +9,7 @@
 
 // Pure and import-free itself, so the Node test runner can load it here too.
 import { byEpisodePubDate, byEpisodePubDateOldest } from "../podcasts/episodeDates.ts";
+import { canonicalPodcastId } from "../podcasts/podcastAliases.ts";
 
 /** Preference key holding the maximum number of episodes kept on the device. */
 export const MAX_DOWNLOADS_PREF_KEY = "pref_max_downloads";
@@ -241,4 +242,35 @@ export function pickStaleAutomaticDownloads(
     stale.push(id);
   }
   return stale;
+}
+
+/**
+ * Returns the episode ids of automatic downloads belonging to a specific podcast.
+ * Manual downloads (isAutoDownloaded === false) are ignored.
+ * Protected ids (currently playing) and excluded ids (saved episodes) are excluded.
+ */
+export function pickAutoDownloadsForPodcast(
+  records: Record<string, PerPodcastRecordLike | undefined>,
+  podcastId: string,
+  protectedIds: Iterable<string> = [],
+  excludedEpisodeIds: Iterable<string> = []
+): string[] {
+  if (!podcastId) return [];
+  const keep = new Set(Array.from(protectedIds).map((id) => normalizeEpisodeId(id) || id));
+  const exclude = new Set(Array.from(excludedEpisodeIds).map((id) => normalizeEpisodeId(id) || id));
+  const canonicalTarget = canonicalPodcastId(podcastId);
+  const victims: string[] = [];
+
+  for (const [id, record] of Object.entries(records)) {
+    if (!isAutomaticDownload(record)) continue;
+    const entryPodcastId = record?.entry?.podcastId;
+    if (!entryPodcastId) continue;
+    if (canonicalPodcastId(entryPodcastId) === canonicalTarget) {
+      const normId = normalizeEpisodeId(id) || id;
+      if (keep.has(id) || keep.has(normId)) continue;
+      if (exclude.has(id) || exclude.has(normId)) continue;
+      victims.push(id);
+    }
+  }
+  return victims;
 }

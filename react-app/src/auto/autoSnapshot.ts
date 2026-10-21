@@ -227,59 +227,58 @@ export async function buildAutoSnapshot(includePodcastData = true): Promise<Auto
   const episodes: Record<string, AutoEpisode[]> = {};
   const podcastTags: Record<string, string[]> = {};
   const subscriptions: AutoPodcast[] = [];
-  let uniqueSubscribedIds = Array.from(new Set(subscribedIds.filter(Boolean)));
+  const uniqueSubscribedIds: string[] = [];
+
+  const historyEntries = Preferences.getPodcastHistory();
+  const savedEntriesList = Preferences.getPodcastPlaylistEntries("saved");
+  const findFallbackTitle = (id: string): string => {
+    const meta = Preferences.getPodcastMetadata(id);
+    if (meta?.title && meta.title !== id) return meta.title;
+    const hist = historyEntries.find((e) => e.podcastId === id && e.podcastTitle && e.podcastTitle !== id);
+    if (hist) return hist.podcastTitle;
+    const sav = savedEntriesList.find((e) => e.podcastId === id && e.podcastTitle && e.podcastTitle !== id);
+    if (sav) return sav.podcastTitle;
+    return id;
+  };
+  const findFallbackImage = (id: string): string => {
+    const meta = Preferences.getPodcastMetadata(id);
+    if (meta?.imageUrl) return meta.imageUrl;
+    const hist = historyEntries.find((e) => e.podcastId === id && e.imageUrl);
+    if (hist) return hist.imageUrl;
+    return "";
+  };
+
+  const seenIds = new Set<string>();
+  const seenTitles = new Set<string>();
+
+  for (const podcastId of subscribedIds) {
+    if (!podcastId || seenIds.has(podcastId)) continue;
+    const podcast = catalogById.get(podcastId);
+    const title = (podcast?.title && podcast.title !== podcastId) ? podcast.title : findFallbackTitle(podcastId);
+    const normTitle = normalizePodcastTitle(title);
+    if (normTitle && seenTitles.has(normTitle)) continue;
+
+    seenIds.add(podcastId);
+    if (normTitle) seenTitles.add(normTitle);
+    uniqueSubscribedIds.push(podcastId);
+
+    const cached = PodcastApi.getEpisodesFromCache(podcastId) || [];
+    const latest = latestEpisodeEpoch(cached.map((episode) => episode.pubDate));
+    const imageUrl = podcast?.imageUrl || findFallbackImage(podcastId);
+    subscriptions.push({
+      id: podcastId,
+      title,
+      description: podcast?.description || "",
+      rssUrl: podcast?.rssUrl || `https://podcasts.files.bbci.co.uk/${podcastId}.rss`,
+      imageUrl,
+      genres: podcast?.genres || [],
+      typicalDurationMins: podcast?.typicalDurationMins || 0,
+      latestUpdateMs: latest
+    });
+    podcastTags[podcastId] = Preferences.getPodcastTags(podcastId, podcast?.genres || []);
+  }
 
   if (includePodcastData) {
-    uniqueSubscribedIds = [];
-    const historyEntries = Preferences.getPodcastHistory();
-    const savedEntriesList = Preferences.getPodcastPlaylistEntries("saved");
-    const findFallbackTitle = (id: string): string => {
-      const meta = Preferences.getPodcastMetadata(id);
-      if (meta?.title && meta.title !== id) return meta.title;
-      const hist = historyEntries.find((e) => e.podcastId === id && e.podcastTitle && e.podcastTitle !== id);
-      if (hist) return hist.podcastTitle;
-      const sav = savedEntriesList.find((e) => e.podcastId === id && e.podcastTitle && e.podcastTitle !== id);
-      if (sav) return sav.podcastTitle;
-      return id;
-    };
-    const findFallbackImage = (id: string): string => {
-      const meta = Preferences.getPodcastMetadata(id);
-      if (meta?.imageUrl) return meta.imageUrl;
-      const hist = historyEntries.find((e) => e.podcastId === id && e.imageUrl);
-      if (hist) return hist.imageUrl;
-      return "";
-    };
-
-    const seenIds = new Set<string>();
-    const seenTitles = new Set<string>();
-
-    for (const podcastId of subscribedIds) {
-      if (!podcastId || seenIds.has(podcastId)) continue;
-      const podcast = catalogById.get(podcastId);
-      const title = (podcast?.title && podcast.title !== podcastId) ? podcast.title : findFallbackTitle(podcastId);
-      const normTitle = normalizePodcastTitle(title);
-      if (normTitle && seenTitles.has(normTitle)) continue;
-
-      seenIds.add(podcastId);
-      if (normTitle) seenTitles.add(normTitle);
-      uniqueSubscribedIds.push(podcastId);
-
-      const cached = PodcastApi.getEpisodesFromCache(podcastId) || [];
-      const latest = latestEpisodeEpoch(cached.map((episode) => episode.pubDate));
-      const imageUrl = podcast?.imageUrl || findFallbackImage(podcastId);
-      subscriptions.push({
-        id: podcastId,
-        title,
-        description: podcast?.description || "",
-        rssUrl: podcast?.rssUrl || `https://podcasts.files.bbci.co.uk/${podcastId}.rss`,
-        imageUrl,
-        genres: podcast?.genres || [],
-        typicalDurationMins: podcast?.typicalDurationMins || 0,
-        latestUpdateMs: latest
-      });
-      podcastTags[podcastId] = Preferences.getPodcastTags(podcastId, podcast?.genres || []);
-    }
-
     for (const podcastId of uniqueSubscribedIds) {
       const cached = PodcastApi.getEpisodesFromCache(podcastId);
       if (cached && cached.length) {
