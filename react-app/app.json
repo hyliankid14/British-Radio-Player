@@ -107,7 +107,7 @@
     "android": {
       "playStoreUrl": "https://play.google.com/store/apps/details?id=com.hyliankid14.bbcradioplayer",
       "package": "com.hyliankid14.bbcradioplayer",
-      "versionCode": 111,
+      "versionCode": 112,
       "adaptiveIcon": {
         "backgroundColor": "#1E1B2E",
         "foregroundImage": "./assets/android-icon-foreground.png",
