@@ -9,7 +9,8 @@ import {
   ActivityIndicator,
   Modal,
   ScrollView,
-  TextInput
+  TextInput,
+  Platform
 } from "react-native";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -58,6 +59,7 @@ export default function PodcastDetailModal() {
   const router = useRouter();
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
+  const hidePlaybackChrome = Platform.OS === "ios" && Platform.isPad;
   const params = useLocalSearchParams<{ podcastId: string; podcastData?: string; episodeId?: string }>();
   const requestedEpisodeId =
     typeof params.episodeId === "string" ? params.episodeId : "";
@@ -1230,7 +1232,7 @@ export default function PodcastDetailModal() {
             {
               backgroundColor: theme.surfaceContainer,
               borderTopColor: theme.outlineVariant,
-              bottom: insets.bottom + 80
+              bottom: insets.bottom + (hidePlaybackChrome ? 0 : 80)
             }
           ]}
         >
@@ -1272,14 +1274,16 @@ export default function PodcastDetailModal() {
             </TouchableOpacity>
           </ScrollView>
         </View>
-      ) : (
+      ) : !hidePlaybackChrome ? (
         <View style={[styles.miniPlayerWrapper, { bottom: insets.bottom + 80 }]}>
           <MiniPlayer />
         </View>
+      ) : null}
+      {!hidePlaybackChrome && (
+        <View style={[styles.navigationWrapper, { bottom: 0, backgroundColor: theme.surfaceContainer }]}>
+          <AppNavigation />
+        </View>
       )}
-      <View style={[styles.navigationWrapper, { bottom: 0, backgroundColor: theme.surfaceContainer }]}>
-        <AppNavigation />
-      </View>
     </View>
   );
 }

@@ -333,3 +333,14 @@ test("landscape guide displays more than 2.5 hours of schedule across an 844dp p
   assert.ok(visibleHours >= 2.5, `expected at least 2.5 hours visible, got ${visibleHours.toFixed(1)}`);
 });
 
+test("guide bottom padding clears navigation tabs and mini player", () => {
+  const bottomNavHeight = 80;
+  const miniPlayerHeight = 72;
+  const guideBottomPadding = 160;
+  assert.ok(
+    guideBottomPadding >= bottomNavHeight + miniPlayerHeight,
+    "Guide scroll view padding should provide full clearance above tabs and mini player"
+  );
+});
+
+

@@ -15,10 +15,9 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MaterialIcons } from "@expo/vector-icons";
-import { useRouter, useFocusEffect } from "expo-router";
+import { useRouter } from "expo-router";
 import { useAppTheme } from "../../src/theme/colors";
 import { useResponsiveLayout } from "../../src/theme/responsive";
-import { lockToLandscape, lockToPortrait, unlockOrientation } from "../../src/utils/orientation";
 import { ScreenHeader, HeaderIconButton } from "../../src/components/ScreenHeader";
 import { Station, StationCategory, StationRepository } from "../../src/data/stations";
 import {
@@ -78,27 +77,6 @@ export default function GuideScreen() {
     timelineWidth,
     timeRulerHeight
   } = useMemo(() => getGuideGridDimensions(isLandscape), [isLandscape]);
-
-  // Manage screen orientation for Guide: allow sensor rotation while focused,
-  // restore portrait lock when leaving Guide tab.
-  useFocusEffect(
-    useCallback(() => {
-      void unlockOrientation();
-      return () => {
-        if (Platform.OS !== "ios" || !Platform.isPad) {
-          void lockToPortrait();
-        }
-      };
-    }, [])
-  );
-
-  const toggleOrientation = useCallback(async () => {
-    if (isLandscape) {
-      await lockToPortrait();
-    } else {
-      await lockToLandscape();
-    }
-  }, [isLandscape]);
 
   // 15 date tabs (-7 ... Today ... +7)
   const { tabs, todayIndex } = useMemo(() => {
@@ -515,18 +493,6 @@ export default function GuideScreen() {
                     </Text>
                   </TouchableOpacity>
                 )}
-
-                <TouchableOpacity
-                  style={[styles.orientationButton, { backgroundColor: theme.surfaceVariant }]}
-                  onPress={toggleOrientation}
-                  activeOpacity={0.7}
-                  accessibilityLabel="Switch to landscape guide mode"
-                >
-                  <MaterialIcons name="screen-rotation" size={16} color={theme.onSurface} />
-                  <Text style={[styles.orientationButtonText, { color: theme.onSurface }]}>
-                    Landscape
-                  </Text>
-                </TouchableOpacity>
               </>
             }
           />
@@ -794,17 +760,6 @@ export default function GuideScreen() {
                 <MaterialIcons name="refresh" size={20} color={theme.onSurface} />
               )}
             </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.landscapePortraitButton, { backgroundColor: theme.surfaceVariant }]}
-              onPress={toggleOrientation}
-              accessibilityLabel="Exit landscape mode"
-            >
-              <MaterialIcons name="screen-rotation" size={16} color={theme.onSurface} />
-              <Text style={[styles.landscapePortraitButtonText, { color: theme.onSurface }]}>
-                Portrait
-              </Text>
-            </TouchableOpacity>
           </View>
         </View>
       )}
@@ -892,7 +847,7 @@ export default function GuideScreen() {
         <ScrollView
           style={styles.mainVerticalScroll}
           contentContainerStyle={{
-            paddingBottom: isLandscape ? 20 + insets.bottom : 160 + insets.bottom
+            paddingBottom: 160 + insets.bottom
           }}
           showsVerticalScrollIndicator={true}
         >
@@ -1320,18 +1275,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700"
   },
-  orientationButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 16,
-    gap: 5
-  },
-  orientationButtonText: {
-    fontSize: 12,
-    fontWeight: "600"
-  },
   landscapeToolbar: {
     flexDirection: "row",
     alignItems: "center",
@@ -1418,18 +1361,6 @@ const styles = StyleSheet.create({
   landscapeIconButton: {
     padding: 5,
     borderRadius: 12
-  },
-  landscapePortraitButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    gap: 4
-  },
-  landscapePortraitButtonText: {
-    fontSize: 11,
-    fontWeight: "600"
   },
   dateRibbonContainer: {
     borderBottomWidth: StyleSheet.hairlineWidth,
