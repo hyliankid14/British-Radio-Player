@@ -4,6 +4,8 @@ import { StationRepository } from "../data/stations";
 import { Preferences } from "../storage/preferences";
 import { usePlayerStore } from "../store/playerStore";
 import { AutoBridge, AutoNativeEvent } from "./autoBridge";
+import { applyBackgroundEpisodeSnapshots } from "../background/backgroundSync";
+import { isEpisodeListStale } from "../background/syncPolicy";
 import { parseAutoPayload, applyAutoMutation, type AutoMutationSink } from "./autoMutations";
 import { buildAutoSnapshot } from "./autoSnapshot";
 import { CarPlayBridge } from "./carPlayBridge";
@@ -38,6 +40,10 @@ function hasNativeTarget(): boolean {
 export async function syncAutoState(includePodcastData = true): Promise<void> {
   if (!hasNativeTarget()) return;
   drainAutoMutations();
+  // The background worker refreshes subscription feeds while the phone app is closed. Adopt
+  // what it resolved before building the snapshot, otherwise the car keeps serving whatever
+  // lists this process happened to fetch.
+  applyBackgroundEpisodeSnapshots();
   if (syncing) {
     syncQueued = true;
     return;
@@ -124,15 +130,23 @@ async function prefetchSubscribedEpisodes(): Promise<void> {
   if (prefetchRunning) return;
   prefetchRunning = true;
   try {
+    applyBackgroundEpisodeSnapshots();
     const catalog = await PodcastApi.fetchLiveCatalog().catch(() => []);
     const byId = new Map(catalog.map((podcast) => [podcast.id, podcast]));
     const subscribed = Preferences.getSubscribedPodcasts().slice(0, MAX_PREFETCH_PODCASTS);
+    // A list older than the user's refresh interval is stale even though it is present, and
+    // the car has no way of knowing. Only "never fetched" used to trigger a re-read, so a
+    // subscription that had been opened once kept its original list for the life of the
+    // process.
+    const refreshIntervalMinutes = Number(Preferences.getSetting("pref_subscription_refresh", 60)) || 0;
+    const now = Date.now();
     const missing = subscribed.filter((id) => {
-      const cached = PodcastApi.getEpisodesFromCache(id);
+      const cached = PodcastApi.getEpisodesFromCache(id) ?? PodcastApi.resolveEpisodes(id);
       const meta = Preferences.getPodcastMetadata(id);
       const catalogPod = byId.get(id);
       const hasTitle = (catalogPod?.title && catalogPod.title !== id) || (meta?.title && meta.title !== id);
-      return !cached || cached.length === 0 || !hasTitle;
+      if (!cached || cached.length === 0 || !hasTitle) return true;
+      return isEpisodeListStale(Preferences.getPodcastEpisodeSnapshotAt(id), refreshIntervalMinutes, now);
     });
     if (!missing.length) return;
 
@@ -143,7 +157,9 @@ async function prefetchSubscribedEpisodes(): Promise<void> {
           const podcast = byId.get(podcastId);
           const rssUrl = podcast?.rssUrl || `https://podcasts.files.bbci.co.uk/${podcastId}.rss`;
           try {
-            await PodcastApi.fetchEpisodes(rssUrl, podcastId);
+            // Forced: a stale list is already in the cache, and an unforced fetch would
+            // hand it straight back.
+            await PodcastApi.fetchEpisodes(rssUrl, podcastId, true);
           } catch {
             // Offline or unavailable feed: skip.
           }

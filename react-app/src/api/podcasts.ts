@@ -78,6 +78,53 @@ const episodesCache = new BoundedCache<string, Episode[]>(MAX_CACHED_EPISODE_LIS
 const episodeFetchPromises = new Map<string, Promise<Episode[]>>();
 
 /**
+ * Reads an episode list from the in-memory session cache only.
+ *
+ * Deliberately does not fall back to the persisted snapshot: callers such as
+ * `runAutoDownload` treat a miss as "go and fetch the feed", and a durable-but-stale list
+ * would quietly stop them refreshing. Use `loadEpisodeList` when a stored answer is
+ * wanted as well as a fresh one.
+ */
+function readMemoryEpisodes(podcastId: string): Episode[] | undefined {
+  return episodesCache.get(podcastId);
+}
+
+/**
+ * Reads an episode list, memory first and then the persisted snapshot.
+ *
+ * The memory cache is a 60-entry LRU that dies with the JS process. The persisted copy is
+ * what lets a feed fetched by the background worker — or in an earlier session — still answer
+ * when the in-car surface builds its subscription list after a cold start. A disk hit is
+ * promoted into memory so the next read is free.
+ */
+function loadEpisodeList(podcastId: string): Episode[] {
+  const hot = readMemoryEpisodes(podcastId);
+  if (hot && hot.length > 0) return hot;
+  const snapshot = Preferences.getPodcastEpisodeSnapshot(podcastId);
+  if (!snapshot) return [];
+  const episodes = snapshot.episodes as Episode[];
+  episodesCache.set(podcastId, episodes);
+  return episodes;
+}
+
+/**
+ * Persists an episode list, but only for subscriptions.
+ *
+ * The catalogue runs to ~840 shows and their feeds are large, so persisting everything would
+ * fill the store with lists nobody revisits. Subscriptions are the set the background worker
+ * refreshes and the car browses offline, so they are the set worth keeping.
+ */
+function persistEpisodeSnapshot(
+  podcastId: string,
+  episodes: Episode[],
+  fetchedAtMs = Date.now()
+): void {
+  if (!podcastId || episodes.length === 0) return;
+  if (!Preferences.getSubscribedPodcasts().includes(podcastId)) return;
+  Preferences.setPodcastEpisodeSnapshot(podcastId, episodes, fetchedAtMs);
+}
+
+/**
  * Cache of decoded strings.
  *
  * `decodeXmlEntities` runs up to nine regex passes, and list screens call it for every
@@ -587,9 +634,40 @@ export const PodcastApi = {
 
   /**
    * Synchronously return cached episodes for a podcast if already fetched or prefetched.
+   *
+   * In-memory only. See `PodcastApi.resolveEpisodes` for the variant that also reads the persisted
+   * snapshot written by the background worker.
    */
   getEpisodesFromCache(podcastId: string): Episode[] | undefined {
-    return episodesCache.get(podcastId);
+    return readMemoryEpisodes(podcastId);
+  },
+
+  /**
+   * The best known episode list for a podcast: the session cache, else the snapshot persisted
+   * for it, else empty.
+   *
+   * This is what the in-car surface and anything else that must work offline should read —
+   * it survives the app being closed, which the memory cache does not.
+   */
+  resolveEpisodes(podcastId: string): Episode[] {
+    return loadEpisodeList(podcastId);
+  },
+
+  /**
+   * Adopts an episode list produced outside this module — today, by the Android background
+   * worker — into both the session cache and the persisted snapshot.
+   *
+   * The worker parses feeds while the app is closed and hands the result back as JSON. Without
+   * this, that work would be thrown away and the same feeds re-downloaded on the next launch.
+   */
+  adoptEpisodes(podcastId: string, episodes: Episode[], fetchedAtMs: number): void {
+    if (!podcastId || !Array.isArray(episodes) || episodes.length === 0) return;
+    // Same subscription gate as a foreground fetch: the worker only ever refreshes
+    // subscriptions, so anything else here is a show the user has since left. Warmed into the
+    // LRU it would evict lists the car is about to ask for, so it is dropped instead.
+    if (!Preferences.getSubscribedPodcasts().includes(podcastId)) return;
+    episodesCache.set(podcastId, episodes);
+    Preferences.setPodcastEpisodeSnapshot(podcastId, episodes, fetchedAtMs > 0 ? fetchedAtMs : Date.now());
   },
 
   /**
@@ -672,7 +750,7 @@ export const PodcastApi = {
             Accept: "application/rss+xml,application/xml,text/xml,*/*"
           }
         });
-        if (!res.ok) return episodesCache.get(podcastId) || [];
+        if (!res.ok) return loadEpisodeList(podcastId);
         const xmlText = await res.text();
 
         // We are already paying for this feed, so record its language for the
@@ -826,10 +904,11 @@ export const PodcastApi = {
         episodes.sort(byEpisodePubDate);
 
         episodesCache.set(podcastId, episodes);
+        persistEpisodeSnapshot(podcastId, episodes);
         return episodes;
       } catch (err) {
         console.warn(`Failed to fetch episodes for podcast ${podcastId}:`, err);
-        return episodesCache.get(podcastId) || [];
+        return loadEpisodeList(podcastId);
       }
     })();
 

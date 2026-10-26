@@ -4,6 +4,12 @@ import { AutoBridge } from "../auto/autoBridge";
 import { AudioQuality } from "../data/stations";
 import { mergeEpisodeProgress } from "./episodeProgress";
 import { mergeLatestEpisodeDates } from "../podcasts/episodeDates";
+import {
+  readEpisodeSnapshot,
+  shapeEpisodeSnapshot,
+  type EpisodeSnapshot,
+  type SnapshotEpisode
+} from "../podcasts/episodeSnapshot";
 import { LastPlayed, normalizeLastPlayed, parseLastPlayed } from "./lastPlayed";
 import { configureGeoBlockedStorage } from "../utils/geoBlock";
 import type { QueuedScrobble } from "../audio/scrobbleQueue";
@@ -34,6 +40,18 @@ export interface SavedEpisodeEntry {
   podcastTitle: string;
   savedAtMs?: number;
 }
+
+/**
+ * A persisted episode row.
+ *
+ * Structurally identical to `Episode` in `src/api/podcasts.ts`, which cannot be imported here
+ * because that module imports this one. The two are kept in step by `src/api/podcasts.ts`,
+ * the only writer.
+ */
+export type CachedEpisode = SnapshotEpisode;
+
+/** One podcast's persisted episode list, plus when the feed was read. */
+export type PodcastEpisodeSnapshot = EpisodeSnapshot;
 
 export interface DownloadedEpisodeRecord {
   localUri: string;
@@ -205,6 +223,27 @@ function readJsonArray<T>(key: string): T[] {
   return value;
 }
 
+/**
+ * Reads a JSON value of any shape, reusing the cached parse while the stored string is
+ * unchanged. Unlike `readJsonObject` the value is not assumed to be a map.
+ */
+function readJsonCached<T>(key: string): T | undefined {
+  const raw = storage.getString(key);
+  if (raw === undefined) return undefined;
+  const cached = jsonCache.get(key);
+  if (cached && cached.raw === raw) return cached.value as T;
+  let value: T | undefined;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") value = parsed as T;
+  } catch {
+    value = undefined;
+  }
+  if (value === undefined) return undefined;
+  jsonCache.set(key, { raw, value });
+  return value;
+}
+
 /** Writes a JSON value and keeps the cached parse in step with it. */
 function writeJson(key: string, value: unknown): void {
   const raw = JSON.stringify(value);
@@ -291,6 +330,10 @@ const KEYS = {
   // Latest episode date per podcast, backing the "Last Updated" catalogue tab. A
   // podcast's newest episode only moves forwards, so an entry is only ever raised.
   ,PODCAST_LATEST_EPISODE_CACHE: "cache_podcast_latest_episode_data"
+  // Parsed episode lists, one key per subscribed podcast (see EPISODE_SNAPSHOT_PREFIX).
+  // The in-memory cache in src/api/podcasts.ts dies with the JS process, so without this a
+  // background feed refresh is invisible the next time the app — or the car — asks.
+  ,EPISODE_SNAPSHOT_PREFIX: "cache_podcast_eps_"
   ,FAILED_AUTO_DOWNLOADS: "pref_failed_auto_downloads"
   ,REVIEW_PROMPT_STATE: "pref_review_prompt_state"
   ,LAST_TRACKED_ANALYTICS_EPISODE_ID: "pref_last_tracked_analytics_episode_id"
@@ -677,6 +720,8 @@ export const Preferences = {
     storage.set(KEYS.SUBSCRIBED_PODCASTS, JSON.stringify(canonicalList));
 
     for (const podcastId of removed) {
+      // The subscription's episode list is only kept because it is subscribed.
+      this.removePodcastEpisodeSnapshot(podcastId);
       for (const listener of podcastUnsubscribedListeners) {
         try {
           listener(podcastId);
@@ -1683,6 +1728,77 @@ pruneStalePerEpisodeKeys(): number {
     if (Object.keys(entries).length === 0) return;
     const current = mergeLatestEpisodeDates(this.getPodcastLatestEpisodeMap(), entries);
     writeJson(KEYS.PODCAST_LATEST_EPISODE_CACHE, current);
+  },
+
+  /**
+   * The persisted episode list for one podcast, newest first, or `null` when nothing is
+   * stored yet.
+   *
+   * This is the durable half of the episode cache. `PodcastApi.resolveEpisodes` reads memory
+   * first and falls back here, so a feed fetched by the background worker — or by an earlier
+   * app session — is still there when the car asks for the subscription list.
+   */
+  getPodcastEpisodeSnapshot(podcastId: string): PodcastEpisodeSnapshot | null {
+    if (!podcastId) return null;
+    return readEpisodeSnapshot(
+      readJsonCached<unknown>(KEYS.EPISODE_SNAPSHOT_PREFIX + podcastId)
+    ) as PodcastEpisodeSnapshot | null;
+  },
+
+  /** When a podcast's episode list was last fetched, or `0` when it has never been stored. */
+  getPodcastEpisodeSnapshotAt(podcastId: string): number {
+    return this.getPodcastEpisodeSnapshot(podcastId)?.fetchedAtMs ?? 0;
+  },
+
+  /**
+   * Persists one podcast's episode list, capped to the newest episodes.
+   *
+   * Callers are responsible for only persisting subscriptions: the catalogue runs to ~840
+   * shows and their feeds are large, so a blanket write would fill the store. See
+   * `PodcastApi.fetchEpisodes`, which gates this on `getSubscribedPodcasts`.
+   */
+  setPodcastEpisodeSnapshot(
+    podcastId: string,
+    episodes: CachedEpisode[],
+    fetchedAtMs = Date.now()
+  ): void {
+    if (!podcastId) return;
+    const trimmed = shapeEpisodeSnapshot(podcastId, episodes);
+    if (trimmed.length === 0) return;
+    writeJson(KEYS.EPISODE_SNAPSHOT_PREFIX + podcastId, { fetchedAtMs, episodes: trimmed });
+  },
+
+  /** Forgets a podcast's persisted episode list. Used when the user unsubscribes. */
+  removePodcastEpisodeSnapshot(podcastId: string): void {
+    if (!podcastId) return;
+    storage.remove(KEYS.EPISODE_SNAPSHOT_PREFIX + podcastId);
+  },
+
+  /**
+   * Drops every episode snapshot that no longer belongs to a subscription.
+   *
+   * Snapshots are only written for subscriptions, so unsubscribing leaves the old list
+   * behind forever; a listener in `setSubscribedPodcasts` removes it, and this is the
+   * backstop for anything that predates that or arrived through the native worker.
+   *
+   * @returns how many podcasts were removed
+   */
+  prunePodcastEpisodeSnapshots(): number {
+    const subscribed = new Set(this.getSubscribedPodcasts());
+    let removed = 0;
+    for (const key of storage.getAllKeys()) {
+      if (!key.startsWith(KEYS.EPISODE_SNAPSHOT_PREFIX)) continue;
+      const podcastId = key.slice(KEYS.EPISODE_SNAPSHOT_PREFIX.length);
+      if (!podcastId || subscribed.has(podcastId)) continue;
+      storage.remove(key);
+      jsonCache.delete(key);
+      removed += 1;
+    }
+    if (removed > 0) {
+      // MMKV does not shrink its file after deletes, so reclaim the space.
+      storage.trim();
+    }
+    return removed;
   },
 
   /**

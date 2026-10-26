@@ -18,7 +18,7 @@ import {
 } from "../src/analytics/analytics";
 import { initWearSync, pushWearState } from "../src/wear/wearSync";
 import { initWatchSync, pushWatchState } from "../src/watch/watchSync";
-import { syncBackgroundSync } from "../src/background/backgroundSync";
+import { syncBackgroundSync, applyBackgroundEpisodeSnapshots, pruneEpisodeSnapshots } from "../src/background/backgroundSync";
 import { registerBackgroundTask } from "../src/background/backgroundTask";
 import { runAutoDownload } from "../src/downloads/autoDownload";
 import { initDownloadCleanup, pruneDownloads } from "../src/downloads/downloadCleanup";
@@ -161,6 +161,8 @@ Preferences.onChanged((key) => {
 
 // Configure the native background worker once the store is ready.
 void syncBackgroundSync();
+// Reclaim episode lists left behind by shows the user has since unsubscribed from.
+pruneEpisodeSnapshots();
 
 /** Screens a podcast notification opens, which fall back to the subscribed list. */
 const LAUNCH_PODCAST_SCREENS = ["/modal/podcast-detail", "/modal/podcast-search"];
@@ -412,6 +414,9 @@ useEffect(() => {
     // rate-limited: it is the cold-start sweep, and it sets the clock for later ones.
     const startupTimer = setTimeout(() => {
       lastForegroundSweepAtMs = Date.now();
+      // Pick up whatever the native worker fetched while the app was closed before anything
+      // reads the episode lists, so the first paint is already current.
+      applyBackgroundEpisodeSnapshots();
       void runAutoDownload();
       void checkSubscriptionsForNewEpisodes();
       void checkForNewPodcasts();
@@ -425,6 +430,9 @@ useEffect(() => {
         // multi-process store, so drop the parsed-value caches before reading anything:
         // they were built from a snapshot taken before the app went to the background.
         invalidatePreferencesCache();
+        // The worker may have finished a run while we were suspended, so take delivery of its
+        // feeds before anything reads the subscription lists.
+        applyBackgroundEpisodeSnapshots();
         recordSessionStart();
         const now = Date.now();
         if (now - lastForegroundSweepAtMs < FOREGROUND_SWEEP_MIN_INTERVAL_MS) {

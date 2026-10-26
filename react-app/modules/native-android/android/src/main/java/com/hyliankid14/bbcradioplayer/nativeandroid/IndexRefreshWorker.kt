@@ -15,37 +15,68 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * Periodic worker that checks each subscribed podcast's RSS feed for a new episode and posts a
- * local notification. Mirrors the legacy `BackgroundIndexWorker` new-episode alerts.
+ * Periodic worker that refreshes every subscribed podcast's RSS feed while the app is closed.
+ *
+ * Two things come out of each run:
+ *
+ *  - **A persisted episode list per subscription**, handed back to JS by
+ *    `BackgroundSync.episodeSnapshotsJson`. This is what keeps the Android Auto / CarPlay
+ *    subscription lists fresh without the phone app being opened.
+ *  - **A notification** for shows the user has armed the bell on. Unarmed subscriptions are
+ *    refreshed but never alert, which is why the snapshot carries a per-show `notify` flag
+ *    rather than the worker only being told about armed shows.
+ *
+ * Mirrors the legacy `BackgroundIndexWorker` new-episode alerts.
  */
 class IndexRefreshWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
+
+  /**
+   * Wall-clock budget for one run. WorkManager gives a worker roughly ten minutes before it
+   * considers the run expired; stopping short means the feeds already parsed are stored rather
+   * than lost with the process.
+   */
+  private val runBudgetMs = 8L * 60_000L
 
   override fun doWork(): Result {
     val context = applicationContext
     val subscriptions = BackgroundSync.getSubscriptions(context)
     if (subscriptions.isEmpty()) return Result.success()
 
-    var anyNew = false
+    val deadline = System.currentTimeMillis() + runBudgetMs
+    var ranOutOfTime = false
+
     for (subscription in subscriptions) {
+      if (System.currentTimeMillis() >= deadline) {
+        ranOutOfTime = true
+        break
+      }
       try {
         val feed = fetchFeed(subscription.rssUrl) ?: continue
-        val latest = parseLatestEpisode(feed) ?: continue
-        if (latest.id.isBlank() || BackgroundSync.isNotified(context, latest.id)) continue
-        BackgroundSync.markNotified(context, latest.id)
-        notifyNewEpisode(context, subscription.id, subscription.title, latest.title, latest.id)
-        anyNew = true
+        val episodes = RssEpisodes.parse(feed, subscription.id)
+        if (episodes.isEmpty()) continue
+
+        // Stored for every subscription, armed or not: the in-car surface browses all of them.
+        BackgroundSync.saveEpisodeSnapshot(context, subscription.id, System.currentTimeMillis(), RssEpisodes.toJson(episodes))
+
+        if (!subscription.notify) continue
+        val newest = RssEpisodes.latest(episodes) ?: continue
+        if (newest.id.isBlank() || BackgroundSync.isNotified(context, newest.id)) continue
+        BackgroundSync.markNotified(context, newest.id)
+        notifyNewEpisode(context, subscription.id, subscription.title, newest.title, newest.id)
       } catch (_: Exception) {
         // Skip feeds that fail to load.
       }
     }
-    return Result.success()
-  }
 
-  private data class LatestEpisode(val id: String, val title: String)
+    // Retrying reschedules the run so the shows the budget cut off are not skipped until the
+    // next interval. Already-parsed feeds are re-fetched on the retry, which is wasteful but
+    // idempotent — the snapshot is overwritten wholesale per podcast.
+    return if (ranOutOfTime) Result.retry() else Result.success()
+  }
 
   private fun fetchFeed(rssUrl: String): String? {
     return try {
-      val connection = (URL(rssUrl).openConnection() as HttpURLConnection).apply {
+      val connection = (URL(rssUrl.replace("http://", "https://")).openConnection() as HttpURLConnection).apply {
         connectTimeout = 10_000
         readTimeout = 10_000
         setRequestProperty("User-Agent", "BritishRadioPlayer/1.0")
@@ -55,41 +86,6 @@ class IndexRefreshWorker(context: Context, params: WorkerParameters) : Worker(co
       null
     }
   }
-
-  private fun parseLatestEpisode(feed: String): LatestEpisode? {
-    val itemMatch = Regex("<item[\\s\\S]*?</item>", RegexOption.IGNORE_CASE).find(feed) ?: return null
-    val item = itemMatch.value
-    val title = Regex("<title[^>]*>([\\s\\S]*?)</title>", RegexOption.IGNORE_CASE)
-      .find(item)?.groupValues?.get(1)?.let { decode(it.trim()) } ?: return null
-    val guid = Regex("<guid[^>]*>([\\s\\S]*?)</guid>", RegexOption.IGNORE_CASE)
-      .find(item)?.groupValues?.get(1)?.trim()
-    val enclosure = Regex("<enclosure[^>]*url=\"([^\"]+)\"", RegexOption.IGNORE_CASE)
-      .find(item)?.groupValues?.get(1)
-    val rawId = guid?.takeIf { it.isNotBlank() } ?: enclosure ?: title
-    return LatestEpisode(normaliseEpisodeId(rawId, enclosure), title)
-  }
-
-  /**
-   * Mirrors the JS episode-id rule (see `fetchEpisodes` in src/api/podcasts.ts): use the
-   * trailing alphanumeric segment of the guid so the notification targets the same
-   * episode id the app resolves when the feed is parsed in-app.
-   */
-  private fun normaliseEpisodeId(rawId: String, enclosure: String?): String {
-    if (rawId == enclosure) return rawId
-    val delimiter = maxOf(rawId.lastIndexOf('/'), rawId.lastIndexOf(':'))
-    if (delimiter != -1 && delimiter < rawId.length - 1) {
-      val candidate = rawId.substring(delimiter + 1).trim()
-      if (candidate.matches(Regex("^[a-z0-9]+$", RegexOption.IGNORE_CASE))) return candidate
-    }
-    return rawId
-  }
-
-  private fun decode(value: String): String =
-    value.replace("&amp;", "&")
-      .replace("&lt;", "<")
-      .replace("&gt;", ">")
-      .replace("&quot;", "\"")
-      .replace("&#39;", "'")
 
   private fun notifyNewEpisode(
     context: Context,
@@ -137,15 +133,13 @@ class IndexRefreshWorker(context: Context, params: WorkerParameters) : Worker(co
       .setContentText(episodeTitle)
       .setPriority(NotificationCompat.PRIORITY_DEFAULT)
       .setAutoCancel(true)
-      .apply {
-        if (pendingIntent != null) {
-          setContentIntent(pendingIntent)
-        }
-      }
+      .setContentIntent(pendingIntent)
       .build()
     try {
       NotificationManagerCompat.from(context).notify(notificationId, notification)
     } catch (_: SecurityException) {
+      // POST_NOTIFICATIONS not granted. The refresh above still landed, so the episode is in
+      // the app's lists even though the alert could not be posted.
     }
   }
 

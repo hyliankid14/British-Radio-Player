@@ -52,8 +52,8 @@ for the local archive and upload flow.
 ### Podcasts
 - Search and subscribe to BBC podcasts; save or download individual episodes.
 - Per-podcast new-episode notifications, configurable refresh intervals, and
-  background index sync against the self-hosted podcast server to keep the list
-  current without draining data.
+  background feed refresh that keeps your subscriptions — and Android Auto /
+  CarPlay — current without opening the app.
 - Analytics-powered “Most Popular” sort using a popularity snapshot updated
   every 6 hours; “New Podcasts” sort tracks podcasts added since your first install.
 - Progress is tracked; episodes resume where you left off and the next one

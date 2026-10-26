@@ -68,6 +68,8 @@ interface NativeAndroidBridge {
   scheduleBackgroundSync(intervalMinutes: number, wifiOnly: boolean): void;
   getBackgroundNotifiedEpisodeIds(): string[];
   markBackgroundEpisodeNotified(episodeId: string): void;
+  getBackgroundEpisodeSnapshots(): string;
+  getBackgroundEpisodeSnapshotRevision(): number;
   getDownloadsFolderPath(): string;
   publishDownload(sourceUri: string, fileName: string, title: string): Promise<string | null>;
   deleteDownload(uri: string): boolean;
@@ -101,6 +103,26 @@ export interface ArtworkPalette {
 }
 
 export type ExtractPaletteResult = ArtworkPalette | { isPlaceholder: true };
+
+/**
+ * One podcast's episode list as resolved by the native background worker.
+ *
+ * Field names match `Episode` in `src/api/podcasts.ts` so the worker's JSON can be adopted
+ * without a translation step; see `RssEpisodes.kt`.
+ */
+export interface BackgroundEpisodeSnapshot {
+  fetchedAtMs: number;
+  episodes: {
+    id: string;
+    title: string;
+    description: string;
+    audioUrl: string;
+    imageUrl: string;
+    pubDate: string;
+    durationMins: number;
+    podcastId: string;
+  }[];
+}
 
 
 let bridge: NativeAndroidBridge | null = null;
@@ -488,6 +510,48 @@ export const NativeAndroid = {
       load()?.markBackgroundEpisodeNotified(episodeId);
     } catch {
       // Ignore.
+    }
+  },
+
+  /**
+   * How many snapshots the native worker has stored since install. Paired with
+   * `getBackgroundEpisodeSnapshots`; see the adoption guard in `src/background/backgroundSync.ts`.
+   */
+  getBackgroundEpisodeSnapshotRevision(): number {
+    try {
+      return load()?.getBackgroundEpisodeSnapshotRevision() ?? 0;
+    } catch {
+      return 0;
+    }
+  },
+
+  /**
+   * Episode lists the native background worker resolved while the app was closed, keyed by
+   * podcast id. Empty on platforms without the worker, and when it has not run yet.
+   */
+  getBackgroundEpisodeSnapshots(): Record<string, BackgroundEpisodeSnapshot> {
+    try {
+      const raw = load()?.getBackgroundEpisodeSnapshots();
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+      const out: Record<string, BackgroundEpisodeSnapshot> = {};
+      for (const [podcastId, entry] of Object.entries(parsed as Record<string, unknown>)) {
+        if (!podcastId || !entry || typeof entry !== "object") continue;
+        const record = entry as { fetchedAtMs?: unknown; episodes?: unknown };
+        if (!Array.isArray(record.episodes)) continue;
+        const episodes = (record.episodes as BackgroundEpisodeSnapshot["episodes"]).filter(
+          (episode) => !!episode && typeof episode === "object" && typeof episode.id === "string" && episode.id !== ""
+        );
+        if (episodes.length === 0) continue;
+        out[podcastId] = {
+          fetchedAtMs: typeof record.fetchedAtMs === "number" ? record.fetchedAtMs : 0,
+          episodes
+        };
+      }
+      return out;
+    } catch {
+      return {};
     }
   },
 

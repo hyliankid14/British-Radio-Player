@@ -2,6 +2,7 @@ import * as BackgroundTask from "expo-background-task";
 import * as TaskManager from "expo-task-manager";
 import { Platform } from "react-native";
 import { runAutoDownload } from "../downloads/autoDownload";
+import { applyBackgroundEpisodeSnapshots } from "./backgroundSync";
 import { checkForNewPodcasts, checkSavedSearchesForNewEpisodes, checkSubscriptionsForNewEpisodes } from "../notifications/notifications";
 import { Preferences } from "../storage/preferences";
 
@@ -17,6 +18,11 @@ TaskManager.defineTask(BACKGROUND_TASK_NAME, async () => {
       await checkSubscriptionsForNewEpisodes(true);
       await checkForNewPodcasts(true);
       await checkSavedSearchesForNewEpisodes(true);
+    } else {
+      // The native worker has already fetched the feeds and posted any alerts. Hand its
+      // results to the JS store so they survive into the next launch instead of sitting in
+      // the worker's own preferences.
+      applyBackgroundEpisodeSnapshots();
     }
     return BackgroundTask.BackgroundTaskResult.Success;
   } catch (error) {

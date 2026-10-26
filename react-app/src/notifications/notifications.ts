@@ -5,6 +5,7 @@ import { NativeAndroid } from "../native/nativeAndroid";
 import { latestEpisodeEpoch, parseEpisodeDateEpoch } from "../podcasts/episodeDates";
 import { PodcastApi, matchesBooleanSearch } from "../api/podcasts";
 import { buildPodcastDetailUrl, buildPodcastSearchUrl } from "../utils/navigationUtils";
+import { planSubscriptionSync } from "../background/syncPolicy";
 
 type NotificationsModule = typeof ExpoNotifications;
 
@@ -151,18 +152,37 @@ export async function sendTestNotification(): Promise<boolean> {
 }
 
 /**
- * Checks subscribed podcasts with notifications enabled for episodes published since the
- * last check and posts a local notification for each new one. Only notifies when the user
- * has already granted permission, so it never prompts from the background.
+ * Wall-clock budget for one subscription sweep.
+ *
+ * iOS grants a background task on the order of thirty seconds, and Android's foreground sweep
+ * runs on the JS thread, so an unbounded walk over every subscription would be killed partway
+ * through — losing the whole run rather than the tail of it. Feeds are fetched one at a time
+ * and each result is persisted as it lands, so stopping at the budget keeps everything already
+ * read and leaves the rest for the next run.
+ */
+const SUBSCRIPTION_CHECK_BUDGET_MS = 25_000;
+
+/**
+ * Refreshes every subscribed podcast's feed and announces the episodes that landed since the
+ * last check.
+ *
+ * The feed is read for **all** subscriptions, not only the ones with the bell armed: fetching
+ * is also what persists the episode list, and that is what the in-car surface and the next
+ * cold start read. Notification is the only part gated per show — and on permission, so this
+ * never prompts from the background.
+ *
+ * Bounded by {@link SUBSCRIPTION_CHECK_BUDGET_MS}. A list too long to finish in one pass has
+ * its tail re-attempted on the next run, after the head is read again.
  */
 export async function checkSubscriptionsForNewEpisodes(force = false): Promise<void> {
-  const Notifications = getNotifications();
-  if (!Notifications || checking) return;
+  if (checking) return;
 
-  const notifyIds = Preferences.getSubscribedPodcasts().filter((id) =>
-    Preferences.isPodcastNotificationsEnabled(id)
+  const plan = planSubscriptionSync(
+    Preferences.getSubscribedPodcasts(),
+    (id) => Preferences.isPodcastNotificationsEnabled(id)
   );
-  if (notifyIds.length === 0) return;
+  if (plan.refreshIds.length === 0) return;
+  const armed = new Set(plan.notifyIds);
 
   const intervalMinutes = Number(Preferences.getSetting("pref_subscription_refresh", 60)) || 0;
   if (!force && intervalMinutes > 0) {
@@ -170,23 +190,35 @@ export async function checkSubscriptionsForNewEpisodes(force = false): Promise<v
     if (Date.now() - lastCheck < intervalMinutes * 60_000) return;
   }
 
-  if (!(await hasNotificationPermission())) return;
+  // Read for the module before the await below: a build that has not linked
+  // expo-notifications still gets the refresh, just not the alerts.
+  const Notifications = getNotifications();
+  const canPresent = Notifications != null && armed.size > 0 && (await hasNotificationPermission());
 
   checking = true;
   Preferences.setSetting(LAST_CHECK_KEY, Date.now());
   try {
     const catalog = await PodcastApi.fetchLiveCatalog();
-    for (const id of notifyIds) {
-      const podcast = catalog.find((item) => item.id === id);
+    const catalogById = new Map(catalog.map((podcast) => [podcast.id, podcast]));
+    const backgroundNotified = new Set(NativeAndroid.getBackgroundNotifiedEpisodeIds());
+    const deadline = Date.now() + SUBSCRIPTION_CHECK_BUDGET_MS;
+    for (const id of plan.refreshIds) {
+      if (Date.now() >= deadline) break;
+      const podcast = catalogById.get(id);
       if (!podcast) continue;
 
       let episodes: import("../api/podcasts").Episode[];
       try {
         episodes = await PodcastApi.fetchEpisodes(podcast.rssUrl, podcast.id, true);
       } catch {
-        episodes = PodcastApi.getEpisodesFromCache(id) || [];
+        episodes = PodcastApi.resolveEpisodes(id);
       }
       if (!episodes.length) continue;
+
+      // Past this point the feed is fetched and persisted, so an unarmed show has contributed
+      // everything it can and its notification bookkeeping stays untouched — arming the bell
+      // later then establishes a fresh baseline rather than alerting for the whole backlog.
+      if (Notifications === null || !canPresent || !armed.has(id)) continue;
 
       const newestEpoch = latestEpisodeEpoch(episodes.map((ep) => ep.pubDate));
       const lastNotified = Number(Preferences.getSetting(lastNotifiedKey(id), 0)) || 0;
@@ -200,8 +232,6 @@ export async function checkSubscriptionsForNewEpisodes(force = false): Promise<v
       const fresh = episodes
         .filter((ep) => parseEpisodeDateEpoch(ep.pubDate) > lastNotified)
         .sort((a, b) => parseEpisodeDateEpoch(a.pubDate) - parseEpisodeDateEpoch(b.pubDate));
-
-      const backgroundNotified = new Set(NativeAndroid.getBackgroundNotifiedEpisodeIds());
 
       for (const episode of fresh.slice(-MAX_NOTIFICATIONS_PER_PODCAST)) {
         const alreadyNotified =

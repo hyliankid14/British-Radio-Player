@@ -82,6 +82,10 @@ declare class NativeAndroidModule extends NativeModule<{}> {
   getBackgroundNotifiedEpisodeIds(): string[];
   /** Marks an episode as notified so the background worker will not duplicate it. */
   markBackgroundEpisodeNotified(episodeId: string): void;
+  /** Episode lists resolved by the background worker, as a JSON map keyed by podcast id. */
+  getBackgroundEpisodeSnapshots(): string;
+  /** Monotonic count of snapshots the background worker has stored. */
+  getBackgroundEpisodeSnapshotRevision(): number;
   /** Notification open events emitted when a notification is tapped while the app is running. */
   addListener(
     eventName: "onNotificationOpen",

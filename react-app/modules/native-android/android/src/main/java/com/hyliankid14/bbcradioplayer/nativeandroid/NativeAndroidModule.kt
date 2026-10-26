@@ -356,6 +356,28 @@ class NativeAndroidModule : Module() {
       null
     }
 
+    /**
+     * The episode lists the background worker resolved on its last run, as
+     * `{podcastId: {fetchedAtMs, episodes}}`.
+     *
+     * The worker parses feeds while the app is closed and cannot reach the React app's MMKV
+     * store, so it parks its results here and JS adopts them on the next launch — see
+     * `applyBackgroundEpisodeSnapshots` in `src/background/backgroundSync.ts`.
+     */
+    Function("getBackgroundEpisodeSnapshots") { ->
+      val ctx = context ?: return@Function "{}"
+      BackgroundSync.episodeSnapshotsJson(ctx)
+    }
+
+    /**
+     * Monotonic count of snapshots the worker has stored. JS remembers what it last adopted and
+     * skips the (large) parse when the worker has not run since.
+     */
+    Function("getBackgroundEpisodeSnapshotRevision") { ->
+      val ctx = context ?: return@Function 0L
+      BackgroundSync.episodeSnapshotRevision(ctx)
+    }
+
     // ── Podcast downloads ───────────────────────────────────────────────────
 
     /** Absolute path of the public Podcasts folder used for downloads. */

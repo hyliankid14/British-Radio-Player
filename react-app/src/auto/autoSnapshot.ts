@@ -250,6 +250,10 @@ export async function buildAutoSnapshot(includePodcastData = true): Promise<Auto
 
   const seenIds = new Set<string>();
   const seenTitles = new Set<string>();
+  // Resolved once per podcast. The persisted snapshot is the only source of truth after a cold
+  // start, when the in-memory cache is empty and the background worker's feeds have just been
+  // adopted, so this reads memory-then-disk rather than memory alone.
+  const resolvedEpisodes = new Map<string, Episode[]>();
 
   for (const podcastId of subscribedIds) {
     if (!podcastId || seenIds.has(podcastId)) continue;
@@ -262,7 +266,8 @@ export async function buildAutoSnapshot(includePodcastData = true): Promise<Auto
     if (normTitle) seenTitles.add(normTitle);
     uniqueSubscribedIds.push(podcastId);
 
-    const cached = PodcastApi.getEpisodesFromCache(podcastId) || [];
+    const cached = PodcastApi.resolveEpisodes(podcastId);
+    resolvedEpisodes.set(podcastId, cached);
     const latest = latestEpisodeEpoch(cached.map((episode) => episode.pubDate));
     const imageUrl = podcast?.imageUrl || findFallbackImage(podcastId);
     subscriptions.push({
@@ -280,7 +285,7 @@ export async function buildAutoSnapshot(includePodcastData = true): Promise<Auto
 
   if (includePodcastData) {
     for (const podcastId of uniqueSubscribedIds) {
-      const cached = PodcastApi.getEpisodesFromCache(podcastId);
+      const cached = resolvedEpisodes.get(podcastId);
       if (cached && cached.length) {
         const podcast = catalogById.get(podcastId);
         const title = (podcast?.title && podcast.title !== podcastId) ? podcast.title : findFallbackTitle(podcastId);
