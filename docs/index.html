@@ -3304,11 +3304,13 @@
                 const podcastId = contentType === 'episode' && secondId
                     ? decodeURIComponent(firstId)
                     : (this.currentContent?.podcastId || '');
-                const appHost = contentType === 'podcast' ? 'podcast' : 'episode';
 
                 const params = new URLSearchParams();
-                if (contentType === 'episode') {
+                if (contentType === 'podcast') {
+                    if (id) params.set('podcastId', id);
+                } else {
                     if (podcastId) params.set('podcastId', podcastId);
+                    if (id) params.set('episodeId', id);
                     if (this.currentContent?.title) params.set('title', this.currentContent.title);
                     if (this.currentContent?.description) params.set('desc', this.currentContent.description);
                     if (this.currentContent?.podcastTitle) params.set('podcast', this.currentContent.podcastTitle);
@@ -3319,14 +3321,8 @@
                 }
 
                 const query = params.toString();
-                const path = `/${encodeURIComponent(id)}`;
-                const customSchemeUrl = `app://${appHost}${path}${query ? `?${query}` : ''}`;
-
-                const isAndroid = /Android/i.test(navigator.userAgent || '');
-                const packageName = 'com.hyliankid14.bbcradioplayer';
-                const deepLink = isAndroid
-                    ? `intent://${appHost}${path}${query ? `?${query}` : ''}#Intent;scheme=app;package=${packageName};end`
-                    : customSchemeUrl;
+                const routePath = `modal/podcast-detail${query ? `?${query}` : ''}`;
+                const deepLink = `bbcradioplayer://${routePath}`;
 
                 let appOpened = false;
                 const onVisibilityChange = () => {

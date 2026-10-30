@@ -60,10 +60,46 @@ export default function PodcastDetailModal() {
   const theme = useAppTheme();
   const insets = useSafeAreaInsets();
   const hidePlaybackChrome = Platform.OS === "ios" && Platform.isPad;
-  const params = useLocalSearchParams<{ podcastId: string; podcastData?: string; episodeId?: string }>();
+  const params = useLocalSearchParams<{
+    podcastId: string;
+    podcastData?: string;
+    episodeId?: string;
+    title?: string;
+    desc?: string;
+    podcast?: string;
+    audio?: string;
+    img?: string;
+    date?: string;
+    duration?: string;
+  }>();
   const requestedEpisodeId =
     typeof params.episodeId === "string" ? params.episodeId : "";
   const openedEpisodeRef = useRef<string | null>(null);
+
+  const inlineSharedEpisode = useMemo<Episode | null>(() => {
+    if (!requestedEpisodeId || !params.podcastId || !params.title || !params.audio) {
+      return null;
+    }
+    return {
+      id: requestedEpisodeId,
+      title: params.title,
+      description: params.desc || "",
+      audioUrl: params.audio,
+      imageUrl: params.img || "",
+      pubDate: params.date || "",
+      durationMins: parseInt(params.duration || "0", 10) || 0,
+      podcastId: params.podcastId
+    };
+  }, [
+    requestedEpisodeId,
+    params.podcastId,
+    params.title,
+    params.desc,
+    params.audio,
+    params.img,
+    params.date,
+    params.duration
+  ]);
 
   const [podcast, setPodcast] = useState<Podcast | null>(() => {
     if (params.podcastData) {
@@ -79,8 +115,15 @@ export default function PodcastDetailModal() {
       const cached = PodcastApi.getEpisodesFromCache(params.podcastId) || [];
       if (requestedEpisodeId) {
         const snapshot = Preferences.getNotifiedEpisode(requestedEpisodeId);
+        const fallbackEpisode: Episode | null = snapshot
+          ? {
+              id: requestedEpisodeId,
+              description: "",
+              ...snapshot
+            }
+          : inlineSharedEpisode;
         if (
-          snapshot &&
+          fallbackEpisode &&
           !cached.some(
             (ep) =>
               ep.id === requestedEpisodeId ||
@@ -88,14 +131,7 @@ export default function PodcastDetailModal() {
               requestedEpisodeId.includes(ep.id)
           )
         ) {
-          return [
-            {
-              id: requestedEpisodeId,
-              description: "",
-              ...snapshot
-            },
-            ...cached
-          ];
+          return [fallbackEpisode, ...cached];
         }
       }
       return cached;
@@ -464,12 +500,14 @@ export default function PodcastDetailModal() {
             );
             if (!hasRequested) {
               const snapshot = Preferences.getNotifiedEpisode(requestedEpisodeId);
-              if (snapshot) {
-                const restored: import("../../src/api/podcasts").Episode = {
-                  id: requestedEpisodeId,
-                  description: "",
-                  ...snapshot
-                };
+              const restored: import("../../src/api/podcasts").Episode | null = snapshot
+                ? {
+                    id: requestedEpisodeId,
+                    description: "",
+                    ...snapshot
+                  }
+                : inlineSharedEpisode;
+              if (restored) {
                 updatedEps = [restored, ...eps.filter((ep) => ep.id !== requestedEpisodeId)];
               }
             }

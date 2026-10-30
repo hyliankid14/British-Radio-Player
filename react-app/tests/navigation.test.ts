@@ -339,4 +339,33 @@ test("redirectSystemPath normalizes custom schemes and notification links withou
   );
 });
 
+test("resolveAppNavigation handles web player Open in App deep links", () => {
+  const episodeLink = resolveAppNavigation(
+    "bbcradioplayer://modal/podcast-detail?podcastId=b006qnmr&episodeId=http%3A%2F%2Fdownloads.bbc.co.uk%2Fpodcasts%2Fradio4%2Fdida%2Fdida_20050417-1115.mp3&title=Patrick%20Stewart"
+  );
+  assert.ok(episodeLink);
+  assert.equal(episodeLink.pathname, "/modal/podcast-detail");
+  assert.equal(episodeLink.params.podcastId, "b006qnmr");
+  assert.equal(
+    episodeLink.params.episodeId,
+    "http://downloads.bbc.co.uk/podcasts/radio4/dida/dida_20050417-1115.mp3"
+  );
+  assert.equal(episodeLink.params.title, "Patrick Stewart");
+
+  const legacyPodcastLink = resolveAppNavigation("bbcradioplayer://podcast/b006qnmr");
+  assert.ok(legacyPodcastLink);
+  assert.equal(legacyPodcastLink.pathname, "/modal/podcast-detail");
+  assert.equal(legacyPodcastLink.params.podcastId, "b006qnmr");
+
+  const legacyEpisodeLink = resolveAppNavigation(
+    "bbcradioplayer://episode/p02pp0g3?podcastId=b006qnmr&title=Patrick%20Stewart"
+  );
+  assert.ok(legacyEpisodeLink);
+  assert.equal(legacyEpisodeLink.pathname, "/modal/podcast-detail");
+  assert.equal(legacyEpisodeLink.params.podcastId, "b006qnmr");
+  assert.equal(legacyEpisodeLink.params.episodeId, "p02pp0g3");
+  assert.equal(legacyEpisodeLink.params.title, "Patrick Stewart");
+});
+
+
 

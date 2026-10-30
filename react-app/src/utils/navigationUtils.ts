@@ -134,6 +134,37 @@ export function resolveAppNavigation(rawUrl: string): AppNavigationTarget | null
     };
   }
 
+  // Route web-player podcast/episode share deep links (/podcast/:id or /episode/:id)
+  const podcastShareMatch = pathname.match(/^\/podcast\/(.+)$/);
+  if (podcastShareMatch) {
+    let decodedPodcastId = podcastShareMatch[1];
+    try {
+      decodedPodcastId = decodeURIComponent(decodedPodcastId);
+    } catch {}
+    return {
+      pathname: "/modal/podcast-detail",
+      params: {
+        ...params,
+        podcastId: decodedPodcastId
+      }
+    };
+  }
+
+  const episodeShareMatch = pathname.match(/^\/episode\/(.+)$/);
+  if (episodeShareMatch && params.podcastId) {
+    let decodedEpisodeId = episodeShareMatch[1];
+    try {
+      decodedEpisodeId = decodeURIComponent(decodedEpisodeId);
+    } catch {}
+    return {
+      pathname: "/modal/podcast-detail",
+      params: {
+        ...params,
+        episodeId: decodedEpisodeId
+      }
+    };
+  }
+
   // Route podcast searches to dedicated podcast search screen
   if (
     pathname === "/modal/podcast-search" ||
