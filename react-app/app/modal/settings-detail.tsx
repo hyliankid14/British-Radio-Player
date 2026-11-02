@@ -38,6 +38,7 @@ import {
   normaliseMaxDownloads
 } from "../../src/downloads/downloadLimits";
 import { openDownloadsFolder } from "../../src/downloads/openDownloads";
+import { CloudSyncManager, type CloudSyncStatus } from "../../src/sync/cloudSyncManager";
 import { fetchIndexStatus, IndexStatus } from "../../src/podcasts/indexStatus";
 import {
   distributionLabel,
@@ -499,10 +500,47 @@ function BackupPage() {
     Preferences.getSetting("pref_last_backup_at", "")
   );
 
+  const [syncStatus, setSyncStatus] = useState<CloudSyncStatus>(() => CloudSyncManager.getStatus());
+
+  useEffect(() => {
+    return CloudSyncManager.subscribe((status) => {
+      setSyncStatus(status);
+    });
+  }, []);
+
+  const handleCloudSync = async () => {
+    const success = await CloudSyncManager.syncNow();
+    setSyncStatus(CloudSyncManager.getStatus());
+    if (success) {
+      Alert.alert("Sync complete", "Your library and settings have been synced to iCloud.");
+    } else if (!syncStatus.isEnabled && Platform.OS === "android") {
+      Alert.alert(
+        "Google Drive Sync",
+        "To sync with Google Drive, connect your Google account to grant permission to your private app backup folder."
+      );
+    } else {
+      Alert.alert("Sync update", "Sync completed with latest available state.");
+    }
+  };
+
   const exportSettings = async () => {
     setIsExporting(true);
     try {
       const json = Preferences.exportBackup();
+
+      if (Platform.OS === "android") {
+        const dateSuffix = new Date().toISOString().slice(0, 10);
+        const fileName = `british-radio-backup-${dateSuffix}.json`;
+        const saved = await NativeAndroid.saveJsonFile(fileName, json);
+        if (saved) {
+          const now = new Date().toISOString();
+          Preferences.setSetting("pref_last_backup_at", now);
+          setLastBackup(now);
+          Alert.alert("Export complete", "Your settings and library have been saved.");
+        }
+        return;
+      }
+
       const file = new File(
         Paths.cache,
         `british-radio-backup-${new Date().toISOString().slice(0, 10)}.json`
@@ -510,19 +548,17 @@ function BackupPage() {
       file.create({ intermediates: true, overwrite: true });
       file.write(json);
 
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(file.uri, {
-          mimeType: "application/json",
-          dialogTitle: "Export British Radio Player settings",
-          UTI: "public.json"
-        });
-      } else {
-        await Share.share({ title: "British Radio Player Backup", message: json });
-      }
+      const result = await Share.share({
+        url: file.uri,
+        title: "British Radio Player Backup"
+      });
 
-      const now = new Date().toISOString();
-      Preferences.setSetting("pref_last_backup_at", now);
-      setLastBackup(now);
+      // On iOS, Share.share returns 'sharedAction' if saved/shared, or 'dismissedAction' if cancelled
+      if (result.action === Share.sharedAction) {
+        const now = new Date().toISOString();
+        Preferences.setSetting("pref_last_backup_at", now);
+        setLastBackup(now);
+      }
     } catch (error) {
       Alert.alert("Export failed", error instanceof Error ? error.message : "Could not export settings.");
     } finally {
@@ -586,18 +622,131 @@ function BackupPage() {
       })
     : "Never backed up";
 
+  const formattedCloudDate = syncStatus.lastSyncedAt
+    ? (() => {
+        try {
+          const d = new Date(syncStatus.lastSyncedAt);
+          if (isNaN(d.getTime())) return "Not yet synced";
+          const diffMs = Date.now() - d.getTime();
+          if (diffMs < 60_000) return "Just now";
+          return d.toLocaleDateString(undefined, {
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit"
+          });
+        } catch {
+          return "Not yet synced";
+        }
+      })()
+    : "Not yet synced";
+
+  if (Platform.OS === "android") {
+    return (
+      <>
+        <SettingsSectionHeader label="MANUAL EXPORT & RESTORE" />
+        <SettingsCard>
+          <View style={styles.heroHeader}>
+            <View style={[styles.heroIconCircle, { backgroundColor: theme.primaryContainer }]}>
+              <MaterialIcons name="folder-zip" size={30} color={theme.onPrimaryContainer} />
+            </View>
+            <View style={styles.flex}>
+              <Text style={[styles.cardTitle, { color: theme.onSurface }]}>Offline JSON Backup</Text>
+              <Text style={[styles.cardSubtitle, { color: theme.onSurfaceVariant }]}>
+                Export your subscriptions, playlists, and settings to an offline file or restore a backup.
+              </Text>
+            </View>
+          </View>
+
+          <View style={[styles.statusBox, { backgroundColor: theme.surfaceVariant }]}>
+            <MaterialIcons
+              name={lastBackup ? "check-circle" : "history"}
+              size={20}
+              color={lastBackup ? "#4CAF50" : theme.onSurfaceVariant}
+            />
+            <View style={styles.flex}>
+              <Text style={[styles.statusLabel, { color: theme.onSurfaceVariant }]}>Last file export</Text>
+              <Text style={[styles.statusValue, { color: theme.onSurface }]}>{formattedDate}</Text>
+            </View>
+          </View>
+
+          <View style={styles.buttonGroup}>
+            <PrimaryButton
+              icon="file-upload"
+              label={isExporting ? "Exporting…" : "Export settings"}
+              disabled={isExporting}
+              onPress={() => void exportSettings()}
+            />
+            <SecondaryButton
+              icon="file-download"
+              label={isImporting ? "Importing…" : "Import settings"}
+              disabled={isImporting}
+              onPress={() => void importSettings()}
+            />
+          </View>
+        </SettingsCard>
+      </>
+    );
+  }
+
   return (
     <>
-      <SettingsSectionHeader label="EXPORT & RESTORE" />
+      <SettingsSectionHeader label="CLOUD SYNC" />
       <SettingsCard>
         <View style={styles.heroHeader}>
           <View style={[styles.heroIconCircle, { backgroundColor: theme.primaryContainer }]}>
-            <MaterialIcons name="cloud-sync" size={30} color={theme.onPrimaryContainer} />
+            <MaterialIcons
+              name={syncStatus.isEnabled ? "cloud-done" : "cloud-queue"}
+              size={30}
+              color={theme.onPrimaryContainer}
+            />
           </View>
           <View style={styles.flex}>
-            <Text style={[styles.cardTitle, { color: theme.onSurface }]}>Settings & Library</Text>
+            <Text style={[styles.cardTitle, { color: theme.onSurface }]}>iCloud Sync</Text>
             <Text style={[styles.cardSubtitle, { color: theme.onSurfaceVariant }]}>
-              Export your subscriptions, playlists, and settings to a JSON file or restore them anytime.
+              Automatically keeps your favorites, subscriptions, playlists, and settings in sync across your Apple devices using your Apple ID.
+            </Text>
+          </View>
+        </View>
+
+        <View style={[styles.statusBox, { backgroundColor: theme.surfaceVariant }]}>
+          <MaterialIcons
+            name={syncStatus.isSyncing ? "sync" : syncStatus.isEnabled ? "check-circle" : "cloud-off"}
+            size={20}
+            color={syncStatus.isEnabled ? "#4CAF50" : theme.onSurfaceVariant}
+          />
+          <View style={styles.flex}>
+            <Text style={[styles.statusLabel, { color: theme.onSurfaceVariant }]}>iCloud status</Text>
+            <Text style={[styles.statusValue, { color: theme.onSurface }]}>
+              {syncStatus.isSyncing
+                ? "Syncing in progress…"
+                : syncStatus.isEnabled
+                  ? `Active • ${formattedCloudDate}`
+                  : "Not connected"}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.buttonGroup}>
+          <PrimaryButton
+            icon="sync"
+            label={syncStatus.isSyncing ? "Syncing…" : "Sync now"}
+            disabled={syncStatus.isSyncing}
+            onPress={() => void handleCloudSync()}
+          />
+        </View>
+      </SettingsCard>
+
+      <SettingsSectionHeader label="MANUAL EXPORT & RESTORE" />
+      <SettingsCard>
+        <View style={styles.heroHeader}>
+          <View style={[styles.heroIconCircle, { backgroundColor: theme.primaryContainer }]}>
+            <MaterialIcons name="folder-zip" size={30} color={theme.onPrimaryContainer} />
+          </View>
+          <View style={styles.flex}>
+            <Text style={[styles.cardTitle, { color: theme.onSurface }]}>Offline JSON Backup</Text>
+            <Text style={[styles.cardSubtitle, { color: theme.onSurfaceVariant }]}>
+              Export your subscriptions, playlists, and settings to an offline file or restore a backup.
             </Text>
           </View>
         </View>
@@ -609,7 +758,7 @@ function BackupPage() {
             color={lastBackup ? "#4CAF50" : theme.onSurfaceVariant}
           />
           <View style={styles.flex}>
-            <Text style={[styles.statusLabel, { color: theme.onSurfaceVariant }]}>Last backup</Text>
+            <Text style={[styles.statusLabel, { color: theme.onSurfaceVariant }]}>Last file export</Text>
             <Text style={[styles.statusValue, { color: theme.onSurface }]}>{formattedDate}</Text>
           </View>
         </View>

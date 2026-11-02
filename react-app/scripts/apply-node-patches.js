@@ -436,9 +436,6 @@ for (const patch of PATCHES) {
 
   for (const { from, to } of patch.replacements) {
     if (source.includes(to)) continue;
-    if (patch.package === "react-native-track-player" && from.includes("originalItem") && source.includes("originalItem ?: Bundle()")) {
-      continue;
-    }
     if (!source.includes(from)) {
       if (patch.package === "expo-modules-jsi" && !source.includes("CppError")) {
         continue;

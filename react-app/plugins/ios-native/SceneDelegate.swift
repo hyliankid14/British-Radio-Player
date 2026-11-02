@@ -21,6 +21,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         // extension reads. Safe to call once per scene: the bridge guards itself.
         WidgetStateBridge.shared.start()
         WatchStateBridge.shared.start()
+        ICloudKvsBridge.shared.start()
 
         // Handle cold start deep links
         for context in connectionOptions.urlContexts {

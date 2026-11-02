@@ -129,6 +129,14 @@ function withCarplayEntitlement(config) {
   });
 }
 
+function withICloudEntitlement(config) {
+  return withEntitlementsPlist(config, (configWithEntitlements) => {
+    configWithEntitlements.modResults["com.apple.developer.ubiquity-kvstore-identifier"] =
+      "$(TeamIdentifierPrefix)$(CFBundleIdentifier)";
+    return configWithEntitlements;
+  });
+}
+
 // The native Swift files. Written to disk rather than modified through a
 // pbxproj mod because custom delegates have no template equivalent.
 function withIosNativeSources(config) {
@@ -427,6 +435,7 @@ module.exports = function withIosNative(config) {
   config = withReactNativeDependenciesLink(config);
   config = withFixedBundlePhase(config);
   config = withCarplayEntitlement(config);
+  config = withICloudEntitlement(config);
   // Runs last so it also clears aps-environment that expo-notifications may add.
   config = withoutPushEntitlement(config);
   return withPodfilePropertiesOverrides(config);

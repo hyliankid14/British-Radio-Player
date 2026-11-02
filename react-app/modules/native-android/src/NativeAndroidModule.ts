@@ -107,6 +107,8 @@ declare class NativeAndroidModule extends NativeModule<{}> {
   savePersistentScrobbles(json: string): void;
   /** Reads persistent scrobbled tracks from persistent storage (survives reinstalls). */
   readPersistentScrobbles(): string | null;
+  /** Prompts user to save a JSON file via Android's native ACTION_CREATE_DOCUMENT picker. */
+  saveJsonFile(defaultFileName: string, json: string): Promise<boolean>;
 }
 
 export default requireNativeModule<NativeAndroidModule>('NativeAndroid');

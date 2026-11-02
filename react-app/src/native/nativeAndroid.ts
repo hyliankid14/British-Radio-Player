@@ -78,6 +78,7 @@ interface NativeAndroidBridge {
   broadcastScrobble(state: number, artist: string, track: string, album: string, durationSec: number): void;
   savePersistentScrobbles(json: string): void;
   readPersistentScrobbles(): string | null;
+  saveJsonFile(defaultFileName: string, json: string): Promise<boolean>;
 }
 
 export interface UpdateInfo {
@@ -624,6 +625,17 @@ export const NativeAndroid = {
       return load()?.readPersistentScrobbles() ?? null;
     } catch {
       return null;
+    }
+  },
+
+  /** Prompts user to save a JSON file via Android's native ACTION_CREATE_DOCUMENT picker. */
+  async saveJsonFile(defaultFileName: string, json: string): Promise<boolean> {
+    try {
+      const b = load();
+      if (!b) return false;
+      return await b.saveJsonFile(defaultFileName, json);
+    } catch {
+      return false;
     }
   }
 };

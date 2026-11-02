@@ -1,8 +1,10 @@
 package com.hyliankid14.bbcradioplayer.nativeandroid
 
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import com.hyliankid14.bbcradioplayer.nativeandroid.widget.WidgetStore
+import expo.modules.kotlin.Promise
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 
@@ -19,6 +21,8 @@ class NativeAndroidModule : Module() {
     get() = appContext.reactContext?.applicationContext
 
   private var shakeDetector: ShakeDetector? = null
+  private var pendingExportPromise: Promise? = null
+  private var pendingExportJson: String? = null
 
   override fun definition() = ModuleDefinition {
     Name("NativeAndroid")
@@ -415,9 +419,54 @@ class NativeAndroidModule : Module() {
       ScrobbleBroadcast.broadcast(ctx, state, artist, track, album, durationSec)
       null
     }
+
+    /** Prompts user to save a JSON file via Android's native ACTION_CREATE_DOCUMENT picker. */
+    AsyncFunction("saveJsonFile") { defaultFileName: String, json: String, promise: Promise ->
+      val activity = appContext.currentActivity ?: appContext.throwingActivity
+      val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+        addCategory(Intent.CATEGORY_OPENABLE)
+        type = "application/json"
+        putExtra(Intent.EXTRA_TITLE, defaultFileName)
+      }
+      pendingExportPromise = promise
+      pendingExportJson = json
+      activity.startActivityForResult(intent, REQUEST_CODE_SAVE_BACKUP)
+    }
+
+    OnActivityResult { _, payload ->
+      if (payload.requestCode == REQUEST_CODE_SAVE_BACKUP && pendingExportPromise != null) {
+        val promise = pendingExportPromise
+        val json = pendingExportJson
+        pendingExportPromise = null
+        pendingExportJson = null
+
+        if (payload.resultCode == Activity.RESULT_OK && payload.data?.data != null) {
+          try {
+            val uri = payload.data!!.data!!
+            val ctx = appContext.reactContext ?: context
+            if (ctx != null && json != null) {
+              ctx.contentResolver.openOutputStream(uri)?.use { os ->
+                os.write(json.toByteArray(Charsets.UTF_8))
+                os.flush()
+              }
+              promise?.resolve(true)
+            } else {
+              promise?.resolve(false)
+            }
+          } catch (e: Exception) {
+            promise?.reject("EXPORT_WRITE_ERROR", e.message, e)
+          }
+        } else {
+          // User cancelled / dismissed the picker without saving
+          promise?.resolve(false)
+        }
+      }
+    }
   }
 
   companion object {
+    private const val REQUEST_CODE_SAVE_BACKUP = 9128
+
     @Volatile
     private var instance: NativeAndroidModule? = null
     @Volatile

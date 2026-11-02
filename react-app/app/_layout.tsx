@@ -18,6 +18,7 @@ import {
 } from "../src/analytics/analytics";
 import { initWearSync, pushWearState } from "../src/wear/wearSync";
 import { initWatchSync, pushWatchState } from "../src/watch/watchSync";
+import { CloudSyncManager } from "../src/sync/cloudSyncManager";
 import { syncBackgroundSync, applyBackgroundEpisodeSnapshots, pruneEpisodeSnapshots } from "../src/background/backgroundSync";
 import { registerBackgroundTask } from "../src/background/backgroundTask";
 import { runAutoDownload } from "../src/downloads/autoDownload";
@@ -86,6 +87,9 @@ initAutoSync();
 // Sync favourites, subscriptions and progress with the Wear OS and Apple Watch companions.
 initWearSync();
 initWatchSync();
+
+// Automatically keep library and preferences synced via iCloud / Google Drive.
+CloudSyncManager.init();
 
 // Initialize review prompt metrics and lifecycle monitoring.
 initReviewManager();

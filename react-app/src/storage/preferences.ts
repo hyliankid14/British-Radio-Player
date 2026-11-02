@@ -395,6 +395,9 @@ export const Preferences = {
       }
     }
   },
+  removeSetting(key: string): void {
+    storage.remove(key);
+  },
   getStartupPage(): string { return storage.getString(KEYS.STARTUP_PAGE) || "all_stations"; },
   setStartupPage(value: string): void { storage.set(KEYS.STARTUP_PAGE, value); },
   getLastFmRecentScrobbles(): LastFmScrobbleEntry[] {
@@ -1176,6 +1179,10 @@ export const Preferences = {
     return this._playedIdCache().ids;
   },
 
+  setPlayedEpisodeIds(ids: string[]): void {
+    writeJson(KEYS.PLAYED_EPISODE_IDS, ids);
+  },
+
   isEpisodePlayed(episodeId: string): boolean {
     return isPlayedId(this._playedIdCache().lookup, episodeId);
   },
@@ -1251,6 +1258,10 @@ export const Preferences = {
       ...this.getMap(KEYS.EPISODE_PROGRESS),
       [episodeId]: Math.floor(positionSeconds)
     });
+  },
+
+  setEpisodeProgressMap(progress: Record<string, number>): void {
+    writeJson(KEYS.EPISODE_PROGRESS, progress);
   },
 
   removeEpisodeProgress(episodeId: string): void {
@@ -1485,6 +1496,11 @@ pruneStalePerEpisodeKeys(): number {
 
   getPlaylistEntryMap(): Record<string, SavedEpisodeEntry[]> {
     return readJsonObject<SavedEpisodeEntry[]>(KEYS.PLAYLIST_ENTRIES);
+  },
+
+  setPlaylistEntryMap(all: Record<string, SavedEpisodeEntry[]>): void {
+    writeJson(KEYS.PLAYLIST_ENTRIES, all);
+    this.refreshPlaylistCounts(all);
   },
 
   refreshPlaylistCounts(all: Record<string, SavedEpisodeEntry[]>): void {

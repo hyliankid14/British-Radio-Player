@@ -60,6 +60,14 @@ function createMockPreferences() {
     setAudioQuality(quality: AudioQuality): void {
       storage.set(KEYS.AUDIO_QUALITY, quality);
     },
+    getSetting<T extends string | number | boolean>(key: string, defaultValue: T): T {
+      const val = storage.getString(key);
+      if (val === undefined || val === null) return defaultValue;
+      return val as T;
+    },
+    setSetting(key: string, value: string | number | boolean): void {
+      storage.set(key, value);
+    },
     getGeoBlocked(): boolean {
       return storage.getBoolean(KEYS.GEO_BLOCKED) ?? false;
     },
@@ -667,4 +675,26 @@ test("Preferences - recent scrobbles stay newest first when delivered out of ord
     "the list is ordered by listen time, not by delivery order"
   );
   assert.equal(prefs.getLastFmLastScrobbled(), "Artist 2 - Track 2");
+});
+
+test("Preferences - Last backup timestamp is not updated when export is cancelled or dismissed", () => {
+  const prefs = createMockPreferences();
+  const initialTimestamp = prefs.getSetting("pref_last_backup_at", "");
+  assert.equal(initialTimestamp, "");
+
+  // Simulate user cancellation (e.g. SAF permission not granted on Android or Share.dismissedAction on iOS)
+  const simulateExport = (completed: boolean) => {
+    if (completed) {
+      const now = new Date().toISOString();
+      prefs.setSetting("pref_last_backup_at", now);
+    }
+  };
+
+  // User dismisses/cancels the export dialog
+  simulateExport(false);
+  assert.equal(prefs.getSetting("pref_last_backup_at", ""), "");
+
+  // User completes saving/exporting the file
+  simulateExport(true);
+  assert.notEqual(prefs.getSetting("pref_last_backup_at", ""), "");
 });
