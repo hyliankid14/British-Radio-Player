@@ -185,6 +185,19 @@ MARKETING_VERSION="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionStri
 
 find "$APP_DIR" \( -name "* 2*" -o -name "* 3*" \) -delete 2>/dev/null || true
 
+AUTH_KEY_PATH="${AUTH_KEY_PATH:-$HOME/.appstoreconnect/private_keys/AuthKey_2SVR4HL23A.p8}"
+AUTH_KEY_ID="${AUTH_KEY_ID:-2SVR4HL23A}"
+AUTH_KEY_ISSUER="${AUTH_KEY_ISSUER:-23d17eee-8104-4864-a595-c0266093d857}"
+
+AUTH_ARGS=()
+if [[ -f "$AUTH_KEY_PATH" ]]; then
+  AUTH_ARGS+=(
+    "-authenticationKeyPath" "$AUTH_KEY_PATH"
+    "-authenticationKeyID" "$AUTH_KEY_ID"
+    "-authenticationKeyIssuerID" "$AUTH_KEY_ISSUER"
+  )
+fi
+
 echo "Archiving ${SCHEME} ${MARKETING_VERSION} (${BUILD_NUMBER}) for generic iOS device..."
 xcodebuild \
   -workspace "$WORKSPACE" \
@@ -193,7 +206,7 @@ xcodebuild \
   -destination 'generic/platform=iOS' \
   -archivePath "$ARCHIVE_PATH" \
   -allowProvisioningUpdates \
-  archive
+  "${AUTH_ARGS[@]}"
 
 if [[ ! -d "$ARCHIVE_PATH" ]]; then
   echo "Archive was not produced at $ARCHIVE_PATH" >&2
@@ -219,19 +232,6 @@ cat > "$EXPORT_OPTIONS_PATH" <<PLIST
 </dict>
 </plist>
 PLIST
-
-AUTH_KEY_PATH="${AUTH_KEY_PATH:-$HOME/.appstoreconnect/private_keys/AuthKey_2SVR4HL23A.p8}"
-AUTH_KEY_ID="${AUTH_KEY_ID:-2SVR4HL23A}"
-AUTH_KEY_ISSUER="${AUTH_KEY_ISSUER:-23d17eee-8104-4864-a595-c0266093d857}"
-
-AUTH_ARGS=()
-if [[ -f "$AUTH_KEY_PATH" ]]; then
-  AUTH_ARGS+=(
-    "-authenticationKeyPath" "$AUTH_KEY_PATH"
-    "-authenticationKeyID" "$AUTH_KEY_ID"
-    "-authenticationKeyIssuerID" "$AUTH_KEY_ISSUER"
-  )
-fi
 
 echo "Exporting the App Store .ipa (Xcode may create the distribution certificate and profile on first run)..."
 xcodebuild \

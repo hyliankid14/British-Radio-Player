@@ -54,7 +54,7 @@ jobs:
           sudo apt-get install -y binutils
 
       - name: Grant execute permission for gradlew
-        run: chmod +x gradlew react-app/android/gradlew
+        run: chmod +x gradlew
 
       - name: Resolve version and tag
         id: version
@@ -157,7 +157,9 @@ jobs:
 
       - name: Generate the React Native Android project
         working-directory: react-app
-        run: npx expo prebuild --platform android --no-install --clean
+        run: |
+          npx expo prebuild --platform android --no-install --clean
+          chmod +x android/gradlew || true
 
       - name: Point the generated project at the Android SDK
         run: |

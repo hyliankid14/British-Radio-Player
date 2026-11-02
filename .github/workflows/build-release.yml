@@ -51,7 +51,7 @@ jobs:
           cache-dependency-path: react-app/package-lock.json
 
       - name: Grant execute permission for gradlew
-        run: chmod +x gradlew react-app/android/gradlew
+        run: chmod +x gradlew
 
       # ---------------------------------------------------------------------------------------------
       # Version: react-app/app.json is the single source of truth for the phone app.
@@ -104,7 +104,9 @@ jobs:
 
       - name: Generate the React Native Android project
         working-directory: react-app
-        run: npx expo prebuild --platform android --no-install --clean
+        run: |
+          npx expo prebuild --platform android --no-install --clean
+          chmod +x android/gradlew || true
 
       - name: Point the generated project at the Android SDK
         run: |
