@@ -206,7 +206,8 @@ xcodebuild \
   -destination 'generic/platform=iOS' \
   -archivePath "$ARCHIVE_PATH" \
   -allowProvisioningUpdates \
-  "${AUTH_ARGS[@]}"
+  "${AUTH_ARGS[@]}" \
+  archive
 
 if [[ ! -d "$ARCHIVE_PATH" ]]; then
   echo "Archive was not produced at $ARCHIVE_PATH" >&2
