@@ -1,0 +1,4 @@
+• iCloud Sync (iOS): Automatically sync your favorites, subscriptions, playlists, listening progress, and preferences seamlessly across your Apple devices using your Apple ID.
+• Enhanced Backup & Export (Android): Streamlined JSON export using Android's native document picker, enabling easy saving to Downloads, Documents, or Google Drive without storage permission barriers.
+• Export Validation: Accurate backup status updates ensuring timestamps reflect successful saves.
+• Podcast feed background refresh enhancements and deep link improvements.
