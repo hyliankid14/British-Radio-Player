@@ -1,3 +1,3 @@
-• iCloud Sync: Keep your favorites, subscriptions, playlists, episode progress, and preferences automatically synchronized across all your iOS and Apple devices.
-• Enhanced Backup & Restore: Improved manual JSON backup validation ensuring export timestamps only update on completed saves.
-• Podcast feed background refresh enhancements and deep link improvements.
+• iCloud Sync: Seamlessly sync your favorites, subscriptions, playlists, and settings across all your Apple devices using your Apple ID.
+• Enhanced Backup & Export: Streamlined JSON export and restore validation.
+• Stability: Feed refresh enhancements and deep link fixes.
