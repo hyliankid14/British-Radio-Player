@@ -421,6 +421,229 @@ const PATCHES = [
           "  }"
       }
     ]
+  },
+  {
+    package: "expo-background-task",
+    file: "ios/BackgroundTaskAppDelegate.swift",
+    reason: "Dispatch runTasks on the main thread to prevent thread collisions in EXTaskService",
+    replacements: [
+      {
+        from:
+          "        // Let's find the task service implementation and call the runTasks(withReason)\n" +
+          "        if let taskService = EXTaskServiceHelper.sharedTaskService() {\n" +
+          "          taskService.runTasks(with: EXTaskLaunchReasonBackgroundTask, userInfo: nil, completionHandler: { _ in\n" +
+          "            // Mark iOS task as finished - this is important so that we can continue calling it\n" +
+          "            task.setTaskCompleted(success: true)\n" +
+          "            self.reschedule()\n" +
+          "          })\n" +
+          "        } else {\n" +
+          "          task.setTaskCompleted(success: false)\n" +
+          "          log.error(\"Expo Background Tasks: Could not find TaskService module\")\n" +
+          "        }",
+        to:
+          "        // Let's find the task service implementation and call the runTasks(withReason)\n" +
+          "        DispatchQueue.main.async {\n" +
+          "          if let taskService = EXTaskServiceHelper.sharedTaskService() {\n" +
+          "            taskService.runTasks(with: EXTaskLaunchReasonBackgroundTask, userInfo: nil, completionHandler: { _ in\n" +
+          "              // Mark iOS task as finished - this is important so that we can continue calling it\n" +
+          "              task.setTaskCompleted(success: true)\n" +
+          "              self.reschedule()\n" +
+          "            })\n" +
+          "          } else {\n" +
+          "            task.setTaskCompleted(success: false)\n" +
+          "            log.error(\"Expo Background Tasks: Could not find TaskService module\")\n" +
+          "          }\n" +
+          "        }"
+      }
+    ]
+  },
+  {
+    package: "expo-task-manager",
+    file: "ios/EXTaskManager/EXTaskExecutionRequest.m",
+    reason: "Synchronize task collection and callback execution to eliminate race conditions and use-after-free",
+    replacements: [
+      {
+        from:
+          "- (void)addTask:(nonnull id<EXTaskInterface>)task\n" +
+          "{\n" +
+          "  [_tasks addObject:task];\n" +
+          "}\n" +
+          "\n" +
+          "- (void)task:(nonnull id<EXTaskInterface>)task didFinishWithResult:(id)result\n" +
+          "{\n" +
+          "  [_tasks removeObject:task];\n" +
+          "  [_results addObject:result];\n" +
+          "  [self maybeEvaluate];\n" +
+          "}\n" +
+          "\n" +
+          "- (BOOL)isIncludingTask:(nullable id<EXTaskInterface>)task\n" +
+          "{\n" +
+          "  return task && [_tasks containsObject:task];\n" +
+          "}\n" +
+          "\n" +
+          "- (void)maybeEvaluate\n" +
+          "{\n" +
+          "  if ([_tasks count] == 0) {\n" +
+          "    [self _maybeExecuteCallback];\n" +
+          "  }\n" +
+          "}\n" +
+          "\n" +
+          "# pragma mark - helpers\n" +
+          "\n" +
+          "- (void)_maybeExecuteCallback\n" +
+          "{\n" +
+          "  if (_callback) {\n" +
+          "    // Make a strong pointer to self before executing a callback as the request may be deallocated there,\n" +
+          "    // due to this fact `_callback = nil;` was crashing on older versions of iOS (below 12.0).\n" +
+          "    __strong EXTaskExecutionRequest *strongSelf = self;\n" +
+          "\n" +
+          "    // Capture the callback and results, then clear the request state before invoking. The callback is a\n" +
+          "    // one-shot completion that unregisters this request and breaks the retain cycle keeping its captured\n" +
+          "    // state alive, so a re-entrant or duplicated evaluation (e.g. a task finishing during a foreground\n" +
+          "    // transition) must not pass the `_callback` guard again and fire against freed memory.\n" +
+          "    void (^callback)(NSArray *) = _callback;\n" +
+          "    NSArray *results = _results;\n" +
+          "    _callback = nil;\n" +
+          "    _tasks = nil;\n" +
+          "    _results = nil;\n" +
+          "\n" +
+          "    callback(results);\n" +
+          "    strongSelf = nil;\n" +
+          "  }\n" +
+          "}",
+        to:
+          "- (void)addTask:(nonnull id<EXTaskInterface>)task\n" +
+          "{\n" +
+          "  @synchronized(self) {\n" +
+          "    [_tasks addObject:task];\n" +
+          "  }\n" +
+          "}\n" +
+          "\n" +
+          "- (void)task:(nonnull id<EXTaskInterface>)task didFinishWithResult:(id)result\n" +
+          "{\n" +
+          "  @synchronized(self) {\n" +
+          "    [_tasks removeObject:task];\n" +
+          "    if (result) {\n" +
+          "      [_results addObject:result];\n" +
+          "    }\n" +
+          "  }\n" +
+          "  [self maybeEvaluate];\n" +
+          "}\n" +
+          "\n" +
+          "- (BOOL)isIncludingTask:(nullable id<EXTaskInterface>)task\n" +
+          "{\n" +
+          "  @synchronized(self) {\n" +
+          "    return task && [_tasks containsObject:task];\n" +
+          "  }\n" +
+          "}\n" +
+          "\n" +
+          "- (void)maybeEvaluate\n" +
+          "{\n" +
+          "  BOOL shouldEvaluate = NO;\n" +
+          "  @synchronized(self) {\n" +
+          "    shouldEvaluate = (_tasks == nil || [_tasks count] == 0);\n" +
+          "  }\n" +
+          "  if (shouldEvaluate) {\n" +
+          "    [self _maybeExecuteCallback];\n" +
+          "  }\n" +
+          "}\n" +
+          "\n" +
+          "# pragma mark - helpers\n" +
+          "\n" +
+          "- (void)_maybeExecuteCallback\n" +
+          "{\n" +
+          "  void (^callback)(NSArray *) = nil;\n" +
+          "  NSArray *results = nil;\n" +
+          "  @synchronized(self) {\n" +
+          "    if (_callback) {\n" +
+          "      callback = _callback;\n" +
+          "      results = [_results copy] ?: @[];\n" +
+          "      _callback = nil;\n" +
+          "      _tasks = nil;\n" +
+          "      _results = nil;\n" +
+          "    }\n" +
+          "  }\n" +
+          "  if (callback) {\n" +
+          "    callback(results);\n" +
+          "  }\n" +
+          "}"
+      }
+    ]
+  },
+  {
+    package: "expo-task-manager",
+    file: "ios/EXTaskManager/EXTaskService.m",
+    reason: "Only evaluate immediately if no tasks were added to avoid racing on already completed or in-flight requests",
+    replacements: [
+      {
+        from:
+          "  for (EXTaskExecutionRequest *request in [_requests copy]) {\n" +
+          "    if ([request isIncludingTask:task]) {\n" +
+          "      [request task:task didFinishWithResult:result];\n" +
+          "    }\n" +
+          "  }",
+        to:
+          "  NSArray<EXTaskExecutionRequest *> *requestsCopy;\n" +
+          "  @synchronized(_requests) {\n" +
+          "    requestsCopy = [_requests copy];\n" +
+          "  }\n" +
+          "  for (EXTaskExecutionRequest *request in requestsCopy) {\n" +
+          "    if ([request isIncludingTask:task]) {\n" +
+          "      [request task:task didFinishWithResult:result];\n" +
+          "    }\n" +
+          "  }"
+      },
+      {
+        from:
+          "  request = [[EXTaskExecutionRequest alloc] initWithCallback:^(NSArray * _Nonnull results) {\n" +
+          "    if (callback != nil) {\n" +
+          "      callback(results);\n" +
+          "    }\n" +
+          "    \n" +
+          "    [self->_requests removeObject:request];\n" +
+          "    request = nil;\n" +
+          "  }];\n" +
+          "  \n" +
+          "  [_requests addObject:request];\n" +
+          "  \n" +
+          "  [self _iterateTasksUsingBlock:^(id<EXTaskInterface> task) {\n" +
+          "    if ([task.consumer.class respondsToSelector:@selector(supportsLaunchReason:)] && [task.consumer.class supportsLaunchReason:launchReason]) {\n" +
+          "      [self _addTask:task toRequest:request withInfo:userInfo];\n" +
+          "    }\n" +
+          "  }];\n" +
+          "  \n" +
+          "  // Evaluate request immediately if no tasks were added.\n" +
+          "  [request maybeEvaluate];",
+        to:
+          "  request = [[EXTaskExecutionRequest alloc] initWithCallback:^(NSArray * _Nonnull results) {\n" +
+          "    if (callback != nil) {\n" +
+          "      callback(results);\n" +
+          "    }\n" +
+          "    \n" +
+          "    @synchronized(self->_requests) {\n" +
+          "      [self->_requests removeObject:request];\n" +
+          "    }\n" +
+          "    request = nil;\n" +
+          "  }];\n" +
+          "  \n" +
+          "  @synchronized(_requests) {\n" +
+          "    [_requests addObject:request];\n" +
+          "  }\n" +
+          "  \n" +
+          "  __block BOOL tasksAdded = NO;\n" +
+          "  [self _iterateTasksUsingBlock:^(id<EXTaskInterface> task) {\n" +
+          "    if ([task.consumer.class respondsToSelector:@selector(supportsLaunchReason:)] && [task.consumer.class supportsLaunchReason:launchReason]) {\n" +
+          "      tasksAdded = YES;\n" +
+          "      [self _addTask:task toRequest:request withInfo:userInfo];\n" +
+          "    }\n" +
+          "  }];\n" +
+          "  \n" +
+          "  // Evaluate request immediately if no tasks were added.\n" +
+          "  if (!tasksAdded) {\n" +
+          "    [request maybeEvaluate];\n" +
+          "  }"
+      }
+    ]
   }
 ];
 

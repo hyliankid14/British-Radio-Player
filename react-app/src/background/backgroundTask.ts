@@ -9,21 +9,18 @@ import { Preferences } from "../storage/preferences";
 export const BACKGROUND_TASK_NAME = "british-radio-background-sync";
 
 // Defined in the global scope so the task is restored even when the app is relaunched in the
-// background. Android keeps its native notification worker; iOS uses this task for both the
-// auto-download and the new-episode check.
+// background. Android syncs with its native worker via episode snapshots, while JS runs
+// auto-download, subscription checks, new-podcast alerts, and saved-search checks on both platforms.
 TaskManager.defineTask(BACKGROUND_TASK_NAME, async () => {
   try {
     await runAutoDownload();
-    if (Platform.OS === "ios") {
-      await checkSubscriptionsForNewEpisodes(true);
-      await checkForNewPodcasts(true);
-      await checkSavedSearchesForNewEpisodes(true);
-    } else {
-      // The native worker has already fetched the feeds and posted any alerts. Hand its
-      // results to the JS store so they survive into the next launch instead of sitting in
-      // the worker's own preferences.
+    if (Platform.OS === "android") {
+      // Adopt any episode lists the native worker resolved before running JS checks.
       applyBackgroundEpisodeSnapshots();
     }
+    await checkSubscriptionsForNewEpisodes(true);
+    await checkForNewPodcasts(true);
+    await checkSavedSearchesForNewEpisodes(true);
     return BackgroundTask.BackgroundTaskResult.Success;
   } catch (error) {
     console.warn("Background task failed:", error);

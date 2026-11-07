@@ -33,7 +33,9 @@ export async function syncBackgroundSync(): Promise<void> {
       return;
     }
 
-    const catalog = await PodcastApi.fetchLiveCatalog();
+    // Fetch catalog if online; fall back to empty array so cached metadata or default
+    // RSS URLs still schedule the worker even when offline or during poor connectivity.
+    const catalog = await PodcastApi.fetchLiveCatalog().catch(() => []);
     const catalogMap = new Map(catalog.map((podcast) => [podcast.id, podcast]));
     const notifySet = new Set(plan.notifyIds);
     const subscriptions = plan.refreshIds.map((id) => {

@@ -32,6 +32,7 @@ fi
 
 REQUESTED_DEVICE=""
 BINARY_PATH=""
+BUNDLE_JS=true
 PASSTHROUGH_ARGS=()
 
 while [[ $# -gt 0 ]]; do
@@ -44,12 +45,17 @@ while [[ $# -gt 0 ]]; do
       BINARY_PATH="$2"
       shift 2
       ;;
+    --no-bundle)
+      BUNDLE_JS=false
+      shift
+      ;;
     -h|--help)
       echo "Usage: ./scripts/install-ios-debug.sh [device-name-or-udid] [options]"
       echo ""
       echo "Options:"
       echo "  -d, --device <name|udid>  Target a specific connected iPhone"
       echo "  --binary <path>           Path to existing .app bundle to install directly"
+      echo "  --no-bundle               Skip bundling JS (requires running Metro dev server)"
       echo "  -h, --help                Show this help message"
       exit 0
       ;;
@@ -169,16 +175,42 @@ if [[ -n "$BINARY_PATH" && -e "$BINARY_PATH" ]]; then
   exit 0
 fi
 
+# Ensure JavaScript is bundled into the debug build.
+# Expo CLI's run:ios injects SKIP_BUNDLING=1 into xcodebuild for Debug configurations.
+# Sourcing unset SKIP_BUNDLING via .xcode.env.local allows react-native-xcode.sh
+# to run export:embed and bundle the JS and Hermes bytecode into the app.
+XCODE_ENV_LOCAL="$APP_DIR/ios/.xcode.env.local"
+if [[ "$BUNDLE_JS" == true ]]; then
+  if [[ -f "$XCODE_ENV_LOCAL" ]]; then
+    if ! grep -q "unset SKIP_BUNDLING" "$XCODE_ENV_LOCAL"; then
+      printf '\nunset SKIP_BUNDLING\n' >> "$XCODE_ENV_LOCAL"
+    fi
+  else
+    mkdir -p "$APP_DIR/ios"
+    printf 'unset SKIP_BUNDLING\n' > "$XCODE_ENV_LOCAL"
+  fi
+else
+  if [[ -f "$XCODE_ENV_LOCAL" ]]; then
+    sed -i '' '/unset SKIP_BUNDLING/d' "$XCODE_ENV_LOCAL" 2>/dev/null || true
+  fi
+fi
+
 echo "Building and installing React Native Debug app onto $TARGET_NAME..."
 npx expo run:ios --scheme BritishRadioPlayer --device "$TARGET_UDID" --configuration Debug --no-bundler ${PASSTHROUGH_ARGS[@]+"${PASSTHROUGH_ARGS[@]}"}
 
 echo ""
 echo "=== Installation complete ==="
 echo "The Debug build has been installed onto $TARGET_NAME."
-echo "It runs standalone: the JavaScript bundle is embedded in the app, so no"
-echo "development server is required."
-echo ""
-echo "To enable live refresh, start Metro on your Mac and reopen the app:"
-echo "  npx expo start --host lan"
-echo "(--host lan is required for a physical device; --localhost binds to the"
-echo "Mac's loopback and is unreachable from the phone.)"
+if [[ "$BUNDLE_JS" == true ]]; then
+  echo "It runs standalone: the JavaScript bundle is embedded in the app, so no"
+  echo "development server is required."
+  echo ""
+  echo "To enable live refresh, start Metro on your Mac and reopen the app:"
+  echo "  npx expo start --host lan"
+  echo "(--host lan is required for a physical device; --localhost binds to the"
+  echo "Mac's loopback and is unreachable from the phone.)"
+else
+  echo "The app was built without an embedded bundle (--no-bundle)."
+  echo "Start Metro on your Mac before launching the app:"
+  echo "  npx expo start --host lan"
+fi

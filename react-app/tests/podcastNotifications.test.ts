@@ -191,3 +191,43 @@ test("New episode checker suppresses notifications for episodes already notified
   assert.deepEqual(notifiedEvents, ["ep-fresh-1"]);
 });
 
+test("Subscription sync mapping falls back to metadata and standard BBC RSS URLs when catalog fetch fails", () => {
+  const plan = {
+    refreshIds: ["p0000001", "p0000002"],
+    notifyIds: ["p0000001"]
+  };
+  const mockCatalog: any[] = []; // Represents empty result from .catch(() => [])
+  const catalogMap = new Map(mockCatalog.map((p) => [p.id, p]));
+  const notifySet = new Set(plan.notifyIds);
+  const mockMetadata: Record<string, { title: string }> = {
+    p0000001: { title: "Cached Title 1" }
+  };
+
+  const subscriptions = plan.refreshIds.map((id) => {
+    const podcast = catalogMap.get(id);
+    const meta = mockMetadata[id];
+    return {
+      id,
+      title: podcast?.title || meta?.title || "BBC Podcast",
+      rssUrl: podcast?.rssUrl || `https://podcasts.files.bbci.co.uk/${id}.rss`,
+      notify: notifySet.has(id)
+    };
+  });
+
+  assert.deepEqual(subscriptions, [
+    {
+      id: "p0000001",
+      title: "Cached Title 1",
+      rssUrl: "https://podcasts.files.bbci.co.uk/p0000001.rss",
+      notify: true
+    },
+    {
+      id: "p0000002",
+      title: "BBC Podcast",
+      rssUrl: "https://podcasts.files.bbci.co.uk/p0000002.rss",
+      notify: false
+    }
+  ]);
+});
+
+
