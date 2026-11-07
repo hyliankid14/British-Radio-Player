@@ -1,4 +1,3 @@
-• Enhanced Backup & Export: Streamlined JSON export using Android's native document creator, easily saving backups anywhere without permission barriers.
-• Export Validation: Accurate backup status updates ensuring timestamps reflect successful saves.
-• iCloud Sync (iOS): Seamless sync across Apple devices using your Apple ID.
-• Stability: Feed refresh enhancements and deep link fixes.
+• In-Car & Display Improvements: Smoother station browsing, channel switching, and live programme actions.
+• Background Reliability: Enhanced background task handling and offline sync resilience for subscriptions and episode updates.
+• General Stability: Resolved intermittent crashes and improved overall performance across Android and in-car playback.

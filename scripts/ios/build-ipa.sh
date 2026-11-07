@@ -23,6 +23,7 @@ EXPECT_CARPLAY="${EXPECT_CARPLAY:-1}"
 PRECLEAN=0
 REQUESTED_VERSION="${VERSION:-}"
 REQUESTED_BUILD="${BUILD_NUMBER:-}"
+UPLOAD_ASC=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -38,13 +39,17 @@ while [[ $# -gt 0 ]]; do
       REQUESTED_BUILD="$2"
       shift 2
       ;;
+    -u|--upload)
+      UPLOAD_ASC=1
+      shift
+      ;;
     -h|--help)
-      echo "Usage: $0 [--clean] [-v|--version <version>] [-b|--build <build_number>]"
+      echo "Usage: $0 [--clean] [-u|--upload] [-v|--version <version>] [-b|--build <build_number>]"
       exit 0
       ;;
     *)
       echo "Unknown argument: $1" >&2
-      echo "Usage: $0 [--clean] [-v|--version <version>] [-b|--build <build_number>]" >&2
+      echo "Usage: $0 [--clean] [-u|--upload] [-v|--version <version>] [-b|--build <build_number>]" >&2
       exit 1
       ;;
   esac
@@ -252,6 +257,18 @@ fi
 cp "$IPA_PATH" "$OUTPUT_IPA"
 
 echo "App Store .ipa written to: $OUTPUT_IPA"
+
+if [[ "$UPLOAD_ASC" == "1" ]]; then
+  echo
+  echo "Uploading ${OUTPUT_IPA} to App Store Connect..."
+  xcrun altool --upload-app -f "$OUTPUT_IPA" -t ios \
+    --apiKey "$AUTH_KEY_ID" \
+    --apiIssuer "$AUTH_KEY_ISSUER" \
+    --show-progress
+  echo
+  echo "App Store Connect upload complete!"
+fi
+
 echo
 echo "Next steps:"
 echo "  1. Upload it with Transporter (or Organizer > Distribute App > App Store Connect > Upload)."

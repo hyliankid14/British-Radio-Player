@@ -2,7 +2,7 @@
   "expo": {
     "name": "British Radio Player",
     "slug": "british-radio-player-react",
-    "version": "2.1.4",
+    "version": "2.1.5",
     "scheme": "bbcradioplayer",
     "orientation": "default",
     "icon": "./assets/icon.png",
@@ -13,7 +13,7 @@
       "requireFullScreen": true,
       "bundleIdentifier": "com.hyliankid14.bbcradioplayer",
       "appleTeamId": "8ZAZCKQ9LV",
-      "buildNumber": "14",
+      "buildNumber": "15",
       "privacyManifests": {
         "NSPrivacyAccessedAPITypes": [
           {
@@ -107,7 +107,7 @@
     "android": {
       "playStoreUrl": "https://play.google.com/store/apps/details?id=com.hyliankid14.bbcradioplayer",
       "package": "com.hyliankid14.bbcradioplayer",
-      "versionCode": 113,
+      "versionCode": 114,
       "adaptiveIcon": {
         "backgroundColor": "#1E1B2E",
         "foregroundImage": "./assets/android-icon-foreground.png",

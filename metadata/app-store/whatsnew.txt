@@ -1,3 +1,3 @@
-• iCloud Sync: Seamlessly sync your favorites, subscriptions, playlists, and settings across all your Apple devices using your Apple ID.
-• Enhanced Backup & Export: Streamlined JSON export and restore validation.
-• Stability: Feed refresh enhancements and deep link fixes.
+• CarPlay Improvements: Smoother station browsing and channel switching, plus instant podcast subscribing directly from live broadcasts.
+• Background Reliability: Fixed background task crashes and improved offline sync resilience for subscriptions and episode updates.
+• General Stability: Resolved intermittent crashes when switching stations and during scheduled background refreshes.
