@@ -73,6 +73,25 @@ export function buildPodcastSearchUrl(
 }
 
 /**
+ * Resolves the destination tab and parameters for a startup page preference.
+ * Returns null for the default "all_stations" (which stays on the initial tab) or unknown values.
+ */
+export function resolveStartupNavigation(startupPage: string): AppNavigationTarget | null {
+  if (startupPage === "favourites") {
+    return { pathname: "/(tabs)/favourites", params: {} };
+  } else if (startupPage === "guide") {
+    return { pathname: "/(tabs)/guide", params: {} };
+  } else if (startupPage === "subscribed_podcasts") {
+    return { pathname: "/(tabs)/favourites", params: { category: "Subscribed" } };
+  } else if (startupPage === "playlists") {
+    return { pathname: "/(tabs)/favourites", params: { category: "Playlists" } };
+  } else if (startupPage === "podcasts") {
+    return { pathname: "/(tabs)/podcasts", params: {} };
+  }
+  return null;
+}
+
+/**
  * Parses deep links (e.g. bbcradioplayer://modal/podcast-detail?podcastId=123,
  * bbcradioplayer://podcasts?search=comedy&savedSearchId=abc), relative URLs (/modal/podcast-detail...),
  * and external deep links (such as /lastfm-auth), correctly preserving hostname and path segments.

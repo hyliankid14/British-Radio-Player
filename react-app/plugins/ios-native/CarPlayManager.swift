@@ -1454,6 +1454,7 @@ final class CarPlayManager: NSObject {
                 guard let self, self.currentStationId == stationId else { return }
                 self.updateNowPlayingInfo()
                 self.refreshStationBrowseTemplates()
+                self.updateNowPlayingButtons()
 
                 let sArtist = info.rawArtist.isEmpty ? info.artist : info.rawArtist
                 let sTrack = info.rawTrack.isEmpty ? info.track : info.rawTrack
@@ -1512,7 +1513,8 @@ final class CarPlayManager: NSObject {
 
         switch kind {
         case .station(let station):
-            let isFavorite = CarPlayState.shared.favorites.contains(station.id)
+            let state = CarPlayState.shared
+            let isFavorite = state.favorites.contains(station.id)
             let stationId = station.id
             if let image = UIImage(systemName: isFavorite ? "star.fill" : "star") {
                 buttons.append(
@@ -1524,6 +1526,27 @@ final class CarPlayManager: NSObject {
                         }
                     }
                 )
+            }
+
+            let showInfo = CarPlayShowInfo.shared.cachedShowInfo(serviceId: station.serviceId)
+            if let matchingPodcast = findMatchingPodcast(station: station, showInfo: showInfo) {
+                let podcastId = matchingPodcast.id
+                let isSubscribed = state.isSubscribed(podcastId: podcastId)
+                let symbolName = isSubscribed
+                    ? "antenna.radiowaves.left.and.right.circle.fill"
+                    : "antenna.radiowaves.left.and.right"
+                if let image = UIImage(systemName: symbolName) {
+                    buttons.append(
+                        CPNowPlayingImageButton(image: image) { [weak self] _ in
+                            Task { @MainActor in
+                                CarPlayState.shared.setSubscribed(
+                                    podcastId: podcastId, subscribed: !isSubscribed)
+                                self?.updateNowPlayingButtons()
+                                self?.refreshTemplates()
+                            }
+                        }
+                    )
+                }
             }
 
         case .episode(let episode, _):
@@ -1557,15 +1580,107 @@ final class CarPlayManager: NSObject {
             break
         }
 
-        if !isIdle, let image = UIImage(systemName: "stop.fill") {
-            buttons.append(
-                CPNowPlayingImageButton(image: image) { [weak self] _ in
-                    Task { @MainActor in self?.stopPlayback() }
-                }
-            )
+        CPNowPlayingTemplate.shared.updateNowPlayingButtons(buttons)
+    }
+
+    // MARK: - Podcast matching for live radio
+
+    private static let nonIdentifyingWords: Set<String> = [
+        "a", "an", "the", "and", "of", "in", "on", "at", "for", "to", "from", "by", "with",
+        "is", "are", "bbc", "radio", "fm", "am", "tv", "live", "show", "programme", "program",
+        "podcast", "podcasts", "episode", "series"
+    ]
+
+    private static func normalizeTitle(_ text: String) -> String {
+        let lower = text.lowercased()
+        let cleaned = lower.unicodeScalars.filter {
+            CharacterSet.alphanumerics.contains($0) || CharacterSet.whitespaces.contains($0)
+        }
+        let cleanedString = String(String.UnicodeScalarView(cleaned))
+        return cleanedString.components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
+
+    private static func stripTrailingS(_ word: String) -> String {
+        if word.count >= 5 && word.hasSuffix("s") && !word.hasSuffix("ss") {
+            return String(word.dropLast())
+        }
+        return word
+    }
+
+    private static func identifyingWords(_ text: String) -> [String] {
+        let norm = normalizeTitle(text)
+        var result: [String] = []
+        for word in norm.components(separatedBy: " ") {
+            if word.isEmpty || nonIdentifyingWords.contains(word) { continue }
+            result.append(stripTrailingS(word))
+        }
+        return result
+    }
+
+    private static func isContiguousRun(short: [String], long: [String]) -> Bool {
+        guard !short.isEmpty, short.count <= long.count else { return false }
+        for i in 0...(long.count - short.count) {
+            if Array(long[i..<(i + short.count)]) == short {
+                return true
+            }
+        }
+        return false
+    }
+
+    static func titleMatches(query: String, podcastTitle: String) -> Bool {
+        let normQ = normalizeTitle(query)
+        let normP = normalizeTitle(podcastTitle)
+        guard !normQ.isEmpty, !normP.isEmpty else { return false }
+        if normQ == normP { return true }
+        if normQ + " podcast" == normP || normP + " podcast" == normQ { return true }
+        if normQ + " podcasts" == normP || normP + " podcasts" == normQ { return true }
+
+        let qWords = identifyingWords(query)
+        let pWords = identifyingWords(podcastTitle)
+        guard !qWords.isEmpty, !pWords.isEmpty else { return false }
+        if qWords == pWords { return true }
+
+        let (shortWords, longWords) = qWords.count <= pWords.count ? (qWords, pWords) : (pWords, qWords)
+        if isContiguousRun(short: shortWords, long: longWords) {
+            let coverage = Double(shortWords.count) / Double(longWords.count)
+            if coverage >= 0.6 { return true }
+        }
+        return false
+    }
+
+    private func findMatchingPodcast(station: CarPlayStation, showInfo: CarPlayShowInfo.ShowInfo) -> CarPlayPodcast? {
+        let stationTitle = station.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        var queries: [String] = []
+        let showTitle = showInfo.showTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !showTitle.isEmpty && showTitle.caseInsensitiveCompare(stationTitle) != .orderedSame {
+            queries.append(showTitle)
+        }
+        let showSubtitle = showInfo.showSubtitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !showSubtitle.isEmpty
+            && showSubtitle.caseInsensitiveCompare(stationTitle) != .orderedSame
+            && showSubtitle.caseInsensitiveCompare(showTitle) != .orderedSame {
+            queries.append(showSubtitle)
+        }
+        guard !queries.isEmpty else { return nil }
+
+        let state = CarPlayState.shared
+        let pool = state.subscriptions + state.catalog
+        var seenIds = Set<String>()
+        var candidates: [CarPlayPodcast] = []
+        for p in pool {
+            if seenIds.insert(p.id).inserted {
+                candidates.append(p)
+            }
         }
 
-        CPNowPlayingTemplate.shared.updateNowPlayingButtons(buttons)
+        for q in queries {
+            if let matched = candidates.first(where: { Self.titleMatches(query: q, podcastTitle: $0.title) }) {
+                return matched
+            }
+        }
+        return nil
     }
 
     private func toggleSaved(episode: CarPlayEpisode) {

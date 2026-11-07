@@ -40,6 +40,8 @@ export default function TabLayout() {
       try {
         if (startup === "favourites") {
           router.navigate("/(tabs)/favourites");
+        } else if (startup === "guide") {
+          router.navigate("/(tabs)/guide");
         } else if (startup === "subscribed_podcasts") {
           router.navigate({ pathname: "/(tabs)/favourites", params: { category: "Subscribed" } });
         } else if (startup === "playlists") {

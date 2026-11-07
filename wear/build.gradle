@@ -134,5 +134,6 @@ dependencies {
     implementation 'androidx.media3:media3-exoplayer:1.4.1'
     implementation 'androidx.media3:media3-exoplayer-hls:1.4.1'
     implementation 'androidx.media3:media3-datasource:1.4.1'
-    implementation 'com.google.android.gms:play-services-wearable:18.2.0'
+    implementation 'androidx.fragment:fragment:1.8.6'
+    implementation 'com.google.android.gms:play-services-wearable:19.0.0'
 }

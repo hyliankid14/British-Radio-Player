@@ -7,6 +7,7 @@ import {
   buildPodcastDetailUrl,
   buildPodcastSearchUrl,
   buildLibraryUrl,
+  resolveStartupNavigation,
   isKnownAppRoute,
   KNOWN_APP_ROUTES
 } from "../src/utils/navigationUtils.ts";
@@ -365,6 +366,36 @@ test("resolveAppNavigation handles web player Open in App deep links", () => {
   assert.equal(legacyEpisodeLink.params.podcastId, "b006qnmr");
   assert.equal(legacyEpisodeLink.params.episodeId, "p02pp0g3");
   assert.equal(legacyEpisodeLink.params.title, "Patrick Stewart");
+});
+
+test("resolveStartupNavigation resolves startup page targets correctly", () => {
+  assert.deepEqual(resolveStartupNavigation("guide"), {
+    pathname: "/(tabs)/guide",
+    params: {}
+  });
+
+  assert.deepEqual(resolveStartupNavigation("favourites"), {
+    pathname: "/(tabs)/favourites",
+    params: {}
+  });
+
+  assert.deepEqual(resolveStartupNavigation("subscribed_podcasts"), {
+    pathname: "/(tabs)/favourites",
+    params: { category: "Subscribed" }
+  });
+
+  assert.deepEqual(resolveStartupNavigation("playlists"), {
+    pathname: "/(tabs)/favourites",
+    params: { category: "Playlists" }
+  });
+
+  assert.deepEqual(resolveStartupNavigation("podcasts"), {
+    pathname: "/(tabs)/podcasts",
+    params: {}
+  });
+
+  assert.equal(resolveStartupNavigation("all_stations"), null);
+  assert.equal(resolveStartupNavigation("unknown"), null);
 });
 
 

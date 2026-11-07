@@ -107,6 +107,12 @@ const STARTUP_ITEMS = [
     icon: "radio" as const
   },
   {
+    value: "guide",
+    label: "Radio guide",
+    subtitle: "Daily programme schedule and upcoming broadcasts",
+    icon: "calendar-view-week" as const
+  },
+  {
     value: "subscribed_podcasts",
     label: "Subscribed podcasts",
     subtitle: "Your subscribed podcast feeds and new episodes",
@@ -403,11 +409,11 @@ function PlaybackPage() {
 function StartupPage() {
   const theme = useAppTheme();
   const [current, setCurrent] = useState<string>(
-    Preferences.getSetting<string>("pref_startup_page", "all_stations")
+    Preferences.getStartupPage()
   );
 
   const update = (value: string) => {
-    Preferences.setSetting("pref_startup_page", value);
+    Preferences.setStartupPage(value);
     setCurrent(value);
   };
 

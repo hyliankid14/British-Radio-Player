@@ -25,6 +25,14 @@ import { setPlaylistStorageReader } from "../podcasts/playlistPlayback";
 
 export type { LastPlayed };
 
+export type StartupPage =
+  | "all_stations"
+  | "favourites"
+  | "guide"
+  | "subscribed_podcasts"
+  | "playlists"
+  | "podcasts";
+
 import { PODCAST_ID_ALIASES, canonicalPodcastId } from "../podcasts/podcastAliases";
 export { PODCAST_ID_ALIASES, canonicalPodcastId };
 
@@ -398,8 +406,8 @@ export const Preferences = {
   removeSetting(key: string): void {
     storage.remove(key);
   },
-  getStartupPage(): string { return storage.getString(KEYS.STARTUP_PAGE) || "all_stations"; },
-  setStartupPage(value: string): void { storage.set(KEYS.STARTUP_PAGE, value); },
+  getStartupPage(): StartupPage { return (storage.getString(KEYS.STARTUP_PAGE) as StartupPage) || "all_stations"; },
+  setStartupPage(value: StartupPage | string): void { storage.set(KEYS.STARTUP_PAGE, value); },
   getLastFmRecentScrobbles(): LastFmScrobbleEntry[] {
     const raw = storage.getString(KEYS.LASTFM_RECENT_SCROBBLES);
     if (raw) {

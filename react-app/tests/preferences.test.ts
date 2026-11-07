@@ -21,7 +21,8 @@ function createMockPreferences() {
     AUDIO_QUALITY: "pref_audio_quality",
     GEO_BLOCKED: "pref_geo_blocked",
     THEME: "pref_theme_mode",
-    LAST_STATION: "pref_last_station_id"
+    LAST_STATION: "pref_last_station_id",
+    STARTUP_PAGE: "pref_startup_page"
   };
 
   return {
@@ -59,6 +60,12 @@ function createMockPreferences() {
     },
     setAudioQuality(quality: AudioQuality): void {
       storage.set(KEYS.AUDIO_QUALITY, quality);
+    },
+    getStartupPage(): string {
+      return storage.getString(KEYS.STARTUP_PAGE) || "all_stations";
+    },
+    setStartupPage(value: string): void {
+      storage.set(KEYS.STARTUP_PAGE, value);
     },
     getSetting<T extends string | number | boolean>(key: string, defaultValue: T): T {
       const val = storage.getString(key);
@@ -697,4 +704,16 @@ test("Preferences - Last backup timestamp is not updated when export is cancelle
   // User completes saving/exporting the file
   simulateExport(true);
   assert.notEqual(prefs.getSetting("pref_last_backup_at", ""), "");
+});
+
+test("Preferences - startup page preference defaults to all_stations and persists guide", () => {
+  const prefs = createMockPreferences();
+  assert.equal(prefs.getStartupPage(), "all_stations");
+
+  prefs.setStartupPage("guide");
+  assert.equal(prefs.getStartupPage(), "guide");
+  assert.equal(prefs.getSetting("pref_startup_page", "all_stations"), "guide");
+
+  prefs.setStartupPage("favourites");
+  assert.equal(prefs.getStartupPage(), "favourites");
 });

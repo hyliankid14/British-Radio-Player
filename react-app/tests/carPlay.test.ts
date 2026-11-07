@@ -121,3 +121,187 @@ test("CarPlay recentSongAdded and podcastHistoryAdded mutation structure", () =>
   assert.ok(episodePayload.title);
   assert.ok(episodePayload.playedAtMs > 0);
 });
+
+test("CarPlay now playing buttons omit redundant stop button and provide podcast subscribe icon for matching shows", () => {
+  // CarPlay's CPNowPlayingTemplate provides primary playback / stop controls in the center
+  // transport bar for live streams. The secondary button bar must never duplicate this with
+  // a smaller stop button. Instead, for live stations with a matching podcast, it surfaces
+  // the podcast icon to toggle subscription.
+
+  interface ShowInfo {
+    showTitle: string;
+    showSubtitle?: string;
+  }
+
+  interface Podcast {
+    id: string;
+    title: string;
+  }
+
+  const nonIdentifyingWords = new Set([
+    "a", "an", "the", "and", "of", "in", "on", "at", "for", "to", "from", "by", "with",
+    "is", "are", "bbc", "radio", "fm", "am", "tv", "live", "show", "programme", "program",
+    "podcast", "podcasts", "episode", "series"
+  ]);
+
+  function normalizeTitle(text?: string): string {
+    if (!text) return "";
+    return text
+      .toLowerCase()
+      .replace(/[^\w\s]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function stripTrailingS(word: string): string {
+    if (word.length >= 5 && word.endsWith("s") && !word.endsWith("ss")) {
+      return word.slice(0, -1);
+    }
+    return word;
+  }
+
+  function identifyingWords(text: string): string[] {
+    const norm = normalizeTitle(text);
+    const words: string[] = [];
+    for (const word of norm.split(" ")) {
+      if (!word || nonIdentifyingWords.has(word)) continue;
+      words.push(stripTrailingS(word));
+    }
+    return words;
+  }
+
+  function isContiguousRun(shortWords: string[], longWords: string[]): boolean {
+    if (shortWords.length === 0 || shortWords.length > longWords.length) return false;
+    for (let i = 0; i <= longWords.length - shortWords.length; i++) {
+      let match = true;
+      for (let j = 0; j < shortWords.length; j++) {
+        if (longWords[i + j] !== shortWords[j]) {
+          match = false;
+          break;
+        }
+      }
+      if (match) return true;
+    }
+    return false;
+  }
+
+  function titleMatches(query: string, podcastTitle: string): boolean {
+    const normQ = normalizeTitle(query);
+    const normP = normalizeTitle(podcastTitle);
+    if (!normQ || !normP) return false;
+    if (normQ === normP) return true;
+    if (normQ + " podcast" === normP || normP + " podcast" === normQ) return true;
+    if (normQ + " podcasts" === normP || normP + " podcasts" === normQ) return true;
+
+    const qWords = identifyingWords(query);
+    const pWords = identifyingWords(podcastTitle);
+    if (qWords.length === 0 || pWords.length === 0) return false;
+    if (qWords.join(" ") === pWords.join(" ")) return true;
+
+    const [shortWords, longWords] = qWords.length <= pWords.length ? [qWords, pWords] : [pWords, qWords];
+    if (isContiguousRun(shortWords, longWords)) {
+      const coverage = shortWords.length / longWords.length;
+      if (coverage >= 0.6) return true;
+    }
+    return false;
+  }
+
+  function resolveNowPlayingButtons(
+    kind: "station" | "episode",
+    stationTitle: string,
+    showInfo: ShowInfo,
+    podcasts: Podcast[],
+    isFavorite: boolean,
+    subscribedPodcastIds: Set<string>
+  ): { icon: string; action: string }[] {
+    const buttons: { icon: string; action: string }[] = [];
+
+    if (kind === "station") {
+      buttons.push({
+        icon: isFavorite ? "star.fill" : "star",
+        action: "toggleFavorite"
+      });
+
+      const queries: string[] = [];
+      const showTitle = showInfo.showTitle.trim();
+      if (showTitle && showTitle.toLowerCase() !== stationTitle.toLowerCase()) {
+        queries.append = queries.push(showTitle);
+      }
+      const showSubtitle = (showInfo.showSubtitle || "").trim();
+      if (
+        showSubtitle &&
+        showSubtitle.toLowerCase() !== stationTitle.toLowerCase() &&
+        showSubtitle.toLowerCase() !== showTitle.toLowerCase()
+      ) {
+        queries.push(showSubtitle);
+      }
+
+      let matchedPodcast: Podcast | undefined;
+      for (const q of queries) {
+        matchedPodcast = podcasts.find((p) => titleMatches(q, p.title));
+        if (matchedPodcast) break;
+      }
+
+      if (matchedPodcast) {
+        const subscribed = subscribedPodcastIds.has(matchedPodcast.id);
+        buttons.push({
+          icon: subscribed
+            ? "antenna.radiowaves.left.and.right.circle.fill"
+            : "antenna.radiowaves.left.and.right",
+          action: "toggleSubscribe"
+        });
+      }
+    }
+
+    // Notice: NO smaller stop.fill button is appended!
+    return buttons;
+  }
+
+  const catalog: Podcast[] = [
+    { id: "b08qmsh6", title: "Political Thinking with Nick Robinson" },
+    { id: "p02nq08x", title: "Global News Podcast" }
+  ];
+
+  // 1. Radio 4 playing Political Thinking (matching show)
+  const buttons1 = resolveNowPlayingButtons(
+    "station",
+    "Radio 4",
+    { showTitle: "Political Thinking with Nick Robinson..." },
+    catalog,
+    true,
+    new Set()
+  );
+
+  // Must have favorite button and podcast button, but NO stop button
+  assert.equal(buttons1.length, 2);
+  assert.equal(buttons1[0].icon, "star.fill");
+  assert.equal(buttons1[1].icon, "antenna.radiowaves.left.and.right");
+  assert.equal(buttons1[1].action, "toggleSubscribe");
+  assert.ok(!buttons1.some((b) => b.icon === "stop.fill"), "Must not include a secondary stop button");
+
+  // 2. Subscribed podcast reflects filled icon
+  const buttons2 = resolveNowPlayingButtons(
+    "station",
+    "Radio 4",
+    { showTitle: "Political Thinking with Nick Robinson" },
+    catalog,
+    false,
+    new Set(["b08qmsh6"])
+  );
+  assert.equal(buttons2.length, 2);
+  assert.equal(buttons2[0].icon, "star");
+  assert.equal(buttons2[1].icon, "antenna.radiowaves.left.and.right.circle.fill");
+
+  // 3. Station playing music or generic show without matching podcast
+  const buttons3 = resolveNowPlayingButtons(
+    "station",
+    "Radio 1",
+    { showTitle: "Radio 1 Anthems" },
+    catalog,
+    false,
+    new Set()
+  );
+  assert.equal(buttons3.length, 1);
+  assert.equal(buttons3[0].icon, "star");
+  assert.ok(!buttons3.some((b) => b.icon === "stop.fill"));
+});
