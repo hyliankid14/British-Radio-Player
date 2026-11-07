@@ -45,6 +45,7 @@ final class CarPlayManager: NSObject {
         return queue
     }()
     private var showTitlePrefetching: Set<String> = []
+    private var browseRefreshTask: Task<Void, Never>?
     private var progressTimer: Timer?
     private var endObserver: NSObjectProtocol?
     private var statusObservation: NSKeyValueObservation?
@@ -194,7 +195,13 @@ final class CarPlayManager: NSObject {
         statusObservation = nil
         progressTimer?.invalidate()
         progressTimer = nil
+        browseRefreshTask?.cancel()
+        browseRefreshTask = nil
+        showTitlePrefetchQueue.cancelAllOperations()
+        showTitlePrefetching.removeAll()
         interfaceController = nil
+        favouritesTemplate = nil
+        stationsTemplate = nil
         isConnected = false
     }
 
@@ -386,19 +393,28 @@ final class CarPlayManager: NSObject {
         }
     }
 
-    /// Rebuilds the tab bar so new data is picked up. Skipped while a drill-down list is
-    /// on screen, because replacing the root template would discard the driver's place.
+    /// Updates the templates with the latest catalogue and favourite state.
+    /// Never replaces the root CPTabBarTemplate while connected, because calling
+    /// setRootTemplate during scene usage tears down the view hierarchy and crashes CarPlay.
     private func refreshTemplates() {
-        if visibleTemplate == nil || visibleTemplate is CPTabBarTemplate {
-            buildAndSetRootTemplate(animated: true)
-        } else {
-            refreshStationBrowseTemplates()
-        }
+        refreshStationBrowseTemplates()
     }
 
     private func refreshStationBrowseTemplates() {
+        guard isConnected else { return }
         favouritesTemplate?.updateSections(makeFavouritesSections())
         stationsTemplate?.updateSections(makeStationSections())
+    }
+
+    private func scheduleStationBrowseRefresh(delayNanoseconds: UInt64 = 1_000_000_000) {
+        guard browseRefreshTask == nil else { return }
+        browseRefreshTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: delayNanoseconds)
+            guard !Task.isCancelled else { return }
+            self.browseRefreshTask = nil
+            guard self.isConnected else { return }
+            self.refreshStationBrowseTemplates()
+        }
     }
 
     private func push(_ template: CPTemplate) {
@@ -449,9 +465,9 @@ final class CarPlayManager: NSObject {
                 )
                 item.handler = { [weak self] _, completion in
                     Task { @MainActor in
-                        guard let self else { completion(); return }
-                        self.play(station: station)
                         completion()
+                        guard let self else { return }
+                        self.play(station: station)
                     }
                 }
                 return item
@@ -487,9 +503,9 @@ final class CarPlayManager: NSObject {
                     )
                     item.handler = { [weak self] _, completion in
                         Task { @MainActor in
-                            guard let self else { completion(); return }
-                            self.play(station: station)
                             completion()
+                            guard let self else { return }
+                            self.play(station: station)
                         }
                     }
                     return item
@@ -758,9 +774,9 @@ final class CarPlayManager: NSObject {
         )
         item.handler = { [weak self] _, completion in
             Task { @MainActor in
-                guard let self else { completion(); return }
-                self.play(episode: episode, playlistId: playlistId)
                 completion()
+                guard let self else { return }
+                self.play(episode: episode, playlistId: playlistId)
             }
         }
         return item
@@ -811,9 +827,9 @@ final class CarPlayManager: NSObject {
                 )
                 item.handler = { [weak self] _, completion in
                     Task { @MainActor in
-                        guard let self else { completion(); return }
-                        self.play(station: entry.station)
                         completion()
+                        guard let self else { return }
+                        self.play(station: entry.station)
                     }
                 }
                 return item
@@ -887,7 +903,7 @@ final class CarPlayManager: NSObject {
             try AVAudioSession.sharedInstance().setCategory(
                 .playback,
                 mode: .default,
-                options: [.allowBluetoothHFP, .allowBluetoothA2DP, .allowAirPlay]
+                options: [.allowBluetoothA2DP, .allowAirPlay]
             )
             try AVAudioSession.sharedInstance().setActive(true)
         } catch {
@@ -1234,7 +1250,8 @@ final class CarPlayManager: NSObject {
         guard CarPlayState.shared.settingString("scrollMode", fallback: "all") == "favourites"
         else { return all }
         let favorites = Set(CarPlayState.shared.favorites)
-        return all.filter { favorites.contains($0.id) }
+        let filtered = all.filter { favorites.contains($0.id) }
+        return filtered.isEmpty ? all : filtered
     }
 
     private func resumeLastSession() {
@@ -1453,7 +1470,7 @@ final class CarPlayManager: NSObject {
             Task { @MainActor in
                 guard let self, self.currentStationId == stationId else { return }
                 self.updateNowPlayingInfo()
-                self.refreshStationBrowseTemplates()
+                self.scheduleStationBrowseRefresh(delayNanoseconds: 500_000_000)
                 self.updateNowPlayingButtons()
 
                 let sArtist = info.rawArtist.isEmpty ? info.artist : info.rawArtist
@@ -1493,7 +1510,13 @@ final class CarPlayManager: NSObject {
                     guard let self else { return }
                     self.showTitlePrefetching.remove(station.serviceId)
                     guard self.isConnected else { return }
-                    self.refreshStationBrowseTemplates()
+                    if self.showTitlePrefetching.isEmpty {
+                        self.browseRefreshTask?.cancel()
+                        self.browseRefreshTask = nil
+                        self.refreshStationBrowseTemplates()
+                    } else {
+                        self.scheduleStationBrowseRefresh()
+                    }
                 }
             }
         }
@@ -1502,6 +1525,7 @@ final class CarPlayManager: NSObject {
     // MARK: Now playing buttons
 
     private func updateNowPlayingButtons() {
+        guard isConnected else { return }
         let center = MPRemoteCommandCenter.shared()
         center.nextTrackCommand.isEnabled = !isIdle
         center.previousTrackCommand.isEnabled = !isIdle

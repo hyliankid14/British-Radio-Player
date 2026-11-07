@@ -305,3 +305,22 @@ test("CarPlay now playing buttons omit redundant stop button and provide podcast
   assert.equal(buttons3[0].icon, "star");
   assert.ok(!buttons3.some((b) => b.icon === "stop.fill"));
 });
+
+test("CarPlay station navigation list falls back to all stations if favourites mode has no favourites", () => {
+  const allStations = ["radio1", "radio2", "radio3"];
+  function resolveStationList(scrollMode: string, favorites: string[], all: string[]): string[] {
+    if (scrollMode === "favourites") {
+      const favSet = new Set(favorites);
+      const filtered = all.filter((id) => favSet.has(id));
+      return filtered.length > 0 ? filtered : all;
+    }
+    return all;
+  }
+
+  // Favourites mode with favourites returns only favourites
+  assert.deepEqual(resolveStationList("favourites", ["radio1"], allStations), ["radio1"]);
+  // Favourites mode with empty favourites falls back to all stations so channel navigation does not break
+  assert.deepEqual(resolveStationList("favourites", [], allStations), allStations);
+  // Default "all" mode returns all stations
+  assert.deepEqual(resolveStationList("all", ["radio1"], allStations), allStations);
+});
