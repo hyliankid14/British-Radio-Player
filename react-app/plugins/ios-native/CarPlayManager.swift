@@ -245,6 +245,7 @@ final class CarPlayManager: NSObject {
                 if let station = self.currentStation, !self.isPauseBufferingEnabled {
                     self.play(station: station)
                 } else {
+                    self.activateAudioSession()
                     self.player?.play()
                 }
                 self.updateNowPlayingInfo()
@@ -270,6 +271,7 @@ final class CarPlayManager: NSObject {
                 if let station = self.currentStation, !self.isPauseBufferingEnabled {
                     self.play(station: station)
                 } else {
+                    self.activateAudioSession()
                     player.play()
                 }
                 self.updateNowPlayingInfo()
@@ -299,6 +301,7 @@ final class CarPlayManager: NSObject {
                     if let station = self.currentStation, !self.isPauseBufferingEnabled {
                         self.play(station: station)
                     } else {
+                        self.activateAudioSession()
                         player.play()
                     }
                 }
@@ -903,7 +906,7 @@ final class CarPlayManager: NSObject {
             try AVAudioSession.sharedInstance().setCategory(
                 .playback,
                 mode: .default,
-                options: [.allowBluetoothA2DP, .allowAirPlay]
+                policy: .longFormAudio
             )
             try AVAudioSession.sharedInstance().setActive(true)
         } catch {
