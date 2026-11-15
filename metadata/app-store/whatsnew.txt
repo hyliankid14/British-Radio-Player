@@ -1,3 +1,2 @@
-• CarPlay Improvements: Smoother station browsing and channel switching, plus instant podcast subscribing directly from live broadcasts.
-• Background Reliability: Fixed background task crashes and improved offline sync resilience for subscriptions and episode updates.
-• General Stability: Resolved intermittent crashes when switching stations and during scheduled background refreshes.
+• CarPlay Audio Reliability: Fixed an issue where resuming playback in CarPlay could fail to reactivate the audio session.
+• Audio Session Routing: Configured CarPlay playback with the long-form audio policy for more reliable in-car routing and interruption handling.

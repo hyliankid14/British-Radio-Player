@@ -1,3 +1,2 @@
-• In-Car & Display Improvements: Smoother station browsing, channel switching, and live programme actions.
-• Background Reliability: Enhanced background task handling and offline sync resilience for subscriptions and episode updates.
-• General Stability: Resolved intermittent crashes and improved overall performance across Android and in-car playback.
+• Playback & In-Car Stability: Improvements to audio session handling and playback reliability.
+• Maintenance & Bug Fixes: Minor under-the-hood updates to keep Android, Android Auto, and Wear OS running smoothly.
